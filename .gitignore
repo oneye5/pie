@@ -1,0 +1,17 @@
+# PI runtime artifacts — never commit these
+sessions/
+auth.json
+
+# PI managed binaries and package caches
+bin/
+git/
+npm/
+
+# OS artifacts
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# Editor artifacts
+*.swp
+*.swo

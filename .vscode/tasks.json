@@ -1,0 +1,52 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Start pi",
+      "type": "shell",
+      "command": "pi",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "group": "pi"
+      },
+      "problemMatcher": [],
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Start pi-webui",
+      "type": "shell",
+      "command": "pi-webui",
+      "isBackground": true,
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "group": "pi"
+      },
+      "problemMatcher": [
+        {
+          "pattern": {
+            "regexp": "^$"
+          },
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".",
+            "endsPattern": "Listening|listening|started|ready"
+          }
+        }
+      ],
+      "runOptions": {
+        "instanceLimit": 1
+      }
+    },
+    {
+      "label": "Open pi-webui in Simple Browser",
+      "type": "shell",
+      "command": "${input:openSimpleBrowser}",
+      "dependsOn": "Start pi-webui",
+      "problemMatcher": []
+    }
+  ]
+}

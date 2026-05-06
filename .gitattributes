@@ -1,0 +1,10 @@
+# Normalize all text files to LF in the repo
+* text=auto eol=lf
+
+# PowerShell scripts — LF in repo, CRLF on checkout for Windows compatibility
+*.ps1 text eol=crlf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.ico binary
