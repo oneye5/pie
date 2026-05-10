@@ -43,12 +43,17 @@ export interface SessionPathOptionalParams {
 }
 
 export interface MessageSendParams {
-  sessionPath?: string;
+  sessionPath: string;
   text: string;
 }
 
 export interface SessionCreateParams {
   cwd?: string;
+  selectionToken?: string;
+}
+
+export interface SessionOpenParams extends SessionPathParams {
+  selectionToken?: string;
 }
 
 const THINKING_LEVELS: ReadonlyArray<ThinkingLevel> = [
@@ -66,6 +71,14 @@ function isObj(value: unknown): value is Record<string, unknown> {
 
 function fail(method: string, detail: string): never {
   throw new Error(`Invalid params for ${method}: ${detail}`);
+}
+
+function readSelectionToken(method: string, params: Record<string, unknown>): string | undefined {
+  const selectionToken = params['selectionToken'];
+  if (selectionToken !== undefined && typeof selectionToken !== 'string') {
+    fail(method, 'selectionToken must be a string when provided');
+  }
+  return selectionToken as string | undefined;
 }
 
 export function validateSessionPath(method: string, params: unknown): SessionPathParams {
@@ -92,7 +105,19 @@ export function validateSessionCreate(params: unknown): SessionCreateParams {
   if (cwd !== undefined && typeof cwd !== 'string') {
     fail('session.create', 'cwd must be a string when provided');
   }
-  return { cwd: cwd as string | undefined };
+  return {
+    cwd: cwd as string | undefined,
+    selectionToken: readSelectionToken('session.create', params),
+  };
+}
+
+export function validateSessionOpen(params: unknown): SessionOpenParams {
+  if (!isObj(params)) fail('session.open', 'expected an object');
+  const { sessionPath } = validateSessionPath('session.open', params);
+  return {
+    sessionPath,
+    selectionToken: readSelectionToken('session.open', params),
+  };
 }
 
 export interface TruncateAfterParams {
@@ -116,10 +141,10 @@ export function validateMessageSend(params: unknown): MessageSendParams {
     fail('message.send', 'requires non-empty text');
   }
   const sp = (params as Record<string, unknown>)['sessionPath'];
-  if (sp !== undefined && typeof sp !== 'string') {
-    fail('message.send', 'sessionPath must be a string when provided');
+  if (typeof sp !== 'string' || !sp) {
+    fail('message.send', 'requires a string sessionPath');
   }
-  return { text: text as string, sessionPath: sp as string | undefined };
+  return { text: text as string, sessionPath: sp as string };
 }
 
 export function validateSettingsSet(params: unknown): Partial<ModelSettings> {

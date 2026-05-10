@@ -205,6 +205,21 @@ test('transcriptActions.appendLocalUserMessage adds a user message', () => {
   assert.equal(msg?.status, 'completed');
 });
 
+test('transcriptActions.clearSessionState removes aliases owned by the session', () => {
+  const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
+  const store = createAppStore();
+
+  store.dispatch(transcriptActions.ensureAssistantMessage({ sessionPath: '/ws/a', messageId: 'msg-1', requestId: 'req-1' }));
+  store.dispatch(transcriptActions.ensureAssistantMessage({ sessionPath: '/ws/a', messageId: 'msg-2', requestId: 'req-1' }));
+
+  assert.equal(store.getState().transcript.messageIdAlias['msg-2'], 'msg-1');
+
+  store.dispatch(transcriptActions.clearSessionState('/ws/a'));
+
+  assert.deepEqual(store.getState().transcript.bySession['/ws/a'], undefined);
+  assert.deepEqual(store.getState().transcript.messageIdAlias, {});
+});
+
 // ---------------------------------------------------------------------------
 // Settings slice tests
 // ---------------------------------------------------------------------------

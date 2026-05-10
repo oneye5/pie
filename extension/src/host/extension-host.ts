@@ -1,7 +1,7 @@
 ﻿import * as vscode from 'vscode';
 
 import { BackendClient } from './backend-client';
-import { selectViewState, store } from './store';
+import { selectActiveSessionPath, selectViewState, store } from './store';
 import { SidebarViewProvider } from './sidebar-provider';
 import { SessionService } from './session-service';
 import type { WebviewToHostMessage } from '../shared/protocol';
@@ -22,6 +22,7 @@ export class PiAssistantExtension implements vscode.Disposable {
       backend,
       () => this.scheduleRender(),
       (op) => this.sidebarProvider.postPatch(op),
+      (message) => this.sidebarProvider.postImperative(message),
     );
 
     this.sidebarProvider = new SidebarViewProvider(
@@ -134,9 +135,9 @@ export class PiAssistantExtension implements vscode.Disposable {
         return;
 
       case 'refreshState': {
-        const activeSession = store.getState().sessions.activeSession;
-        if (activeSession) {
-          await this.service.hydrateModelState(activeSession.path);
+        const activeSessionPath = selectActiveSessionPath(store.getState());
+        if (activeSessionPath) {
+          await this.service.hydrateModelState(activeSessionPath);
         }
         this.scheduleRender();
         return;
@@ -148,7 +149,10 @@ export class PiAssistantExtension implements vscode.Disposable {
 
       case 'send': {
         const text = typeof msg.text === 'string' ? msg.text.trim() : '';
-        if (text) await this.service.send(text);
+        const pendingPaths = Array.isArray(msg.pendingPaths)
+          ? msg.pendingPaths.filter((path): path is string => typeof path === 'string')
+          : [];
+        if (text) await this.service.send(text, pendingPaths);
         return;
       }
 
@@ -179,7 +183,7 @@ export class PiAssistantExtension implements vscode.Disposable {
         return;
 
       case 'openSession':
-        await this.service.openSession(msg.sessionPath);
+        this.service.openSession(msg.sessionPath);
         this.sidebarProvider.reveal();
         return;
 

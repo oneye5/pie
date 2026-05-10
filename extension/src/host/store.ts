@@ -17,8 +17,27 @@ interface SessionsState {
   sessions: SessionSummary[];
   openTabPaths: string[];
   runningSessionPaths: string[];
-  activeSession: SessionSummary | null;
+  activeSessionPath: string | null;
   workspaceCwd: string | null;
+}
+
+function removeSessionsMatching(
+  state: SessionsState,
+  predicate: (session: SessionSummary) => boolean,
+): void {
+  const removedPaths = new Set(
+    state.sessions.filter((session) => predicate(session)).map((session) => session.path),
+  );
+  if (removedPaths.size === 0) {
+    return;
+  }
+
+  state.sessions = state.sessions.filter((session) => !removedPaths.has(session.path));
+  state.openTabPaths = state.openTabPaths.filter((path) => !removedPaths.has(path));
+  state.runningSessionPaths = state.runningSessionPaths.filter((path) => !removedPaths.has(path));
+  if (state.activeSessionPath && removedPaths.has(state.activeSessionPath)) {
+    state.activeSessionPath = null;
+  }
 }
 
 /**
@@ -44,7 +63,7 @@ const sessionsSlice = createSlice({
     sessions: [],
     openTabPaths: [],
     runningSessionPaths: [],
-    activeSession: null,
+    activeSessionPath: null,
     workspaceCwd: null,
   } as SessionsState,
   reducers: {
@@ -93,13 +112,19 @@ const sessionsSlice = createSlice({
         }
       }
       // Keep the active session if it's not in the list.
-      if (state.activeSession && !mergedByPath.has(state.activeSession.path)) {
-        mergedByPath.set(state.activeSession.path, state.activeSession);
+      const activeSession = state.activeSessionPath
+        ? state.sessions.find((session) => session.path === state.activeSessionPath)
+        : undefined;
+      if (activeSession && !mergedByPath.has(activeSession.path)) {
+        mergedByPath.set(activeSession.path, activeSession);
       }
       state.sessions = [...mergedByPath.values()];
     },
     removePendingSessions(state) {
-      state.sessions = state.sessions.filter((s) => !s.path.startsWith('__pending__:'));
+      removeSessionsMatching(state, (session) => session.path.startsWith('__pending__:'));
+    },
+    removeSession(state, action: PayloadAction<string>) {
+      removeSessionsMatching(state, (session) => session.path === action.payload);
     },
     setSessionRunning(state, action: PayloadAction<{ sessionPath: string; running: boolean }>) {
       const { sessionPath, running } = action.payload;
@@ -110,11 +135,14 @@ const sessionsSlice = createSlice({
     clearRunningPaths(state) {
       state.runningSessionPaths = [];
     },
+    setActiveSessionPath(state, action: PayloadAction<string | null>) {
+      state.activeSessionPath = action.payload;
+    },
     setActiveSession(state, action: PayloadAction<SessionSummary | null>) {
-      state.activeSession = action.payload;
+      state.activeSessionPath = action.payload?.path ?? null;
     },
     clearActiveSession(state) {
-      state.activeSession = null;
+      state.activeSessionPath = null;
     },
   },
 });
@@ -136,6 +164,29 @@ function resolveAlias(aliasMap: Record<string, string>, messageId: string): stri
   return aliasMap[messageId] ?? messageId;
 }
 
+function clearSessionAliases(state: TranscriptState, sessionPath: string): void {
+  const sessionMessageIds = new Set<string>();
+
+  for (const message of state.bySession[sessionPath] ?? []) {
+    sessionMessageIds.add(message.id);
+  }
+
+  const currentTurn = state.currentTurnBySession[sessionPath];
+  if (currentTurn) {
+    sessionMessageIds.add(currentTurn.firstMessageId);
+  }
+
+  if (sessionMessageIds.size === 0) {
+    return;
+  }
+
+  for (const [aliasId, canonicalId] of Object.entries(state.messageIdAlias)) {
+    if (sessionMessageIds.has(aliasId) || sessionMessageIds.has(canonicalId)) {
+      delete state.messageIdAlias[aliasId];
+    }
+  }
+}
+
 const transcriptSlice = createSlice({
   name: 'transcript',
   initialState: {
@@ -149,12 +200,20 @@ const transcriptSlice = createSlice({
       state,
       action: PayloadAction<{ sessionPath: string; transcript: ChatMessage[]; systemPrompt?: string }>,
     ) {
+      clearSessionAliases(state, action.payload.sessionPath);
       state.bySession[action.payload.sessionPath] = action.payload.transcript;
       state.systemPromptBySession[action.payload.sessionPath] =
         action.payload.systemPrompt ?? null;
       delete state.currentTurnBySession[action.payload.sessionPath];
     },
     clearTranscript(state, action: PayloadAction<string>) {
+      clearSessionAliases(state, action.payload);
+      delete state.bySession[action.payload];
+      delete state.systemPromptBySession[action.payload];
+      delete state.currentTurnBySession[action.payload];
+    },
+    clearSessionState(state, action: PayloadAction<string>) {
+      clearSessionAliases(state, action.payload);
       delete state.bySession[action.payload];
       delete state.systemPromptBySession[action.payload];
       delete state.currentTurnBySession[action.payload];
@@ -289,6 +348,17 @@ const transcriptSlice = createSlice({
         status: 'completed',
       });
     },
+    removeMessage(
+      state,
+      action: PayloadAction<{ sessionPath: string; messageId: string }>,
+    ) {
+      const { sessionPath, messageId } = action.payload;
+      const list = state.bySession[sessionPath];
+      if (!list) {
+        return;
+      }
+      state.bySession[sessionPath] = list.filter((message) => message.id !== messageId);
+    },
   },
 });
 
@@ -349,16 +419,21 @@ const uiSlice = createSlice({
 
 // ─── Store ─────────────────────────────────────────────────────────────────────
 
-export const store = configureStore({
-  reducer: {
-    sessions: sessionsSlice.reducer,
-    transcript: transcriptSlice.reducer,
-    settings: settingsSlice.reducer,
-    ui: uiSlice.reducer,
-  },
-});
+export function createAppStore() {
+  return configureStore({
+    reducer: {
+      sessions: sessionsSlice.reducer,
+      transcript: transcriptSlice.reducer,
+      settings: settingsSlice.reducer,
+      ui: uiSlice.reducer,
+    },
+  });
+}
 
-export type RootState = ReturnType<typeof store.getState>;
+export const store = createAppStore();
+
+export type AppStore = ReturnType<typeof createAppStore>;
+export type RootState = ReturnType<AppStore['getState']>;
 
 // ─── Actions (re-exported) ────────────────────────────────────────────────────
 
@@ -372,18 +447,41 @@ export function getCanonicalMessageId(messageId: string, state: RootState): stri
   return state.transcript.messageIdAlias[messageId] ?? messageId;
 }
 
+export function getSessionByPath(
+  state: RootState,
+  sessionPath: string | null | undefined,
+): SessionSummary | null {
+  if (!sessionPath) {
+    return null;
+  }
+
+  return state.sessions.sessions.find((session) => session.path === sessionPath) ?? null;
+}
+
+export const selectActiveSessionPath = (state: RootState): string | null =>
+  state.sessions.activeSessionPath;
+
+export const selectActiveSession = createSelector(
+  [
+    (state: RootState) => state.sessions.sessions,
+    selectActiveSessionPath,
+  ],
+  (sessions, activeSessionPath): SessionSummary | null =>
+    sessions.find((session) => session.path === activeSessionPath) ?? null,
+);
+
 // ─── ViewState selector ───────────────────────────────────────────────────────
 
 const EMPTY_TRANSCRIPT: ChatMessage[] = [];
 
 const selectActiveTranscript = (state: RootState): ChatMessage[] => {
-  const path = state.sessions.activeSession?.path;
+  const path = selectActiveSessionPath(state);
   if (!path) return EMPTY_TRANSCRIPT;
   return state.transcript.bySession[path] ?? EMPTY_TRANSCRIPT;
 };
 
 const selectActiveSystemPrompt = (state: RootState): string | null => {
-  const path = state.sessions.activeSession?.path;
+  const path = selectActiveSessionPath(state);
   if (!path) return null;
   return state.transcript.systemPromptBySession[path] ?? null;
 };
@@ -398,7 +496,8 @@ export const selectViewState = createSelector(
     (s: RootState) => s.sessions.sessions,
     (s: RootState) => s.sessions.openTabPaths,
     (s: RootState) => s.sessions.runningSessionPaths,
-    (s: RootState) => s.sessions.activeSession,
+    selectActiveSessionPath,
+    selectActiveSession,
     (s: RootState) => s.sessions.workspaceCwd,
     selectActiveTranscript,
     selectActiveSystemPrompt,
@@ -412,6 +511,7 @@ export const selectViewState = createSelector(
     sessions,
     openTabPaths,
     runningSessionPaths,
+    activeSessionPath,
     activeSession,
     workspaceCwd,
     transcript,
@@ -422,7 +522,7 @@ export const selectViewState = createSelector(
     backendReady,
     prefs,
   ): ViewState => {
-    const busy = !!activeSession && runningSessionPaths.includes(activeSession.path);
+    const busy = !!activeSessionPath && runningSessionPaths.includes(activeSessionPath);
     return {
       sessions,
       openTabPaths,

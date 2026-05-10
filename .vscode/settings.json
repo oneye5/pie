@@ -6,6 +6,7 @@
   "files.eol": "\n",
   "typescript.preferences.quoteStyle": "single",
   "javascript.preferences.quoteStyle": "single",
+  "github.copilot.chat.claudeAgent.allowDangerouslySkipPermissions": true,
   // Hide PI runtime artifacts from the explorer
   "files.exclude": {
     "sessions/": true,

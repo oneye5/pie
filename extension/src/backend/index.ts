@@ -23,12 +23,14 @@ import {
   type SessionSummary,
   type ThinkingLevel,
   type ToolFinishedPayload,
+  type ToolProgressPayload,
   type ToolStartedPayload,
 } from '../shared/protocol';
 import {
   parseArgs,
   validateMessageSend,
   validateSessionCreate,
+  validateSessionOpen,
   validateSessionPath,
   validateSessionPathOptional,
   validateSettingsSet,
@@ -382,27 +384,36 @@ class BackendServer {
     return await this.readModelSettings();
   }
 
-  private async emitSessionOpened(sessionPath: string): Promise<void> {
+  private async emitSessionOpened(sessionPath: string, selectionToken?: string): Promise<void> {
     if (!this.sessionContexts.has(sessionPath)) {
       return;
     }
 
-    const payload = await this.buildSessionOpenedPayload(sessionPath);
+    const payload = await this.buildSessionOpenedPayload(sessionPath, selectionToken);
     this.emit('session.opened', payload);
   }
 
-  private async buildSessionOpenedPayload(sessionPath: string): Promise<SessionOpenedPayload> {
+  private async buildSessionOpenedPayload(
+    sessionPath: string,
+    selectionToken?: string,
+  ): Promise<SessionOpenedPayload> {
     const context = this.getSessionContext(sessionPath);
     if (!context) {
       throw new Error(`Unknown session: ${sessionPath}`);
     }
 
+    const [systemPrompt, modelSettings] = await Promise.all([
+      this.readSystemPrompt(context.sessionPath),
+      this.readModelSettings(),
+    ]);
+
     return {
       session: this.buildCurrentSummary(context),
       transcript: this.buildTranscript(context),
       busy: context.session.isStreaming,
-      systemPrompt: await this.readSystemPrompt(context.sessionPath),
-      modelSettings: await this.readModelSettings(),
+      selectionToken,
+      systemPrompt,
+      modelSettings,
       availableModels: this.listAvailableModels(context),
     };
   }
@@ -466,20 +477,28 @@ class BackendServer {
         const cwd = params.cwd || this.startupCwd;
         const context = await this.createSessionContext(this.sdk.SessionManager.create(cwd), 'new');
         this.viewedSessionPath = context.sessionPath;
-        await this.emitSessionOpened(context.sessionPath);
-        await this.emitSessionListChanged();
+        const createPayload = await this.buildSessionOpenedPayload(
+          context.sessionPath,
+          params.selectionToken,
+        );
+        this.emit('session.opened', createPayload);
         this.emitBusyChanged(context, context.session.isStreaming);
-        return await this.buildSessionOpenedPayload(context.sessionPath);
+        void this.emitSessionListChanged();
+        return createPayload;
       }
 
       case 'session.open': {
-        const params = validateSessionPath('session.open', request.params);
+        const params = validateSessionOpen(request.params);
         const context = await this.ensureSessionContext(params.sessionPath);
         this.viewedSessionPath = context.sessionPath;
-        await this.emitSessionOpened(context.sessionPath);
-        await this.emitSessionListChanged();
+        const openPayload = await this.buildSessionOpenedPayload(
+          context.sessionPath,
+          params.selectionToken,
+        );
+        this.emit('session.opened', openPayload);
         this.emitBusyChanged(context, context.session.isStreaming);
-        return await this.buildSessionOpenedPayload(context.sessionPath);
+        void this.emitSessionListChanged();
+        return openPayload;
       }
 
       case 'session.truncateAfter': {
@@ -513,20 +532,16 @@ class BackendServer {
           'resume',
         );
         this.viewedSessionPath = context.sessionPath;
-        await this.emitSessionOpened(context.sessionPath);
-        await this.emitSessionListChanged();
+        const truncatePayload = await this.buildSessionOpenedPayload(context.sessionPath);
+        this.emit('session.opened', truncatePayload);
         this.emitBusyChanged(context, false);
-        return await this.buildSessionOpenedPayload(context.sessionPath);
+        void this.emitSessionListChanged();
+        return truncatePayload;
       }
 
       case 'message.send': {
         const params = validateMessageSend(request.params);
-        const sessionPath = params.sessionPath ?? this.viewedSessionPath;
-        if (!sessionPath) {
-          throw new Error('message.send requires a sessionPath');
-        }
-
-        const context = await this.ensureSessionContext(sessionPath);
+        const context = await this.ensureSessionContext(params.sessionPath);
         if (context.activeRequest || context.session.isStreaming) {
           throw new Error('A request is already in progress for this session.');
         }
@@ -555,19 +570,32 @@ class BackendServer {
       }
 
       case 'message.interrupt': {
-        const params = validateSessionPathOptional(request.params);
-        const sessionPath = params.sessionPath ?? this.viewedSessionPath;
-        const context = sessionPath ? this.getSessionContext(sessionPath) : undefined;
-        if (context?.activeRequest) {
+        const params = validateSessionPath('message.interrupt', request.params);
+        const context = this.getSessionContext(params.sessionPath);
+        if (!context) {
+          throw new Error(`Cannot interrupt an unopened session: ${params.sessionPath}`);
+        }
+        if (!context.activeRequest && !context.session.isStreaming) {
+          throw new Error(`Cannot interrupt a session that is not running: ${params.sessionPath}`);
+        }
+        if (context.activeRequest) {
           context.activeRequest.aborted = true;
         }
-        await context?.session.abort();
+        // Fire abort without awaiting — session.abort() can block while a subagent
+        // subprocess is running and must not hold the RPC response hostage.
+        void context.session.abort().catch((error: unknown) => {
+          this.emit('error', {
+            code: 'MESSAGE_INTERRUPT_FAILED',
+            message: error instanceof Error ? error.message : String(error),
+            requestId: context.activeRequest?.id,
+          } satisfies ErrorPayload);
+        });
         return { interrupted: true };
       }
 
       case 'models.list': {
-        const params = validateSessionPathOptional(request.params);
-        return this.listAvailableModels(this.getPreferredSessionContext(params.sessionPath));
+        const params = validateSessionPath('models.list', request.params);
+        return this.listAvailableModels(await this.ensureSessionContext(params.sessionPath));
       }
 
       case 'settings.get':
@@ -575,7 +603,32 @@ class BackendServer {
 
       case 'settings.set': {
         const params = validateSettingsSet(request.params);
-        return await this.writeModelSettings(params);
+        const result = await this.writeModelSettings(params);
+
+        // Apply immediately to the active session so the change takes effect
+        // without needing to create a new session.
+        if (params.defaultModel) {
+          const context = this.getPreferredSessionContext();
+          if (context) {
+            try {
+              const available = context.runtime.services?.modelRegistry?.getAvailable() ?? [];
+              const info = available.find((m) => m.id === params.defaultModel);
+              if (info) {
+                const model = context.runtime.services.modelRegistry.find(info.provider, info.id);
+                if (model) {
+                  await context.session.setModel?.(model);
+                  if (params.defaultThinkingLevel) {
+                    context.session.setThinkingLevel?.(params.defaultThinkingLevel);
+                  }
+                }
+              }
+            } catch {
+              // Non-fatal: settings were saved; model applies on next session creation.
+            }
+          }
+        }
+
+        return result;
       }
 
       default:
@@ -649,6 +702,21 @@ class BackendServer {
           name: event.toolName ?? '',
           input: event.args,
         } satisfies ToolStartedPayload);
+        return;
+      }
+
+      case 'tool_execution_update': {
+        if (!context.activeRequest || !context.activeRequest.lastAssistantMessageId) {
+          return;
+        }
+
+        this.emit('tool.progress', {
+          requestId: context.activeRequest.id,
+          sessionPath: context.sessionPath,
+          messageId: context.activeRequest.lastAssistantMessageId,
+          toolCallId: event.toolCallId ?? '',
+          partialResult: event.partialResult,
+        } satisfies ToolProgressPayload);
         return;
       }
 

@@ -36,7 +36,7 @@ type VisibleTabOptions = {
   openTabPaths: string[];
   sessions: SessionSummary[];
   workspaceCwd: string | null;
-  activeSession: SessionSummary | null;
+  activeSessionPath: string | null;
 };
 
 export function getVisibleTabPaths({

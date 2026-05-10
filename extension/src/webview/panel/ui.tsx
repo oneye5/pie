@@ -97,33 +97,54 @@ const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
 
 interface ComposerProps {
   busy: boolean;
+  draftRestore?: { text: string; nonce: number } | null;
   modelSettings: ModelSettings | null;
   availableModels: ModelInfo[];
   pendingPaths: string[];
-  prefs: ChatPrefs;
+  focusTrigger?: string;
   onSend: (text: string) => void;
   onInterrupt: () => void;
   onOpenFilePicker: () => void;
   onRemovePath: (path: string) => void;
   onModelChange: (model: string, thinkingLevel: ThinkingLevel) => void;
-  onSetPrefs: (prefs: Partial<ChatPrefs>) => void;
 }
 
 export function Composer({
   busy,
+  draftRestore,
   modelSettings,
   availableModels,
   pendingPaths,
-  prefs,
+  focusTrigger,
   onSend,
   onInterrupt,
   onOpenFilePicker,
   onRemovePath,
   onModelChange,
-  onSetPrefs,
 }: ComposerProps) {
   const [text, setText] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(() => {
+    if (focusTrigger !== undefined) {
+      textareaRef.current?.focus();
+    }
+  }, [focusTrigger]);
+
+  useEffect(() => {
+    if (!draftRestore) {
+      return;
+    }
+
+    setText(draftRestore.text);
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.value = draftRestore.text;
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+      textarea.focus();
+    }
+  }, [draftRestore?.nonce]);
 
   const resetComposer = useCallback(() => {
     setText('');
@@ -203,34 +224,6 @@ export function Composer({
         )}
 
         <div class="composer-toolbar-spacer" />
-
-        <button
-          class={`pref-toggle${prefs.autoExpandReasoning ? ' active' : ''}`}
-          type="button"
-          title={`Auto-expand reasoning: ${prefs.autoExpandReasoning ? 'on' : 'off'}`}
-          onClick={() => onSetPrefs({ autoExpandReasoning: !prefs.autoExpandReasoning })}
-          aria-pressed={prefs.autoExpandReasoning}
-        >
-          <svg class="pref-toggle-icon" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="1.5" y="1.5" width="10" height="10" rx="2" />
-            <polyline class="pref-toggle-check" points="3.5,6.5 5.5,8.5 9.5,4.5" />
-          </svg>
-          Reasoning
-        </button>
-
-        <button
-          class={`pref-toggle${prefs.autoExpandToolCalls ? ' active' : ''}`}
-          type="button"
-          title={`Auto-expand tool calls: ${prefs.autoExpandToolCalls ? 'on' : 'off'}`}
-          onClick={() => onSetPrefs({ autoExpandToolCalls: !prefs.autoExpandToolCalls })}
-          aria-pressed={prefs.autoExpandToolCalls}
-        >
-          <svg class="pref-toggle-icon" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <rect x="1.5" y="1.5" width="10" height="10" rx="2" />
-            <polyline class="pref-toggle-check" points="3.5,6.5 5.5,8.5 9.5,4.5" />
-          </svg>
-          Tools
-        </button>
       </div>
 
       {pendingPaths.length > 0 && (

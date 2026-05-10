@@ -3,8 +3,11 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { BackendClient } from './backend-client';
+import { assertInvariant, auditLog } from './state-audit';
 import {
+  getSessionByPath,
   sessionsActions,
+  selectActiveSessionPath,
   settingsActions,
   transcriptActions,
   uiActions,
@@ -24,6 +27,7 @@ import type {
   ChatPrefs,
   ErrorPayload,
   EventEnvelope,
+  HostToWebviewMessage,
   MessageAbortedPayload,
   MessageDeltaPayload,
   MessageFinishedPayload,
@@ -37,6 +41,7 @@ import type {
   SessionSummary,
   ThinkingLevel,
   ToolFinishedPayload,
+  ToolProgressPayload,
   ToolStartedPayload,
 } from '../shared/protocol';
 
@@ -45,6 +50,16 @@ const PREFS_STORAGE_KEY = 'chatPrefs';
 
 type ScheduleRender = () => void;
 type PostPatch = (op: PatchOp) => void;
+type PostImperative = (message: HostToWebviewMessage) => void;
+
+type SelectionRequest = {
+  token: string;
+  requestedPath: string;
+  pendingPath?: string;
+  insertedPlaceholder: boolean;
+  previousActivePath: string | null;
+  wasOpenTab: boolean;
+};
 
 /**
  * Owns the PI backend process lifecycle and wires backend events to the Redux
@@ -58,11 +73,19 @@ export class SessionService implements vscode.Disposable {
   /** Per-session monotonic sequence numbers for `busy.changed` dedup. */
   private busySeqMap = new Map<string, number>();
 
+  private lifecycleQueue = Promise.resolve();
+  private readonly sessionOperationQueues = new Map<string, Promise<void>>();
+  private readonly selectionRequests = new Map<string, SelectionRequest>();
+  private pendingSessionCounter = 0;
+  private selectionRequestCounter = 0;
+  private currentSelectionToken: string | null = null;
+
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly backend: BackendClient,
     private readonly scheduleRender: ScheduleRender,
     private readonly postPatch: PostPatch,
+    private readonly postImperative: PostImperative,
   ) {}
 
   async start(): Promise<void> {
@@ -72,6 +95,10 @@ export class SessionService implements vscode.Disposable {
   async restart(): Promise<void> {
     this.detachEvents();
     await this.backend.stop();
+    this.busySeqMap.clear();
+    this.sessionOperationQueues.clear();
+    this.selectionRequests.clear();
+    this.currentSelectionToken = null;
     store.dispatch(sessionsActions.clearRunningPaths());
     store.dispatch(uiActions.setBackendReady(false));
     store.dispatch(uiActions.setNotice(null));
@@ -91,8 +118,15 @@ export class SessionService implements vscode.Disposable {
    * tab with the real session path.
    */
   createNewSession(): void {
-    const pendingPath = `${PENDING_SESSION_PREFIX}${Date.now()}`;
+    const pendingPath = this.createPendingSessionPath();
     const cwd = store.getState().sessions.workspaceCwd ?? '';
+    const selectionToken = this.beginSelectionRequest(pendingPath, pendingPath);
+
+    auditLog(this.context, 'session-service', 'session.create.requested', {
+      cwd,
+      pendingPath,
+      selectionToken,
+    });
 
     store.dispatch(
       sessionsActions.upsertSession({
@@ -105,36 +139,69 @@ export class SessionService implements vscode.Disposable {
       }),
     );
     store.dispatch(sessionsActions.ensureOpenTab(pendingPath));
-    store.dispatch(
-      sessionsActions.setActiveSession(
-        store.getState().sessions.sessions.find((s) => s.path === pendingPath) ?? null,
-      ),
-    );
+    store.dispatch(sessionsActions.setActiveSessionPath(pendingPath));
     this.saveOpenTabs();
     this.scheduleRender();
 
-    void this.backend
-      .request<{ requestId?: string }>('session.create', { cwd })
-      .catch((err: unknown) => {
-        store.dispatch(
-          uiActions.setNotice(`Failed to create session: ${(err as Error).message}`),
+    void this.enqueueLifecycle(async () => {
+      try {
+        await this.backend.request<{ requestId?: string }>('session.create', {
+          cwd,
+          selectionToken,
+        });
+      } catch (err) {
+        this.handleSelectionFailure(
+          selectionToken,
+          `Failed to create session: ${(err as Error).message}`,
         );
-        store.dispatch(sessionsActions.removePendingSessions());
-        this.scheduleRender();
-      });
+      }
+    });
   }
 
-  async openSession(sessionPath: string): Promise<void> {
-    try {
-      store.dispatch(sessionsActions.ensureOpenTab(sessionPath));
-      this.saveOpenTabs();
-      await this.backend.request('session.open', { sessionPath });
-    } catch (err) {
+  openSession(sessionPath: string): void {
+    const existing = getSessionByPath(store.getState(), sessionPath);
+    const wasOpenTab = store.getState().sessions.openTabPaths.includes(sessionPath);
+    const selectionToken = this.beginSelectionRequest(
+      sessionPath,
+      undefined,
+      wasOpenTab,
+      !existing,
+    );
+
+    auditLog(this.context, 'session-service', 'session.open.requested', {
+      selectionToken,
+      sessionPath,
+    });
+
+    // Optimistically select the tab immediately so the UI responds without waiting
+    // for the backend round-trip. The session.opened event will refresh with full data.
+    if (!existing) {
       store.dispatch(
-        uiActions.setNotice(`Failed to open session: ${(err as Error).message}`),
+        sessionsActions.upsertSession({
+          path: sessionPath,
+          name: 'Loading...',
+          isPlaceholder: true,
+          cwd: store.getState().sessions.workspaceCwd ?? '',
+          modifiedAt: new Date().toISOString(),
+          messageCount: 0,
+        }),
       );
-      this.scheduleRender();
     }
+    store.dispatch(sessionsActions.setActiveSessionPath(sessionPath));
+    store.dispatch(sessionsActions.ensureOpenTab(sessionPath));
+    this.saveOpenTabs();
+    this.scheduleRender();
+
+    void this.enqueueLifecycle(async () => {
+      try {
+        await this.backend.request('session.open', { sessionPath, selectionToken });
+      } catch (err) {
+        this.handleSelectionFailure(
+          selectionToken,
+          `Failed to open session: ${(err as Error).message}`,
+        );
+      }
+    });
   }
 
   async closeSession(sessionPath: string): Promise<void> {
@@ -144,44 +211,101 @@ export class SessionService implements vscode.Disposable {
       openTabPaths: state.sessions.openTabPaths,
       sessions: state.sessions.sessions,
       workspaceCwd: state.sessions.workspaceCwd,
-      activeSession: state.sessions.activeSession,
+      activeSessionPath: state.sessions.activeSessionPath,
     });
 
+    auditLog(this.context, 'session-service', 'session.close.requested', {
+      nextPath,
+      sessionPath,
+    });
+
+    this.clearSelectionRequestsForPath(sessionPath);
+
+    // Optimistically remove the tab so the UI updates immediately.
     store.dispatch(sessionsActions.removeOpenTab(sessionPath));
+    this.clearSessionScope(sessionPath);
     this.saveOpenTabs();
 
-    if (state.sessions.activeSession?.path === sessionPath) {
+    // If the closed tab was active, select the next visible tab immediately
+    // and start opening it in the background. The heavy work of requesting
+    // the session from the backend runs non-blockingly so the UI stays
+    // responsive.
+    if (state.sessions.activeSessionPath === sessionPath) {
       if (nextPath) {
-        await this.openSession(nextPath);
+        if (isPendingTabPath(nextPath)) {
+          store.dispatch(sessionsActions.setActiveSessionPath(nextPath));
+        } else {
+          const existing = getSessionByPath(state, nextPath);
+          if (existing) {
+            store.dispatch(sessionsActions.setActiveSessionPath(existing.path));
+          } else {
+            // Create a lightweight placeholder so the view has something to render
+            // for the newly active tab while we fetch the canonical session.
+            const placeholder: SessionSummary = {
+              path: nextPath,
+              name: 'Loading...',
+              isPlaceholder: true,
+              cwd: state.sessions.workspaceCwd ?? '',
+              modifiedAt: new Date().toISOString(),
+              messageCount: 0,
+            };
+            store.dispatch(sessionsActions.upsertSession(placeholder));
+            store.dispatch(sessionsActions.setActiveSessionPath(placeholder.path));
+          }
+
+          // Fire-and-forget the open; openSession already handles its own errors.
+          void this.openSession(nextPath);
+        }
       } else {
         store.dispatch(sessionsActions.clearActiveSession());
-        store.dispatch(transcriptActions.clearTranscript(sessionPath));
-        this.scheduleRender();
       }
     }
+
+    // Always re-render — the tab removal must be reflected regardless of
+    // whether the closed tab was active.
+    this.assertSelectionInvariant('closeSession');
+    this.scheduleRender();
   }
 
-  async send(text: string): Promise<void> {
-    const { activeSession } = store.getState().sessions;
-    if (!activeSession) return;
+  async send(text: string, pendingPaths: string[] = []): Promise<void> {
+    const attemptedSessionPath = selectActiveSessionPath(store.getState()) ?? '__unknown__';
+    const sessionPath = this.requireActiveOpenSessionPath('send');
+    if (!sessionPath) {
+      this.postImperative({ type: 'sendRejected', sessionPath: attemptedSessionPath, text, pendingPaths });
+      return;
+    }
+
+    const composedText = pendingPaths.length > 0
+      ? `${pendingPaths.map((path) => `@${path}`).join('\n')}\n\n${text}`
+      : text;
+
+    auditLog(this.context, 'session-service', 'message.send.requested', {
+      attachedPathCount: pendingPaths.length,
+      sessionPath,
+      textLength: text.length,
+    });
 
     // Optimistically append the user message so the UI updates immediately.
     const localId = `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
     store.dispatch(
       transcriptActions.appendLocalUserMessage({
-        sessionPath: activeSession.path,
+        sessionPath,
         id: localId,
-        text,
+        text: composedText,
       }),
     );
     this.scheduleRender();
 
     try {
-      await this.backend.request('message.send', {
-        sessionPath: isPendingTabPath(activeSession.path) ? undefined : activeSession.path,
-        text,
+      await this.enqueueSessionOperation(sessionPath, async () => {
+        await this.backend.request('message.send', {
+          sessionPath,
+          text: composedText,
+        });
       });
     } catch (err) {
+      store.dispatch(transcriptActions.removeMessage({ sessionPath, messageId: localId }));
+      this.postImperative({ type: 'sendRejected', sessionPath, text, pendingPaths });
       store.dispatch(
         uiActions.setNotice(`Failed to send message: ${(err as Error).message}`),
       );
@@ -190,17 +314,25 @@ export class SessionService implements vscode.Disposable {
   }
 
   async editMessage(messageId: string, text: string): Promise<void> {
-    const { activeSession } = store.getState().sessions;
-    if (!activeSession) return;
+    const sessionPath = this.requireActiveOpenSessionPath('edit');
+    if (!sessionPath) return;
+
+    auditLog(this.context, 'session-service', 'message.edit.requested', {
+      messageId,
+      sessionPath,
+      textLength: text.length,
+    });
 
     try {
-      await this.backend.request('session.truncateAfter', {
-        sessionPath: activeSession.path,
-        entryId: messageId,
-      });
-      await this.backend.request('message.send', {
-        sessionPath: activeSession.path,
-        text,
+      await this.enqueueSessionOperation(sessionPath, async () => {
+        await this.backend.request('session.truncateAfter', {
+          sessionPath,
+          entryId: messageId,
+        });
+        await this.backend.request('message.send', {
+          sessionPath,
+          text,
+        });
       });
     } catch (err) {
       store.dispatch(
@@ -211,10 +343,18 @@ export class SessionService implements vscode.Disposable {
   }
 
   async interrupt(): Promise<void> {
-    const { activeSession } = store.getState().sessions;
+    const activeSessionPath = this.requireActiveOpenSessionPath('interrupt');
+    if (!activeSessionPath) return;
+
+    auditLog(this.context, 'session-service', 'message.interrupt.requested', {
+      sessionPath: activeSessionPath,
+    });
+
     try {
-      await this.backend.request('message.interrupt', {
-        sessionPath: activeSession?.path,
+      await this.enqueueSessionOperation(activeSessionPath, async () => {
+        await this.backend.request('message.interrupt', {
+          sessionPath: activeSessionPath,
+        });
       });
     } catch (err) {
       store.dispatch(
@@ -274,6 +414,9 @@ export class SessionService implements vscode.Disposable {
 
   private async startBackend(): Promise<void> {
     this.busySeqMap.clear();
+    this.sessionOperationQueues.clear();
+    this.selectionRequests.clear();
+    this.currentSelectionToken = null;
 
     const workspaceCwd = this.resolveWorkspaceCwd();
     store.dispatch(sessionsActions.setWorkspaceCwd(workspaceCwd));
@@ -364,7 +507,7 @@ export class SessionService implements vscode.Disposable {
         : sessions[0]?.path;
 
       if (toOpen) {
-        await this.openSession(toOpen);
+        this.openSession(toOpen);
       }
     } catch {
       // Non-fatal; session list may be empty on a fresh install.
@@ -423,6 +566,9 @@ export class SessionService implements vscode.Disposable {
       case 'tool.finished':
         this.onToolFinished(event.payload as ToolFinishedPayload);
         return;
+      case 'tool.progress':
+        this.onToolProgress(event.payload as ToolProgressPayload);
+        return;
       case 'message.finished':
         this.onMessageFinished(event.payload as MessageFinishedPayload);
         return;
@@ -441,23 +587,48 @@ export class SessionService implements vscode.Disposable {
   // ─── Backend event handlers ───────────────────────────────────────────────────
 
   private onSessionOpened(payload: SessionOpenedPayload): void {
-    const { session, transcript, systemPrompt, modelSettings, availableModels } = payload;
+    const {
+      session,
+      transcript,
+      systemPrompt,
+      modelSettings,
+      availableModels,
+      selectionToken,
+    } = payload;
+    const state = store.getState();
+    const selectionRequest = selectionToken
+      ? this.selectionRequests.get(selectionToken) ?? null
+      : null;
+    const shouldOpenTab = !!selectionRequest || state.sessions.openTabPaths.includes(session.path);
+    const shouldActivate = selectionToken
+      ? this.currentSelectionToken === selectionToken
+      : selectActiveSessionPath(state) === session.path;
 
-    // Swap any pending placeholder tab with the real session path.
-    const pendingTab = store
-      .getState()
-      .sessions.openTabPaths.find(isPendingTabPath);
+    auditLog(this.context, 'session-service', 'session.opened', {
+      selectionToken: selectionToken ?? null,
+      sessionPath: session.path,
+      shouldActivate,
+      shouldOpenTab,
+    });
 
-    if (pendingTab) {
+    if (selectionRequest?.pendingPath && selectionRequest.pendingPath !== session.path) {
       store.dispatch(
-        sessionsActions.replaceOpenTabPath({ oldPath: pendingTab, newPath: session.path }),
+        sessionsActions.replaceOpenTabPath({
+          oldPath: selectionRequest.pendingPath,
+          newPath: session.path,
+        }),
       );
-      store.dispatch(sessionsActions.removePendingSessions());
+      this.clearSessionScope(selectionRequest.pendingPath, true);
     }
 
     store.dispatch(sessionsActions.upsertSession(session));
-    store.dispatch(sessionsActions.ensureOpenTab(session.path));
-    store.dispatch(sessionsActions.setActiveSession(session));
+    if (shouldOpenTab) {
+      store.dispatch(sessionsActions.ensureOpenTab(session.path));
+    }
+
+    if (shouldActivate) {
+      store.dispatch(sessionsActions.setActiveSessionPath(session.path));
+    }
     store.dispatch(
       transcriptActions.setTranscript({
         sessionPath: session.path,
@@ -473,6 +644,9 @@ export class SessionService implements vscode.Disposable {
       store.dispatch(settingsActions.setAvailableModels(availableModels));
     }
 
+    this.finishSelectionRequest(selectionToken);
+    this.assertSelectionInvariant('onSessionOpened');
+
     this.saveOpenTabs();
     this.scheduleRender();
   }
@@ -483,7 +657,7 @@ export class SessionService implements vscode.Disposable {
   }
 
   private onMessageStarted(payload: MessageStartedPayload): void {
-    const sessionPath = this.resolveSessionPath(payload.sessionPath);
+    const sessionPath = this.requireEventSessionPath('message.started', payload.sessionPath);
     if (!sessionPath) return;
 
     store.dispatch(
@@ -497,7 +671,7 @@ export class SessionService implements vscode.Disposable {
   }
 
   private onMessageDelta(payload: MessageDeltaPayload): void {
-    const sessionPath = this.resolveSessionPath(payload.sessionPath);
+    const sessionPath = this.requireEventSessionPath('message.delta', payload.sessionPath);
     if (!sessionPath) return;
 
     store.dispatch(
@@ -515,7 +689,7 @@ export class SessionService implements vscode.Disposable {
   }
 
   private onMessageThinking(payload: MessageThinkingPayload): void {
-    const sessionPath = this.resolveSessionPath(payload.sessionPath);
+    const sessionPath = this.requireEventSessionPath('message.thinking', payload.sessionPath);
     if (!sessionPath) return;
 
     store.dispatch(
@@ -537,7 +711,7 @@ export class SessionService implements vscode.Disposable {
   }
 
   private onToolStarted(payload: ToolStartedPayload): void {
-    const sessionPath = this.resolveSessionPath(payload.sessionPath);
+    const sessionPath = this.requireEventSessionPath('tool.started', payload.sessionPath);
     if (!sessionPath) return;
 
     const canonicalId = getCanonicalMessageId(payload.messageId, store.getState());
@@ -555,10 +729,13 @@ export class SessionService implements vscode.Disposable {
     if (this.isActiveSession(sessionPath)) {
       this.postPatch({ kind: 'toolCall', messageId: canonicalId, toolCall });
     }
+    // Schedule a snapshot so the tool card appears immediately rather than
+    // waiting until the message finishes.
+    this.scheduleRender();
   }
 
   private onToolFinished(payload: ToolFinishedPayload): void {
-    const sessionPath = this.resolveSessionPath(payload.sessionPath);
+    const sessionPath = this.requireEventSessionPath('tool.finished', payload.sessionPath);
     if (!sessionPath) return;
 
     const canonicalId = getCanonicalMessageId(payload.messageId, store.getState());
@@ -585,10 +762,42 @@ export class SessionService implements vscode.Disposable {
     if (this.isActiveSession(sessionPath)) {
       this.postPatch({ kind: 'toolCall', messageId: canonicalId, toolCall });
     }
+    this.scheduleRender();
+  }
+
+  private onToolProgress(payload: ToolProgressPayload): void {
+    const sessionPath = this.requireEventSessionPath('tool.progress', payload.sessionPath);
+    if (!sessionPath) return;
+
+    const canonicalId = getCanonicalMessageId(payload.messageId, store.getState());
+
+    // Preserve existing name/input; update the result with the partial snapshot.
+    const existing = store
+      .getState()
+      .transcript.bySession[sessionPath]
+      ?.find((m) => m.id === canonicalId)
+      ?.toolCalls?.find((tc) => tc.id === payload.toolCallId);
+
+    const toolCall = {
+      id: payload.toolCallId,
+      name: existing?.name ?? '',
+      input: existing?.input,
+      result: payload.partialResult,
+      status: 'running' as const,
+    };
+
+    store.dispatch(
+      transcriptActions.upsertToolCall({ sessionPath, messageId: canonicalId, toolCall }),
+    );
+
+    if (this.isActiveSession(sessionPath)) {
+      this.postPatch({ kind: 'toolCall', messageId: canonicalId, toolCall });
+    }
+    this.scheduleRender();
   }
 
   private onMessageFinished(payload: MessageFinishedPayload): void {
-    const sessionPath = this.resolveSessionPath(payload.sessionPath);
+    const sessionPath = this.requireEventSessionPath('message.finished', payload.sessionPath);
     if (!sessionPath) return;
 
     store.dispatch(
@@ -606,7 +815,7 @@ export class SessionService implements vscode.Disposable {
   }
 
   private onMessageAborted(payload: MessageAbortedPayload): void {
-    const sessionPath = this.resolveSessionPath(payload.sessionPath);
+    const sessionPath = this.requireEventSessionPath('message.aborted', payload.sessionPath);
     if (!sessionPath || !payload.messageId) return;
 
     store.dispatch(
@@ -620,8 +829,14 @@ export class SessionService implements vscode.Disposable {
   }
 
   private onBusyChanged(payload: BusyChangedPayload): void {
-    const sessionPath = this.resolveSessionPath(payload.sessionPath);
+    const sessionPath = this.requireEventSessionPath('busy.changed', payload.sessionPath);
     if (!sessionPath) return;
+
+    auditLog(this.context, 'session-service', 'busy.changed', {
+      busy: payload.busy,
+      seq: payload.seq ?? null,
+      sessionPath,
+    });
 
     // Drop out-of-order events using per-session sequence numbers.
     if (typeof payload.seq === 'number') {
@@ -643,13 +858,168 @@ export class SessionService implements vscode.Disposable {
 
   // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-  /** Returns the session path from the payload, falling back to the active session. */
-  private resolveSessionPath(payloadPath?: string): string | undefined {
-    return payloadPath ?? store.getState().sessions.activeSession?.path;
+  private createPendingSessionPath(): string {
+    this.pendingSessionCounter += 1;
+    return `${PENDING_SESSION_PREFIX}${Date.now()}-${this.pendingSessionCounter}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  private beginSelectionRequest(
+    requestedPath: string,
+    pendingPath?: string,
+    wasOpenTab = false,
+    insertedPlaceholder = false,
+  ): string {
+    this.selectionRequestCounter += 1;
+    const token = `selection:${this.selectionRequestCounter}`;
+    this.selectionRequests.set(token, {
+      insertedPlaceholder,
+      token,
+      requestedPath,
+      pendingPath,
+      previousActivePath: selectActiveSessionPath(store.getState()),
+      wasOpenTab,
+    });
+    this.currentSelectionToken = token;
+    return token;
+  }
+
+  private finishSelectionRequest(selectionToken?: string): void {
+    if (!selectionToken) {
+      return;
+    }
+
+    this.selectionRequests.delete(selectionToken);
+    if (this.currentSelectionToken === selectionToken) {
+      this.currentSelectionToken = null;
+    }
+  }
+
+  private clearSelectionRequestsForPath(sessionPath: string): void {
+    for (const [token, request] of this.selectionRequests) {
+      if (request.pendingPath === sessionPath) {
+        if (this.currentSelectionToken === token) {
+          this.currentSelectionToken = null;
+        }
+        continue;
+      }
+      if (request.requestedPath === sessionPath) {
+        this.selectionRequests.delete(token);
+        if (this.currentSelectionToken === token) {
+          this.currentSelectionToken = null;
+        }
+      }
+    }
+  }
+
+  private handleSelectionFailure(selectionToken: string, notice: string): void {
+    const request = this.selectionRequests.get(selectionToken);
+    const ownsSelection = this.currentSelectionToken === selectionToken;
+    this.finishSelectionRequest(selectionToken);
+
+    if (request) {
+      if (request.pendingPath) {
+        this.clearSessionScope(request.pendingPath, true);
+      } else if (!request.wasOpenTab) {
+        store.dispatch(sessionsActions.removeOpenTab(request.requestedPath));
+        this.clearSessionScope(request.requestedPath, request.insertedPlaceholder);
+      }
+
+      if (ownsSelection) {
+        const fallbackPath = request.previousActivePath && store.getState().sessions.openTabPaths.includes(request.previousActivePath)
+          ? request.previousActivePath
+          : store.getState().sessions.openTabPaths[0] ?? null;
+        store.dispatch(sessionsActions.setActiveSessionPath(fallbackPath));
+      }
+      this.saveOpenTabs();
+    }
+
+    store.dispatch(uiActions.setNotice(notice));
+    this.assertSelectionInvariant('handleSelectionFailure');
+    this.scheduleRender();
+  }
+
+  private enqueueLifecycle(task: () => Promise<void>): Promise<void> {
+    const next = this.lifecycleQueue.catch(() => undefined).then(task);
+    this.lifecycleQueue = next.then(() => undefined, () => undefined);
+    return next;
+  }
+
+  private enqueueSessionOperation<T>(sessionPath: string, task: () => Promise<T>): Promise<T> {
+    const previous = this.sessionOperationQueues.get(sessionPath) ?? Promise.resolve();
+    const result = previous.catch(() => undefined).then(task);
+    const barrier = result.then(() => undefined, () => undefined);
+
+    this.sessionOperationQueues.set(sessionPath, barrier);
+    void barrier.finally(() => {
+      if (this.sessionOperationQueues.get(sessionPath) === barrier) {
+        this.sessionOperationQueues.delete(sessionPath);
+      }
+    });
+
+    return result;
+  }
+
+  private requireEventSessionPath(eventName: string, sessionPath: string | undefined): string | null {
+    if (sessionPath) {
+      return sessionPath;
+    }
+
+    auditLog(this.context, 'session-service', 'protocol.defect', {
+      eventName,
+      reason: 'missing sessionPath',
+    });
+    store.dispatch(uiActions.setNotice(`Protocol defect: ${eventName} arrived without a sessionPath.`));
+    this.scheduleRender();
+    return null;
+  }
+
+  private requireActiveOpenSessionPath(actionName: string): string | null {
+    const sessionPath = selectActiveSessionPath(store.getState());
+    if (!sessionPath) {
+      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: no active session.`));
+      this.scheduleRender();
+      return null;
+    }
+    if (isPendingTabPath(sessionPath)) {
+      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: the session is still opening.`));
+      this.scheduleRender();
+      return null;
+    }
+    if (!store.getState().sessions.openTabPaths.includes(sessionPath)) {
+      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: the active session is no longer open.`));
+      this.scheduleRender();
+      return null;
+    }
+    return sessionPath;
+  }
+
+  private clearSessionScope(sessionPath: string, removeSessionSummary = false): void {
+    this.busySeqMap.delete(sessionPath);
+    this.sessionOperationQueues.delete(sessionPath);
+    store.dispatch(transcriptActions.clearSessionState(sessionPath));
+    if (removeSessionSummary) {
+      store.dispatch(sessionsActions.removeSession(sessionPath));
+    }
+  }
+
+  private assertSelectionInvariant(source: string): void {
+    const state = store.getState();
+    const activeSessionPath = selectActiveSessionPath(state);
+    assertInvariant(
+      this.context,
+      'session-service',
+      !activeSessionPath || state.sessions.openTabPaths.includes(activeSessionPath),
+      'Active session path must always reference an open tab.',
+      {
+        activeSessionPath,
+        openTabPaths: state.sessions.openTabPaths,
+        source,
+      },
+    );
   }
 
   private isActiveSession(sessionPath: string): boolean {
-    return store.getState().sessions.activeSession?.path === sessionPath;
+    return selectActiveSessionPath(store.getState()) === sessionPath;
   }
 
   private saveOpenTabs(): void {

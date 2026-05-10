@@ -17,6 +17,7 @@ export interface SdkSessionEvent {
     | 'message_update'
     | 'message_end'
     | 'tool_execution_start'
+    | 'tool_execution_update'
     | 'tool_execution_end'
     | string;
   message?: { role?: 'user' | 'assistant'; content?: unknown; stopReason?: string };
@@ -29,6 +30,8 @@ export interface SdkSessionEvent {
   toolName?: string;
   args?: unknown;
   result?: unknown;
+  /** Partial result from onUpdate callback, present on tool_execution_update events. */
+  partialResult?: unknown;
 }
 
 export interface SdkSessionManager {
@@ -49,6 +52,8 @@ export interface SdkSession {
   subscribe: (listener: (event: SdkSessionEvent) => void) => () => void;
   prompt: (text: string, options?: Record<string, unknown>) => Promise<void>;
   abort: () => Promise<void>;
+  setModel?: (model: unknown) => Promise<void>;
+  setThinkingLevel?: (level: string) => void;
 }
 
 export interface SdkRuntime {
@@ -56,6 +61,7 @@ export interface SdkRuntime {
   services: {
     modelRegistry: {
       getAvailable: () => Array<{ id: string; name: string; provider: string; reasoning: boolean }>;
+      find: (provider: string, modelId: string) => unknown;
     };
     diagnostics?: unknown[];
   };
@@ -142,5 +148,3 @@ export async function loadSdk(sdkPath: string): Promise<SdkModule> {
 
   return mod as SdkModule;
 }
-
-

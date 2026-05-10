@@ -623,6 +623,12 @@ button {
   background: transparent;
   overflow: hidden;
   opacity: 0.8;
+  cursor: pointer;
+  user-select: none;
+}
+
+.thinking-block:hover {
+  opacity: 0.92;
 }
 
 .tool-call {
@@ -630,6 +636,8 @@ button {
   border-radius: 12px;
   background: var(--panel-subtle-surface);
   overflow: hidden;
+  cursor: pointer;
+  user-select: none;
 }
 
 .thinking-block-header,
@@ -638,8 +646,6 @@ button {
   align-items: center;
   gap: 6px;
   padding: 4px 8px;
-  cursor: pointer;
-  user-select: none;
   border-radius: 6px;
 }
 
@@ -648,25 +654,28 @@ button {
   border-radius: 6px 6px 0 0;
 }
 
-.thinking-block-header:hover,
-.tool-call-header:hover {
+.thinking-block:hover,
+.tool-call:hover {
   background: var(--panel-hover-surface);
 }
 
-.thinking-block-header:focus-visible,
-.tool-call-header:focus-visible {
+.thinking-block:hover .thinking-block-header,
+.tool-call:hover .tool-call-header {
+  background: transparent;
+}
+
+.thinking-block:focus-visible,
+.tool-call:focus-visible {
   outline: 1px solid var(--panel-accent);
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
 
 .thinking-block-body {
   user-select: text;
-  cursor: auto;
 }
 
 .tool-call-body {
   user-select: text;
-  cursor: auto;
 }
 
 .thinking-block-chevron {
@@ -769,6 +778,43 @@ button {
   margin-top: 8px;
 }
 
+.subagent-messages {
+  border-top: 1px solid var(--panel-border);
+  padding: 4px 0;
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+  user-select: text;
+}
+
+.subagent-result + .subagent-result {
+  border-top: 1px solid var(--panel-border);
+}
+
+.subagent-result-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--panel-muted);
+  padding: 6px 10px 2px;
+}
+
+.subagent-running-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 10px;
+}
+
+.subagent-running-tool {
+  font-size: 11px;
+  color: var(--panel-muted);
+  background: var(--panel-hover);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+
 .tool-call-pre {
   white-space: pre;
   max-height: 220px;
@@ -847,43 +893,43 @@ button {
   white-space: nowrap;
 }
 
-.pref-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 22px;
-  padding: 2px 7px;
+.pref-toggle,
+.pref-toggle-icon,
+.pref-toggle-check { display: none; }
+
+.block-context-menu {
+  z-index: 200;
+  background: var(--vscode-menu-background, var(--vscode-dropdown-background, var(--panel-surface)));
+  border: 1px solid var(--vscode-menu-border, var(--panel-border));
   border-radius: 6px;
+  padding: 3px 0;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  min-width: 200px;
+}
+
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
   border: none;
   background: transparent;
-  color: var(--panel-muted);
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
   cursor: pointer;
-  font-size: 11px;
+  font-size: 12px;
+  text-align: left;
   white-space: nowrap;
-  transition: color 0.12s ease, background 0.12s ease;
 }
 
-.pref-toggle-icon {
+.context-menu-item:hover {
+  background: var(--vscode-menu-selectionBackground, var(--panel-hover-surface));
+  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+}
+
+.context-menu-check {
   flex-shrink: 0;
-}
-
-.pref-toggle-check {
-  opacity: 0;
-  transition: opacity 0.1s ease;
-}
-
-.pref-toggle.active .pref-toggle-check {
-  opacity: 1;
-}
-
-.pref-toggle:hover {
-  background: var(--panel-hover-surface);
-  color: var(--vscode-foreground);
-}
-
-.pref-toggle.active {
-  background: var(--panel-subtle-surface);
-  color: var(--vscode-foreground);
+  color: var(--panel-accent);
 }
 
 .composer-attachments {

@@ -95,6 +95,7 @@ export interface SessionOpenedPayload {
   session: SessionSummary;
   transcript: ChatMessage[];
   busy: boolean;
+  selectionToken?: string;
   systemPrompt?: string;
   modelSettings?: ModelSettings;
   availableModels?: ModelInfo[];
@@ -108,26 +109,26 @@ export interface SessionListChangedPayload {
 export interface MessageStartedPayload {
   requestId: string;
   messageId: string;
-  sessionPath?: string;
+  sessionPath: string;
 }
 
 export interface MessageDeltaPayload {
   requestId: string;
-  sessionPath?: string;
+  sessionPath: string;
   messageId: string;
   delta: string;
 }
 
 export interface MessageThinkingPayload {
   requestId: string;
-  sessionPath?: string;
+  sessionPath: string;
   messageId: string;
   thinking: string;
 }
 
 export interface ToolStartedPayload {
   requestId: string;
-  sessionPath?: string;
+  sessionPath: string;
   messageId: string;
   toolCallId: string;
   name: string;
@@ -136,26 +137,35 @@ export interface ToolStartedPayload {
 
 export interface ToolFinishedPayload {
   requestId: string;
-  sessionPath?: string;
+  sessionPath: string;
   messageId: string;
   toolCallId: string;
   result: unknown;
 }
 
+export interface ToolProgressPayload {
+  requestId: string;
+  sessionPath: string;
+  messageId: string;
+  toolCallId: string;
+  /** Partial result from onUpdate callback — same shape as the final result. */
+  partialResult: unknown;
+}
+
 export interface MessageFinishedPayload {
   requestId: string;
-  sessionPath?: string;
+  sessionPath: string;
   message: ChatMessage;
 }
 
 export interface MessageAbortedPayload {
   requestId: string;
-  sessionPath?: string;
+  sessionPath: string;
   messageId?: string;
 }
 
 export interface BusyChangedPayload {
-  sessionPath?: string;
+  sessionPath: string;
   busy: boolean;
   /**
    * Monotonic per-session sequence number. The host drops out-of-order events
@@ -235,6 +245,7 @@ export type HostToWebviewMessage =
       revision: number;
       op: PatchOp;
     }
+  | { type: 'sendRejected'; sessionPath: string; text: string; pendingPaths: string[] }
   | { type: 'filePickerResult'; paths: string[] };
 
 /** Messages the webview can send back to the host. */
@@ -243,7 +254,7 @@ export type WebviewToHostMessage =
   | { type: 'refreshState' }
   | { type: 'requestSnapshot' }
   | { type: 'openFilePicker' }
-  | { type: 'send'; text: string }
+  | { type: 'send'; text: string; pendingPaths?: string[] }
   | { type: 'editMessage'; messageId: string; text: string }
   | { type: 'interrupt' }
   | { type: 'newSession' }

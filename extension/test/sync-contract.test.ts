@@ -128,3 +128,30 @@ test('WebviewToHostMessage.setPrefs accepts partial pref updates', () => {
     assert.equal(msg.prefs.autoExpandReasoning, true);
   }
 });
+
+test('WebviewToHostMessage.send can carry pending attachment paths', () => {
+  const msg: WebviewToHostMessage = {
+    type: 'send',
+    text: 'hello',
+    pendingPaths: ['/workspace/a.ts'],
+  };
+  assert.equal(msg.type, 'send');
+  if (msg.type === 'send') {
+    assert.deepEqual(msg.pendingPaths, ['/workspace/a.ts']);
+  }
+});
+
+test('HostToWebviewMessage.sendRejected restores the draft payload', () => {
+  const msg: HostToWebviewMessage = {
+    type: 'sendRejected',
+    sessionPath: '/workspace/a.ts',
+    text: 'hello',
+    pendingPaths: ['/workspace/a.ts'],
+  };
+  assert.equal(msg.type, 'sendRejected');
+  if (msg.type === 'sendRejected') {
+    assert.equal(msg.sessionPath, '/workspace/a.ts');
+    assert.equal(msg.text, 'hello');
+    assert.deepEqual(msg.pendingPaths, ['/workspace/a.ts']);
+  }
+});

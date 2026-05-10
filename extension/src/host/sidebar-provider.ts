@@ -2,9 +2,17 @@ import * as crypto from 'node:crypto';
 
 import * as vscode from 'vscode';
 
+import { assertInvariant, auditLog } from './state-audit';
+import {
+  buildPatchEnvelope,
+  buildStateEnvelope,
+  canPostToWebview,
+  createSidebarSyncState,
+  flushDirtySnapshot,
+  type SidebarSyncState,
+} from './sidebar-sync';
 import { renderWebviewHtml, getWebviewRoots } from './webview-assets';
 import type {
-  HostToWebviewMessage,
   PatchOp,
   ViewState,
   WebviewToHostMessage,
@@ -28,8 +36,9 @@ const SCHEDULE_DEBOUNCE_MS = 50;
  */
 export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
   private view?: vscode.WebviewView;
-  private revision = 0;
   private readonly hostInstanceId: string;
+  private syncState: SidebarSyncState;
+  private visibilityDisposable?: vscode.Disposable;
   private scheduleTimer?: ReturnType<typeof setTimeout>;
   private messageDisposable?: vscode.Disposable;
 
@@ -39,6 +48,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     private readonly onMessage: (msg: WebviewToHostMessage) => void,
   ) {
     this.hostInstanceId = crypto.randomUUID();
+    this.syncState = createSidebarSyncState(this.hostInstanceId);
   }
 
   dispose(): void {
@@ -46,6 +56,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       clearTimeout(this.scheduleTimer);
       this.scheduleTimer = undefined;
     }
+    this.visibilityDisposable?.dispose();
     this.messageDisposable?.dispose();
   }
 
@@ -63,6 +74,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
     webviewView.webview.html = await renderWebviewHtml(this.context, webviewView.webview);
 
+    this.visibilityDisposable?.dispose();
+    this.visibilityDisposable = webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this.flushDirtyState();
+      }
+    });
+
     this.messageDisposable?.dispose();
     this.messageDisposable = webviewView.webview.onDidReceiveMessage((msg: WebviewToHostMessage) => {
       this.onMessage(msg);
@@ -79,17 +97,32 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
    * webview can rebase its gap-detection counter.
    */
   postState(): void {
-    if (!this.view) return;
+    const previousRevision = this.syncState.revision;
+    const result = buildStateEnvelope(
+      this.syncState,
+      this.getViewState(),
+      this.canPostToView(),
+    );
+    this.syncState = result.nextSyncState;
 
-    this.revision += 1;
-    const msg: HostToWebviewMessage = {
-      type: 'state',
-      hostInstanceId: this.hostInstanceId,
-      revision: this.revision,
-      state: this.getViewState(),
-    };
+    auditLog(this.context, 'sidebar-provider', 'snapshot.postState', {
+      dirty: this.syncState.dirty,
+      posted: !!result.message,
+      revision: this.syncState.revision,
+      visible: this.view?.visible ?? false,
+    });
 
-    void this.view.webview.postMessage(msg);
+    assertInvariant(
+      this.context,
+      'sidebar-provider',
+      !result.message || this.syncState.revision > previousRevision,
+      'State snapshots must advance revision monotonically.',
+      { previousRevision, nextRevision: this.syncState.revision },
+    );
+
+    if (result.message && this.view) {
+      void this.view.webview.postMessage(result.message);
+    }
   }
 
   /**
@@ -97,6 +130,16 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
    * debounce window are collapsed into a single post.
    */
   scheduleState(): void {
+    if (!this.canPostToView()) {
+      this.syncState = { ...this.syncState, dirty: true };
+      auditLog(this.context, 'sidebar-provider', 'snapshot.markDirty', {
+        reason: 'scheduleState',
+        revision: this.syncState.revision,
+        visible: this.view?.visible ?? false,
+      });
+      return;
+    }
+
     if (this.scheduleTimer !== undefined) {
       clearTimeout(this.scheduleTimer);
     }
@@ -112,17 +155,29 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
    * thinking tokens, tool call state). Skipped when the view is not visible.
    */
   postPatch(op: PatchOp): void {
-    if (!this.view) return;
+    const previousRevision = this.syncState.revision;
+    const result = buildPatchEnvelope(this.syncState, op, this.canPostToView());
+    this.syncState = result.nextSyncState;
 
-    this.revision += 1;
-    const msg: HostToWebviewMessage = {
-      type: 'patch',
-      hostInstanceId: this.hostInstanceId,
-      revision: this.revision,
-      op,
-    };
+    auditLog(this.context, 'sidebar-provider', 'patch.post', {
+      dirty: this.syncState.dirty,
+      kind: op.kind,
+      posted: !!result.message,
+      revision: this.syncState.revision,
+      visible: this.view?.visible ?? false,
+    });
 
-    void this.view.webview.postMessage(msg);
+    assertInvariant(
+      this.context,
+      'sidebar-provider',
+      !result.message || this.syncState.revision > previousRevision,
+      'Patches must advance revision monotonically.',
+      { previousRevision, nextRevision: this.syncState.revision, kind: op.kind },
+    );
+
+    if (result.message && this.view) {
+      void this.view.webview.postMessage(result.message);
+    }
   }
 
   /**
@@ -132,5 +187,25 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   postImperative(msg: HostToWebviewMessage): void {
     if (!this.view) return;
     void this.view.webview.postMessage(msg);
+  }
+
+  private canPostToView(): boolean {
+    return canPostToWebview(!!this.view, this.view?.visible ?? false);
+  }
+
+  private flushDirtyState(): void {
+    const result = flushDirtySnapshot(this.syncState, this.getViewState(), this.canPostToView());
+    this.syncState = result.nextSyncState;
+
+    auditLog(this.context, 'sidebar-provider', 'snapshot.flushDirty', {
+      dirty: this.syncState.dirty,
+      posted: !!result.message,
+      revision: this.syncState.revision,
+      visible: this.view?.visible ?? false,
+    });
+
+    if (result.message && this.view) {
+      void this.view.webview.postMessage(result.message);
+    }
   }
 }

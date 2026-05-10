@@ -43,7 +43,7 @@ test('getVisibleTabPaths follows open tab order without PI session-list filterin
     openTabPaths: ['/workspace/a', '/other/x', '__pending__:1', '/workspace/c', '/workspace/missing'],
     sessions,
     workspaceCwd: '/workspace',
-    activeSession: sessions[1],
+    activeSessionPath: sessions[1].path,
   });
 
   assert.deepEqual(visiblePaths, ['/workspace/a', '/other/x', '__pending__:1', '/workspace/c', '/workspace/missing']);
@@ -54,7 +54,7 @@ test('getVisibleTabPaths keeps the active workspace tab visible before the sessi
     openTabPaths: ['/workspace/a', '/workspace/b'],
     sessions: [sessions[0]],
     workspaceCwd: '/workspace',
-    activeSession: sessions[1],
+    activeSessionPath: sessions[1].path,
   });
 
   assert.deepEqual(visiblePaths, ['/workspace/a', '/workspace/b']);
@@ -65,7 +65,7 @@ test('closing an active tab prefers the tab on the right', () => {
     openTabPaths: ['/workspace/a', '/workspace/b', '/workspace/c'],
     sessions,
     workspaceCwd: '/workspace',
-    activeSession: sessions[1],
+    activeSessionPath: sessions[1].path,
     closingPath: '/workspace/b',
   });
 
@@ -77,7 +77,7 @@ test('closing the last visible tab falls back to the tab on the left', () => {
     openTabPaths: ['/workspace/a', '/workspace/b', '/workspace/c'],
     sessions,
     workspaceCwd: '/workspace',
-    activeSession: sessions[2],
+    activeSessionPath: sessions[2].path,
     closingPath: '/workspace/c',
   });
 
@@ -89,7 +89,7 @@ test('closing a visible cross-workspace tab follows open tab order', () => {
     openTabPaths: ['/workspace/a', '/other/x', '/workspace/b'],
     sessions,
     workspaceCwd: '/workspace',
-    activeSession: sessions[3],
+    activeSessionPath: sessions[3].path,
     closingPath: '/other/x',
   });
 
@@ -101,7 +101,7 @@ test('closing a visible tab can select an adjacent pending tab', () => {
     openTabPaths: ['/workspace/a', '__pending__:1', '/workspace/c'],
     sessions,
     workspaceCwd: '/workspace',
-    activeSession: sessions[0],
+    activeSessionPath: sessions[0].path,
     closingPath: '/workspace/a',
   });
 
@@ -113,7 +113,7 @@ test('closing the only visible tab returns null', () => {
     openTabPaths: ['/workspace/a'],
     sessions,
     workspaceCwd: '/workspace',
-    activeSession: sessions[0],
+    activeSessionPath: sessions[0].path,
     closingPath: '/workspace/a',
   });
 
