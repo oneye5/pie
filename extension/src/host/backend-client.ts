@@ -18,6 +18,29 @@ export interface BackendStartOptions {
   cwd: string;
 }
 
+/** Maximum number of bytes of stderr we keep in memory (ring buffer). */
+const STDERR_BUFFER_LIMIT = 64 * 1024;
+
+/** Default timeout for backend RPC calls if no per-method override is set. */
+const DEFAULT_RPC_TIMEOUT_MS = 30_000;
+
+/**
+ * Per-method timeouts. Methods doing disk I/O or batch work get a longer
+ * budget; very fast in-memory queries can use the default.
+ */
+const RPC_TIMEOUTS_MS: Record<string, number> = {
+  'session.list': 60_000,
+  'session.create': 60_000,
+  'session.open': 60_000,
+  'settings.set': 60_000,
+  'settings.get': 15_000,
+  'models.list': 15_000,
+  'app.ping': 10_000,
+  'message.interrupt': 15_000,
+};
+
+const READY_TIMEOUT_MS = 30_000;
+
 export class BackendClient implements vscode.Disposable {
   private readonly events = new vscode.EventEmitter<EventEnvelope>();
   private readonly exits = new vscode.EventEmitter<{ code: number | null; stderr: string }>();
@@ -31,6 +54,10 @@ export class BackendClient implements vscode.Disposable {
   readonly onEvent = this.events.event;
   readonly onExit = this.exits.event;
 
+  /**
+   * Start the backend. Safe to call again after a previous backend exited
+   * (we no longer hard-reject when `proc` is set — it's been cleared on exit).
+   */
   async start(options: BackendStartOptions): Promise<BackendReadyPayload> {
     if (this.proc) {
       throw new Error('Backend is already running');
@@ -57,7 +84,7 @@ export class BackendClient implements vscode.Disposable {
 
     proc.stderr.setEncoding('utf8');
     proc.stderr.on('data', (chunk: string) => {
-      this.stderrBuffer += chunk;
+      this.appendStderr(chunk);
     });
 
     this.detachReader = attachJsonlLineReader(proc.stdout, (line) => {
@@ -121,18 +148,20 @@ export class BackendClient implements vscode.Disposable {
         );
       });
 
-      const errorDisposable = proc.once('error', (error) => {
+      const errorListener = (error: Error) => {
         this.proc = undefined;
         finishReject(
           new Error(
             `Failed to spawn PI Assistant backend with node=${options.nodePath}, backend=${options.backendPath}, cwd=${options.cwd}: ${error.message}`,
           ),
         );
-      });
+      };
+      proc.once('error', errorListener);
+      const errorDisposable = { dispose: () => proc.off('error', errorListener) };
 
       const timeout = setTimeout(() => {
         finishReject(new Error('Timed out waiting for the PI Assistant backend to become ready.'));
-      }, 30000);
+      }, READY_TIMEOUT_MS);
     });
   }
 
@@ -142,7 +171,8 @@ export class BackendClient implements vscode.Disposable {
     }
 
     const id = `req-${++this.requestCounter}`;
-    const responsePromise = this.requests.create(id, 30000);
+    const timeoutMs = RPC_TIMEOUTS_MS[method] ?? DEFAULT_RPC_TIMEOUT_MS;
+    const responsePromise = this.requests.create(id, timeoutMs);
 
     this.proc.stdin.write(serializeJsonLine({ id, method, params }));
 
@@ -152,6 +182,20 @@ export class BackendClient implements vscode.Disposable {
     }
 
     return response.result as TResult;
+  }
+
+  /**
+   * Stop the running backend. Safe to call when no backend is running. Use
+   * `start()` again afterwards to bring up a fresh process.
+   */
+  async stop(): Promise<void> {
+    this.detachReader?.();
+    this.detachReader = undefined;
+    if (this.proc) {
+      this.proc.kill();
+      this.proc = undefined;
+    }
+    this.requests.rejectAll(new Error('Backend stopped.'));
   }
 
   private handleLine(line: string): void {
@@ -170,6 +214,14 @@ export class BackendClient implements vscode.Disposable {
 
     if (isEventEnvelope(value)) {
       this.events.fire(value);
+    }
+  }
+
+  private appendStderr(chunk: string): void {
+    this.stderrBuffer += chunk;
+    if (this.stderrBuffer.length > STDERR_BUFFER_LIMIT) {
+      // Keep only the trailing window — most diagnostics live near the end.
+      this.stderrBuffer = this.stderrBuffer.slice(-STDERR_BUFFER_LIMIT);
     }
   }
 

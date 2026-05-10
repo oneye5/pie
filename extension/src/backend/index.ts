@@ -1,114 +1,59 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { attachJsonlLineReader, serializeJsonLine } from '../shared/jsonl';
-import type {
-  BusyChangedPayload,
-  ChatMessage,
-  ErrorPayload,
-  EventEnvelope,
-  MessageAbortedPayload,
-  MessageDeltaPayload,
-  MessageFinishedPayload,
-  MessageStartedPayload,
-  MessageThinkingPayload,
-  ModelInfo,
-  ModelSettings,
-  RequestEnvelope,
-  ResponseEnvelope,
-  SessionListChangedPayload,
-  SessionOpenedPayload,
-  SessionSummary,
-  ThinkingLevel,
-  ToolFinishedPayload,
-  ToolStartedPayload,
+import {
+  PROTOCOL_VERSION,
+  type BusyChangedPayload,
+  type ChatMessage,
+  type ErrorPayload,
+  type EventEnvelope,
+  type MessageAbortedPayload,
+  type MessageDeltaPayload,
+  type MessageFinishedPayload,
+  type MessageStartedPayload,
+  type MessageThinkingPayload,
+  type ModelInfo,
+  type ModelSettings,
+  type RequestEnvelope,
+  type ResponseEnvelope,
+  type SessionListChangedPayload,
+  type SessionOpenedPayload,
+  type SessionSummary,
+  type ThinkingLevel,
+  type ToolFinishedPayload,
+  type ToolStartedPayload,
 } from '../shared/protocol';
+import {
+  parseArgs,
+  validateMessageSend,
+  validateSessionCreate,
+  validateSessionPath,
+  validateSessionPathOptional,
+  validateSettingsSet,
+  validateTruncateAfter,
+} from './rpc';
+import { loadSdk, type SdkModule, type SdkRuntime, type SdkSession, type SdkSessionEvent, type SdkSessionManager } from './sdk';
 import { mapAssistantMessage, mapTranscript, summarizeSession, type SessionEntryLike } from './transcript';
-
-type SdkModule = {
-  VERSION: string;
-  getAgentDir: () => string;
-  AuthStorage: {
-    create: (filePath?: string) => unknown;
-  };
-  SessionManager: {
-    continueRecent: (cwd: string) => unknown;
-    create: (cwd: string) => unknown;
-    open: (sessionPath: string) => unknown;
-    listAll: () => Promise<unknown[]>;
-  };
-  createAgentSessionServices: (options: unknown) => Promise<any>;
-  createAgentSessionFromServices: (options: unknown) => Promise<any>;
-  createAgentSessionRuntime: (factory: any, options: unknown) => Promise<any>;
-};
-
-type SessionManagerLike = {
-  getCwd: () => string;
-  getSessionFile: () => string | undefined;
-  getSessionName: () => string | undefined;
-  getBranch: () => SessionEntryLike[];
-  getEntries: () => SessionEntryLike[];
-};
-
-type SessionLike = {
-  model?: { id: string };
-  sessionFile?: string;
-  sessionName?: string;
-  isStreaming: boolean;
-  messages: unknown[];
-  sessionManager: SessionManagerLike;
-  subscribe: (listener: (event: any) => void) => () => void;
-  prompt: (text: string, options?: Record<string, unknown>) => Promise<void>;
-  abort: () => Promise<void>;
-};
-
-type RuntimeLike = {
-  session: SessionLike;
-  services: {
-    modelRegistry: {
-      getAvailable: () => Array<{ id: string; name: string; provider: string; reasoning: boolean }>;
-    };
-  };
-  dispose: () => Promise<void>;
-};
 
 interface ActiveRequest {
   id: string;
   messageIndex: number;
   currentMessageId?: string;
   lastAssistantMessageId?: string;
+  currentMessageStartedAt?: number;
   aborted: boolean;
 }
 
-const dynamicImport = new Function('specifier', 'return import(specifier)') as (
-  specifier: string,
-) => Promise<unknown>;
-
-function parseArgs(argv: string[]): { sdkPath: string; cwd: string } {
-  let sdkPath = '';
-  let cwd = process.cwd();
-
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index];
-    const value = argv[index + 1];
-    if (arg === '--sdkPath' && value) {
-      sdkPath = value;
-      index += 1;
-      continue;
-    }
-    if (arg === '--cwd' && value) {
-      cwd = value;
-      index += 1;
-    }
-  }
-
-  if (!sdkPath) {
-    throw new Error('Missing required --sdkPath argument.');
-  }
-
-  return { sdkPath, cwd };
+interface SessionContext {
+  runtime: SdkRuntime;
+  session: SdkSession;
+  sessionPath: string;
+  unsubscribe: () => void;
+  activeRequest?: ActiveRequest;
+  /** Per-session monotonic counter for `busy.changed` events. */
+  busySeq: number;
 }
 
 function writeStdout(value: EventEnvelope | ResponseEnvelope): void {
@@ -140,10 +85,8 @@ class BackendServer {
   private readonly startupCwd: string;
   private agentDir = '';
   private authStorage: unknown;
-  private runtime?: RuntimeLike;
-  private session?: SessionLike;
-  private unsubscribe?: () => void;
-  private activeRequest?: ActiveRequest;
+  private viewedSessionPath?: string;
+  private readonly sessionContexts = new Map<string, SessionContext>();
 
   constructor(options: { sdkPath: string; cwd: string }) {
     this.sdkPath = options.sdkPath;
@@ -151,16 +94,15 @@ class BackendServer {
   }
 
   async start(): Promise<void> {
-    this.sdk = await this.loadSdk(this.sdkPath);
+    this.sdk = await loadSdk(this.sdkPath);
     this.agentDir = this.sdk.getAgentDir();
     this.authStorage = this.sdk.AuthStorage.create();
-
-    await this.setActiveSession(this.sdk.SessionManager.continueRecent(this.startupCwd), 'new');
 
     this.emit('backend.ready', {
       sdkPath: this.sdkPath,
       agentDir: this.agentDir,
-      version: this.sdk.VERSION,
+      sdkVersion: this.sdk.VERSION,
+      protocolVersion: PROTOCOL_VERSION,
     });
 
     const detachReader = attachJsonlLineReader(process.stdin, (line) => {
@@ -173,47 +115,42 @@ class BackendServer {
     });
   }
 
-  private async loadSdk(sdkPath: string): Promise<SdkModule> {
-    const entryUrl = pathToFileURL(path.join(sdkPath, 'dist', 'index.js')).href;
-    return (await dynamicImport(entryUrl)) as SdkModule;
-  }
-
   private createRuntimeFactory() {
     return async ({ cwd, agentDir, sessionManager, sessionStartEvent }: any) => {
-      const services = await this.sdk.createAgentSessionServices({
+      const services = (await this.sdk.createAgentSessionServices({
         cwd,
         agentDir,
         authStorage: this.authStorage,
-        resourceLoaderOptions: {
-          noExtensions: true,
-        },
-      });
+        resourceLoaderOptions: {},
+      })) as Record<string, unknown>;
 
-      const created = await this.sdk.createAgentSessionFromServices({
+      const created = (await this.sdk.createAgentSessionFromServices({
         services,
         sessionManager,
         sessionStartEvent,
-      });
+      })) as Record<string, unknown>;
 
       return {
         ...created,
         services,
-        diagnostics: services.diagnostics ?? [],
       };
     };
   }
 
-  private async setActiveSession(sessionManager: any, reason: 'new' | 'resume'): Promise<void> {
-    const previousSessionFile = this.session?.sessionFile;
+  private resolveSessionPath(session: SdkSession): string | undefined {
+    return session.sessionFile ?? session.sessionManager.getSessionFile();
+  }
 
-    this.unsubscribe?.();
-    this.unsubscribe = undefined;
+  private getSessionContext(sessionPath?: string): SessionContext | undefined {
+    return sessionPath ? this.sessionContexts.get(sessionPath) : undefined;
+  }
 
-    if (this.runtime) {
-      await this.runtime.dispose();
-    }
-
-    this.runtime = (await this.sdk.createAgentSessionRuntime(this.createRuntimeFactory(), {
+  private async createSessionContext(
+    sessionManager: SdkSessionManager,
+    reason: 'new' | 'resume',
+  ): Promise<SessionContext> {
+    const previousSessionFile = this.viewedSessionPath;
+    const runtime = await this.sdk.createAgentSessionRuntime(this.createRuntimeFactory(), {
       cwd: sessionManager.getCwd(),
       agentDir: this.agentDir,
       sessionManager,
@@ -224,22 +161,53 @@ class BackendServer {
             previousSessionFile,
           }
         : undefined,
-    })) as RuntimeLike;
-
-    this.session = this.runtime.session;
-    this.activeRequest = undefined;
-
-    this.unsubscribe = this.session.subscribe((event: any) => {
-      this.handleSessionEvent(event);
     });
 
-    await this.emitSessionOpened();
-    await this.emitSessionListChanged();
-    this.emitBusyChanged(this.session.isStreaming);
+    const session = runtime.session;
+    const sessionPath = this.resolveSessionPath(session);
+    if (!sessionPath) {
+      await runtime.dispose();
+      throw new Error('The PI session did not expose a session path.');
+    }
+
+    const existing = this.sessionContexts.get(sessionPath);
+    if (existing) {
+      existing.unsubscribe();
+      await existing.runtime.dispose();
+    }
+
+    const context: SessionContext = {
+      runtime,
+      session,
+      sessionPath,
+      unsubscribe: () => undefined,
+      busySeq: 0,
+    };
+
+    context.unsubscribe = session.subscribe((event: SdkSessionEvent) => {
+      this.handleSessionEvent(context, event);
+    });
+
+    this.sessionContexts.set(sessionPath, context);
+    return context;
   }
 
-  private currentSessionPath(): string | undefined {
-    return this.session?.sessionFile ?? this.session?.sessionManager.getSessionFile();
+  private async ensureSessionContext(sessionPath: string): Promise<SessionContext> {
+    const existing = this.sessionContexts.get(sessionPath);
+    if (existing) {
+      return existing;
+    }
+
+    return await this.createSessionContext(this.sdk.SessionManager.open(sessionPath), 'resume');
+  }
+
+  private getPreferredSessionContext(sessionPath?: string): SessionContext | undefined {
+    const preferred = this.getSessionContext(sessionPath) ?? this.getSessionContext(this.viewedSessionPath);
+    if (preferred) {
+      return preferred;
+    }
+
+    return this.sessionContexts.values().next().value;
   }
 
   private async deriveNameFromFile(filePath: string): Promise<string> {
@@ -275,12 +243,18 @@ class BackendServer {
   }
 
   private async listSessions(): Promise<SessionSummary[]> {
-    const sessions = (await this.sdk.SessionManager.listAll()) as Array<any>;
+    const sessions = await this.sdk.SessionManager.listAll();
     const summaries = await Promise.all(
       sessions.map(async (session) => {
         const summary = summarizeSession(session);
         if (summary.name === 'New Session' && session.path) {
-          summary.name = await this.deriveNameFromFile(session.path);
+          const derived = await this.deriveNameFromFile(session.path);
+          if (derived !== 'New Session') {
+            summary.name = derived;
+            summary.isPlaceholder = false;
+          } else {
+            summary.isPlaceholder = true;
+          }
         }
         return summary;
       }),
@@ -288,51 +262,56 @@ class BackendServer {
     return summaries.sort((left, right) => right.modifiedAt.localeCompare(left.modifiedAt));
   }
 
-  private deriveSessionName(): string {
-    const sdkName = this.session?.sessionName || this.session?.sessionManager.getSessionName();
-    if (sdkName) return sdkName;
+  private deriveSessionName(context: SessionContext): { name: string; isPlaceholder: boolean } {
+    const sdkName = context.session.sessionName || context.session.sessionManager.getSessionName();
+    if (sdkName) return { name: sdkName, isPlaceholder: false };
 
-    // Use the first user message text as the tab name
-    const entries = this.session?.sessionManager.getBranch() ?? [];
+    const entries = context.session.sessionManager.getBranch() ?? [];
     for (const entry of entries) {
       if (entry.type === 'message' && entry.message?.role === 'user') {
         const content = entry.message.content;
         const text = typeof content === 'string'
           ? content
           : Array.isArray(content)
-            ? content.filter((p: any) => p.type === 'text').map((p: any) => p.text ?? '').join('')
+            ? (content as Array<{ type?: string; text?: string }>)
+                .filter((p) => p.type === 'text')
+                .map((p) => p.text ?? '')
+                .join('')
             : '';
         const trimmed = text.replace(/\s+/g, ' ').trim();
         if (trimmed) {
-          return trimmed.length > 40 ? trimmed.slice(0, 40) + '…' : trimmed;
+          const truncated = trimmed.length > 40 ? trimmed.slice(0, 40) + '\u2026' : trimmed;
+          return { name: truncated, isPlaceholder: false };
         }
       }
     }
 
-    return 'New Session';
+    return { name: 'New Session', isPlaceholder: true };
   }
 
-  private buildCurrentSummary(): SessionSummary {
-    const sessionPath = this.currentSessionPath();
-    const messageCount = this.session?.messages.length ?? 0;
+  private buildCurrentSummary(context: SessionContext): SessionSummary {
+    const messageCount = context.session.messages.length ?? 0;
+    const { name, isPlaceholder } = this.deriveSessionName(context);
     return {
-      path: sessionPath ?? '',
-      cwd: this.session?.sessionManager.getCwd() ?? this.startupCwd,
-      name: this.deriveSessionName(),
+      path: context.sessionPath,
+      cwd: context.session.sessionManager.getCwd() ?? this.startupCwd,
+      name,
+      isPlaceholder,
       modifiedAt: new Date().toISOString(),
       messageCount,
-      modelId: this.session?.model?.id,
+      modelId: context.session.model?.id,
     };
   }
 
-  private buildTranscript(): ChatMessage[] {
-    const entries = this.session?.sessionManager.getBranch() ?? [];
+  private buildTranscript(context: SessionContext): ChatMessage[] {
+    const entries = context.session.sessionManager.getBranch() ?? [];
     return mapTranscript(entries);
   }
 
-  private listAvailableModels(): ModelInfo[] {
+  private listAvailableModels(context?: SessionContext): ModelInfo[] {
+    if (!context) return [];
     try {
-      const models = this.runtime?.services?.modelRegistry?.getAvailable() ?? [];
+      const models = context.runtime.services?.modelRegistry?.getAvailable() ?? [];
       return models.map((m) => ({
         id: m.id,
         name: m.name,
@@ -344,15 +323,12 @@ class BackendServer {
     }
   }
 
-  private systemPromptSidecarPath(): string | undefined {
-    const sessionPath = this.currentSessionPath();
+  private systemPromptSidecarPath(sessionPath?: string): string | undefined {
     return sessionPath ? sessionPath + '.prompt.md' : undefined;
   }
 
-  private async readSystemPrompt(): Promise<string | undefined> {
-    // Prefer the snapshot written when the session first started — this is what was
-    // actually in effect during the session, not whatever the file contains today.
-    const sidecar = this.systemPromptSidecarPath();
+  private async readSystemPrompt(sessionPath?: string): Promise<string | undefined> {
+    const sidecar = this.systemPromptSidecarPath(sessionPath);
     if (sidecar) {
       try {
         const snap = await fs.readFile(sidecar, 'utf8');
@@ -367,7 +343,6 @@ class BackendServer {
       try {
         const text = await fs.readFile(path.join(this.agentDir, name), 'utf8');
         if (text.trim()) {
-          // Persist a snapshot so future opens of this session see the same content.
           if (sidecar) {
             await fs.writeFile(sidecar, text, 'utf8').catch(() => undefined);
           }
@@ -407,34 +382,45 @@ class BackendServer {
     return await this.readModelSettings();
   }
 
-  private async emitSessionOpened(): Promise<void> {
-    if (!this.session) {
+  private async emitSessionOpened(sessionPath: string): Promise<void> {
+    if (!this.sessionContexts.has(sessionPath)) {
       return;
     }
 
-    const payload: SessionOpenedPayload = {
-      session: this.buildCurrentSummary(),
-      transcript: this.buildTranscript(),
-      busy: this.session.isStreaming,
-      systemPrompt: await this.readSystemPrompt(),
-      modelSettings: await this.readModelSettings(),
-      availableModels: this.listAvailableModels(),
-    };
+    const payload = await this.buildSessionOpenedPayload(sessionPath);
     this.emit('session.opened', payload);
+  }
+
+  private async buildSessionOpenedPayload(sessionPath: string): Promise<SessionOpenedPayload> {
+    const context = this.getSessionContext(sessionPath);
+    if (!context) {
+      throw new Error(`Unknown session: ${sessionPath}`);
+    }
+
+    return {
+      session: this.buildCurrentSummary(context),
+      transcript: this.buildTranscript(context),
+      busy: context.session.isStreaming,
+      systemPrompt: await this.readSystemPrompt(context.sessionPath),
+      modelSettings: await this.readModelSettings(),
+      availableModels: this.listAvailableModels(context),
+    };
   }
 
   private async emitSessionListChanged(): Promise<void> {
     const payload: SessionListChangedPayload = {
       sessions: await this.listSessions(),
-      activeSessionPath: this.currentSessionPath(),
+      activeSessionPath: this.viewedSessionPath,
     };
     this.emit('session.list.changed', payload);
   }
 
-  private emitBusyChanged(busy: boolean): void {
+  private emitBusyChanged(context: SessionContext, busy: boolean): void {
+    context.busySeq += 1;
     const payload: BusyChangedPayload = {
-      sessionPath: this.currentSessionPath(),
+      sessionPath: context.sessionPath,
       busy,
+      seq: context.busySeq,
     };
     this.emit('busy.changed', payload);
   }
@@ -462,99 +448,133 @@ class BackendServer {
     }
   }
 
-  private async ensureActiveSession(sessionPath?: string): Promise<void> {
-    if (!sessionPath || sessionPath === this.currentSessionPath()) {
-      return;
-    }
-
-    await this.setActiveSession(this.sdk.SessionManager.open(sessionPath), 'resume');
-  }
-
   private async handleRequest(request: RequestEnvelope): Promise<unknown> {
     switch (request.method) {
       case 'app.ping':
         return {
           sdkPath: this.sdkPath,
           agentDir: this.agentDir,
-          version: this.sdk.VERSION,
+          sdkVersion: this.sdk.VERSION,
+          protocolVersion: PROTOCOL_VERSION,
         };
 
       case 'session.list':
         return this.listSessions();
 
       case 'session.create': {
-        const params = (request.params ?? {}) as { cwd?: string };
+        const params = validateSessionCreate(request.params);
         const cwd = params.cwd || this.startupCwd;
-        await this.setActiveSession(this.sdk.SessionManager.create(cwd), 'new');
-        return {
-          session: this.buildCurrentSummary(),
-          transcript: this.buildTranscript(),
-        };
+        const context = await this.createSessionContext(this.sdk.SessionManager.create(cwd), 'new');
+        this.viewedSessionPath = context.sessionPath;
+        await this.emitSessionOpened(context.sessionPath);
+        await this.emitSessionListChanged();
+        this.emitBusyChanged(context, context.session.isStreaming);
+        return await this.buildSessionOpenedPayload(context.sessionPath);
       }
 
       case 'session.open': {
-        const params = (request.params ?? {}) as { sessionPath?: string };
-        if (!params.sessionPath) {
-          throw new Error('session.open requires a sessionPath');
+        const params = validateSessionPath('session.open', request.params);
+        const context = await this.ensureSessionContext(params.sessionPath);
+        this.viewedSessionPath = context.sessionPath;
+        await this.emitSessionOpened(context.sessionPath);
+        await this.emitSessionListChanged();
+        this.emitBusyChanged(context, context.session.isStreaming);
+        return await this.buildSessionOpenedPayload(context.sessionPath);
+      }
+
+      case 'session.truncateAfter': {
+        const params = validateTruncateAfter(request.params);
+
+        const existingCtx = this.getSessionContext(params.sessionPath);
+        if (existingCtx?.activeRequest || existingCtx?.session.isStreaming) {
+          throw new Error('Cannot truncate a session that is currently streaming.');
         }
-        await this.setActiveSession(this.sdk.SessionManager.open(params.sessionPath), 'resume');
-        return {
-          session: this.buildCurrentSummary(),
-          transcript: this.buildTranscript(),
-          busy: this.session?.isStreaming ?? false,
-        };
+
+        // Rewrite the JSONL file, dropping the target entry and everything after it.
+        const raw = await fs.readFile(params.sessionPath, 'utf8');
+        const keepLines: string[] = [];
+        for (const line of raw.split('\n')) {
+          const trimmed = line.trim();
+          if (!trimmed) continue;
+          try {
+            const entry = JSON.parse(trimmed) as { id?: string };
+            if (entry.id === params.entryId) break;
+            keepLines.push(line);
+          } catch {
+            // skip malformed lines
+          }
+        }
+        const newContent = keepLines.length > 0 ? keepLines.join('\n') + '\n' : '';
+        await fs.writeFile(params.sessionPath, newContent, 'utf8');
+
+        // Reload session from the truncated file.
+        const context = await this.createSessionContext(
+          this.sdk.SessionManager.open(params.sessionPath),
+          'resume',
+        );
+        this.viewedSessionPath = context.sessionPath;
+        await this.emitSessionOpened(context.sessionPath);
+        await this.emitSessionListChanged();
+        this.emitBusyChanged(context, false);
+        return await this.buildSessionOpenedPayload(context.sessionPath);
       }
 
       case 'message.send': {
-        const params = (request.params ?? {}) as { sessionPath?: string; text?: string };
-        if (!params.text?.trim()) {
-          throw new Error('message.send requires non-empty text');
-        }
-        if (this.activeRequest || this.session?.isStreaming) {
-          throw new Error('A request is already in progress.');
+        const params = validateMessageSend(request.params);
+        const sessionPath = params.sessionPath ?? this.viewedSessionPath;
+        if (!sessionPath) {
+          throw new Error('message.send requires a sessionPath');
         }
 
-        await this.ensureActiveSession(params.sessionPath);
+        const context = await this.ensureSessionContext(sessionPath);
+        if (context.activeRequest || context.session.isStreaming) {
+          throw new Error('A request is already in progress for this session.');
+        }
 
         const requestId = crypto.randomUUID();
-        this.activeRequest = {
+        context.activeRequest = {
           id: requestId,
           messageIndex: 0,
           aborted: false,
         };
 
-        this.emitBusyChanged(true);
-        void this.session
-          ?.prompt(params.text, { source: 'rpc' })
+        this.emitBusyChanged(context, true);
+        void context.session
+          .prompt(params.text, { source: 'rpc' })
           .catch((error: Error) => {
             this.emit('error', {
               code: 'MESSAGE_SEND_FAILED',
               message: error.message,
               requestId,
             } satisfies ErrorPayload);
-            this.activeRequest = undefined;
-            this.emitBusyChanged(false);
+            context.activeRequest = undefined;
+            this.emitBusyChanged(context, false);
           });
 
         return { requestId };
       }
 
       case 'message.interrupt': {
-        if (this.activeRequest) {
-          this.activeRequest.aborted = true;
+        const params = validateSessionPathOptional(request.params);
+        const sessionPath = params.sessionPath ?? this.viewedSessionPath;
+        const context = sessionPath ? this.getSessionContext(sessionPath) : undefined;
+        if (context?.activeRequest) {
+          context.activeRequest.aborted = true;
         }
-        await this.session?.abort();
+        await context?.session.abort();
         return { interrupted: true };
       }
 
-      case 'models.list':
-        return this.listAvailableModels();
+      case 'models.list': {
+        const params = validateSessionPathOptional(request.params);
+        return this.listAvailableModels(this.getPreferredSessionContext(params.sessionPath));
+      }
 
       case 'settings.get':
         return await this.readModelSettings();
 
       case 'settings.set': {
-        const params = (request.params ?? {}) as Partial<ModelSettings>;
+        const params = validateSettingsSet(request.params);
         return await this.writeModelSettings(params);
       }
 
@@ -563,43 +583,41 @@ class BackendServer {
     }
   }
 
-  private handleSessionEvent(event: any): void {
-    if (!this.session) {
-      return;
-    }
-
+  private handleSessionEvent(context: SessionContext, event: SdkSessionEvent): void {
     switch (event.type) {
       case 'agent_start': {
-        this.emitBusyChanged(true);
+        this.emitBusyChanged(context, true);
         return;
       }
 
       case 'message_start': {
-        if (event.message?.role !== 'assistant' || !this.activeRequest) {
+        if (event.message?.role !== 'assistant' || !context.activeRequest) {
           return;
         }
-        this.activeRequest.messageIndex += 1;
-        this.activeRequest.currentMessageId = `${this.activeRequest.id}:${this.activeRequest.messageIndex}`;
-        this.activeRequest.lastAssistantMessageId = this.activeRequest.currentMessageId;
+        context.activeRequest.messageIndex += 1;
+        context.activeRequest.currentMessageId = `${context.activeRequest.id}:${context.activeRequest.messageIndex}`;
+        context.activeRequest.lastAssistantMessageId = context.activeRequest.currentMessageId;
+        context.activeRequest.currentMessageStartedAt = Date.now();
 
         this.emit('message.started', {
-          requestId: this.activeRequest.id,
-          messageId: this.activeRequest.currentMessageId,
-          sessionPath: this.currentSessionPath(),
+          requestId: context.activeRequest.id,
+          messageId: context.activeRequest.currentMessageId,
+          sessionPath: context.sessionPath,
         } satisfies MessageStartedPayload);
         return;
       }
 
       case 'message_update': {
-        if (event.message?.role !== 'assistant' || !this.activeRequest?.currentMessageId) {
+        if (event.message?.role !== 'assistant' || !context.activeRequest?.currentMessageId) {
           return;
         }
 
         if (event.assistantMessageEvent?.type === 'text_delta') {
           this.emit('message.delta', {
-            requestId: this.activeRequest.id,
-            messageId: this.activeRequest.currentMessageId,
-            delta: event.assistantMessageEvent.delta,
+            requestId: context.activeRequest.id,
+            sessionPath: context.sessionPath,
+            messageId: context.activeRequest.currentMessageId,
+            delta: event.assistantMessageEvent.delta ?? '',
           } satisfies MessageDeltaPayload);
         }
 
@@ -608,8 +626,9 @@ class BackendServer {
             event.assistantMessageEvent.thinking ?? event.assistantMessageEvent.delta ?? '';
           if (thinkingContent) {
             this.emit('message.thinking', {
-              requestId: this.activeRequest.id,
-              messageId: this.activeRequest.currentMessageId,
+              requestId: context.activeRequest.id,
+              sessionPath: context.sessionPath,
+              messageId: context.activeRequest.currentMessageId,
               thinking: thinkingContent,
             } satisfies MessageThinkingPayload);
           }
@@ -618,56 +637,64 @@ class BackendServer {
       }
 
       case 'tool_execution_start': {
-        if (!this.activeRequest || !this.activeRequest.lastAssistantMessageId) {
+        if (!context.activeRequest || !context.activeRequest.lastAssistantMessageId) {
           return;
         }
 
         this.emit('tool.started', {
-          requestId: this.activeRequest.id,
-          messageId: this.activeRequest.lastAssistantMessageId,
-          toolCallId: event.toolCallId,
-          name: event.toolName,
+          requestId: context.activeRequest.id,
+          sessionPath: context.sessionPath,
+          messageId: context.activeRequest.lastAssistantMessageId,
+          toolCallId: event.toolCallId ?? '',
+          name: event.toolName ?? '',
           input: event.args,
         } satisfies ToolStartedPayload);
         return;
       }
 
       case 'tool_execution_end': {
-        if (!this.activeRequest || !this.activeRequest.lastAssistantMessageId) {
+        if (!context.activeRequest || !context.activeRequest.lastAssistantMessageId) {
           return;
         }
 
         this.emit('tool.finished', {
-          requestId: this.activeRequest.id,
-          messageId: this.activeRequest.lastAssistantMessageId,
-          toolCallId: event.toolCallId,
+          requestId: context.activeRequest.id,
+          sessionPath: context.sessionPath,
+          messageId: context.activeRequest.lastAssistantMessageId,
+          toolCallId: event.toolCallId ?? '',
           result: event.result,
         } satisfies ToolFinishedPayload);
         return;
       }
 
       case 'message_end': {
-        if (event.message?.role !== 'assistant' || !this.activeRequest) {
+        if (event.message?.role !== 'assistant' || !context.activeRequest) {
           return;
         }
 
         const messageId =
-          this.activeRequest.currentMessageId ??
-          this.activeRequest.lastAssistantMessageId ??
-          `${this.activeRequest.id}:${this.activeRequest.messageIndex + 1}`;
+          context.activeRequest.currentMessageId ??
+          context.activeRequest.lastAssistantMessageId ??
+          `${context.activeRequest.id}:${context.activeRequest.messageIndex + 1}`;
 
-        this.activeRequest.lastAssistantMessageId = messageId;
-        this.activeRequest.currentMessageId = undefined;
+        context.activeRequest.lastAssistantMessageId = messageId;
+        context.activeRequest.currentMessageId = undefined;
 
-        const message = mapAssistantMessage(messageId, event.message);
+        const durationMs = context.activeRequest.currentMessageStartedAt !== undefined
+          ? Date.now() - context.activeRequest.currentMessageStartedAt
+          : undefined;
+        context.activeRequest.currentMessageStartedAt = undefined;
+        const message = mapAssistantMessage(messageId, event.message as any, durationMs);
         this.emit('message.finished', {
-          requestId: this.activeRequest.id,
+          requestId: context.activeRequest.id,
+          sessionPath: context.sessionPath,
           message,
         } satisfies MessageFinishedPayload);
 
         if (message.status === 'interrupted') {
           this.emit('message.aborted', {
-            requestId: this.activeRequest.id,
+            requestId: context.activeRequest.id,
+            sessionPath: context.sessionPath,
             messageId,
           } satisfies MessageAbortedPayload);
         }
@@ -675,22 +702,23 @@ class BackendServer {
       }
 
       case 'agent_end': {
-        const requestId = this.activeRequest?.id;
-        const messageId = this.activeRequest?.lastAssistantMessageId;
-        const abortedWithoutMessage = this.activeRequest?.aborted && !messageId;
+        const requestId = context.activeRequest?.id;
+        const messageId = context.activeRequest?.lastAssistantMessageId;
+        const abortedWithoutMessage = context.activeRequest?.aborted && !messageId;
 
-        this.emitBusyChanged(false);
+        this.emitBusyChanged(context, false);
 
-        void this.emitSessionOpened();
+        void this.emitSessionOpened(context.sessionPath);
         void this.emitSessionListChanged();
 
         if (requestId && abortedWithoutMessage) {
           this.emit('message.aborted', {
             requestId,
+            sessionPath: context.sessionPath,
           } satisfies MessageAbortedPayload);
         }
 
-        this.activeRequest = undefined;
+        context.activeRequest = undefined;
         return;
       }
 
@@ -700,9 +728,13 @@ class BackendServer {
   }
 
   async dispose(): Promise<void> {
-    this.unsubscribe?.();
-    this.unsubscribe = undefined;
-    await this.runtime?.dispose();
+    const contexts = [...this.sessionContexts.values()];
+    this.sessionContexts.clear();
+
+    for (const context of contexts) {
+      context.unsubscribe();
+      await context.runtime.dispose();
+    }
   }
 }
 

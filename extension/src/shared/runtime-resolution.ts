@@ -153,7 +153,3 @@ export async function resolveSdkPath(options: ResolveSdkPathOptions): Promise<st
 
   return sdkPath;
 }
-
-export function getSdkCliPath(sdkPath: string): string {
-  return path.join(sdkPath, 'dist', 'cli.js');
-}

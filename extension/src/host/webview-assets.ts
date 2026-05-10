@@ -8,7 +8,7 @@ export async function renderWebviewHtml(
   context: vscode.ExtensionContext,
   webview: vscode.Webview,
 ): Promise<string> {
-  const viewName = 'sidebar';
+  const viewName = 'panel';
   const baseDir = path.join(context.extensionPath, 'out', 'webview', viewName);
   const nonce = crypto.randomBytes(16).toString('hex');
   const html = await fs.readFile(path.join(baseDir, 'index.html'), 'utf8');
@@ -24,6 +24,6 @@ export async function renderWebviewHtml(
 }
 
 export function getWebviewRoots(context: vscode.ExtensionContext): vscode.Uri[] {
-  const viewName = 'sidebar';
+  const viewName = 'panel';
   return [vscode.Uri.joinPath(context.extensionUri, 'out', 'webview', viewName)];
 }

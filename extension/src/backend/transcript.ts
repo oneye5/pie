@@ -38,7 +38,7 @@ interface MessageLike {
   errorMessage?: string;
 }
 
-export interface SessionInfoLike {
+interface SessionInfoLike {
   path: string;
   cwd: string;
   name?: string;
@@ -140,18 +140,25 @@ function systemMessage(id: string, createdAt: string, markdown: string): ChatMes
 }
 
 export function summarizeSession(info: SessionInfoLike, modelId?: string): SessionSummary {
+  const hasName = !!info.name;
   return {
     path: info.path,
     cwd: info.cwd,
-    name: info.name || 'New Session',
+    name: hasName ? info.name! : 'New Session',
+    isPlaceholder: !hasName,
     modifiedAt: info.modified.toISOString(),
     messageCount: info.messageCount,
     modelId,
   };
 }
 
-export function mapAssistantMessage(messageId: string, message: MessageLike): ChatMessage {
+export function mapAssistantMessage(messageId: string, message: MessageLike, durationMs?: number): ChatMessage {
   const parts = Array.isArray(message.content) ? message.content : undefined;
+  const rawToolCalls = toolCallsFromParts(parts);
+  // toolCallsFromParts always emits 'running'; clamp to 'completed' for finished messages.
+  const toolCalls = rawToolCalls?.map((tc) =>
+    tc.status === 'running' ? { ...tc, status: 'completed' as const } : tc,
+  );
   return {
     id: messageId,
     role: 'assistant',
@@ -159,7 +166,8 @@ export function mapAssistantMessage(messageId: string, message: MessageLike): Ch
     markdown: textFromParts(parts),
     thinking: thinkingFromParts(parts),
     status: assistantStatus(message),
-    toolCalls: toolCallsFromParts(parts),
+    toolCalls,
+    durationMs,
   };
 }
 
@@ -187,18 +195,48 @@ export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
       }
 
       if (message.role === 'assistant') {
-        currentAssistant = {
-          id: entry.id,
-          role: 'assistant',
-          createdAt: isoDate(entry.timestamp, message.timestamp),
-          markdown: Array.isArray(message.content) ? textFromParts(message.content) : '',
-          thinking: Array.isArray(message.content) ? thinkingFromParts(message.content) : undefined,
-          status: assistantStatus(message),
-          toolCalls: Array.isArray(message.content)
-            ? toolCallsFromParts(message.content)
-            : undefined,
-        };
-        transcript.push(currentAssistant);
+        const parts = Array.isArray(message.content) ? message.content : undefined;
+        const entryTs = new Date(entry.timestamp).getTime();
+        const durationMs = typeof message.timestamp === 'number' && entryTs > message.timestamp
+          ? entryTs - message.timestamp
+          : undefined;
+
+        if (currentAssistant) {
+          // Merge continuation turn into the existing assistant message bubble.
+          const newText = parts ? textFromParts(parts) : '';
+          const newThinking = parts ? thinkingFromParts(parts) : undefined;
+          const newToolCalls = parts ? toolCallsFromParts(parts) : undefined;
+
+          if (newThinking) {
+            currentAssistant.thinking = currentAssistant.thinking
+              ? `${currentAssistant.thinking}\n\n${newThinking}`
+              : newThinking;
+          }
+          if (newText) {
+            currentAssistant.markdown = currentAssistant.markdown
+              ? `${currentAssistant.markdown}\n\n${newText}`
+              : newText;
+          }
+          if (newToolCalls) {
+            currentAssistant.toolCalls = [...(currentAssistant.toolCalls ?? []), ...newToolCalls];
+          }
+          currentAssistant.status = assistantStatus(message);
+          if (durationMs !== undefined) {
+            currentAssistant.durationMs = (currentAssistant.durationMs ?? 0) + durationMs;
+          }
+        } else {
+          currentAssistant = {
+            id: entry.id,
+            role: 'assistant',
+            createdAt: isoDate(entry.timestamp, message.timestamp),
+            markdown: parts ? textFromParts(parts) : '',
+            thinking: parts ? thinkingFromParts(parts) : undefined,
+            status: assistantStatus(message),
+            toolCalls: parts ? toolCallsFromParts(parts) : undefined,
+            durationMs,
+          };
+          transcript.push(currentAssistant);
+        }
         continue;
       }
 

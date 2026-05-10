@@ -1,3 +1,10 @@
+/**
+ * Wire-protocol version. Bump when changing event/payload shapes between the
+ * extension host and the backend process. The host refuses to start the backend
+ * unless the values match.
+ */
+export const PROTOCOL_VERSION = 1;
+
 export interface RequestEnvelope<TParams = unknown> {
   id: string;
   method: string;
@@ -46,6 +53,12 @@ export interface SessionSummary {
   modifiedAt: string;
   messageCount: number;
   modelId?: string;
+  /**
+   * True when `name` is a backend-generated placeholder (not a user-meaningful
+   * label). Lets the host preserve a real local name on top of placeholder
+   * refreshes without resorting to string-content heuristics.
+   */
+  isPlaceholder?: boolean;
 }
 
 export interface ToolCall {
@@ -65,12 +78,17 @@ export interface ChatMessage {
   thinking?: string;
   status: 'streaming' | 'completed' | 'interrupted' | 'error';
   toolCalls?: ToolCall[];
+  /** How long the response took to complete, in milliseconds. Only set on finished assistant messages. */
+  durationMs?: number;
 }
 
 export interface BackendReadyPayload {
   sdkPath: string;
   agentDir: string;
-  version: string;
+  /** Version string of the loaded `@mariozechner/pi-coding-agent` SDK. */
+  sdkVersion: string;
+  /** Wire protocol version. Must match `PROTOCOL_VERSION` in the host. */
+  protocolVersion: number;
 }
 
 export interface SessionOpenedPayload {
@@ -95,18 +113,21 @@ export interface MessageStartedPayload {
 
 export interface MessageDeltaPayload {
   requestId: string;
+  sessionPath?: string;
   messageId: string;
   delta: string;
 }
 
 export interface MessageThinkingPayload {
   requestId: string;
+  sessionPath?: string;
   messageId: string;
   thinking: string;
 }
 
 export interface ToolStartedPayload {
   requestId: string;
+  sessionPath?: string;
   messageId: string;
   toolCallId: string;
   name: string;
@@ -115,6 +136,7 @@ export interface ToolStartedPayload {
 
 export interface ToolFinishedPayload {
   requestId: string;
+  sessionPath?: string;
   messageId: string;
   toolCallId: string;
   result: unknown;
@@ -122,17 +144,24 @@ export interface ToolFinishedPayload {
 
 export interface MessageFinishedPayload {
   requestId: string;
+  sessionPath?: string;
   message: ChatMessage;
 }
 
 export interface MessageAbortedPayload {
   requestId: string;
+  sessionPath?: string;
   messageId?: string;
 }
 
 export interface BusyChangedPayload {
   sessionPath?: string;
   busy: boolean;
+  /**
+   * Monotonic per-session sequence number. The host drops out-of-order events
+   * for a session (e.g. a stale `busy=false` arriving after an optimistic set).
+   */
+  seq?: number;
 }
 
 export interface ErrorPayload {
@@ -149,22 +178,80 @@ export function isResponseEnvelope(value: unknown): value is ResponseEnvelope {
   return !!value && typeof value === 'object' && 'id' in value && 'ok' in value;
 }
 
-// Known common models grouped by provider for the UI picker.
-// Extend this list as needed; the user can also type a custom model ID.
-export const KNOWN_MODELS: { id: string; label: string; provider: string; thinking: boolean }[] = [
-  // GitHub Copilot
-  { id: 'gpt-5.4-mini',           label: 'GPT-5.4 mini',       provider: 'github-copilot', thinking: false },
-  { id: 'gpt-4.5',                label: 'GPT-4.5',             provider: 'github-copilot', thinking: false },
-  { id: 'claude-sonnet-4-5',      label: 'Claude Sonnet 4.5',  provider: 'github-copilot', thinking: true },
-  { id: 'claude-opus-4-5',        label: 'Claude Opus 4.5',    provider: 'github-copilot', thinking: true },
-  { id: 'o4-mini',                label: 'o4-mini',             provider: 'github-copilot', thinking: true },
-  { id: 'o3',                     label: 'o3',                  provider: 'github-copilot', thinking: true },
-  // Anthropic direct
-  { id: 'claude-opus-4-5',        label: 'Claude Opus 4.5',    provider: 'anthropic', thinking: true },
-  { id: 'claude-sonnet-4-5',      label: 'Claude Sonnet 4.5',  provider: 'anthropic', thinking: true },
-  { id: 'claude-haiku-3-5',       label: 'Claude Haiku 3.5',   provider: 'anthropic', thinking: false },
-  // OpenAI direct
-  { id: 'gpt-4o',                 label: 'GPT-4o',              provider: 'openai', thinking: false },
-  { id: 'o3',                     label: 'o3',                  provider: 'openai', thinking: true },
-  { id: 'o4-mini',                label: 'o4-mini',             provider: 'openai', thinking: true },
-];
+/** A targeted patch sent for high-frequency streaming updates between full state snapshots. */
+export type PatchOp =
+  | { kind: 'messageDelta'; messageId: string; delta: string }
+  | { kind: 'messageThinking'; messageId: string; thinking: string }
+  | { kind: 'toolCall'; messageId: string; toolCall: ToolCall }
+  | { kind: 'clearOverlay'; messageIds?: string[] };
+
+/** Webview-local UI preferences. Owned by the host so they survive teardown. */
+export interface ChatPrefs {
+  autoExpandReasoning: boolean;
+  autoExpandToolCalls: boolean;
+}
+
+export const DEFAULT_CHAT_PREFS: ChatPrefs = {
+  autoExpandReasoning: false,
+  autoExpandToolCalls: false,
+};
+
+/** The full view state sent from the extension host to the webview. */
+export interface ViewState {
+  sessions: SessionSummary[];
+  openTabPaths: string[];
+  runningSessionPaths: string[];
+  activeSession: SessionSummary | null;
+  transcript: ChatMessage[];
+  busy: boolean;
+  notice: string | null;
+  /** True once the backend process has started and emitted `backend.ready`. */
+  backendReady: boolean;
+  workspaceCwd: string | null;
+  systemPrompt: string | null;
+  modelSettings: ModelSettings | null;
+  availableModels: ModelInfo[];
+  prefs: ChatPrefs;
+}
+
+// ─── Host ↔ webview envelopes ────────────────────────────────────────────────
+
+/**
+ * Envelope sent from the extension host to the webview. Both messages carry
+ * `hostInstanceId` so the webview can detect a host-side counter reset (e.g.
+ * the view is re-resolved) and rebase its `lastRevision` rather than entering
+ * a perpetual gap-detection loop.
+ */
+export type HostToWebviewMessage =
+  | {
+      type: 'state';
+      hostInstanceId: string;
+      revision: number;
+      state: ViewState;
+    }
+  | {
+      type: 'patch';
+      hostInstanceId: string;
+      revision: number;
+      op: PatchOp;
+    }
+  | { type: 'filePickerResult'; paths: string[] };
+
+/** Messages the webview can send back to the host. */
+export type WebviewToHostMessage =
+  | { type: 'ready' }
+  | { type: 'refreshState' }
+  | { type: 'requestSnapshot' }
+  | { type: 'openFilePicker' }
+  | { type: 'send'; text: string }
+  | { type: 'editMessage'; messageId: string; text: string }
+  | { type: 'interrupt' }
+  | { type: 'newSession' }
+  | { type: 'openSession'; sessionPath: string }
+  | { type: 'closeSession'; sessionPath: string }
+  | {
+      type: 'setModel';
+      defaultModel: string;
+      defaultThinkingLevel: ThinkingLevel;
+    }
+  | { type: 'setPrefs'; prefs: Partial<ChatPrefs> };
