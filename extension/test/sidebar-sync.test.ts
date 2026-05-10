@@ -19,9 +19,10 @@ const baseViewState: ViewState = {
   notice: null,
   backendReady: true,
   workspaceCwd: '/workspace',
-  systemPrompt: null,
+  systemPrompts: [],
   modelSettings: null,
   availableModels: [],
+  contextUsage: null,
   prefs: DEFAULT_CHAT_PREFS,
 };
 
@@ -45,7 +46,9 @@ test('flushDirtySnapshot posts a full state snapshot once the view is visible ag
   const result = flushDirtySnapshot(syncState, baseViewState, true);
 
   assert.equal(result.message?.type, 'state');
-  assert.equal(result.message?.revision, 1);
+  if (result.message?.type === 'state') {
+    assert.equal(result.message.revision, 1);
+  }
   assert.equal(result.nextSyncState.dirty, false);
   assert.equal(result.nextSyncState.revision, 1);
 });
@@ -56,7 +59,9 @@ test('buildStateEnvelope clears dirty state and advances revision when posted', 
   const result = buildStateEnvelope(syncState, baseViewState, true);
 
   assert.equal(result.message?.type, 'state');
-  assert.equal(result.message?.revision, 4);
+  if (result.message?.type === 'state') {
+    assert.equal(result.message.revision, 4);
+  }
   assert.equal(result.nextSyncState.dirty, false);
   assert.equal(result.nextSyncState.revision, 4);
 });

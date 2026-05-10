@@ -1,44 +1,86 @@
-import type { PatchOp } from '../../shared/protocol';
+import type { ChatMessagePart, PatchOp, ToolCall } from '../../shared/protocol';
 
 export interface Overlay {
-  deltaByMessage: Map<string, string>;
-  thinkingByMessage: Map<string, string>;
+  partsByMessage: Map<string, ChatMessagePart[]>;
 }
 
 export function emptyOverlay(): Overlay {
-  return { deltaByMessage: new Map(), thinkingByMessage: new Map() };
+  return { partsByMessage: new Map() };
+}
+
+function cloneToolCall(toolCall: ToolCall): ToolCall {
+  return { ...toolCall };
+}
+
+function clonePart(part: ChatMessagePart): ChatMessagePart {
+  if (part.kind === 'toolCall') {
+    return { kind: 'toolCall', toolCall: cloneToolCall(part.toolCall) };
+  }
+
+  return { kind: part.kind, text: part.text };
+}
+
+function appendTextPart(parts: ChatMessagePart[], kind: 'text' | 'reasoning', text: string): void {
+  if (!text) {
+    return;
+  }
+
+  const last = parts[parts.length - 1];
+  if (last?.kind === kind) {
+    last.text += text;
+    return;
+  }
+
+  parts.push({ kind, text });
+}
+
+function upsertToolCallPart(parts: ChatMessagePart[], toolCall: ToolCall): void {
+  const nextToolCall = cloneToolCall(toolCall);
+  const index = parts.findIndex(
+    (part) => part.kind === 'toolCall' && part.toolCall.id === nextToolCall.id,
+  );
+  if (index === -1) {
+    parts.push({ kind: 'toolCall', toolCall: nextToolCall });
+    return;
+  }
+
+  parts[index] = { kind: 'toolCall', toolCall: nextToolCall };
 }
 
 export function applyPatch(overlay: Overlay, op: PatchOp): Overlay {
   const next: Overlay = {
-    deltaByMessage: new Map(overlay.deltaByMessage),
-    thinkingByMessage: new Map(overlay.thinkingByMessage),
+    partsByMessage: new Map(overlay.partsByMessage),
   };
 
   switch (op.kind) {
     case 'messageDelta': {
-      const prev = next.deltaByMessage.get(op.messageId) ?? '';
-      next.deltaByMessage.set(op.messageId, prev + op.delta);
+      const currentParts = next.partsByMessage.get(op.messageId) ?? [];
+      const messageParts = currentParts.map(clonePart);
+      appendTextPart(messageParts, 'text', op.delta);
+      next.partsByMessage.set(op.messageId, messageParts);
       break;
     }
     case 'messageThinking': {
-      const prev = next.thinkingByMessage.get(op.messageId) ?? '';
-      next.thinkingByMessage.set(op.messageId, prev + op.thinking);
+      const currentParts = next.partsByMessage.get(op.messageId) ?? [];
+      const messageParts = currentParts.map(clonePart);
+      appendTextPart(messageParts, 'reasoning', op.thinking);
+      next.partsByMessage.set(op.messageId, messageParts);
       break;
     }
     case 'toolCall': {
-      // Tool call updates arrive via store snapshot; overlay doesn't track them.
+      const currentParts = next.partsByMessage.get(op.messageId) ?? [];
+      const messageParts = currentParts.map(clonePart);
+      upsertToolCallPart(messageParts, op.toolCall);
+      next.partsByMessage.set(op.messageId, messageParts);
       break;
     }
     case 'clearOverlay': {
       if (op.messageIds) {
         for (const id of op.messageIds) {
-          next.deltaByMessage.delete(id);
-          next.thinkingByMessage.delete(id);
+          next.partsByMessage.delete(id);
         }
       } else {
-        next.deltaByMessage.clear();
-        next.thinkingByMessage.clear();
+        next.partsByMessage.clear();
       }
       break;
     }

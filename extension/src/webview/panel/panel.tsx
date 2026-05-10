@@ -44,9 +44,10 @@ const EMPTY_VIEW_STATE: ViewState = {
   notice: null,
   backendReady: false,
   workspaceCwd: null,
-  systemPrompt: null,
+  systemPrompts: [],
   modelSettings: null,
   availableModels: [],
+  contextUsage: null,
   prefs: { autoExpandReasoning: false, autoExpandToolCalls: false },
 };
 
@@ -261,6 +262,7 @@ function App() {
   const handleCancelEdit = useCallback(() => setEditingId(null), []);
   const handleInterrupt = useCallback(() => postMessage({ type: 'interrupt' }), []);
   const handleOpenFilePicker = useCallback(() => postMessage({ type: 'openFilePicker' }), []);
+  const handleOpenFile = useCallback((path: string) => postMessage({ type: 'openFile', path }), []);
   const handleNewSession = useCallback(() => postMessage({ type: 'newSession' }), []);
   const handleSelectTab = useCallback((path: string) => postMessage({ type: 'openSession', sessionPath: path }), []);
   const handleCloseTab = useCallback((path: string) => postMessage({ type: 'closeSession', sessionPath: path }), []);
@@ -283,7 +285,7 @@ function App() {
 
   const {
     sessions, openTabPaths, runningSessionPaths, activeSession,
-    transcript, busy, notice, backendReady, modelSettings, availableModels, prefs, systemPrompt,
+    transcript, busy, notice, backendReady, workspaceCwd, modelSettings, availableModels, contextUsage, prefs, systemPrompts,
   } = viewState;
 
   const hasActiveTabs = openTabPaths.length > 0;
@@ -336,11 +338,13 @@ function App() {
             busy={busy}
             overlay={overlay}
             prefs={prefs}
-            systemPrompt={systemPrompt}
+            systemPrompts={systemPrompts}
+            workingDirectory={activeSession?.cwd ?? workspaceCwd}
             editingId={editingId}
             onEditRequest={handleEditRequest}
             onEditConfirm={handleEditSend}
             onEditCancel={handleCancelEdit}
+            onOpenFile={handleOpenFile}
             onContextMenu={handleOpenContextMenu}
           />
         )}
@@ -351,6 +355,9 @@ function App() {
           busy={busy}
           modelSettings={modelSettings}
           availableModels={availableModels}
+          contextUsage={contextUsage}
+          systemPrompts={systemPrompts}
+          transcript={transcript}
           draftRestore={draftRestore}
           pendingPaths={pendingPaths}
           focusTrigger={activeSession?.path}
@@ -371,4 +378,3 @@ const container = document.getElementById('app');
 if (container) {
   render(<App />, container);
 }
-

@@ -43,7 +43,7 @@ export interface SdkSessionManager {
 }
 
 export interface SdkSession {
-  model?: { id: string };
+  model?: { id: string; contextWindow?: number; maxTokens?: number };
   sessionFile?: string;
   sessionName?: string;
   isStreaming: boolean;
@@ -54,15 +54,53 @@ export interface SdkSession {
   abort: () => Promise<void>;
   setModel?: (model: unknown) => Promise<void>;
   setThinkingLevel?: (level: string) => void;
+  getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
+}
+
+export interface SdkContextFile {
+  path: string;
+  content: string;
+}
+
+export interface SdkSkill {
+  name: string;
+  description: string;
+  filePath: string;
+  baseDir: string;
+  sourceInfo: unknown;
+  disableModelInvocation: boolean;
+}
+
+export interface SdkBuildSystemPromptOptions {
+  cwd: string;
+  customPrompt?: string;
+  selectedTools?: string[];
+  toolSnippets?: Record<string, string>;
+  promptGuidelines?: string[];
+  appendSystemPrompt?: string;
+  contextFiles?: SdkContextFile[];
+  skills?: SdkSkill[];
+}
+
+export interface SdkSystemPromptModule {
+  buildSystemPrompt: (options: SdkBuildSystemPromptOptions) => string;
 }
 
 export interface SdkRuntime {
   session: SdkSession;
   services: {
     modelRegistry: {
-      getAvailable: () => Array<{ id: string; name: string; provider: string; reasoning: boolean }>;
+      getAvailable: () => Array<{
+        id: string;
+        name: string;
+        provider: string;
+        reasoning: boolean;
+        contextWindow?: number;
+        maxTokens?: number;
+      }>;
       find: (provider: string, modelId: string) => unknown;
     };
+    resourceLoader?: unknown;
     diagnostics?: unknown[];
   };
   dispose: () => Promise<void>;
@@ -79,6 +117,7 @@ export interface SdkSessionInfo {
 export interface SdkModule {
   VERSION: string;
   getAgentDir: () => string;
+  formatSkillsForPrompt?: (skills: SdkSkill[]) => string;
   AuthStorage: {
     create: (filePath?: string) => unknown;
   };
@@ -124,13 +163,17 @@ function isPathAllowed(sdkPath: string): boolean {
   });
 }
 
-export async function loadSdk(sdkPath: string): Promise<SdkModule> {
+function assertAllowedSdkPath(sdkPath: string): void {
   if (!isPathAllowed(sdkPath)) {
     throw new Error(
       `Refusing to load SDK from disallowed path: ${sdkPath}. ` +
         `Set piAssistant.sdkPath to a directory under your user profile or system program directories.`,
     );
   }
+}
+
+export async function loadSdk(sdkPath: string): Promise<SdkModule> {
+  assertAllowedSdkPath(sdkPath);
 
   const entryUrl = pathToFileURL(path.join(sdkPath, 'dist', 'index.js')).href;
   const mod = (await dynamicImport(entryUrl)) as Partial<SdkModule>;
@@ -147,4 +190,13 @@ export async function loadSdk(sdkPath: string): Promise<SdkModule> {
   }
 
   return mod as SdkModule;
+}
+
+export async function loadSdkInternalModule<TModule>(
+  sdkPath: string,
+  relativePath: string,
+): Promise<TModule> {
+  assertAllowedSdkPath(sdkPath);
+  const entryUrl = pathToFileURL(path.join(sdkPath, 'dist', relativePath)).href;
+  return (await dynamicImport(entryUrl)) as TModule;
 }

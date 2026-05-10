@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.73.0",
   "defaultProvider": "github-copilot",
-  "defaultModel": "grok-code-fast-1",
-  "defaultThinkingLevel": "high",
+  "defaultModel": "gpt-5.4",
+  "defaultThinkingLevel": "xhigh",
   "packages": [
     "https://github.com/anthropics/skills",
     "https://github.com/obra/superpowers",

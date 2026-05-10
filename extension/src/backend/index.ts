@@ -7,6 +7,7 @@ import {
   PROTOCOL_VERSION,
   type BusyChangedPayload,
   type ChatMessage,
+  type ContextWindowUsage,
   type ErrorPayload,
   type EventEnvelope,
   type MessageAbortedPayload,
@@ -20,6 +21,7 @@ import {
   type ResponseEnvelope,
   type SessionListChangedPayload,
   type SessionOpenedPayload,
+  type SystemPromptEntry,
   type SessionSummary,
   type ThinkingLevel,
   type ToolFinishedPayload,
@@ -36,7 +38,19 @@ import {
   validateSettingsSet,
   validateTruncateAfter,
 } from './rpc';
-import { loadSdk, type SdkModule, type SdkRuntime, type SdkSession, type SdkSessionEvent, type SdkSessionManager } from './sdk';
+import {
+  loadSdk,
+  loadSdkInternalModule,
+  type SdkBuildSystemPromptOptions,
+  type SdkContextFile,
+  type SdkModule,
+  type SdkRuntime,
+  type SdkSession,
+  type SdkSessionEvent,
+  type SdkSessionManager,
+  type SdkSkill,
+  type SdkSystemPromptModule,
+} from './sdk';
 import { mapAssistantMessage, mapTranscript, summarizeSession, type SessionEntryLike } from './transcript';
 
 interface ActiveRequest {
@@ -81,6 +95,38 @@ function responseError(id: string, code: string, message: string, data?: unknown
   return { id, ok: false, error: { code, message, data } };
 }
 
+function summarizePrompt(text: string): string {
+  const stripped = text
+    .replace(/\*\*?(.*?)\*\*?/g, '$1')
+    .replace(/`{1,3}[^`]*`{1,3}/g, '')
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return stripped.length > 80 ? stripped.slice(0, 80) + '...' : stripped;
+}
+
+function normalizePromptText(text: string | undefined): string | undefined {
+  const trimmed = text?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+function toDisplayPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/');
+}
+
+const PROVIDER_SYSTEM_PROMPT: SystemPromptEntry = {
+  source: 'provider',
+  title: 'Provider system prompt',
+  summary: 'Unknown',
+  text: 'Unknown.\n\nThe upstream GitHub Copilot provider prompt is not exposed to this extension.',
+  availability: 'unknown',
+};
+
+interface SessionPromptState {
+  _baseSystemPrompt?: string;
+  _baseSystemPromptOptions?: SdkBuildSystemPromptOptions;
+}
+
 class BackendServer {
   private sdk!: SdkModule;
   private readonly sdkPath: string;
@@ -89,6 +135,7 @@ class BackendServer {
   private authStorage: unknown;
   private viewedSessionPath?: string;
   private readonly sessionContexts = new Map<string, SessionContext>();
+  private systemPromptModulePromise?: Promise<SdkSystemPromptModule>;
 
   constructor(options: { sdkPath: string; cwd: string }) {
     this.sdkPath = options.sdkPath;
@@ -319,42 +366,128 @@ class BackendServer {
         name: m.name,
         provider: m.provider,
         reasoning: m.reasoning,
+        contextWindow: m.contextWindow,
+        maxTokens: m.maxTokens,
       }));
     } catch {
       return [];
     }
   }
 
-  private systemPromptSidecarPath(sessionPath?: string): string | undefined {
-    return sessionPath ? sessionPath + '.prompt.md' : undefined;
+  private getContextUsage(context: SessionContext): ContextWindowUsage | undefined {
+    return context.session.getContextUsage?.();
   }
 
-  private async readSystemPrompt(sessionPath?: string): Promise<string | undefined> {
-    const sidecar = this.systemPromptSidecarPath(sessionPath);
-    if (sidecar) {
-      try {
-        const snap = await fs.readFile(sidecar, 'utf8');
-        if (snap.trim()) return snap.trim();
-      } catch {
-        // sidecar not written yet — fall through to read live file and create it
+  private async getSystemPromptModule(): Promise<SdkSystemPromptModule> {
+    this.systemPromptModulePromise ??= loadSdkInternalModule<SdkSystemPromptModule>(
+      this.sdkPath,
+      path.join('core', 'system-prompt.js'),
+    );
+    return await this.systemPromptModulePromise;
+  }
+
+  private getSessionPromptState(context: SessionContext): SessionPromptState {
+    return context.session as SdkSession & SessionPromptState;
+  }
+
+  private async readHarnessSystemPrompt(context: SessionContext): Promise<string | undefined> {
+    const promptState = this.getSessionPromptState(context);
+    const options = promptState._baseSystemPromptOptions;
+    if (!options) {
+      return normalizePromptText(promptState._baseSystemPrompt);
+    }
+
+    try {
+      const { buildSystemPrompt } = await this.getSystemPromptModule();
+      return normalizePromptText(buildSystemPrompt({
+        cwd: options.cwd,
+        selectedTools: options.selectedTools,
+        toolSnippets: options.toolSnippets,
+        promptGuidelines: options.promptGuidelines,
+      }));
+    } catch {
+      return normalizePromptText(promptState._baseSystemPrompt);
+    }
+  }
+
+  private buildUserPromptSections(options?: SdkBuildSystemPromptOptions): string | undefined {
+    if (!options) {
+      return undefined;
+    }
+
+    const sections: string[] = [];
+    const customPrompt = normalizePromptText(options.customPrompt);
+    if (customPrompt) {
+      sections.push(`## System prompt override\n\n${customPrompt}`);
+    }
+
+    const appendSystemPrompt = normalizePromptText(options.appendSystemPrompt);
+    if (appendSystemPrompt) {
+      sections.push(`## Appended system prompt\n\n${appendSystemPrompt}`);
+    }
+
+    for (const contextFile of options.contextFiles ?? []) {
+      const content = normalizePromptText(contextFile.content);
+      if (!content) {
+        continue;
+      }
+      sections.push(`## ${toDisplayPath(contextFile.path)}\n\n${content}`);
+    }
+
+    if (typeof this.sdk.formatSkillsForPrompt === 'function' && (options.skills?.length ?? 0) > 0) {
+      const formattedSkills = normalizePromptText(this.sdk.formatSkillsForPrompt(options.skills as SdkSkill[]));
+      if (formattedSkills) {
+        sections.push(`## Skills\n\n${formattedSkills}`);
       }
     }
 
-    const candidates = ['AGENTS.md', 'agents/AGENTS.md', '.pi/AGENTS.md', 'system-prompt.md'];
-    for (const name of candidates) {
-      try {
-        const text = await fs.readFile(path.join(this.agentDir, name), 'utf8');
-        if (text.trim()) {
-          if (sidecar) {
-            await fs.writeFile(sidecar, text, 'utf8').catch(() => undefined);
+    return sections.length > 0 ? sections.join('\n\n---\n\n') : undefined;
+  }
+
+  private async buildSystemPrompts(context: SessionContext): Promise<SystemPromptEntry[]> {
+    const promptState = this.getSessionPromptState(context);
+    const userPrompt = this.buildUserPromptSections(promptState._baseSystemPromptOptions);
+    const harnessPrompt = await this.readHarnessSystemPrompt(context);
+
+    const entries: SystemPromptEntry[] = [PROVIDER_SYSTEM_PROMPT];
+
+    entries.push(
+      harnessPrompt
+        ? {
+            source: 'harness',
+            title: 'Harness system prompt',
+            summary: summarizePrompt(harnessPrompt),
+            text: harnessPrompt,
+            availability: 'available',
           }
-          return text.trim();
-        }
-      } catch {
-        // not found, try next
-      }
-    }
-    return undefined;
+        : {
+            source: 'harness',
+            title: 'Harness system prompt',
+            summary: 'Unavailable',
+            text: 'The PI harness prompt could not be reconstructed for this session.',
+            availability: 'missing',
+          },
+    );
+
+    entries.push(
+      userPrompt
+        ? {
+            source: 'user',
+            title: 'User system prompt',
+            summary: summarizePrompt(userPrompt),
+            text: userPrompt,
+            availability: 'available',
+          }
+        : {
+            source: 'user',
+            title: 'User system prompt',
+            summary: 'None configured',
+            text: 'No user-controlled system prompt content is configured for this session.',
+            availability: 'missing',
+          },
+    );
+
+    return entries;
   }
 
   private async readModelSettings(): Promise<ModelSettings> {
@@ -402,8 +535,8 @@ class BackendServer {
       throw new Error(`Unknown session: ${sessionPath}`);
     }
 
-    const [systemPrompt, modelSettings] = await Promise.all([
-      this.readSystemPrompt(context.sessionPath),
+    const [systemPrompts, modelSettings] = await Promise.all([
+      this.buildSystemPrompts(context),
       this.readModelSettings(),
     ]);
 
@@ -412,9 +545,10 @@ class BackendServer {
       transcript: this.buildTranscript(context),
       busy: context.session.isStreaming,
       selectionToken,
-      systemPrompt,
+      systemPrompts,
       modelSettings,
       availableModels: this.listAvailableModels(context),
+      contextUsage: this.getContextUsage(context),
     };
   }
 

@@ -15,6 +15,7 @@ import {
   uiActions,
   selectViewState,
 } from '../src/host/store';
+import { applyPatch, emptyOverlay } from '../src/webview/panel/overlay';
 
 function useStore() {
   return (require('../src/host/store') as typeof import('../src/host/store')).store;
@@ -174,45 +175,80 @@ test('selectViewState includes prefs from ui slice', () => {
 
 // ─── Overlay / gap-detection logic ──────────────────────────────────────────
 
-/**
- * The webview maintains a streaming overlay map: messageId → accumulated delta.
- * Patches are applied incrementally; clearOverlay removes entries.
- * Verifies the pure accumulation logic without a browser environment.
- */
-function applyOverlay(
-  overlay: Map<string, string>,
-  op: { kind: 'messageDelta' | 'clearOverlay'; messageId?: string; delta?: string; messageIds?: string[] },
-): void {
-  if (op.kind === 'messageDelta' && op.messageId && op.delta !== undefined) {
-    overlay.set(op.messageId, (overlay.get(op.messageId) ?? '') + op.delta);
-  } else if (op.kind === 'clearOverlay') {
-    if (op.messageIds) {
-      for (const id of op.messageIds) overlay.delete(id);
-    } else {
-      overlay.clear();
-    }
-  }
-}
+test('overlay preserves mixed assistant-part ordering', () => {
+  let overlay = emptyOverlay();
 
-test('overlay accumulates deltas and clears on targeted clearOverlay', () => {
-  const overlay = new Map<string, string>();
+  overlay = applyPatch(overlay, { kind: 'messageThinking', messageId: 'm1', thinking: 'plan' });
+  overlay = applyPatch(overlay, {
+    kind: 'toolCall',
+    messageId: 'm1',
+    toolCall: { id: 'tc-1', name: 'write', input: { path: 'a.txt' }, status: 'running' },
+  });
+  overlay = applyPatch(overlay, { kind: 'messageDelta', messageId: 'm1', delta: 'after tool' });
+  overlay = applyPatch(overlay, {
+    kind: 'toolCall',
+    messageId: 'm1',
+    toolCall: { id: 'tc-1', name: 'write', input: { path: 'a.txt' }, status: 'completed', result: 'ok' },
+  });
 
-  applyOverlay(overlay, { kind: 'messageDelta', messageId: 'm1', delta: 'Hello' });
-  applyOverlay(overlay, { kind: 'messageDelta', messageId: 'm1', delta: ' world' });
-  applyOverlay(overlay, { kind: 'messageDelta', messageId: 'm2', delta: 'Other' });
-
-  assert.equal(overlay.get('m1'), 'Hello world');
-  assert.equal(overlay.get('m2'), 'Other');
-
-  applyOverlay(overlay, { kind: 'clearOverlay', messageIds: ['m1'] });
-  assert.equal(overlay.has('m1'), false, 'm1 should be cleared');
-  assert.equal(overlay.get('m2'), 'Other', 'm2 should not be affected');
+  assert.deepEqual(
+    overlay.partsByMessage.get('m1')?.map((part) =>
+      part.kind === 'toolCall'
+        ? `${part.kind}:${part.toolCall.id}:${part.toolCall.status}`
+        : `${part.kind}:${part.text}`,
+    ),
+    ['reasoning:plan', 'toolCall:tc-1:completed', 'text:after tool'],
+  );
 });
 
-test('overlay clears all entries on untargeted clearOverlay', () => {
-  const overlay = new Map<string, string>();
-  applyOverlay(overlay, { kind: 'messageDelta', messageId: 'm1', delta: 'a' });
-  applyOverlay(overlay, { kind: 'messageDelta', messageId: 'm2', delta: 'b' });
-  applyOverlay(overlay, { kind: 'clearOverlay' });
-  assert.equal(overlay.size, 0);
+test('overlay clears targeted and untargeted entries', () => {
+  let overlay = emptyOverlay();
+  overlay = applyPatch(overlay, { kind: 'messageDelta', messageId: 'm1', delta: 'a' });
+  overlay = applyPatch(overlay, { kind: 'messageDelta', messageId: 'm2', delta: 'b' });
+
+  overlay = applyPatch(overlay, { kind: 'clearOverlay', messageIds: ['m1'] });
+  assert.equal(overlay.partsByMessage.has('m1'), false, 'm1 should be cleared');
+  assert.equal(overlay.partsByMessage.get('m2')?.[0]?.kind, 'text', 'm2 should remain');
+
+  overlay = applyPatch(overlay, { kind: 'clearOverlay' });
+  assert.equal(overlay.partsByMessage.size, 0);
+});
+
+test('edit rerun keeps an optimistic user row until the authoritative snapshot arrives', () => {
+  const store = useStore();
+  const sessionPath = '/ws/edit-rerun-test';
+
+  store.dispatch(transcriptActions.setTranscript({
+    sessionPath,
+    transcript: [
+      { id: 'user-1', role: 'user', createdAt: '', markdown: 'Original prompt', status: 'completed' },
+      { id: 'assistant-1', role: 'assistant', createdAt: '', markdown: 'Original reply', status: 'completed' },
+    ],
+  }));
+
+  // session.truncateAfter emits a snapshot that removes the edited row and tail.
+  store.dispatch(transcriptActions.setTranscript({ sessionPath, transcript: [] }));
+  store.dispatch(transcriptActions.appendLocalUserMessage({
+    sessionPath,
+    id: 'local:edit:1',
+    text: 'Original prompt ',
+  }));
+
+  let transcript = store.getState().transcript.bySession[sessionPath] ?? [];
+  assert.equal(transcript.length, 1, 'edited prompt should remain visible during rerun');
+  assert.equal(transcript[0]?.role, 'user');
+  assert.equal(transcript[0]?.markdown, 'Original prompt ');
+
+  // agent_end emits a fresh session.opened snapshot that replaces the optimistic row.
+  store.dispatch(transcriptActions.setTranscript({
+    sessionPath,
+    transcript: [
+      { id: 'user-2', role: 'user', createdAt: '', markdown: 'Original prompt ', status: 'completed' },
+      { id: 'assistant-2', role: 'assistant', createdAt: '', markdown: 'New reply', status: 'completed' },
+    ],
+  }));
+
+  transcript = store.getState().transcript.bySession[sessionPath] ?? [];
+  assert.deepEqual(transcript.map((message) => message.id), ['user-2', 'assistant-2']);
+  assert.equal(transcript[0]?.markdown, 'Original prompt ');
 });

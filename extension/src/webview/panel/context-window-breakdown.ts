@@ -1,0 +1,291 @@
+import type {
+  ChatMessage,
+  ContextWindowUsage,
+  SystemPromptEntry,
+  SystemPromptSource,
+  ToolCall,
+} from '../../shared/protocol';
+import { estimateTextTokens } from './system-prompt-tokens';
+
+const readableTokenFormatter = new Intl.NumberFormat('en-US');
+const SYSTEM_PROMPT_SOURCES: readonly SystemPromptSource[] = ['provider', 'harness', 'user'];
+const MAX_TOOLTIP_ENTRIES = 6;
+
+export type ContextWindowBreakdownKind = 'exact' | 'estimated' | 'derived' | 'unknown';
+
+export interface ContextWindowBreakdownEntry {
+  key: string;
+  /** Display label shown in the tooltip. Falls back to `key` when absent. */
+  label?: string;
+  value: string;
+  kind: ContextWindowBreakdownKind;
+  /** Subtitle text (file path, message preview) or explanatory note rendered below the row. */
+  note?: string;
+}
+
+export interface ContextWindowBreakdown {
+  /** Top contributor rows, sorted largest first. */
+  entries: readonly ContextWindowBreakdownEntry[];
+  /** Window summary rows (used / remaining / total). */
+  footerEntries: readonly ContextWindowBreakdownEntry[];
+  notes: readonly string[];
+  title: string;
+}
+
+interface BuildContextWindowBreakdownOptions {
+  contextUsage: ContextWindowUsage | null;
+  effectiveContextWindow: number;
+  systemPrompts: readonly SystemPromptEntry[];
+  transcript: readonly ChatMessage[];
+}
+
+function truncateText(value: string, maxLength: number): string {
+  return value.length > maxLength ? `${value.slice(0, maxLength)}...` : value;
+}
+
+function formatTokenCount(tokens: number): string {
+  return readableTokenFormatter.format(tokens);
+}
+
+function formatTokenValue(tokens: number | null, kind: ContextWindowBreakdownKind): string {
+  if (tokens === null) return 'unknown';
+  const formatted = formatTokenCount(tokens);
+  if (kind === 'estimated') return tokens === 0 ? '0' : `~${formatted}`;
+  return formatted;
+}
+
+function formatTooltipEntry(entry: ContextWindowBreakdownEntry): string {
+  const label = entry.label ?? entry.key;
+  const kindSuffix = entry.kind === 'estimated'
+    ? ' estimated'
+    : entry.kind === 'derived'
+      ? ' derived'
+      : '';
+  const line = `${label}: ${entry.value}${kindSuffix}`;
+  return entry.note ? `${line} - ${entry.note}` : line;
+}
+
+function buildTooltipText(
+  entries: readonly ContextWindowBreakdownEntry[],
+  footerEntries: readonly ContextWindowBreakdownEntry[],
+  notes: readonly string[],
+): string {
+  const lines = ['Context window'];
+  const visibleEntries = entries.slice(0, MAX_TOOLTIP_ENTRIES);
+  const hiddenEntryCount = entries.length - visibleEntries.length;
+
+  for (const entry of footerEntries) {
+    lines.push(formatTooltipEntry(entry));
+  }
+
+  if (visibleEntries.length > 0) {
+    lines.push('', 'Breakdown:');
+    for (const entry of visibleEntries) {
+      lines.push(formatTooltipEntry(entry));
+    }
+    if (hiddenEntryCount > 0) {
+      lines.push(`... ${hiddenEntryCount} more rows omitted.`);
+    }
+  }
+
+  if (notes.length > 0) {
+    lines.push('');
+    for (const note of notes) {
+      lines.push(`Note: ${note}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
+function estimateSerializedTokens(value: unknown): number {
+  if (value === null || value === undefined) return 0;
+  if (typeof value === 'string') return estimateTextTokens(value);
+  try {
+    return estimateTextTokens(JSON.stringify(value));
+  } catch {
+    return estimateTextTokens(String(value));
+  }
+}
+
+function estimateToolCallTokens(toolCall: ToolCall): number {
+  return estimateTextTokens(toolCall.name)
+    + estimateSerializedTokens(toolCall.input)
+    + estimateSerializedTokens(toolCall.result);
+}
+
+function extractToolCallFilePath(input: unknown): string | undefined {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return undefined;
+  const obj = input as Record<string, unknown>;
+  for (const key of ['filePath', 'path', 'fileUri']) {
+    if (typeof obj[key] === 'string') return obj[key] as string;
+  }
+  return undefined;
+}
+
+function extractSkillName(path: string): string | null {
+  const normalized = path.replace(/\\/g, '/');
+  const match = normalized.match(/(?:^|\/)skills\/([^/]+)\/SKILL\.md$/i);
+  return match?.[1] ?? null;
+}
+
+interface ContributorItem {
+  label: string;
+  note?: string;
+  tokens: number;
+  originalIndex: number;
+}
+
+function buildContributors(
+  systemPrompts: readonly SystemPromptEntry[],
+  transcript: readonly ChatMessage[],
+): { items: ContributorItem[]; otherEstimated: number } {
+  const items: ContributorItem[] = [];
+  let otherEstimated = 0;
+  let index = 0;
+
+  // System prompts — combine all available sources into one entry.
+  let systemPromptTokens = 0;
+  for (const source of SYSTEM_PROMPT_SOURCES) {
+    const prompt = systemPrompts.find((p) => p.source === source);
+    if (prompt?.availability === 'available') {
+      systemPromptTokens += estimateTextTokens(prompt.text);
+    }
+  }
+  if (systemPromptTokens > 0) {
+    items.push({ label: 'System prompt', tokens: systemPromptTokens, originalIndex: index++ });
+  }
+
+  // Transcript messages.
+  for (const message of transcript) {
+    if (message.role === 'user') {
+      const tokens = estimateTextTokens(message.markdown);
+      const raw = message.markdown.replace(/\n+/g, ' ').trim();
+      const note = raw.length > 0
+        ? truncateText(raw, 60)
+        : undefined;
+      items.push({ label: 'User message', note, tokens, originalIndex: index++ });
+    } else if (message.role === 'assistant') {
+      // Assistant prose and reasoning go to "other".
+      otherEstimated += estimateTextTokens(message.markdown);
+      otherEstimated += estimateTextTokens(message.thinking ?? '');
+
+      for (const toolCall of message.toolCalls ?? []) {
+        const toolName = toolCall.name.toLowerCase().trim();
+        if (toolName === 'read_file' || toolName === 'read') {
+          const path = extractToolCallFilePath(toolCall.input);
+          if (path) {
+            const skillName = extractSkillName(path);
+            if (skillName) {
+              items.push({ label: 'Skill', note: skillName, tokens: estimateToolCallTokens(toolCall), originalIndex: index++ });
+            } else {
+              items.push({
+                label: 'Read file',
+                note: truncateText(path.replace(/\\/g, '/'), 72),
+                tokens: estimateToolCallTokens(toolCall),
+                originalIndex: index++,
+              });
+            }
+          } else {
+            otherEstimated += estimateToolCallTokens(toolCall);
+          }
+        } else {
+          otherEstimated += estimateToolCallTokens(toolCall);
+        }
+      }
+    } else {
+      otherEstimated += estimateTextTokens(message.markdown);
+    }
+  }
+
+  // Sort largest first, using insertion order as a stable tiebreaker.
+  items.sort((a, b) => b.tokens - a.tokens || a.originalIndex - b.originalIndex);
+
+  return { items, otherEstimated };
+}
+
+export function buildContextWindowBreakdown({
+  contextUsage,
+  effectiveContextWindow,
+  systemPrompts,
+  transcript,
+}: BuildContextWindowBreakdownOptions): ContextWindowBreakdown {
+  const usedTokens = contextUsage?.tokens ?? null;
+  const totalWindow = contextUsage?.contextWindow ?? effectiveContextWindow;
+  const remainingTokens =
+    totalWindow > 0 && usedTokens !== null
+      ? Math.max(totalWindow - usedTokens, 0)
+      : null;
+
+  const { items: contributors, otherEstimated } = buildContributors(systemPrompts, transcript);
+  const explicitTokens = contributors.reduce((sum, item) => sum + item.tokens, 0);
+
+  // When exact usage is known, derive the "other" bucket from it so the total adds up.
+  // When unknown, fall back to the estimated transcript remainder.
+  const otherTokens = usedTokens !== null
+    ? Math.max(usedTokens - explicitTokens, 0)
+    : otherEstimated;
+  const otherKind: ContextWindowBreakdownKind = usedTokens !== null ? 'derived' : 'estimated';
+  const otherNote = usedTokens !== null
+    ? 'Unattributed: assistant responses, tool schemas, provider prompt, tokenizer drift.'
+    : 'Assistant responses, reasoning, and misc tool calls.';
+
+  const entries: ContextWindowBreakdownEntry[] = [
+    ...contributors.map((item, i) => ({
+      key: `contributor:${i}`,
+      label: item.label,
+      value: formatTokenValue(item.tokens, 'estimated' as ContextWindowBreakdownKind),
+      kind: 'estimated' as ContextWindowBreakdownKind,
+      note: item.note,
+    })),
+    {
+      key: 'other',
+      label: 'Other',
+      value: formatTokenValue(otherTokens, otherKind),
+      kind: otherKind,
+      note: otherNote,
+    },
+  ];
+
+  const footerEntries: ContextWindowBreakdownEntry[] = [
+    {
+      key: 'window.used',
+      label: 'Used',
+      value: formatTokenValue(usedTokens, usedTokens === null ? 'unknown' : 'exact'),
+      kind: usedTokens === null ? 'unknown' : 'exact',
+      note: usedTokens === null ? 'PI reports this after the first response.' : undefined,
+    },
+    {
+      key: 'window.remaining',
+      label: 'Remaining',
+      value: formatTokenValue(remainingTokens, remainingTokens === null ? 'unknown' : 'exact'),
+      kind: remainingTokens === null ? 'unknown' : 'exact',
+    },
+    {
+      key: 'window.total',
+      label: 'Total',
+      value: totalWindow > 0 ? formatTokenValue(totalWindow, 'exact') : 'unknown',
+      kind: totalWindow > 0 ? 'exact' : 'unknown',
+    },
+  ];
+
+  const notes: string[] = [];
+  if (usedTokens !== null) {
+    notes.push('Used and remaining values are reported by PI.');
+  } else if (totalWindow > 0) {
+    notes.push('PI reports used and remaining after the first response.');
+  }
+  if (entries.some((entry) => entry.kind === 'estimated')) {
+    notes.push('Estimated rows use the chars/4 heuristic.');
+  }
+  if (entries.some((entry) => entry.kind === 'derived')) {
+    notes.push('Derived rows are the PI-reported remainder after subtracting explicit rows.');
+  }
+
+  return {
+    entries,
+    footerEntries,
+    notes,
+    title: buildTooltipText(entries, footerEntries, notes),
+  };
+}

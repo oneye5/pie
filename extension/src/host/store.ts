@@ -3,10 +3,13 @@ import { configureStore, createSelector, createSlice, type PayloadAction } from 
 import {
   DEFAULT_CHAT_PREFS,
   type ChatMessage,
+  type ChatMessagePart,
   type ChatPrefs,
+  type ContextWindowUsage,
   type ModelInfo,
   type ModelSettings,
   type SessionSummary,
+  type SystemPromptEntry,
   type ToolCall,
   type ViewState,
 } from '../shared/protocol';
@@ -153,7 +156,7 @@ interface TranscriptState {
   /** Per-session transcripts, keyed by session path. */
   bySession: Record<string, ChatMessage[]>;
   /** Per-session system prompts. */
-  systemPromptBySession: Record<string, string | null>;
+  systemPromptsBySession: Record<string, SystemPromptEntry[]>;
   /** Maps aliased message IDs to canonical IDs (for multi-turn tool-use merging). */
   messageIdAlias: Record<string, string>;
   /** Tracks the first message ID of the active streaming turn per session. */
@@ -187,35 +190,137 @@ function clearSessionAliases(state: TranscriptState, sessionPath: string): void 
   }
 }
 
+function cloneToolCall(toolCall: ToolCall): ToolCall {
+  return { ...toolCall };
+}
+
+function ensureAssistantParts(message: ChatMessage): ChatMessagePart[] {
+  if (message.parts) {
+    return message.parts;
+  }
+
+  const parts: ChatMessagePart[] = [];
+  if (message.thinking) {
+    parts.push({ kind: 'reasoning', text: message.thinking });
+  }
+  for (const toolCall of message.toolCalls ?? []) {
+    parts.push({ kind: 'toolCall', toolCall: cloneToolCall(toolCall) });
+  }
+  if (message.markdown) {
+    parts.push({ kind: 'text', text: message.markdown });
+  }
+
+  message.parts = parts;
+  return parts;
+}
+
+function withAssistantParts(message: ChatMessage): ChatMessage {
+  if (message.role !== 'assistant' || message.parts) {
+    return message;
+  }
+
+  const nextMessage = { ...message };
+  ensureAssistantParts(nextMessage);
+  return nextMessage;
+}
+
+function appendAssistantTextPart(
+  message: ChatMessage,
+  kind: 'text' | 'reasoning',
+  text: string,
+): void {
+  if (!text) {
+    return;
+  }
+
+  const parts = ensureAssistantParts(message);
+  const last = parts[parts.length - 1];
+  const currentAggregate = kind === 'text' ? message.markdown ?? '' : message.thinking ?? '';
+  const needsSeparator =
+    currentAggregate.endsWith('\n\n') &&
+    last?.kind === kind &&
+    !last.text.endsWith('\n\n');
+  const partText = needsSeparator ? `\n\n${text}` : text;
+
+  if (last?.kind === kind) {
+    last.text += partText;
+  } else {
+    parts.push({ kind, text: partText });
+  }
+
+  if (kind === 'text') {
+    message.markdown = (message.markdown ?? '') + text;
+  } else {
+    message.thinking = (message.thinking ?? '') + text;
+  }
+}
+
+function upsertAssistantToolCall(message: ChatMessage, toolCall: ToolCall): void {
+  const parts = ensureAssistantParts(message);
+  const nextToolCall = cloneToolCall(toolCall);
+  const existingToolCalls = message.toolCalls ?? [];
+  const toolIndex = existingToolCalls.findIndex((item) => item.id === nextToolCall.id);
+
+  if (toolIndex === -1) {
+    message.toolCalls = [...existingToolCalls, nextToolCall];
+  } else {
+    message.toolCalls = existingToolCalls.map((item) =>
+      item.id === nextToolCall.id ? nextToolCall : item,
+    );
+  }
+
+  const partIndex = parts.findIndex(
+    (part) => part.kind === 'toolCall' && part.toolCall.id === nextToolCall.id,
+  );
+  if (partIndex === -1) {
+    parts.push({ kind: 'toolCall', toolCall: nextToolCall });
+    return;
+  }
+
+  parts[partIndex] = { kind: 'toolCall', toolCall: nextToolCall };
+}
+
+function mergeContinuationToolCalls(message: ChatMessage, incoming: ChatMessage): void {
+  const incomingToolCalls = incoming.parts
+    ?.filter((part): part is Extract<ChatMessagePart, { kind: 'toolCall' }> => part.kind === 'toolCall')
+    .map((part) => part.toolCall)
+    ?? incoming.toolCalls
+    ?? [];
+
+  for (const toolCall of incomingToolCalls) {
+    upsertAssistantToolCall(message, toolCall);
+  }
+}
+
 const transcriptSlice = createSlice({
   name: 'transcript',
   initialState: {
     bySession: {},
-    systemPromptBySession: {},
+    systemPromptsBySession: {},
     messageIdAlias: {},
     currentTurnBySession: {},
   } as TranscriptState,
   reducers: {
     setTranscript(
       state,
-      action: PayloadAction<{ sessionPath: string; transcript: ChatMessage[]; systemPrompt?: string }>,
+      action: PayloadAction<{ sessionPath: string; transcript: ChatMessage[]; systemPrompts?: SystemPromptEntry[] }>,
     ) {
       clearSessionAliases(state, action.payload.sessionPath);
       state.bySession[action.payload.sessionPath] = action.payload.transcript;
-      state.systemPromptBySession[action.payload.sessionPath] =
-        action.payload.systemPrompt ?? null;
+      state.systemPromptsBySession[action.payload.sessionPath] =
+        action.payload.systemPrompts ?? [];
       delete state.currentTurnBySession[action.payload.sessionPath];
     },
     clearTranscript(state, action: PayloadAction<string>) {
       clearSessionAliases(state, action.payload);
       delete state.bySession[action.payload];
-      delete state.systemPromptBySession[action.payload];
+      delete state.systemPromptsBySession[action.payload];
       delete state.currentTurnBySession[action.payload];
     },
     clearSessionState(state, action: PayloadAction<string>) {
       clearSessionAliases(state, action.payload);
       delete state.bySession[action.payload];
-      delete state.systemPromptBySession[action.payload];
+      delete state.systemPromptsBySession[action.payload];
       delete state.currentTurnBySession[action.payload];
     },
     ensureAssistantMessage(
@@ -247,6 +352,7 @@ const transcriptSlice = createSlice({
         role: 'assistant',
         createdAt: new Date().toISOString(),
         markdown: '',
+        parts: [],
         status: 'streaming',
         toolCalls: [],
       });
@@ -259,7 +365,7 @@ const transcriptSlice = createSlice({
       const messageId = resolveAlias(state.messageIdAlias, action.payload.messageId);
       const msg = state.bySession[sessionPath]?.find((m) => m.id === messageId);
       if (msg) {
-        msg.markdown = (msg.markdown ?? '') + delta;
+        appendAssistantTextPart(msg, 'text', delta);
         msg.status = 'streaming';
       }
     },
@@ -271,7 +377,7 @@ const transcriptSlice = createSlice({
       const messageId = resolveAlias(state.messageIdAlias, action.payload.messageId);
       const msg = state.bySession[sessionPath]?.find((m) => m.id === messageId);
       if (msg) {
-        msg.thinking = (msg.thinking ?? '') + thinking;
+        appendAssistantTextPart(msg, 'reasoning', thinking);
         msg.status = 'streaming';
       }
     },
@@ -283,13 +389,7 @@ const transcriptSlice = createSlice({
       const messageId = resolveAlias(state.messageIdAlias, action.payload.messageId);
       const msg = state.bySession[sessionPath]?.find((m) => m.id === messageId);
       if (msg) {
-        const existing = msg.toolCalls ?? [];
-        const idx = existing.findIndex((tc) => tc.id === toolCall.id);
-        if (idx === -1) {
-          msg.toolCalls = [...existing, toolCall];
-        } else {
-          msg.toolCalls = existing.map((tc) => (tc.id === toolCall.id ? toolCall : tc));
-        }
+        upsertAssistantToolCall(msg, toolCall);
       }
     },
     upsertMessage(
@@ -297,32 +397,29 @@ const transcriptSlice = createSlice({
       action: PayloadAction<{ sessionPath: string; message: ChatMessage }>,
     ) {
       const { sessionPath, message } = action.payload;
+      const normalizedMessage = withAssistantParts(message);
       const list = (state.bySession[sessionPath] ??= []);
-      const canonicalId = resolveAlias(state.messageIdAlias, message.id);
+      const canonicalId = resolveAlias(state.messageIdAlias, normalizedMessage.id);
 
-      if (canonicalId !== message.id) {
+      if (canonicalId !== normalizedMessage.id) {
         // Continuation message — merge only metadata into the canonical bubble.
         // The markdown/thinking text was already accumulated via appendDelta/appendThinking.
         const canonical = list.find((m) => m.id === canonicalId);
         if (canonical) {
-          canonical.status = message.status;
-          if (message.durationMs !== undefined) {
-            canonical.durationMs = (canonical.durationMs ?? 0) + message.durationMs;
+          canonical.status = normalizedMessage.status;
+          if (normalizedMessage.durationMs !== undefined) {
+            canonical.durationMs = (canonical.durationMs ?? 0) + normalizedMessage.durationMs;
           }
-          if (message.toolCalls?.length) {
-            const existingIds = new Set((canonical.toolCalls ?? []).map((tc) => tc.id));
-            const newTcs = message.toolCalls.filter((tc) => !existingIds.has(tc.id));
-            if (newTcs.length) canonical.toolCalls = [...(canonical.toolCalls ?? []), ...newTcs];
-          }
+          mergeContinuationToolCalls(canonical, normalizedMessage);
         }
         return;
       }
 
-      const idx = list.findIndex((m) => m.id === message.id);
+      const idx = list.findIndex((m) => m.id === normalizedMessage.id);
       if (idx === -1) {
-        list.push(message);
+        list.push(normalizedMessage);
       } else {
-        list[idx] = message;
+        list[idx] = normalizedMessage;
       }
     },
     setMessageStatus(
@@ -367,11 +464,16 @@ const transcriptSlice = createSlice({
 interface SettingsState {
   modelSettings: ModelSettings | null;
   availableModels: ModelInfo[];
+  contextUsageBySession: Record<string, ContextWindowUsage | null>;
 }
 
 const settingsSlice = createSlice({
   name: 'settings',
-  initialState: { modelSettings: null, availableModels: [] } as SettingsState,
+  initialState: {
+    modelSettings: null,
+    availableModels: [],
+    contextUsageBySession: {},
+  } as SettingsState,
   reducers: {
     setModelSettings(state, action: PayloadAction<ModelSettings>) {
       state.modelSettings = action.payload;
@@ -389,6 +491,15 @@ const settingsSlice = createSlice({
       if (action.payload.availableModels.length > 0 || state.availableModels.length === 0) {
         state.availableModels = action.payload.availableModels;
       }
+    },
+    setContextUsage(
+      state,
+      action: PayloadAction<{ sessionPath: string; contextUsage: ContextWindowUsage | null }>,
+    ) {
+      state.contextUsageBySession[action.payload.sessionPath] = action.payload.contextUsage;
+    },
+    clearContextUsage(state, action: PayloadAction<string>) {
+      delete state.contextUsageBySession[action.payload];
     },
   },
 });
@@ -473,6 +584,7 @@ export const selectActiveSession = createSelector(
 // ─── ViewState selector ───────────────────────────────────────────────────────
 
 const EMPTY_TRANSCRIPT: ChatMessage[] = [];
+const EMPTY_SYSTEM_PROMPTS: SystemPromptEntry[] = [];
 
 const selectActiveTranscript = (state: RootState): ChatMessage[] => {
   const path = selectActiveSessionPath(state);
@@ -480,10 +592,16 @@ const selectActiveTranscript = (state: RootState): ChatMessage[] => {
   return state.transcript.bySession[path] ?? EMPTY_TRANSCRIPT;
 };
 
-const selectActiveSystemPrompt = (state: RootState): string | null => {
+const selectActiveSystemPrompts = (state: RootState): SystemPromptEntry[] => {
+  const path = selectActiveSessionPath(state);
+  if (!path) return EMPTY_SYSTEM_PROMPTS;
+  return state.transcript.systemPromptsBySession[path] ?? EMPTY_SYSTEM_PROMPTS;
+};
+
+const selectActiveContextUsage = (state: RootState): ContextWindowUsage | null => {
   const path = selectActiveSessionPath(state);
   if (!path) return null;
-  return state.transcript.systemPromptBySession[path] ?? null;
+  return state.settings.contextUsageBySession[path] ?? null;
 };
 
 /**
@@ -500,9 +618,10 @@ export const selectViewState = createSelector(
     selectActiveSession,
     (s: RootState) => s.sessions.workspaceCwd,
     selectActiveTranscript,
-    selectActiveSystemPrompt,
+    selectActiveSystemPrompts,
     (s: RootState) => s.settings.modelSettings,
     (s: RootState) => s.settings.availableModels,
+    selectActiveContextUsage,
     (s: RootState) => s.ui.notice,
     (s: RootState) => s.ui.backendReady,
     (s: RootState) => s.ui.prefs,
@@ -515,9 +634,10 @@ export const selectViewState = createSelector(
     activeSession,
     workspaceCwd,
     transcript,
-    systemPrompt,
+    systemPrompts,
     modelSettings,
     availableModels,
+    contextUsage,
     notice,
     backendReady,
     prefs,
@@ -533,9 +653,10 @@ export const selectViewState = createSelector(
       notice,
       backendReady,
       workspaceCwd,
-      systemPrompt,
+      systemPrompts,
       modelSettings,
       availableModels,
+      contextUsage,
       prefs,
     };
   },

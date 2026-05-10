@@ -157,9 +157,9 @@ export class PiAssistantExtension implements vscode.Disposable {
       }
 
       case 'editMessage': {
-        const text = typeof msg.text === 'string' ? msg.text.trim() : '';
+        const text = typeof msg.text === 'string' ? msg.text : '';
         const messageId = typeof msg.messageId === 'string' ? msg.messageId : '';
-        if (text && messageId) await this.service.editMessage(messageId, text);
+        if (text.trim() && messageId) await this.service.editMessage(messageId, text);
         return;
       }
 
@@ -177,6 +177,11 @@ export class PiAssistantExtension implements vscode.Disposable {
         this.sidebarProvider.postImperative({ type: 'filePickerResult', paths: uris.map((u) => u.fsPath) });
         return;
       }
+
+      case 'openFile':
+        if (typeof msg.path !== 'string' || !msg.path.trim()) return;
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(msg.path));
+        return;
 
       case 'newSession':
         this.service.createNewSession();

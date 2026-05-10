@@ -169,6 +169,36 @@ test('transcriptActions.upsertToolCall adds and updates tool calls', () => {
   assert.equal(msg?.toolCalls?.[0].status, 'completed');
 });
 
+test('transcriptActions preserve assistant part ordering across mixed events', () => {
+  const { store } = require('../src/host/store') as typeof import('../src/host/store');
+  store.dispatch(transcriptActions.clearTranscript('/ws/order'));
+  store.dispatch(transcriptActions.ensureAssistantMessage({ sessionPath: '/ws/order', messageId: 'msg-order' }));
+
+  store.dispatch(transcriptActions.appendThinking({ sessionPath: '/ws/order', messageId: 'msg-order', thinking: 'plan' }));
+  store.dispatch(transcriptActions.upsertToolCall({
+    sessionPath: '/ws/order',
+    messageId: 'msg-order',
+    toolCall: { id: 'tc-1', name: 'write', input: { path: 'a.txt' }, status: 'running' },
+  }));
+  store.dispatch(transcriptActions.appendDelta({ sessionPath: '/ws/order', messageId: 'msg-order', delta: 'after tool' }));
+  store.dispatch(transcriptActions.upsertToolCall({
+    sessionPath: '/ws/order',
+    messageId: 'msg-order',
+    toolCall: { id: 'tc-2', name: 'read', input: { path: 'a.txt' }, status: 'completed', result: 'ok' },
+  }));
+  store.dispatch(transcriptActions.appendThinking({ sessionPath: '/ws/order', messageId: 'msg-order', thinking: 'done' }));
+
+  const msg = store.getState().transcript.bySession['/ws/order'].find((m) => m.id === 'msg-order');
+  assert.deepEqual(
+    msg?.parts?.map((part) =>
+      part.kind === 'toolCall'
+        ? `${part.kind}:${part.toolCall.id}`
+        : `${part.kind}:${part.text}`,
+    ),
+    ['reasoning:plan', 'toolCall:tc-1', 'text:after tool', 'toolCall:tc-2', 'reasoning:done'],
+  );
+});
+
 test('transcriptActions.upsertMessage replaces an existing message', () => {
   const { store } = require('../src/host/store') as typeof import('../src/host/store');
   store.dispatch(transcriptActions.clearTranscript('/ws/a'));
@@ -288,13 +318,23 @@ test('lifecycle: session restore flow sets activeSession and transcript', () => 
   store.dispatch(sessionsActions.setSessionRunning({ sessionPath: session1.path, running: false }));
   store.dispatch(sessionsActions.setActiveSession(session1));
   store.dispatch(
-    transcriptActions.setTranscript({ sessionPath: session1.path, transcript: [], systemPrompt: 'Be helpful.' }),
+    transcriptActions.setTranscript({
+      sessionPath: session1.path,
+      transcript: [],
+      systemPrompts: [{
+        source: 'user',
+        title: 'User system prompt',
+        text: 'Be helpful.',
+        summary: 'Be helpful.',
+        availability: 'available',
+      }],
+    }),
   );
   store.dispatch(uiActions.setNotice(null));
 
   const vs = selectViewState(store.getState());
   assert.equal(vs.activeSession?.path, session1.path);
-  assert.equal(vs.systemPrompt, 'Be helpful.');
+  assert.equal(vs.systemPrompts[0]?.text, 'Be helpful.');
   assert.equal(vs.notice, null);
   assert.equal(vs.busy, false);
 });
@@ -390,7 +430,14 @@ test('lifecycle: tool.started → tool.finished', () => {
 
 test('settingsActions.setModelAndAvailable updates both together', () => {
   const { store } = require('../src/host/store') as typeof import('../src/host/store');
-  const models = [{ id: 'claude-sonnet-4-5', name: 'Claude Sonnet', provider: 'anthropic', reasoning: true }];
+  const models = [{
+    id: 'claude-sonnet-4-5',
+    name: 'Claude Sonnet',
+    provider: 'anthropic',
+    reasoning: true,
+    contextWindow: 200000,
+    maxTokens: 8192,
+  }];
   store.dispatch(
     settingsActions.setModelAndAvailable({
       modelSettings: { defaultModel: 'claude-sonnet-4-5', defaultThinkingLevel: 'medium' },
@@ -400,6 +447,24 @@ test('settingsActions.setModelAndAvailable updates both together', () => {
   const vs = selectViewState(store.getState());
   assert.equal(vs.modelSettings?.defaultModel, 'claude-sonnet-4-5');
   assert.equal(vs.availableModels.length, 1);
+});
+
+test('selectViewState returns context usage for the active session', () => {
+  const { store } = require('../src/host/store') as typeof import('../src/host/store');
+  store.dispatch(sessionsActions.upsertSession(session1));
+  store.dispatch(sessionsActions.upsertSession(session2));
+  store.dispatch(sessionsActions.setActiveSession(session2));
+  store.dispatch(settingsActions.setContextUsage({
+    sessionPath: session1.path,
+    contextUsage: { tokens: 1000, contextWindow: 10000, percent: 10 },
+  }));
+  store.dispatch(settingsActions.setContextUsage({
+    sessionPath: session2.path,
+    contextUsage: { tokens: 7000, contextWindow: 10000, percent: 70 },
+  }));
+
+  const vs = selectViewState(store.getState());
+  assert.deepEqual(vs.contextUsage, { tokens: 7000, contextWindow: 10000, percent: 70 });
 });
 
 // ---------------------------------------------------------------------------

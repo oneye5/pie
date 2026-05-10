@@ -3,7 +3,10 @@
   --panel-muted: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.86));
   --panel-surface: var(--vscode-editor-background, rgba(127, 127, 127, 0.04));
   --panel-subtle-surface: var(--vscode-sideBarSectionHeader-background, rgba(127, 127, 127, 0.07));
+  --panel-raised-surface: rgba(127, 127, 127, 0.06);
   --panel-hover-surface: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.1));
+  --panel-skill-surface: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.12));
+  --panel-skill-border: rgba(127, 127, 127, 0.28);
   --panel-accent: var(--vscode-focusBorder, var(--vscode-button-background, #007acc));
   --panel-accent-surface: rgba(0, 122, 204, 0.1);
   --panel-code-surface: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
@@ -634,10 +637,15 @@ button {
 .tool-call {
   border: 1px solid var(--panel-border);
   border-radius: 12px;
-  background: var(--panel-subtle-surface);
+  background: var(--panel-raised-surface);
   overflow: hidden;
   cursor: pointer;
   user-select: none;
+}
+
+.tool-call.tool-call-variant-skill-load {
+  border-color: var(--panel-skill-border);
+  background: var(--panel-skill-surface);
 }
 
 .thinking-block-header,
@@ -656,6 +664,10 @@ button {
 
 .thinking-block:hover,
 .tool-call:hover {
+  background: var(--panel-subtle-surface);
+}
+
+.tool-call.tool-call-variant-skill-load:hover {
   background: var(--panel-hover-surface);
 }
 
@@ -719,8 +731,6 @@ button {
 }
 
 .thinking-block-body {
-  max-height: 360px;
-  overflow-y: auto;
   font-size: 12px;
   color: var(--vscode-foreground);
 }
@@ -731,20 +741,51 @@ button {
   gap: 6px;
 }
 
+.system-prompts-message .message-head {
+  margin-bottom: 6px;
+}
+
+.system-prompt-card .tool-call-heading {
+  gap: 0;
+}
+
+.system-prompt-card .tool-call-name,
+.system-prompt-card .tool-call-name.with-summary {
+  flex: 0 0 clamp(18ch, 42%, 30ch);
+}
+
+.system-prompt-card .tool-call-summary,
+.system-prompt-card .system-prompt-summary {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 10px;
+  padding-left: 10px;
+  border-left: 1px solid var(--panel-border);
+  opacity: 0.86;
+}
+
 .tool-call.running {
-  border-color: rgba(0, 122, 204, 0.28);
+  border-color: var(--panel-border);
 }
 
 .tool-call.failed {
-  border-color: rgba(255, 50, 50, 0.24);
+  border-color: rgba(255, 50, 50, 0.18);
 }
 
 .tool-call.completed {
-  border-color: rgba(74, 154, 74, 0.22);
+  border-color: var(--panel-border);
+}
+
+.tool-call-heading {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .tool-call-name {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -754,24 +795,56 @@ button {
   font-weight: 600;
 }
 
+.tool-call-name.with-summary {
+  flex: 0 1 18ch;
+}
+
+.tool-call-summary {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--panel-muted);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.tool-call-summary-link {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tool-call-summary-link:hover {
+  text-decoration: underline;
+}
+
 .tool-call-status {
   flex-shrink: 0;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--panel-muted);
+  opacity: 0.78;
 }
 
 .tool-call-status.running {
-  color: var(--panel-accent);
+  color: var(--panel-muted);
+  opacity: 0.92;
 }
 
 .tool-call-status.completed {
-  color: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #4a9a4a));
+  color: var(--panel-muted);
+  opacity: 0.92;
 }
 
 .tool-call-status.failed {
   color: var(--panel-danger);
+  opacity: 1;
 }
 
 .tool-call-section + .tool-call-section {
@@ -817,8 +890,6 @@ button {
 
 .tool-call-pre {
   white-space: pre;
-  max-height: 220px;
-  overflow-y: auto;
 }
 
 .composer-area {
@@ -844,10 +915,6 @@ button {
   text-transform: uppercase;
   letter-spacing: 0.12em;
   color: var(--panel-muted);
-}
-
-.composer-toolbar-spacer {
-  flex: 1 1 auto;
 }
 
 .model-select,
@@ -891,6 +958,31 @@ button {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.context-window-indicator {
+  justify-content: center;
+  color: var(--vscode-foreground);
+  font-weight: 400;
+  cursor: help;
+  opacity: 0.9;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.context-window-indicator-anchor {
+  display: inline-flex;
+  align-items: center;
+  margin-left: auto;
+  max-width: 100%;
+}
+
+.context-window-indicator.warning {
+  color: var(--panel-warning);
+}
+
+.context-window-indicator.critical {
+  color: var(--panel-danger);
 }
 
 .pref-toggle,

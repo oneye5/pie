@@ -37,7 +37,7 @@ emit('backend.ready', {
   sdkPath: '/mock/sdk',
   agentDir: '/mock/agent',
   sdkVersion: '0.0.0-mock',
-  protocolVersion: 1,
+  protocolVersion: 3,
 });
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -90,9 +90,43 @@ rl.on('line', (line) => {
         },
         transcript: [],
         busy: false,
-        systemPrompt: 'You are a helpful assistant.',
+        systemPrompts: [
+          {
+            source: 'provider',
+            title: 'Provider system prompt',
+            text: 'Unknown.\n\nThe upstream provider prompt is not exposed to this extension.',
+            summary: 'Unknown',
+            availability: 'unknown',
+          },
+          {
+            source: 'harness',
+            title: 'Harness system prompt',
+            text: 'The PI runtime does not expose its built-in harness prompt text.',
+            summary: 'PI prompt not exposed',
+            availability: 'hidden',
+          },
+          {
+            source: 'user',
+            title: 'User system prompt',
+            text: 'You are a helpful assistant.',
+            summary: 'You are a helpful assistant.',
+            availability: 'available',
+          },
+        ],
         modelSettings: { defaultModel: 'claude-mock', defaultThinkingLevel: 'medium' },
-        availableModels: [{ id: 'claude-mock', name: 'Claude Mock', provider: 'mock', reasoning: false }],
+        availableModels: [{
+          id: 'claude-mock',
+          name: 'Claude Mock',
+          provider: 'mock',
+          reasoning: false,
+          contextWindow: 200000,
+          maxTokens: 8192,
+        }],
+        contextUsage: {
+          tokens: 64000,
+          contextWindow: 200000,
+          percent: 32,
+        },
       });
       break;
     }

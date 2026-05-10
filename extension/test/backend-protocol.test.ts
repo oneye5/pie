@@ -193,6 +193,19 @@ test('session.open triggers session.opened EventEnvelope', async () => {
     assert.equal(env.event, 'session.opened');
     assert.ok(env.payload.session, 'payload should include session');
     assert.ok(Array.isArray(env.payload.transcript), 'payload should include transcript');
+    assert.deepEqual(env.payload.contextUsage, {
+      tokens: 64000,
+      contextWindow: 200000,
+      percent: 32,
+    });
+    assert.deepEqual(env.payload.availableModels, [{
+      id: 'claude-mock',
+      name: 'Claude Mock',
+      provider: 'mock',
+      reasoning: false,
+      contextWindow: 200000,
+      maxTokens: 8192,
+    }]);
   } finally {
     await shutdown();
   }

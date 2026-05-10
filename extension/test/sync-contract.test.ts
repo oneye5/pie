@@ -44,16 +44,20 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
       transcript: [],
       busy: false,
       notice: null,
+      backendReady: false,
       workspaceCwd: null,
-      systemPrompt: null,
+      systemPrompts: [],
       modelSettings: null,
       availableModels: [],
+      contextUsage: null,
       prefs: DEFAULT_CHAT_PREFS,
     },
   };
   assert.equal(msg.type, 'state');
-  assert.equal(msg.hostInstanceId, 'abc');
-  assert.equal(msg.revision, 7);
+  if (msg.type === 'state') {
+    assert.equal(msg.hostInstanceId, 'abc');
+    assert.equal(msg.revision, 7);
+  }
 });
 
 test('HostToWebviewMessage patch envelope carries hostInstanceId and revision', () => {

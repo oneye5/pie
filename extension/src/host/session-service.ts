@@ -317,6 +317,8 @@ export class SessionService implements vscode.Disposable {
     const sessionPath = this.requireActiveOpenSessionPath('edit');
     if (!sessionPath) return;
 
+    let localId: string | null = null;
+
     auditLog(this.context, 'session-service', 'message.edit.requested', {
       messageId,
       sessionPath,
@@ -329,12 +331,28 @@ export class SessionService implements vscode.Disposable {
           sessionPath,
           entryId: messageId,
         });
+
+        // Keep the edited prompt visible after the truncate snapshot removes the
+        // original row and before agent_end emits the authoritative transcript.
+        localId = `local:edit:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+        store.dispatch(
+          transcriptActions.appendLocalUserMessage({
+            sessionPath,
+            id: localId,
+            text,
+          }),
+        );
+        this.scheduleRender();
+
         await this.backend.request('message.send', {
           sessionPath,
           text,
         });
       });
     } catch (err) {
+      if (localId) {
+        store.dispatch(transcriptActions.removeMessage({ sessionPath, messageId: localId }));
+      }
       store.dispatch(
         uiActions.setNotice(`Failed to edit message: ${(err as Error).message}`),
       );
@@ -590,9 +608,10 @@ export class SessionService implements vscode.Disposable {
     const {
       session,
       transcript,
-      systemPrompt,
+      systemPrompts,
       modelSettings,
       availableModels,
+      contextUsage,
       selectionToken,
     } = payload;
     const state = store.getState();
@@ -633,7 +652,7 @@ export class SessionService implements vscode.Disposable {
       transcriptActions.setTranscript({
         sessionPath: session.path,
         transcript,
-        systemPrompt,
+        systemPrompts,
       }),
     );
 
@@ -643,6 +662,10 @@ export class SessionService implements vscode.Disposable {
     if (availableModels && availableModels.length > 0) {
       store.dispatch(settingsActions.setAvailableModels(availableModels));
     }
+    store.dispatch(settingsActions.setContextUsage({
+      sessionPath: session.path,
+      contextUsage: contextUsage ?? null,
+    }));
 
     this.finishSelectionRequest(selectionToken);
     this.assertSelectionInvariant('onSessionOpened');

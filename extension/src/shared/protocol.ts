@@ -3,7 +3,7 @@
  * extension host and the backend process. The host refuses to start the backend
  * unless the values match.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 3;
 
 export interface RequestEnvelope<TParams = unknown> {
   id: string;
@@ -44,6 +44,14 @@ export interface ModelInfo {
   name: string;
   provider: string;
   reasoning: boolean;
+  contextWindow?: number;
+  maxTokens?: number;
+}
+
+export interface ContextWindowUsage {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
 }
 
 export interface SessionSummary {
@@ -69,17 +77,51 @@ export interface ToolCall {
   status: 'running' | 'completed' | 'failed';
 }
 
+export interface ChatMessageTextPart {
+  kind: 'text';
+  text: string;
+}
+
+export interface ChatMessageReasoningPart {
+  kind: 'reasoning';
+  text: string;
+}
+
+export interface ChatMessageToolCallPart {
+  kind: 'toolCall';
+  toolCall: ToolCall;
+}
+
+export type ChatMessagePart =
+  | ChatMessageTextPart
+  | ChatMessageReasoningPart
+  | ChatMessageToolCallPart;
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   createdAt: string;
   markdown: string;
+  /** Ordered assistant content blocks as emitted by the agent. */
+  parts?: ChatMessagePart[];
   /** Accumulated reasoning/thinking content (only present on assistant messages from reasoning models). */
   thinking?: string;
   status: 'streaming' | 'completed' | 'interrupted' | 'error';
   toolCalls?: ToolCall[];
   /** How long the response took to complete, in milliseconds. Only set on finished assistant messages. */
   durationMs?: number;
+}
+
+export type SystemPromptSource = 'provider' | 'harness' | 'user';
+
+export type SystemPromptAvailability = 'available' | 'missing' | 'hidden' | 'unknown';
+
+export interface SystemPromptEntry {
+  source: SystemPromptSource;
+  title: string;
+  text: string;
+  summary: string;
+  availability: SystemPromptAvailability;
 }
 
 export interface BackendReadyPayload {
@@ -96,9 +138,10 @@ export interface SessionOpenedPayload {
   transcript: ChatMessage[];
   busy: boolean;
   selectionToken?: string;
-  systemPrompt?: string;
+  systemPrompts?: SystemPromptEntry[];
   modelSettings?: ModelSettings;
   availableModels?: ModelInfo[];
+  contextUsage?: ContextWindowUsage;
 }
 
 export interface SessionListChangedPayload {
@@ -218,9 +261,10 @@ export interface ViewState {
   /** True once the backend process has started and emitted `backend.ready`. */
   backendReady: boolean;
   workspaceCwd: string | null;
-  systemPrompt: string | null;
+  systemPrompts: SystemPromptEntry[];
   modelSettings: ModelSettings | null;
   availableModels: ModelInfo[];
+  contextUsage: ContextWindowUsage | null;
   prefs: ChatPrefs;
 }
 
@@ -254,6 +298,7 @@ export type WebviewToHostMessage =
   | { type: 'refreshState' }
   | { type: 'requestSnapshot' }
   | { type: 'openFilePicker' }
+  | { type: 'openFile'; path: string }
   | { type: 'send'; text: string; pendingPaths?: string[] }
   | { type: 'editMessage'; messageId: string; text: string }
   | { type: 'interrupt' }

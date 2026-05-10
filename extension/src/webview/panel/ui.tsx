@@ -3,7 +3,17 @@
 
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 
-import type { ChatPrefs, ModelInfo, ModelSettings, SessionSummary, ThinkingLevel } from '../../shared/protocol';
+import type {
+  ChatMessage,
+  ChatPrefs,
+  ContextWindowUsage,
+  ModelInfo,
+  ModelSettings,
+  SessionSummary,
+  SystemPromptEntry,
+  ThinkingLevel,
+} from '../../shared/protocol';
+import { buildContextWindowBreakdown } from './context-window-breakdown';
 
 // ─── SessionTabs ─────────────────────────────────────────────────────────────
 
@@ -95,11 +105,32 @@ const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
   xhigh: 'Max',
 };
 
+function formatCompactTokens(tokens: number): string {
+  if (tokens >= 1_000_000) {
+    return `${trimDecimal(tokens / 1_000_000)}M`;
+  }
+  if (tokens >= 1_000) {
+    return `${trimDecimal(tokens / 1_000)}k`;
+  }
+  return String(tokens);
+}
+
+function formatReadableTokens(tokens: number): string {
+  return new Intl.NumberFormat('en-US').format(tokens);
+}
+
+function trimDecimal(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
+}
+
 interface ComposerProps {
   busy: boolean;
   draftRestore?: { text: string; nonce: number } | null;
   modelSettings: ModelSettings | null;
   availableModels: ModelInfo[];
+  contextUsage: ContextWindowUsage | null;
+  systemPrompts: SystemPromptEntry[];
+  transcript: ChatMessage[];
   pendingPaths: string[];
   focusTrigger?: string;
   onSend: (text: string) => void;
@@ -114,6 +145,9 @@ export function Composer({
   draftRestore,
   modelSettings,
   availableModels,
+  contextUsage,
+  systemPrompts,
+  transcript,
   pendingPaths,
   focusTrigger,
   onSend,
@@ -183,6 +217,42 @@ export function Composer({
   const selectedModelInfo = availableModels.find((m) => m.id === selectedModel);
   const supportsReasoning = selectedModelInfo?.reasoning ?? false;
   const attachmentCountLabel = `${pendingPaths.length} file${pendingPaths.length === 1 ? '' : 's'} attached`;
+  const effectiveContextWindow = contextUsage?.contextWindow ?? selectedModelInfo?.contextWindow ?? 0;
+  const remainingContextTokens =
+    effectiveContextWindow > 0 && contextUsage?.tokens !== null && contextUsage?.tokens !== undefined
+      ? Math.max(effectiveContextWindow - contextUsage.tokens, 0)
+      : null;
+  const contextRatio =
+    remainingContextTokens !== null && effectiveContextWindow > 0
+      ? remainingContextTokens / effectiveContextWindow
+      : null;
+  const contextIndicatorClass =
+    contextRatio !== null && contextRatio < 0.15
+      ? ' critical'
+      : contextRatio !== null && contextRatio < 0.3
+        ? ' warning'
+        : '';
+  const contextIndicatorLabel =
+    effectiveContextWindow <= 0
+      ? null
+      : remainingContextTokens === null
+        ? `? left / ${formatCompactTokens(effectiveContextWindow)}`
+        : `${formatCompactTokens(remainingContextTokens)} left / ${formatCompactTokens(effectiveContextWindow)}`;
+  const contextBreakdown =
+    effectiveContextWindow <= 0
+      ? null
+      : buildContextWindowBreakdown({
+          contextUsage,
+          effectiveContextWindow,
+          systemPrompts,
+          transcript,
+        });
+  const contextIndicatorAriaLabel =
+    effectiveContextWindow <= 0
+      ? ''
+      : remainingContextTokens === null
+        ? `Remaining context window is unknown. Total window: ${formatReadableTokens(effectiveContextWindow)} tokens.`
+        : `${formatReadableTokens(remainingContextTokens)} tokens left out of ${formatReadableTokens(effectiveContextWindow)}.`;
 
   return (
     <div class="composer-area">
@@ -223,7 +293,18 @@ export function Composer({
           </select>
         )}
 
-        <div class="composer-toolbar-spacer" />
+        {contextIndicatorLabel && contextBreakdown && (
+          <div class="context-window-indicator-anchor">
+            <span
+              class={`model-select-static context-window-indicator${contextIndicatorClass}`}
+              aria-label={`Remaining context window. ${contextIndicatorAriaLabel}`}
+              aria-description={contextBreakdown.title}
+              title={contextBreakdown.title}
+            >
+              {contextIndicatorLabel}
+            </span>
+          </div>
+        )}
       </div>
 
       {pendingPaths.length > 0 && (
