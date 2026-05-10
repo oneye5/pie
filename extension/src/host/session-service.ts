@@ -26,6 +26,7 @@ import { createCommandExecutor } from '../shared/exec-command';
 import type {
   BusyChangedPayload,
   ChatPrefs,
+  ContextUsageChangedPayload,
   ErrorPayload,
   EventEnvelope,
   HostToWebviewMessage,
@@ -265,6 +266,19 @@ export class SessionService implements vscode.Disposable {
     // Always re-render — the tab removal must be reflected regardless of
     // whether the closed tab was active.
     this.assertSelectionInvariant('closeSession');
+    this.scheduleRender();
+  }
+
+  moveSessionTab(sessionPath: string | undefined, fromIndex: number, toIndex: number): void {
+    auditLog(this.context, 'session-service', 'session.tab.reorder.requested', {
+      sessionPath,
+      fromIndex,
+      toIndex,
+    });
+
+    store.dispatch(sessionsActions.moveOpenTab({ sessionPath, fromIndex, toIndex }));
+    this.saveOpenTabs();
+    this.assertSelectionInvariant('moveSessionTab');
     this.scheduleRender();
   }
 
@@ -597,6 +611,9 @@ export class SessionService implements vscode.Disposable {
       case 'busy.changed':
         this.onBusyChanged(event.payload as BusyChangedPayload);
         return;
+      case 'contextUsage.changed':
+        this.onContextUsageChanged(event.payload as ContextUsageChangedPayload);
+        return;
       case 'error':
         this.onError(event.payload as ErrorPayload);
         return;
@@ -880,6 +897,17 @@ export class SessionService implements vscode.Disposable {
     store.dispatch(
       sessionsActions.setSessionRunning({ sessionPath, running: payload.busy }),
     );
+    this.scheduleRender();
+  }
+
+  private onContextUsageChanged(payload: ContextUsageChangedPayload): void {
+    const sessionPath = this.requireEventSessionPath('contextUsage.changed', payload.sessionPath);
+    if (!sessionPath) return;
+
+    store.dispatch(settingsActions.setContextUsage({
+      sessionPath,
+      contextUsage: payload.contextUsage ?? null,
+    }));
     this.scheduleRender();
   }
 

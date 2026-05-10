@@ -196,6 +196,10 @@ export class PiAssistantExtension implements vscode.Disposable {
         await this.service.closeSession(msg.sessionPath);
         return;
 
+      case 'moveSessionTab':
+        this.service.moveSessionTab(msg.sessionPath, msg.fromIndex, msg.toIndex);
+        return;
+
       case 'setModel':
         await this.service.setModel(msg.defaultModel, msg.defaultThinkingLevel);
         return;

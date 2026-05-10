@@ -247,11 +247,21 @@ test('message.send triggers full streaming sequence', async () => {
   // Should have the streaming event types
   const eventNames = events.map((e) => e.event);
   assert.ok(eventNames.includes('busy.changed'), 'busy.changed should be emitted');
+  assert.ok(eventNames.includes('contextUsage.changed'), 'contextUsage.changed should be emitted');
   assert.ok(eventNames.includes('message.started'), 'message.started should be emitted');
   assert.ok(eventNames.includes('message.delta'), 'message.delta should be emitted');
   assert.ok(eventNames.includes('message.finished'), 'message.finished should be emitted');
   assert.ok(eventNames.includes('tool.started'), 'tool.started should be emitted');
   assert.ok(eventNames.includes('tool.finished'), 'tool.finished should be emitted');
+
+  const contextUsageEvents = parsed.filter(
+    (entry) => isEventEnvelope(entry) && entry.event === 'contextUsage.changed',
+  ) as { event: string; payload: { contextUsage: { tokens: number; contextWindow: number; percent: number } } }[];
+  assert.ok(contextUsageEvents.length >= 1, 'Should emit live context usage updates');
+  assert.ok(
+    contextUsageEvents.some((event) => event.payload.contextUsage.tokens > 64000),
+    'Live context usage should move beyond the initial snapshot',
+  );
 
   // busy.changed: first should be busy=true, last should be busy=false
   const busyEvents = events

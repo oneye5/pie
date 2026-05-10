@@ -37,7 +37,7 @@ emit('backend.ready', {
   sdkPath: '/mock/sdk',
   agentDir: '/mock/agent',
   sdkVersion: '0.0.0-mock',
-  protocolVersion: 3,
+  protocolVersion: 4,
 });
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -142,6 +142,14 @@ rl.on('line', (line) => {
       // Busy on
       seq += 1;
       emit('busy.changed', { sessionPath, busy: true, seq });
+      emit('contextUsage.changed', {
+        sessionPath,
+        contextUsage: {
+          tokens: 64100,
+          contextWindow: 200000,
+          percent: 32.05,
+        },
+      });
 
       // Stream sequence (async to give test time to read)
       setTimeout(() => {
@@ -149,12 +157,28 @@ rl.on('line', (line) => {
 
         setTimeout(() => {
           emit('message.delta', { requestId, messageId, sessionPath, delta: 'Hello' });
+          emit('contextUsage.changed', {
+            sessionPath,
+            contextUsage: {
+              tokens: 64250,
+              contextWindow: 200000,
+              percent: 32.125,
+            },
+          });
 
           setTimeout(() => {
             emit('message.delta', { requestId, messageId, sessionPath, delta: ', world!' });
 
             setTimeout(() => {
               emit('tool.started', { requestId, messageId, toolCallId, sessionPath, name: 'read_file', input: { path: '/mock/file.ts' } });
+              emit('contextUsage.changed', {
+                sessionPath,
+                contextUsage: {
+                  tokens: 64500,
+                  contextWindow: 200000,
+                  percent: 32.25,
+                },
+              });
 
               setTimeout(() => {
                 emit('tool.finished', { requestId, messageId, toolCallId, sessionPath, result: 'const x = 1;' });
@@ -178,6 +202,14 @@ rl.on('line', (line) => {
                       }],
                     },
                   });
+                  emit('contextUsage.changed', {
+                    sessionPath,
+                    contextUsage: {
+                      tokens: 64800,
+                      contextWindow: 200000,
+                      percent: 32.4,
+                    },
+                  });
 
                   // Busy off
                   seq += 1;
@@ -194,6 +226,14 @@ rl.on('line', (line) => {
     case 'message.interrupt':
       respond(id, { ok: true });
       seq += 1;
+      emit('contextUsage.changed', {
+        sessionPath: params?.sessionPath ?? SESSION_PATH,
+        contextUsage: {
+          tokens: 64800,
+          contextWindow: 200000,
+          percent: 32.4,
+        },
+      });
       emit('busy.changed', { sessionPath: params?.sessionPath ?? SESSION_PATH, busy: false, seq });
       break;
 

@@ -77,35 +77,6 @@ button {
   background: var(--vscode-scrollbarSlider-hoverBackground);
 }
 
-.panel-status {
-  flex-shrink: 0;
-  padding: 2px 7px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  border: 1px solid var(--panel-border);
-  background: var(--panel-subtle-surface);
-  color: var(--panel-muted);
-  margin: 0 6px 4px;
-  white-space: nowrap;
-  align-self: flex-end;
-}
-
-.panel-status.ready {
-  color: var(--vscode-testing-iconPassed, var(--vscode-charts-green, #4a9a4a));
-}
-
-.panel-status.busy {
-  color: var(--panel-accent);
-  border-color: rgba(0, 122, 204, 0.28);
-  background: var(--panel-accent-surface);
-}
-
-.panel-status.starting {
-  color: var(--panel-muted);
-}
-
 .notice {
   margin: 0 10px 8px;
   padding: 6px 10px;
@@ -124,15 +95,28 @@ button {
   background: var(--panel-danger-surface);
 }
 
+body.session-tab-dragging {
+  user-select: none;
+}
+
 .session-tabs {
   display: flex;
   align-items: flex-end;
   border-bottom: 1px solid var(--panel-border);
   flex-shrink: 0;
   padding: 4px 0 0;
+  position: relative;
+}
+
+.session-tabs.dragging .session-tabs-strip,
+.session-tabs.dragging .session-tab-main,
+.session-tabs.dragging .session-tab-close {
+  cursor: grabbing;
 }
 
 .session-tabs-strip {
+  --session-tab-min-width: 96px;
+  --session-tab-max-width: 220px;
   display: flex;
   overflow-x: auto;
   flex: 1;
@@ -141,6 +125,7 @@ button {
   align-items: flex-end;
   gap: 2px;
   padding: 0 4px;
+  position: relative;
 }
 
 .session-tabs-strip::-webkit-scrollbar {
@@ -150,15 +135,16 @@ button {
 .session-tab {
   display: inline-flex;
   align-items: center;
-  min-width: 0;
-  max-width: 180px;
+  min-width: var(--session-tab-min-width);
+  max-width: var(--session-tab-max-width);
   border: 1px solid var(--panel-border);
   border-bottom: none;
   border-radius: 7px 7px 0 0;
   background: var(--panel-subtle-surface);
   position: relative;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
   margin-bottom: -1px;
+  flex: 0 1 var(--session-tab-max-width);
 }
 
 .session-tab::after {
@@ -193,13 +179,17 @@ button {
   align-items: center;
   gap: 5px;
   min-width: 0;
+  flex: 1 1 auto;
+  width: 0;
   padding: 6px 4px 6px 10px;
   border: none;
   background: transparent;
   cursor: pointer;
+  max-width: 100%;
 }
 
 .session-tab-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -235,6 +225,58 @@ button {
 .session-tab-close:hover {
   background: var(--panel-hover-surface);
   color: var(--vscode-foreground);
+}
+
+.session-tab-drop-gap {
+  position: relative;
+  flex: 0 0 auto;
+  align-self: stretch;
+  margin-bottom: -1px;
+  pointer-events: none;
+}
+
+.session-tab-drop-slot {
+  position: absolute;
+  top: 5px;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  border: 1px solid var(--panel-border);
+  border-bottom: none;
+  border-radius: 7px 7px 0 0;
+  background: var(--panel-hover-surface);
+  opacity: 0.7;
+}
+
+.session-tab-drop-marker {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 50%;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: var(--panel-accent);
+  box-shadow: 0 0 0 1px var(--vscode-sideBar-background, var(--panel-surface));
+}
+
+.session-tab-floating {
+  position: fixed;
+  margin-bottom: 0;
+  pointer-events: none;
+  opacity: 0.96;
+  transform: translateY(-2px);
+  z-index: 10;
+  box-shadow: 0 10px 24px var(--vscode-widget-shadow, rgba(0, 0, 0, 0.24));
+}
+
+.session-tab-floating .session-tab-main,
+.session-tab-floating .session-tab-close {
+  cursor: grabbing;
+}
+
+.session-tab-floating .session-tab-close {
+  pointer-events: none;
 }
 
 .session-tabs-new {
@@ -968,6 +1010,7 @@ button {
   opacity: 0.9;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  max-width: 220px;
 }
 
 .context-window-indicator-anchor {

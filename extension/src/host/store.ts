@@ -13,6 +13,7 @@ import {
   type ToolCall,
   type ViewState,
 } from '../shared/protocol';
+import { moveOpenTabPath } from '../shared/tab-behavior';
 
 // ─── Sessions slice ───────────────────────────────────────────────────────────
 
@@ -90,6 +91,12 @@ const sessionsSlice = createSlice({
     ) {
       const { oldPath, newPath } = action.payload;
       state.openTabPaths = state.openTabPaths.map((p) => (p === oldPath ? newPath : p));
+    },
+    moveOpenTab(
+      state,
+      action: PayloadAction<{ sessionPath?: string; fromIndex: number; toIndex: number }>,
+    ) {
+      state.openTabPaths = moveOpenTabPath(state.openTabPaths, action.payload);
     },
     upsertSession(state, action: PayloadAction<SessionSummary>) {
       const incoming = action.payload;

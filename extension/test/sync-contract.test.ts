@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   DEFAULT_CHAT_PREFS,
   PROTOCOL_VERSION,
+  type ContextUsageChangedPayload,
   type HostToWebviewMessage,
   type PatchOp,
   type WebviewToHostMessage,
@@ -115,6 +116,20 @@ test('busy-seq dedup ignores out-of-order events but accepts unordered (no seq)'
   assert.equal(acceptBusySeq(state, '/b', 1), true);
   // Missing seq is always accepted (backward-compat).
   assert.equal(acceptBusySeq(state, '/a', undefined), true);
+});
+
+test('ContextUsageChangedPayload carries nullable live usage per session', () => {
+  const update: ContextUsageChangedPayload = {
+    sessionPath: '/workspace/session.jsonl',
+    contextUsage: { tokens: 1234, contextWindow: 200000, percent: 0.617 },
+  };
+  const cleared: ContextUsageChangedPayload = {
+    sessionPath: '/workspace/session.jsonl',
+    contextUsage: null,
+  };
+
+  assert.equal(update.contextUsage?.tokens, 1234);
+  assert.equal(cleared.contextUsage, null);
 });
 
 // ---------------------------------------------------------------------------

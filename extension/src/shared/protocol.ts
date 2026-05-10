@@ -3,7 +3,7 @@
  * extension host and the backend process. The host refuses to start the backend
  * unless the values match.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 export interface RequestEnvelope<TParams = unknown> {
   id: string;
@@ -217,6 +217,11 @@ export interface BusyChangedPayload {
   seq?: number;
 }
 
+export interface ContextUsageChangedPayload {
+  sessionPath: string;
+  contextUsage: ContextWindowUsage | null;
+}
+
 export interface ErrorPayload {
   code: string;
   message: string;
@@ -305,6 +310,7 @@ export type WebviewToHostMessage =
   | { type: 'newSession' }
   | { type: 'openSession'; sessionPath: string }
   | { type: 'closeSession'; sessionPath: string }
+  | { type: 'moveSessionTab'; sessionPath?: string; fromIndex: number; toIndex: number }
   | {
       type: 'setModel';
       defaultModel: string;

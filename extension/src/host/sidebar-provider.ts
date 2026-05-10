@@ -141,7 +141,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     }
 
     if (this.scheduleTimer !== undefined) {
-      clearTimeout(this.scheduleTimer);
+      return;
     }
 
     this.scheduleTimer = setTimeout(() => {

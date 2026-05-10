@@ -7,6 +7,7 @@ import {
   PROTOCOL_VERSION,
   type BusyChangedPayload,
   type ChatMessage,
+  type ContextUsageChangedPayload,
   type ContextWindowUsage,
   type ErrorPayload,
   type EventEnvelope,
@@ -70,6 +71,7 @@ interface SessionContext {
   activeRequest?: ActiveRequest;
   /** Per-session monotonic counter for `busy.changed` events. */
   busySeq: number;
+  lastContextUsage?: ContextWindowUsage | null;
 }
 
 function writeStdout(value: EventEnvelope | ResponseEnvelope): void {
@@ -127,7 +129,7 @@ interface SessionPromptState {
   _baseSystemPromptOptions?: SdkBuildSystemPromptOptions;
 }
 
-class BackendServer {
+export class BackendServer {
   private sdk!: SdkModule;
   private readonly sdkPath: string;
   private readonly startupCwd: string;
@@ -220,6 +222,7 @@ class BackendServer {
     }
 
     const existing = this.sessionContexts.get(sessionPath);
+    const initialBusySeq = existing?.busySeq ?? 0;
     if (existing) {
       existing.unsubscribe();
       await existing.runtime.dispose();
@@ -230,7 +233,10 @@ class BackendServer {
       session,
       sessionPath,
       unsubscribe: () => undefined,
-      busySeq: 0,
+      // Preserve the per-session counter across context recreation so the host
+      // can continue deduplicating busy.changed events after edit reruns.
+      busySeq: initialBusySeq,
+      lastContextUsage: undefined,
     };
 
     context.unsubscribe = session.subscribe((event: SdkSessionEvent) => {
@@ -376,6 +382,28 @@ class BackendServer {
 
   private getContextUsage(context: SessionContext): ContextWindowUsage | undefined {
     return context.session.getContextUsage?.();
+  }
+
+  private emitContextUsageChanged(context: SessionContext): void {
+    const nextUsage = this.getContextUsage(context) ?? null;
+    const previousUsage = context.lastContextUsage;
+    const changed = previousUsage === undefined
+      || (previousUsage === null
+        ? nextUsage !== null
+        : nextUsage === null
+          || previousUsage.tokens !== nextUsage.tokens
+          || previousUsage.contextWindow !== nextUsage.contextWindow
+          || previousUsage.percent !== nextUsage.percent);
+
+    if (!changed) {
+      return;
+    }
+
+    context.lastContextUsage = nextUsage;
+    this.emit('contextUsage.changed', {
+      sessionPath: context.sessionPath,
+      contextUsage: nextUsage,
+    } satisfies ContextUsageChangedPayload);
   }
 
   private async getSystemPromptModule(): Promise<SdkSystemPromptModule> {
@@ -540,6 +568,9 @@ class BackendServer {
       this.readModelSettings(),
     ]);
 
+    const contextUsage = this.getContextUsage(context) ?? null;
+    context.lastContextUsage = contextUsage;
+
     return {
       session: this.buildCurrentSummary(context),
       transcript: this.buildTranscript(context),
@@ -548,7 +579,7 @@ class BackendServer {
       systemPrompts,
       modelSettings,
       availableModels: this.listAvailableModels(context),
-      contextUsage: this.getContextUsage(context),
+      contextUsage: contextUsage ?? undefined,
     };
   }
 
@@ -774,6 +805,7 @@ class BackendServer {
     switch (event.type) {
       case 'agent_start': {
         this.emitBusyChanged(context, true);
+        this.emitContextUsageChanged(context);
         return;
       }
 
@@ -791,6 +823,7 @@ class BackendServer {
           messageId: context.activeRequest.currentMessageId,
           sessionPath: context.sessionPath,
         } satisfies MessageStartedPayload);
+        this.emitContextUsageChanged(context);
         return;
       }
 
@@ -820,6 +853,8 @@ class BackendServer {
             } satisfies MessageThinkingPayload);
           }
         }
+
+        this.emitContextUsageChanged(context);
         return;
       }
 
@@ -836,6 +871,7 @@ class BackendServer {
           name: event.toolName ?? '',
           input: event.args,
         } satisfies ToolStartedPayload);
+        this.emitContextUsageChanged(context);
         return;
       }
 
@@ -851,6 +887,7 @@ class BackendServer {
           toolCallId: event.toolCallId ?? '',
           partialResult: event.partialResult,
         } satisfies ToolProgressPayload);
+        this.emitContextUsageChanged(context);
         return;
       }
 
@@ -866,6 +903,7 @@ class BackendServer {
           toolCallId: event.toolCallId ?? '',
           result: event.result,
         } satisfies ToolFinishedPayload);
+        this.emitContextUsageChanged(context);
         return;
       }
 
@@ -900,6 +938,8 @@ class BackendServer {
             messageId,
           } satisfies MessageAbortedPayload);
         }
+
+        this.emitContextUsageChanged(context);
         return;
       }
 
@@ -909,6 +949,7 @@ class BackendServer {
         const abortedWithoutMessage = context.activeRequest?.aborted && !messageId;
 
         this.emitBusyChanged(context, false);
+        this.emitContextUsageChanged(context);
 
         void this.emitSessionOpened(context.sessionPath);
         void this.emitSessionListChanged();
@@ -945,7 +986,9 @@ async function main(): Promise<void> {
   await server.start();
 }
 
-void main().catch((error) => {
-  log(error instanceof Error ? error.stack ?? error.message : String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  void main().catch((error) => {
+    log(error instanceof Error ? error.stack ?? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

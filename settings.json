@@ -4,8 +4,9 @@
   "defaultModel": "gpt-5.4",
   "defaultThinkingLevel": "xhigh",
   "packages": [
-    "https://github.com/anthropics/skills",
-    "https://github.com/obra/superpowers",
-    "npm:pi-web-access"
+    {
+      "source": "npm:pi-web-access",
+      "skills": []
+    }
   ]
 }

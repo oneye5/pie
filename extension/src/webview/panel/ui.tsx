@@ -9,90 +9,12 @@ import type {
   ContextWindowUsage,
   ModelInfo,
   ModelSettings,
-  SessionSummary,
   SystemPromptEntry,
   ThinkingLevel,
 } from '../../shared/protocol';
 import { buildContextWindowBreakdown } from './context-window-breakdown';
-
-// ─── SessionTabs ─────────────────────────────────────────────────────────────
-
-interface SessionTabsProps {
-  sessions: SessionSummary[];
-  openTabPaths: string[];
-  runningSessionPaths: string[];
-  activeSession: SessionSummary | null;
-  backendReady: boolean;
-  statusLabel: string;
-  statusClass: string;
-  onSelect: (path: string) => void;
-  onClose: (path: string) => void;
-  onNew: () => void;
-}
-
-export function SessionTabs({
-  sessions,
-  openTabPaths,
-  runningSessionPaths,
-  activeSession,
-  backendReady,
-  statusLabel,
-  statusClass,
-  onSelect,
-  onClose,
-  onNew,
-}: SessionTabsProps) {
-  const sessionByPath = new Map(sessions.map((s) => [s.path, s]));
-
-  return (
-    <div class="session-tabs">
-      <div class="session-tabs-strip" role="tablist" aria-label="Sessions">
-        {openTabPaths.map((tabPath) => {
-          const session = sessionByPath.get(tabPath);
-          const label = session?.name ?? 'New Session';
-          const isActive = activeSession?.path === tabPath;
-          const isRunning = runningSessionPaths.includes(tabPath);
-
-          return (
-            <div key={tabPath} class={`session-tab${isActive ? ' active' : ''}`}>
-              <button
-                class="session-tab-main"
-                type="button"
-                role="tab"
-                aria-selected={isActive}
-                title={label}
-                onClick={() => onSelect(tabPath)}
-              >
-                {isRunning && <span class="session-tab-running" aria-hidden="true" />}
-                <span class="session-tab-label">{label}</span>
-              </button>
-              <button
-                class="session-tab-close"
-                type="button"
-                aria-label={`Close ${label}`}
-                title={`Close ${label}`}
-                onClick={() => onClose(tabPath)}
-              >
-                ×
-              </button>
-            </div>
-          );
-        })}
-        <button
-          class="session-tabs-new"
-          type="button"
-          title="New session"
-          onClick={onNew}
-          aria-label="New session"
-          disabled={!backendReady}
-        >
-          +
-        </button>
-      </div>
-      <span class={`panel-status ${statusClass}`}>{statusLabel}</span>
-    </div>
-  );
-}
+import { buildContextWindowIndicatorState } from './context-window-indicator';
+export { SessionTabs } from './session-tabs';
 
 // ─── Composer ────────────────────────────────────────────────────────────────
 
@@ -104,24 +26,6 @@ const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
   high: 'High',
   xhigh: 'Max',
 };
-
-function formatCompactTokens(tokens: number): string {
-  if (tokens >= 1_000_000) {
-    return `${trimDecimal(tokens / 1_000_000)}M`;
-  }
-  if (tokens >= 1_000) {
-    return `${trimDecimal(tokens / 1_000)}k`;
-  }
-  return String(tokens);
-}
-
-function formatReadableTokens(tokens: number): string {
-  return new Intl.NumberFormat('en-US').format(tokens);
-}
-
-function trimDecimal(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
-}
 
 interface ComposerProps {
   busy: boolean;
@@ -218,26 +122,6 @@ export function Composer({
   const supportsReasoning = selectedModelInfo?.reasoning ?? false;
   const attachmentCountLabel = `${pendingPaths.length} file${pendingPaths.length === 1 ? '' : 's'} attached`;
   const effectiveContextWindow = contextUsage?.contextWindow ?? selectedModelInfo?.contextWindow ?? 0;
-  const remainingContextTokens =
-    effectiveContextWindow > 0 && contextUsage?.tokens !== null && contextUsage?.tokens !== undefined
-      ? Math.max(effectiveContextWindow - contextUsage.tokens, 0)
-      : null;
-  const contextRatio =
-    remainingContextTokens !== null && effectiveContextWindow > 0
-      ? remainingContextTokens / effectiveContextWindow
-      : null;
-  const contextIndicatorClass =
-    contextRatio !== null && contextRatio < 0.15
-      ? ' critical'
-      : contextRatio !== null && contextRatio < 0.3
-        ? ' warning'
-        : '';
-  const contextIndicatorLabel =
-    effectiveContextWindow <= 0
-      ? null
-      : remainingContextTokens === null
-        ? `? left / ${formatCompactTokens(effectiveContextWindow)}`
-        : `${formatCompactTokens(remainingContextTokens)} left / ${formatCompactTokens(effectiveContextWindow)}`;
   const contextBreakdown =
     effectiveContextWindow <= 0
       ? null
@@ -247,12 +131,10 @@ export function Composer({
           systemPrompts,
           transcript,
         });
-  const contextIndicatorAriaLabel =
-    effectiveContextWindow <= 0
-      ? ''
-      : remainingContextTokens === null
-        ? `Remaining context window is unknown. Total window: ${formatReadableTokens(effectiveContextWindow)} tokens.`
-        : `${formatReadableTokens(remainingContextTokens)} tokens left out of ${formatReadableTokens(effectiveContextWindow)}.`;
+  const contextIndicator = contextBreakdown
+    ? buildContextWindowIndicatorState(contextBreakdown.summary)
+    : null;
+  const contextIndicatorClass = contextIndicator?.severity ? ` ${contextIndicator.severity}` : '';
 
   return (
     <div class="composer-area">
@@ -293,15 +175,15 @@ export function Composer({
           </select>
         )}
 
-        {contextIndicatorLabel && contextBreakdown && (
+        {contextIndicator?.label && contextBreakdown && (
           <div class="context-window-indicator-anchor">
             <span
               class={`model-select-static context-window-indicator${contextIndicatorClass}`}
-              aria-label={`Remaining context window. ${contextIndicatorAriaLabel}`}
+              aria-label={contextIndicator.ariaLabel}
               aria-description={contextBreakdown.title}
               title={contextBreakdown.title}
             >
-              {contextIndicatorLabel}
+              {contextIndicator.label}
             </span>
           </div>
         )}

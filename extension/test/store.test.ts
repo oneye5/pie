@@ -106,6 +106,18 @@ test('sessionsActions.removePendingSessions removes only pending paths from sess
   assert.ok(sessions.some((s) => s.path === '/ws/a'));
 });
 
+test('sessionsActions.moveOpenTab reorders openTabPaths without changing the active session', () => {
+  const { store } = require('../src/host/store') as typeof import('../src/host/store');
+  store.dispatch(sessionsActions.setOpenTabPaths(['/ws/a', '/ws/b', '/ws/c']));
+  store.dispatch(sessionsActions.setActiveSessionPath('/ws/b'));
+  store.dispatch(
+    sessionsActions.moveOpenTab({ sessionPath: '/ws/c', fromIndex: 2, toIndex: 0 }),
+  );
+
+  assert.deepEqual(store.getState().sessions.openTabPaths, ['/ws/c', '/ws/a', '/ws/b']);
+  assert.equal(store.getState().sessions.activeSessionPath, '/ws/b');
+});
+
 // ---------------------------------------------------------------------------
 // Transcript slice tests
 // ---------------------------------------------------------------------------

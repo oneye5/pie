@@ -2,6 +2,11 @@ import type { SessionSummary } from './protocol';
 
 export const PENDING_SESSION_PREFIX = '__pending__:';
 
+export type HorizontalDropRect = {
+  left: number;
+  right: number;
+};
+
 export function isPendingTabPath(sessionPath: string): boolean {
   return sessionPath.startsWith(PENDING_SESSION_PREFIX);
 }
@@ -55,6 +60,51 @@ export function getVisibleTabPaths({
   }
 
   return visiblePaths;
+}
+
+export function getHorizontalDropIndex(rects: readonly HorizontalDropRect[], clientX: number): number {
+  if (rects.length === 0) {
+    return 0;
+  }
+
+  for (let index = 0; index < rects.length; index += 1) {
+    const rect = rects[index];
+    const midpoint = rect.left + ((rect.right - rect.left) / 2);
+    if (clientX <= midpoint) {
+      return index;
+    }
+  }
+
+  return rects.length;
+}
+
+export function moveOpenTabPath(
+  openTabPaths: readonly string[],
+  options: { sessionPath?: string; fromIndex: number; toIndex: number },
+): string[] {
+  if (openTabPaths.length <= 1) {
+    return [...openTabPaths];
+  }
+
+  const nextPaths = [...openTabPaths];
+  const resolvedFromIndex =
+    options.sessionPath !== undefined
+      ? nextPaths.indexOf(options.sessionPath)
+      : -1;
+  const fromIndex = resolvedFromIndex === -1 ? options.fromIndex : resolvedFromIndex;
+
+  if (fromIndex < 0 || fromIndex >= nextPaths.length) {
+    return nextPaths;
+  }
+
+  const toIndex = Math.max(0, Math.min(options.toIndex, nextPaths.length - 1));
+  if (fromIndex === toIndex) {
+    return nextPaths;
+  }
+
+  const [movedPath] = nextPaths.splice(fromIndex, 1);
+  nextPaths.splice(toIndex, 0, movedPath);
+  return nextPaths;
 }
 
 type NextTabOnCloseOptions = VisibleTabOptions & {

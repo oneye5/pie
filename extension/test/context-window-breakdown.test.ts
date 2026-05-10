@@ -66,11 +66,18 @@ test('buildContextWindowBreakdown sorts top contributors first, uses derived Oth
 
   // User message
   assert.equal(byLabel.get('User message')?.kind, 'estimated');
-  // Preview of 'abcd' message
   assert.ok(byLabel.get('User message')?.note?.includes('abcd'));
 
   // Other is derived (exact usage known)
   assert.equal(byLabel.get('Other')?.kind, 'derived');
+
+  assert.deepEqual(breakdown.summary, {
+    usedTokens: 20,
+    usedKind: 'exact',
+    remainingTokens: 80,
+    remainingKind: 'exact',
+    totalWindow: 100,
+  });
 
   // Window stats in footerEntries
   assert.equal(footer.get('window.total')?.value, '100');
@@ -89,11 +96,18 @@ test('buildContextWindowBreakdown sorts top contributors first, uses derived Oth
   }
 
   // Tooltip text contains exact PI totals and labeled estimated rows.
-  assert.match(breakdown.title, /^Context window/m);
+  assert.match(breakdown.title, /^Context window usage/m);
   assert.match(breakdown.title, /Used: 20/m);
   assert.match(breakdown.title, /Remaining: 80/m);
   assert.match(breakdown.title, /System prompt: ~3 estimated/m);
-  assert.match(breakdown.title, /Note: Used and remaining values are reported by PI\./m);
+  assert.match(
+    breakdown.title,
+    /Note: Used tokens come from PI’s live context-window snapshot, not just the next prompt\./m,
+  );
+  assert.match(
+    breakdown.title,
+    /Note: Estimated rows use the chars\/4 heuristic where exact attribution is unavailable\./m,
+  );
 });
 
 test('buildContextWindowBreakdown classifies read_file tool calls individually', () => {
@@ -149,9 +163,18 @@ test('buildContextWindowBreakdown classifies read_file tool calls individually',
   const otherEntry = breakdown.entries.find((e) => e.key === 'other');
   assert.ok(otherEntry);
   assert.equal(otherEntry.kind, 'estimated');
+  assert.equal(breakdown.summary.usedKind, 'estimated');
+  assert.equal(breakdown.summary.remainingKind, 'estimated');
   assert.match(breakdown.title, /Read file: ~/m);
   assert.match(breakdown.title, /Skill: ~/m);
-  assert.match(breakdown.title, /Note: Estimated rows use the chars\/4 heuristic\./m);
+  assert.match(
+    breakdown.title,
+    /Note: Used and remaining values are estimated until PI reports a live context-window snapshot\./m,
+  );
+  assert.match(
+    breakdown.title,
+    /Note: Estimated rows use the chars\/4 heuristic where exact attribution is unavailable\./m,
+  );
 });
 
 test('buildContextWindowBreakdown caps native tooltip rows and truncates long path notes', () => {
@@ -187,7 +210,7 @@ test('buildContextWindowBreakdown caps native tooltip rows and truncates long pa
   assert.match(breakdown.title, /very\/long\/path\/to\/a\/deeply\/nested\/location\/0\/with-a-very-very-l/m);
 });
 
-test('buildContextWindowBreakdown keeps footer unknown without a session usage snapshot', () => {
+test('buildContextWindowBreakdown estimates footer values without a PI usage snapshot', () => {
   const breakdown = buildContextWindowBreakdown({
     contextUsage: {
       tokens: null,
@@ -200,16 +223,30 @@ test('buildContextWindowBreakdown keeps footer unknown without a session usage s
   });
 
   const footer = new Map(breakdown.footerEntries.map((e) => [e.key, e]));
-  assert.equal(footer.get('window.used')?.value, 'unknown');
-  assert.equal(footer.get('window.remaining')?.value, 'unknown');
+  assert.equal(footer.get('window.used')?.value, '0');
+  assert.equal(footer.get('window.remaining')?.value, '~200,000');
+  assert.equal(footer.get('window.used')?.kind, 'estimated');
+  assert.equal(footer.get('window.remaining')?.kind, 'estimated');
+  assert.equal(footer.get('window.total')?.value, '200,000');
 
   // Other is estimated (no exact usage)
   const otherEntry = breakdown.entries.find((e) => e.key === 'other');
   assert.ok(otherEntry);
   assert.equal(otherEntry.kind, 'estimated');
 
-  assert.match(breakdown.title, /Note: PI reports used and remaining after the first response\./m);
-  assert.match(breakdown.title, /Used: unknown/m);
-  assert.match(breakdown.title, /Remaining: unknown/m);
+  assert.deepEqual(breakdown.summary, {
+    usedTokens: 0,
+    usedKind: 'estimated',
+    remainingTokens: 200000,
+    remainingKind: 'estimated',
+    totalWindow: 200000,
+  });
+
+  assert.match(
+    breakdown.title,
+    /Note: Used and remaining values are estimated until PI reports a live context-window snapshot\./m,
+  );
+  assert.match(breakdown.title, /Used: 0 estimated/m);
+  assert.match(breakdown.title, /Remaining: ~200,000 estimated/m);
   assert.match(breakdown.title, /Total: 200,000/m);
 });

@@ -2,8 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  getHorizontalDropIndex,
   getNextVisibleTabPathOnClose,
   getVisibleTabPaths,
+  moveOpenTabPath,
   normalizeStoredOpenTabPaths,
 } from '../src/shared/tab-behavior';
 
@@ -143,4 +145,38 @@ test('normalizeStoredOpenTabPaths accepts {path, name} objects alongside strings
   ]);
 
   assert.deepEqual(paths, ['/workspace/a', '/workspace/b', '/workspace/c']);
+});
+
+test('moveOpenTabPath reorders a tab to the front', () => {
+  const nextPaths = moveOpenTabPath(['/workspace/a', '/workspace/b', '/workspace/c'], {
+    sessionPath: '/workspace/c',
+    fromIndex: 2,
+    toIndex: 0,
+  });
+
+  assert.deepEqual(nextPaths, ['/workspace/c', '/workspace/a', '/workspace/b']);
+});
+
+test('moveOpenTabPath falls back to the drag source index when the tab path changed mid-drag', () => {
+  const nextPaths = moveOpenTabPath(['/workspace/a', '/workspace/resolved', '/workspace/c'], {
+    sessionPath: '__pending__:1',
+    fromIndex: 1,
+    toIndex: 0,
+  });
+
+  assert.deepEqual(nextPaths, ['/workspace/resolved', '/workspace/a', '/workspace/c']);
+});
+
+test('getHorizontalDropIndex returns the boundary between tab midpoints', () => {
+  const rects = [
+    { left: 0, right: 100 },
+    { left: 110, right: 210 },
+    { left: 220, right: 320 },
+  ];
+
+  assert.equal(getHorizontalDropIndex(rects, -10), 0);
+  assert.equal(getHorizontalDropIndex(rects, 40), 0);
+  assert.equal(getHorizontalDropIndex(rects, 160), 1);
+  assert.equal(getHorizontalDropIndex(rects, 260), 2);
+  assert.equal(getHorizontalDropIndex(rects, 400), 3);
 });

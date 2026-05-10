@@ -266,6 +266,9 @@ function App() {
   const handleNewSession = useCallback(() => postMessage({ type: 'newSession' }), []);
   const handleSelectTab = useCallback((path: string) => postMessage({ type: 'openSession', sessionPath: path }), []);
   const handleCloseTab = useCallback((path: string) => postMessage({ type: 'closeSession', sessionPath: path }), []);
+  const handleMoveTab = useCallback((sessionPath: string | undefined, fromIndex: number, toIndex: number) => {
+    postMessage({ type: 'moveSessionTab', sessionPath, fromIndex, toIndex });
+  }, []);
 
   const handleModelChange = useCallback((model: string, thinkingLevel: ThinkingLevel) => {
     postMessage({ type: 'setModel', defaultModel: model, defaultThinkingLevel: thinkingLevel });
@@ -289,8 +292,6 @@ function App() {
   } = viewState;
 
   const hasActiveTabs = openTabPaths.length > 0;
-  const statusLabel = busy ? 'Thinking' : backendReady ? 'Ready' : 'Starting';
-  const statusClass = busy ? 'busy' : backendReady ? 'ready' : 'starting';
 
   return (
     <div id="app">
@@ -314,10 +315,9 @@ function App() {
         runningSessionPaths={runningSessionPaths}
         activeSession={activeSession}
         backendReady={backendReady}
-        statusLabel={statusLabel}
-        statusClass={statusClass}
         onSelect={handleSelectTab}
         onClose={handleCloseTab}
+        onMove={handleMoveTab}
         onNew={handleNewSession}
       />
 
