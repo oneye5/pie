@@ -1,4 +1,12 @@
-import type { ChatMessage, ChatMessagePart, SessionSummary, ThinkingLevel, ToolCall } from '../shared/protocol';
+import { NEW_SESSION_NAME } from '../shared/session-name';
+import type {
+  ChatMessage,
+  ChatMessagePart,
+  SessionSummary,
+  ThinkingLevel,
+  ToolCall,
+  UserContentPart,
+} from '../shared/protocol';
 
 type MessageRole =
   | 'user'
@@ -16,6 +24,10 @@ interface ContentPart {
   id?: string;
   name?: string;
   arguments?: unknown;
+  data?: string;
+  mimeType?: string;
+  width?: number;
+  height?: number;
 }
 
 interface MessageLike {
@@ -87,6 +99,39 @@ function thinkingFromParts(parts: ContentPart[] | undefined): string | undefined
     .map((part) => part.thinking ?? '')
     .join('');
   return thinking || undefined;
+}
+
+function userPartsFromContent(content: string | ContentPart[] | undefined): UserContentPart[] | undefined {
+  if (!Array.isArray(content)) {
+    return undefined;
+  }
+
+  const userParts: UserContentPart[] = [];
+  for (const part of content) {
+    if (part.type === 'text' && typeof part.text === 'string') {
+      userParts.push({ kind: 'text', text: part.text });
+      continue;
+    }
+
+    if (
+      part.type === 'image'
+      && typeof part.data === 'string'
+      && part.data.length > 0
+      && typeof part.mimeType === 'string'
+      && part.mimeType.length > 0
+    ) {
+      userParts.push({
+        kind: 'image',
+        mimeType: part.mimeType,
+        dataBase64: part.data,
+        name: typeof part.name === 'string' ? part.name : undefined,
+        width: typeof part.width === 'number' ? part.width : undefined,
+        height: typeof part.height === 'number' ? part.height : undefined,
+      });
+    }
+  }
+
+  return userParts.length > 0 ? userParts : undefined;
 }
 
 function normalizeThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
@@ -275,7 +320,7 @@ export function summarizeSession(info: SessionInfoLike, modelId?: string): Sessi
   return {
     path: info.path,
     cwd: info.cwd,
-    name: hasName ? info.name! : 'New Session',
+    name: hasName ? info.name! : NEW_SESSION_NAME,
     isPlaceholder: !hasName,
     modifiedAt: info.modified.toISOString(),
     messageCount: info.messageCount,
@@ -329,6 +374,8 @@ export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
       const message = entry.message;
 
       if (message.role === 'user') {
+        const userParts = userPartsFromContent(message.content);
+        const hasImageParts = userParts?.some((part) => part.kind === 'image') ?? false;
         transcript.push({
           id: entry.id,
           role: 'user',
@@ -337,6 +384,7 @@ export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
             typeof message.content === 'string'
               ? message.content
               : textFromParts(message.content),
+          userParts: hasImageParts ? userParts : undefined,
           status: 'completed',
         });
         currentAssistant = undefined;

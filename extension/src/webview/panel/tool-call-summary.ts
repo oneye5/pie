@@ -1,4 +1,10 @@
 import type { ToolCall } from '../../shared/protocol';
+import {
+  getSkillNameFromToolCall as getSharedSkillNameFromToolCall,
+  getToolCallSizeHint as getSharedToolCallSizeHint,
+  normalizeToolCallName,
+  summarizeSubagentToolCallInput as summarizeSharedSubagentToolCallInput,
+} from '../../shared/tool-call-analysis';
 
 const TOOL_CALL_SUMMARY_MAX_LENGTH = 80;
 
@@ -6,6 +12,7 @@ export interface ToolCallPresentation {
   name: string;
   summary: string | null;
   summaryPath?: string;
+  sizeHint?: string;
   variant?: 'skill-load';
 }
 
@@ -52,37 +59,6 @@ function summarizeText(text: string, maxLength = TOOL_CALL_SUMMARY_MAX_LENGTH): 
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-function skillNameFromPath(value: string): string | null {
-  const normalized = value.replace(/\\/g, '/');
-  const match = normalized.match(/(?:^|\/)skills\/([^/]+)\/SKILL\.md$/i);
-  return match ? match[1] : null;
-}
-
-function skillNameFromToolCall(toolCall: ToolCall): string | null {
-  const normalizedToolName = toolCall.name.trim().toLowerCase();
-  if (normalizedToolName !== 'read' && normalizedToolName !== 'read_file') {
-    return null;
-  }
-
-  if (!isRecord(toolCall.input)) {
-    return null;
-  }
-
-  const candidatePaths = [toolCall.input.filePath, toolCall.input.path, toolCall.input.fileUri];
-  for (const candidatePath of candidatePaths) {
-    if (typeof candidatePath !== 'string') {
-      continue;
-    }
-
-    const skillName = skillNameFromPath(candidatePath);
-    if (skillName) {
-      return skillName;
-    }
-  }
-
-  return null;
 }
 
 function normalizePathSeparators(value: string): string {
@@ -164,7 +140,33 @@ function convertPathSeparators(value: string, separator: string): string {
 }
 
 function truncatePathText(value: string): string {
-  return truncateText(value, TOOL_CALL_SUMMARY_MAX_LENGTH);
+  if (value.length <= TOOL_CALL_SUMMARY_MAX_LENGTH) {
+    return value;
+  }
+
+  const lastSeparatorIndex = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
+  if (lastSeparatorIndex < 0 || lastSeparatorIndex >= value.length - 1) {
+    return truncateText(value, TOOL_CALL_SUMMARY_MAX_LENGTH);
+  }
+
+  const fileSection = value.slice(lastSeparatorIndex + 1);
+  if (!fileSection) {
+    return truncateText(value, TOOL_CALL_SUMMARY_MAX_LENGTH);
+  }
+
+  const ellipsis = '...';
+  const remainingBudget = TOOL_CALL_SUMMARY_MAX_LENGTH - fileSection.length;
+  if (remainingBudget <= ellipsis.length) {
+    return truncateText(fileSection, TOOL_CALL_SUMMARY_MAX_LENGTH);
+  }
+
+  const pathSection = value.slice(0, lastSeparatorIndex + 1);
+  const visiblePathBudget = remainingBudget - ellipsis.length;
+  if (pathSection.length <= visiblePathBudget) {
+    return `${pathSection}${fileSection}`;
+  }
+
+  return `${ellipsis}${pathSection.slice(-visiblePathBudget)}${fileSection}`;
 }
 
 function summarizePathCandidate(rawValue: string, workingDirectory?: string | null): { summary: string; summaryPath?: string } | null {
@@ -236,7 +238,7 @@ function summarizeToolCallPath(toolCall: ToolCall, workingDirectory?: string | n
     return null;
   }
 
-  const normalizedToolName = toolCall.name.trim().toLowerCase();
+  const normalizedToolName = normalizeToolCallName(toolCall.name);
   for (const key of DIRECT_FILE_PATH_KEYS) {
     const summary = summarizeFieldPathCandidate(toolCall.input[key], workingDirectory);
     if (summary) {
@@ -347,30 +349,17 @@ function summarizeObject(value: Record<string, unknown>): string | null {
   return compact === '{}' ? null : compact;
 }
 
-function summarizeSubagentInput(input: unknown): string | null {
-  if (!isRecord(input)) return summarizeUnknown(input);
-
-  const multiTaskSummary = summarizeTaskEntries(input.tasks ?? input.chain);
-  if (multiTaskSummary) return multiTaskSummary;
-
-  const task = typeof input.task === 'string' ? summarizeText(input.task, 64) : null;
-  if (task) {
-    const agent = typeof input.agent === 'string' ? summarizeText(input.agent, 24) : null;
-    return agent ? summarizeText(`${agent}: ${task}`) : task;
-  }
-
-  return summarizeObject(input);
-}
-
 export function getToolCallPresentation(
   toolCall: ToolCall,
   options: ToolCallPresentationOptions = {},
 ): ToolCallPresentation {
-  const skillName = skillNameFromToolCall(toolCall);
+  const sizeHint = getSharedToolCallSizeHint(toolCall);
+  const skillName = getSharedSkillNameFromToolCall(toolCall);
   if (skillName) {
     return {
       name: `Load skill ${skillName}`,
       summary: null,
+      ...(sizeHint ? { sizeHint } : {}),
       variant: 'skill-load',
     };
   }
@@ -381,17 +370,19 @@ export function getToolCallPresentation(
       name: toolCall.name,
       summary: pathSummary.summary,
       ...(pathSummary.summaryPath ? { summaryPath: pathSummary.summaryPath } : {}),
+      ...(sizeHint ? { sizeHint } : {}),
     };
   }
 
   return {
     name: toolCall.name,
     summary: summarizeToolCall(toolCall),
+    ...(sizeHint ? { sizeHint } : {}),
   };
 }
 
 export function summarizeToolCall(toolCall: ToolCall): string | null {
   return toolCall.name === 'subagent'
-    ? summarizeSubagentInput(toolCall.input)
+    ? summarizeSharedSubagentToolCallInput(toolCall.input)
     : summarizeUnknown(toolCall.input);
 }

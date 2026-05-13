@@ -1,9 +1,9 @@
 {
-  "name": "pi-assistant",
-  "displayName": "PI Assistant",
+  "name": "pie",
+  "displayName": "pie",
   "description": "Native PI coding agent chat and session UI for VSCode",
   "version": "0.3.0",
-  "publisher": "pi-config",
+  "publisher": "pie",
   "engines": {
     "vscode": "^1.80.0"
   },
@@ -12,70 +12,79 @@
   ],
   "activationEvents": [
     "onStartupFinished",
-    "onCommand:pi-assistant.openChat",
-    "onCommand:pi-assistant.newSession",
-    "onCommand:pi-assistant.restartBackend",
-    "onView:pi-assistant.sessionsView"
+    "onCommand:pie.openChat",
+    "onCommand:pie.newSession",
+    "onCommand:pie.restartBackend",
+    "onView:pie.sessionsView"
   ],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
-          "id": "pi-assistant",
-          "title": "PI Assistant",
+          "id": "pie",
+          "title": "pie",
           "icon": "media/icon.svg"
         }
       ]
     },
     "views": {
-      "pi-assistant": [
+      "pie": [
         {
           "type": "webview",
-          "id": "pi-assistant.sessionsView",
+          "id": "pie.sessionsView",
           "name": "Sessions"
         }
       ]
     },
     "commands": [
       {
-        "command": "pi-assistant.openChat",
-        "title": "PI Assistant: Open Chat"
+        "command": "pie.openChat",
+        "title": "pie: Open Chat"
       },
       {
-        "command": "pi-assistant.newSession",
-        "title": "PI Assistant: New Session"
+        "command": "pie.newSession",
+        "title": "pie: New Session"
       },
       {
-        "command": "pi-assistant.attachFiles",
-        "title": "PI Assistant: Attach Selected Files"
+        "command": "pie.attachFiles",
+        "title": "pie: Attach Selected Files"
       },
       {
-        "command": "pi-assistant.restartBackend",
-        "title": "PI Assistant: Restart Backend"
+        "command": "pie.restartBackend",
+        "title": "pie: Restart Backend"
+      },
+      {
+        "command": "pie.exportRunAnalytics",
+        "title": "pie: Export Run Analytics"
       }
     ],
     "menus": {
       "explorer/context": [
         {
-          "command": "pi-assistant.attachFiles",
+          "command": "pie.attachFiles",
           "when": "resourceScheme == file",
           "group": "navigation@100"
         }
       ]
     },
     "configuration": {
-      "title": "PI Assistant",
+      "title": "pie",
       "properties": {
-        "piAssistant.nodePath": {
+        "pie.nodePath": {
           "type": "string",
           "default": "",
           "description": "Absolute path to the standalone Node.js executable used to run the PI backend."
         },
-        "piAssistant.sdkPath": {
+        "pie.sdkPath": {
           "type": "string",
           "default": "",
           "description": "Absolute path to the installed @mariozechner/pi-coding-agent package directory."
+        },
+        "pie.experimentAssignment": {
+          "type": "string",
+          "default": "",
+          "description": "Optional experiment/treatment assignment label recorded on new run analytics snapshots."
         }
       }
     }

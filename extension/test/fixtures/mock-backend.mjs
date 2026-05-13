@@ -17,6 +17,13 @@ import * as readline from 'node:readline';
 const SESSION_PATH = '/mock/sessions/test-session.jsonl';
 const SESSION_NAME = 'Test Session';
 const CWD = '/mock';
+const PROTOCOL_VERSION = 7;
+const HANDSHAKE = {
+  sdkPath: '/mock/sdk',
+  agentDir: '/mock/agent',
+  sdkVersion: '0.0.0-mock',
+  protocolVersion: PROTOCOL_VERSION,
+};
 
 let seq = 0;
 
@@ -33,12 +40,7 @@ function respondError(id, code, message) {
 }
 
 // Emit backend.ready immediately.
-emit('backend.ready', {
-  sdkPath: '/mock/sdk',
-  agentDir: '/mock/agent',
-  sdkVersion: '0.0.0-mock',
-  protocolVersion: 5,
-});
+emit('backend.ready', HANDSHAKE);
 
 const rl = readline.createInterface({ input: process.stdin, crlfDelay: Infinity });
 
@@ -60,7 +62,7 @@ rl.on('line', (line) => {
 
   switch (method) {
     case 'app.ping':
-      respond(id, { pong: true });
+      respond(id, HANDSHAKE);
       break;
 
     case 'session.list':
@@ -113,12 +115,32 @@ rl.on('line', (line) => {
             availability: 'available',
           },
         ],
+        analyticsFactors: {
+          promptFamily: 'harness+customPrompt+selectedTools+skills',
+          promptHash: 'mock-prompt-hash',
+          harnessPromptHash: 'mock-harness-hash',
+          customPromptHash: 'mock-custom-hash',
+          appendSystemPromptHash: null,
+          promptGuidelineHashes: ['mock-guideline-hash'],
+          contextFiles: [{ path: '/mock/context.md', hash: 'mock-context-hash' }],
+          selectedToolIds: ['read', 'bash'],
+          toolSnippetHashes: [{ toolId: 'bash', hash: 'mock-tool-snippet-hash' }],
+          toolSetHash: 'mock-tool-set-hash',
+          skills: [{
+            name: 'verification-before-completion',
+            contentHash: 'mock-skill-hash',
+            sourceHash: 'mock-skill-source-hash',
+            disableModelInvocation: false,
+          }],
+          skillSetHash: 'mock-skill-set-hash',
+        },
         modelSettings: { defaultModel: 'claude-mock', defaultThinkingLevel: 'medium' },
         availableModels: [{
           id: 'claude-mock',
           name: 'Claude Mock',
           provider: 'mock',
           reasoning: true,
+          inputKinds: ['text', 'image'],
           contextWindow: 200000,
           maxTokens: 8192,
         }],
@@ -187,7 +209,7 @@ rl.on('line', (line) => {
               });
 
               setTimeout(() => {
-                emit('tool.finished', { requestId, messageId, toolCallId, sessionPath, result: 'const x = 1;' });
+                emit('tool.finished', { requestId, messageId, toolCallId, sessionPath, result: 'const x = 1;', status: 'completed' });
 
                 setTimeout(() => {
                   emit('message.finished', {

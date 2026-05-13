@@ -1,4 +1,5 @@
-import { cp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { watch as fsWatch } from 'node:fs';
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,125 +10,262 @@ const rootDir = path.dirname(fileURLToPath(new URL('../package.json', import.met
 const srcDir = path.join(rootDir, 'src');
 const outDir = path.join(rootDir, 'out');
 
-const watch = process.argv.includes('--watch');
+const watchMode = process.argv.includes('--watch');
+const webviewViewName = 'panel';
+const webviewRelativeDir = path.join('webview', webviewViewName);
+const sourceWebviewAssetFileNames = new Set([
+  'index.html',
+  `${webviewViewName}.css`,
+]);
+const hotReloadWebviewFileNames = new Set([
+  'index.html',
+  `${webviewViewName}.css`,
+  `${webviewViewName}.js`,
+]);
+const copiedAssetRelativePaths = [
+  path.join(webviewRelativeDir, 'index.html'),
+  path.join(webviewRelativeDir, `${webviewViewName}.css`),
+];
 
-/** Sync runtime output and manifest files to the locally installed extension so Reload Window picks up contributed view changes too. */
-async function syncToInstalledExtension() {
-  const pkg = JSON.parse(await readFile(path.join(rootDir, 'package.json'), 'utf8'));
-  const extId = `${pkg.publisher}.${pkg.name}-${pkg.version}`;
-  const candidates = [
-    path.join(os.homedir(), '.vscode', 'extensions', extId),
-    path.join(os.homedir(), '.vscode-insiders', 'extensions', extId),
+let syncTimer;
+let syncQueue = Promise.resolve();
+let pendingAssetCopyTimer;
+const pendingAssetCopies = new Set();
+
+function createNodeBuildOptions(entryPoint, outfile, extraOptions = {}) {
+  return {
+    entryPoints: [path.join(srcDir, entryPoint)],
+    bundle: true,
+    platform: 'node',
+    format: 'cjs',
+    outfile: path.join(outDir, outfile),
+    sourcemap: true,
+    target: 'node20',
+    ...extraOptions,
+  };
+}
+
+function createWebviewBuildOptions() {
+  return {
+    entryPoints: [path.join(srcDir, 'webview', webviewViewName, `${webviewViewName}.tsx`)],
+    bundle: true,
+    platform: 'browser',
+    format: 'iife',
+    outfile: path.join(outDir, 'webview', webviewViewName, `${webviewViewName}.js`),
+    sourcemap: true,
+    target: 'es2022',
+    jsx: 'automatic',
+    jsxImportSource: 'preact',
+  };
+}
+
+function createBuildConfigurations() {
+  return [
+    createNodeBuildOptions('extension.ts', 'extension.js', { external: ['vscode'] }),
+    createNodeBuildOptions(path.join('backend', 'index.ts'), 'backend.js'),
+    createWebviewBuildOptions(),
   ];
+}
 
-  for (const extDir of candidates) {
+const LEGACY_EXTENSION_IDS = Object.freeze([
+  'pi-config.pi-assistant',
+]);
+
+async function listInstalledExtensionDirs(extensionRoot) {
+  try {
+    const entries = await readdir(extensionRoot, { withFileTypes: true });
+    return entries
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => path.join(extensionRoot, entry.name));
+  } catch {
+    return [];
+  }
+}
+
+async function chooseInstalledExtensionDir(pkg) {
+  const extensionRoots = [
+    path.join(os.homedir(), '.vscode', 'extensions'),
+    path.join(os.homedir(), '.vscode-insiders', 'extensions'),
+  ];
+  const currentExtensionId = `${pkg.publisher}.${pkg.name}`;
+  const knownExtensionIds = [currentExtensionId, ...LEGACY_EXTENSION_IDS];
+
+  for (const extensionRoot of extensionRoots) {
+    const exactCurrent = path.join(extensionRoot, `${currentExtensionId}-${pkg.version}`);
     try {
-      await stat(extDir);
-      const dest = path.join(extDir, 'out');
-      await rm(dest, { recursive: true, force: true });
-      await cp(outDir, dest, { recursive: true, force: true });
-      await writeFile(path.join(extDir, 'package.json'), JSON.stringify(pkg, null, 2));
-      console.log(`Synced → ${extDir}`);
-      return;
+      await stat(exactCurrent);
+      return exactCurrent;
     } catch {
-      // not found, try next
+      // fall through to prefix/package inspection
+    }
+
+    const installedDirs = await listInstalledExtensionDirs(extensionRoot);
+    const prefixMatches = installedDirs.filter((dir) => {
+      const baseName = path.basename(dir);
+      return knownExtensionIds.some((extensionId) => baseName === extensionId || baseName.startsWith(`${extensionId}-`));
+    });
+    if (prefixMatches.length > 0) {
+      return prefixMatches.sort((left, right) => right.localeCompare(left))[0];
+    }
+
+    for (const extDir of installedDirs) {
+      try {
+        const installedPkg = JSON.parse(await readFile(path.join(extDir, 'package.json'), 'utf8'));
+        const installedExtensionId = `${installedPkg.publisher}.${installedPkg.name}`;
+        if (knownExtensionIds.includes(installedExtensionId)) {
+          return extDir;
+        }
+      } catch {
+        // ignore directories without a readable extension manifest
+      }
     }
   }
+
+  return null;
+}
+
+/** Sync runtime output and manifest files to the locally installed extension so GUI-only edits can refresh in-place. */
+async function syncToInstalledExtension() {
+  const pkg = JSON.parse(await readFile(path.join(rootDir, 'package.json'), 'utf8'));
+  const extDir = await chooseInstalledExtensionDir(pkg);
+  if (!extDir) {
+    const currentExtensionId = `${pkg.publisher}.${pkg.name}`;
+    console.warn(
+      `[build] No installed VS Code extension directory found for ${currentExtensionId} (legacy fallback: ${LEGACY_EXTENSION_IDS.join(', ')}).`,
+    );
+    return;
+  }
+
+  const dest = path.join(extDir, 'out');
+  await mkdir(dest, { recursive: true });
+  await cp(outDir, dest, { recursive: true, force: true });
+  await writeFile(path.join(extDir, 'package.json'), JSON.stringify(pkg, null, 2));
+  console.log(`Synced → ${extDir}`);
 }
 
 async function copyAsset(relativePath) {
   const sourcePath = path.join(srcDir, relativePath);
-  const targetPath = path.join(outDir, relativePath.replace(/^webview\//, 'webview/'));
+  const targetPath = path.join(outDir, relativePath);
   await mkdir(path.dirname(targetPath), { recursive: true });
   await writeFile(targetPath, await readFile(sourcePath));
+}
+
+function scheduleSyncToInstalledExtension() {
+  if (syncTimer !== undefined) {
+    return;
+  }
+
+  syncTimer = setTimeout(() => {
+    syncTimer = undefined;
+    syncQueue = syncQueue
+      .then(() => syncToInstalledExtension())
+      .catch((error) => {
+        console.error('[build] Failed to sync installed extension output', error);
+      });
+  }, 120);
+}
+
+function scheduleAssetCopy(relativePath) {
+  pendingAssetCopies.add(relativePath);
+  if (pendingAssetCopyTimer !== undefined) {
+    return;
+  }
+
+  pendingAssetCopyTimer = setTimeout(() => {
+    const assetPaths = [...pendingAssetCopies];
+    pendingAssetCopies.clear();
+    pendingAssetCopyTimer = undefined;
+
+    void Promise.all(assetPaths.map(async (assetPath) => {
+      await copyAsset(assetPath);
+      console.log(`Copied → ${assetPath}`);
+    })).catch((error) => {
+      console.error('[build] Failed to copy watched asset', error);
+    });
+  }, 40);
+}
+
+function createSourceAssetWatcher() {
+  const sourceDir = path.join(srcDir, webviewRelativeDir);
+  const watcher = fsWatch(sourceDir, (_eventType, fileName) => {
+    const changedFile = typeof fileName === 'string' ? fileName : fileName?.toString();
+    if (!changedFile || !sourceWebviewAssetFileNames.has(changedFile)) {
+      return;
+    }
+
+    scheduleAssetCopy(path.join(webviewRelativeDir, changedFile));
+  });
+
+  watcher.on('error', (error) => {
+    console.error('[build] Source asset watcher failed', error);
+  });
+
+  return watcher;
+}
+
+function createBuiltWebviewWatcher() {
+  const builtDir = path.join(outDir, webviewRelativeDir);
+  const watcher = fsWatch(builtDir, (_eventType, fileName) => {
+    const changedFile = typeof fileName === 'string' ? fileName : fileName?.toString();
+    if (!changedFile || !hotReloadWebviewFileNames.has(changedFile)) {
+      return;
+    }
+
+    scheduleSyncToInstalledExtension();
+  });
+
+  watcher.on('error', (error) => {
+    console.error('[build] Built webview watcher failed', error);
+  });
+
+  return watcher;
+}
+
+async function copyStaticAssets() {
+  await Promise.all(copiedAssetRelativePaths.map((relativePath) => copyAsset(relativePath)));
 }
 
 async function buildOnce() {
   await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
 
-  await Promise.all([
-    esbuild.build({
-      entryPoints: [path.join(srcDir, 'extension.ts')],
-      bundle: true,
-      platform: 'node',
-      format: 'cjs',
-      outfile: path.join(outDir, 'extension.js'),
-      sourcemap: true,
-      target: 'node20',
-      external: ['vscode'],
-    }),
-    esbuild.build({
-      entryPoints: [path.join(srcDir, 'backend', 'index.ts')],
-      bundle: true,
-      platform: 'node',
-      format: 'cjs',
-      outfile: path.join(outDir, 'backend.js'),
-      sourcemap: true,
-      target: 'node20',
-    }),
-    esbuild.build({
-      entryPoints: [path.join(srcDir, 'webview', 'panel', 'panel.tsx')],
-      bundle: true,
-      platform: 'browser',
-      format: 'iife',
-      outfile: path.join(outDir, 'webview', 'panel', 'panel.js'),
-      sourcemap: true,
-      target: 'es2022',
-      jsx: 'automatic',
-      jsxImportSource: 'preact',
-    }),
-  ]);
-
-  await Promise.all([
-    copyAsset(path.join('webview', 'panel', 'index.html')),
-    copyAsset(path.join('webview', 'panel', 'panel.css')),
-  ]);
-
+  await Promise.all(createBuildConfigurations().map((config) => esbuild.build(config)));
+  await copyStaticAssets();
   await syncToInstalledExtension();
 }
 
-if (watch) {
-  const contexts = await Promise.all([
-    esbuild.context({
-      entryPoints: [path.join(srcDir, 'extension.ts')],
-      bundle: true,
-      platform: 'node',
-      format: 'cjs',
-      outfile: path.join(outDir, 'extension.js'),
-      sourcemap: true,
-      target: 'node20',
-      external: ['vscode'],
-    }),
-    esbuild.context({
-      entryPoints: [path.join(srcDir, 'backend', 'index.ts')],
-      bundle: true,
-      platform: 'node',
-      format: 'cjs',
-      outfile: path.join(outDir, 'backend.js'),
-      sourcemap: true,
-      target: 'node20',
-    }),
-    esbuild.context({
-      entryPoints: [path.join(srcDir, 'webview', 'panel', 'panel.tsx')],
-      bundle: true,
-      platform: 'browser',
-      format: 'iife',
-      outfile: path.join(outDir, 'webview', 'panel', 'panel.js'),
-      sourcemap: true,
-      target: 'es2022',
-      jsx: 'automatic',
-      jsxImportSource: 'preact',
-    }),
-  ]);
+if (watchMode) {
+  const contexts = await Promise.all(createBuildConfigurations().map((config) => esbuild.context(config)));
 
-  await rm(outDir, { recursive: true, force: true });
-  await mkdir(outDir, { recursive: true });
+  await mkdir(path.join(outDir, webviewRelativeDir), { recursive: true });
+  const sourceAssetWatcher = createSourceAssetWatcher();
+  const builtWebviewWatcher = createBuiltWebviewWatcher();
+
   await Promise.all(contexts.map((context) => context.watch()));
-  await Promise.all([
-    copyAsset(path.join('webview', 'panel', 'index.html')),
-    copyAsset(path.join('webview', 'panel', 'panel.css')),
-  ]);
+  await copyStaticAssets();
+  await syncToInstalledExtension();
+
+  const shutdown = async () => {
+    if (syncTimer !== undefined) {
+      clearTimeout(syncTimer);
+      syncTimer = undefined;
+    }
+    if (pendingAssetCopyTimer !== undefined) {
+      clearTimeout(pendingAssetCopyTimer);
+      pendingAssetCopyTimer = undefined;
+    }
+
+    sourceAssetWatcher.close();
+    builtWebviewWatcher.close();
+    await Promise.all(contexts.map((context) => context.dispose()));
+  };
+
+  process.once('SIGINT', () => {
+    void shutdown();
+  });
+  process.once('SIGTERM', () => {
+    void shutdown();
+  });
 } else {
   await buildOnce();
 }

@@ -2,11 +2,19 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  assertProtocolVersion,
   DEFAULT_CHAT_PREFS,
   PROTOCOL_VERSION,
+  resolveChatPrefs,
+  type ChatMessage,
+  type ComposerInput,
   type ContextUsageChangedPayload,
   type HostToWebviewMessage,
+  type ModelInfo,
   type PatchOp,
+  type SessionAnalyticsFactors,
+  type SessionOpenedPayload,
+  type ToolFinishedPayload,
   type WebviewToHostMessage,
 } from '../src/shared/protocol';
 
@@ -24,7 +32,67 @@ test('PROTOCOL_VERSION is a positive integer', () => {
 test('DEFAULT_CHAT_PREFS shape', () => {
   assert.equal(typeof DEFAULT_CHAT_PREFS.autoExpandReasoning, 'boolean');
   assert.equal(typeof DEFAULT_CHAT_PREFS.autoExpandToolCalls, 'boolean');
+  assert.equal(typeof DEFAULT_CHAT_PREFS.autoExpandSubagentCalls, 'boolean');
   assert.equal(typeof DEFAULT_CHAT_PREFS.suppressCompletionNotifications, 'boolean');
+});
+
+test('resolveChatPrefs backfills subagent auto-expand from legacy tool-call prefs', () => {
+  assert.equal(resolveChatPrefs({ autoExpandToolCalls: true }).autoExpandSubagentCalls, true);
+  assert.equal(
+    resolveChatPrefs({ autoExpandToolCalls: true, autoExpandSubagentCalls: false }).autoExpandSubagentCalls,
+    false,
+  );
+});
+
+test('assertProtocolVersion accepts matches and rejects mismatches', () => {
+  assert.doesNotThrow(() => {
+    assertProtocolVersion('backend.ready', PROTOCOL_VERSION);
+  });
+
+  assert.throws(() => {
+    assertProtocolVersion('backend.ready', PROTOCOL_VERSION + 1);
+  }, /protocol mismatch/i);
+
+  assert.throws(() => {
+    assertProtocolVersion('backend.ready', 'not-a-number');
+  }, /valid integer protocolVersion/i);
+});
+
+test('ModelInfo carries explicit inputKinds capability metadata', () => {
+  const model: ModelInfo = {
+    id: 'claude-sonnet-4-5',
+    name: 'Claude Sonnet 4.5',
+    provider: 'anthropic',
+    reasoning: true,
+    inputKinds: ['text', 'image'],
+    contextWindow: 200000,
+    maxTokens: 8192,
+  };
+
+  assert.deepEqual(model.inputKinds, ['text', 'image']);
+});
+
+test('ChatMessage.userParts supports structured user image content', () => {
+  const message: ChatMessage = {
+    id: 'user-1',
+    role: 'user',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    markdown: 'Please inspect this screenshot',
+    userParts: [
+      { kind: 'text', text: 'Please inspect this screenshot' },
+      {
+        kind: 'image',
+        mimeType: 'image/png',
+        dataBase64: 'ZmFrZQ==',
+        name: 'screenshot.png',
+        width: 100,
+        height: 50,
+      },
+    ],
+    status: 'completed',
+  };
+
+  assert.equal(message.userParts?.[1]?.kind, 'image');
 });
 
 // ---------------------------------------------------------------------------
@@ -45,6 +113,9 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
       unreadFinishedSessionPaths: [],
       activeSession: null,
       transcript: [],
+      pendingComposerInputs: [],
+      activeRunSummary: null,
+      runSummariesBySession: {},
       busy: false,
       notice: null,
       backendReady: false,
@@ -60,6 +131,9 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
   if (msg.type === 'state') {
     assert.equal(msg.hostInstanceId, 'abc');
     assert.equal(msg.revision, 7);
+    assert.deepEqual(msg.state.pendingComposerInputs, []);
+    assert.equal(msg.state.activeRunSummary, null);
+    assert.deepEqual(msg.state.runSummariesBySession, {});
   }
 });
 
@@ -134,6 +208,58 @@ test('ContextUsageChangedPayload carries nullable live usage per session', () =>
   assert.equal(cleared.contextUsage, null);
 });
 
+test('SessionOpenedPayload can carry structured analytics factors', () => {
+  const analyticsFactors: SessionAnalyticsFactors = {
+    promptFamily: 'harness+customPrompt',
+    promptHash: 'prompt-hash',
+    harnessPromptHash: 'harness-hash',
+    customPromptHash: 'custom-hash',
+    appendSystemPromptHash: null,
+    promptGuidelineHashes: ['guideline-hash'],
+    contextFiles: [{ path: '/workspace/context.md', hash: 'context-hash' }],
+    selectedToolIds: ['read', 'bash'],
+    toolSnippetHashes: [{ toolId: 'bash', hash: 'tool-snippet-hash' }],
+    toolSetHash: 'tool-set-hash',
+    skills: [{
+      name: 'verification-before-completion',
+      contentHash: 'skill-hash',
+      sourceHash: 'skill-source-hash',
+      disableModelInvocation: false,
+    }],
+    skillSetHash: 'skill-set-hash',
+  };
+
+  const payload: SessionOpenedPayload = {
+    session: {
+      path: '/workspace/session.jsonl',
+      name: 'Session',
+      cwd: '/workspace',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+      messageCount: 2,
+    },
+    transcript: [],
+    busy: false,
+    analyticsFactors,
+  };
+
+  assert.equal(payload.analyticsFactors?.promptHash, 'prompt-hash');
+  assert.equal(payload.analyticsFactors?.selectedToolIds[0], 'read');
+});
+
+
+test('ToolFinishedPayload carries normalized failure status', () => {
+  const payload: ToolFinishedPayload = {
+    requestId: 'request-1',
+    sessionPath: '/workspace/session.jsonl',
+    messageId: 'message-1',
+    toolCallId: 'tool-1',
+    result: { ok: false },
+    status: 'failed',
+  };
+
+  assert.equal(payload.status, 'failed');
+});
+
 // ---------------------------------------------------------------------------
 // Webview-to-host setPrefs envelope: prefs now live on the host (globalState)
 // and changes flow as a typed RPC, replacing the old localStorage path.
@@ -142,38 +268,121 @@ test('ContextUsageChangedPayload carries nullable live usage per session', () =>
 test('WebviewToHostMessage.setPrefs accepts partial pref updates', () => {
   const msg: WebviewToHostMessage = {
     type: 'setPrefs',
-    prefs: { autoExpandReasoning: true, suppressCompletionNotifications: true },
+    prefs: {
+      autoExpandReasoning: true,
+      autoExpandSubagentCalls: true,
+      suppressCompletionNotifications: true,
+    },
   };
   assert.equal(msg.type, 'setPrefs');
   if (msg.type === 'setPrefs') {
     assert.equal(msg.prefs.autoExpandReasoning, true);
+    assert.equal(msg.prefs.autoExpandSubagentCalls, true);
     assert.equal(msg.prefs.suppressCompletionNotifications, true);
   }
 });
 
-test('WebviewToHostMessage.send can carry pending attachment paths', () => {
+test('WebviewToHostMessage.setModel can target an explicit session path', () => {
   const msg: WebviewToHostMessage = {
-    type: 'send',
-    text: 'hello',
-    pendingPaths: ['/workspace/a.ts'],
+    type: 'setModel',
+    sessionPath: '/workspace/session.jsonl',
+    defaultModel: 'claude-sonnet-4-5',
+    defaultThinkingLevel: 'medium',
   };
-  assert.equal(msg.type, 'send');
-  if (msg.type === 'send') {
-    assert.deepEqual(msg.pendingPaths, ['/workspace/a.ts']);
+  assert.equal(msg.type, 'setModel');
+  if (msg.type === 'setModel') {
+    assert.equal(msg.sessionPath, '/workspace/session.jsonl');
+    assert.equal(msg.defaultModel, 'claude-sonnet-4-5');
+    assert.equal(msg.defaultThinkingLevel, 'medium');
   }
 });
 
-test('HostToWebviewMessage.sendRejected restores the draft payload', () => {
+test('WebviewToHostMessage.addComposerInput accepts a raw input without an id', () => {
+  const input: ComposerInput = {
+    id: 'input-1',
+    kind: 'filesystemPathRef',
+    path: '/workspace/a.ts',
+    name: 'a.ts',
+    source: 'picker',
+  };
+
+  const msg: WebviewToHostMessage = {
+    type: 'addComposerInput',
+    sessionPath: '/workspace/session.jsonl',
+    input: {
+      kind: input.kind,
+      path: input.path,
+      name: input.name,
+      source: input.source,
+    },
+  };
+
+  assert.equal(msg.type, 'addComposerInput');
+  if (msg.type === 'addComposerInput') {
+    assert.equal(msg.sessionPath, '/workspace/session.jsonl');
+    assert.ok(!('id' in msg.input));
+    assert.equal(msg.input.kind, 'filesystemPathRef');
+  }
+});
+
+test('WebviewToHostMessage.removeComposerInput targets an assigned input id', () => {
+  const msg: WebviewToHostMessage = {
+    type: 'removeComposerInput',
+    sessionPath: '/workspace/session.jsonl',
+    inputId: 'input-1',
+  };
+
+  assert.equal(msg.type, 'removeComposerInput');
+  if (msg.type === 'removeComposerInput') {
+    assert.equal(msg.sessionPath, '/workspace/session.jsonl');
+    assert.equal(msg.inputId, 'input-1');
+  }
+});
+
+test('WebviewToHostMessage.send accepts text-only payloads', () => {
+  const msg: WebviewToHostMessage = {
+    type: 'send',
+    text: 'hello',
+  };
+  assert.equal(msg.type, 'send');
+  if (msg.type === 'send') {
+    assert.equal(msg.text, 'hello');
+  }
+});
+
+test('WebviewToHostMessage includes run outcome and task-control actions', () => {
+  const outcome: WebviewToHostMessage = {
+    type: 'recordOutcome',
+    sessionPath: '/workspace/session.jsonl',
+    outcome: { resolution: 'resolved', satisfaction: 5 },
+  };
+  const newTask: WebviewToHostMessage = {
+    type: 'startNewTask',
+    sessionPath: '/workspace/session.jsonl',
+  };
+  const continueTask: WebviewToHostMessage = {
+    type: 'continueTask',
+    sessionPath: '/workspace/session.jsonl',
+  };
+
+  assert.equal(outcome.type, 'recordOutcome');
+  if (outcome.type === 'recordOutcome') {
+    assert.equal(outcome.outcome.resolution, 'resolved');
+    assert.equal(outcome.outcome.satisfaction, 5);
+  }
+  assert.equal(newTask.type, 'startNewTask');
+  assert.equal(continueTask.type, 'continueTask');
+});
+
+test('HostToWebviewMessage.sendRejected restores only the text draft payload', () => {
   const msg: HostToWebviewMessage = {
     type: 'sendRejected',
     sessionPath: '/workspace/a.ts',
     text: 'hello',
-    pendingPaths: ['/workspace/a.ts'],
   };
   assert.equal(msg.type, 'sendRejected');
   if (msg.type === 'sendRejected') {
     assert.equal(msg.sessionPath, '/workspace/a.ts');
     assert.equal(msg.text, 'hello');
-    assert.deepEqual(msg.pendingPaths, ['/workspace/a.ts']);
   }
 });

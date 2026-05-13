@@ -1,0 +1,141 @@
+import * as crypto from 'node:crypto';
+
+import type { ActiveRunSummary, ComposerInput } from '../shared/protocol';
+import {
+  RUN_ANALYTICS_SCHEMA_VERSION,
+  coerceRunSnapshot,
+  type PersistedSessionRunState,
+  type RunCheckpoint,
+  type RunSnapshot,
+  type TaskBoundaryIntent,
+} from './run-analytics-types';
+
+export function defaultNow(): Date {
+  return new Date();
+}
+
+export function defaultCreateId(): string {
+  return crypto.randomUUID();
+}
+
+export function workspaceHash(workspaceId: string): string {
+  return crypto.createHash('sha256').update(workspaceId).digest('hex').slice(0, 16);
+}
+
+export function summarizeInputs(run: RunSnapshot, inputs: ComposerInput[]): void {
+  const kindsUsed = new Set<ComposerInput['kind']>(run.inputKindsUsed);
+
+  for (const input of inputs) {
+    kindsUsed.add(input.kind);
+    switch (input.kind) {
+      case 'filesystemPathRef':
+        run.filesystemPathRefCount += 1;
+        break;
+      case 'imageBlob':
+        run.imageInputCount += 1;
+        run.imageInputBytes += input.sizeBytes;
+        break;
+      case 'fileBlob':
+        run.unsupportedInputCount += 1;
+        break;
+    }
+  }
+
+  run.inputKindsUsed = [...kindsUsed];
+}
+
+export function toActiveRunSummary(run: RunSnapshot | null): ActiveRunSummary | null {
+  if (!run) {
+    return null;
+  }
+
+  return {
+    runId: run.runId,
+    status: run.status,
+    scored: run.scored,
+  };
+}
+
+interface PersistableSessionState {
+  currentRun: RunSnapshot | null;
+  lastRun: RunSnapshot | null;
+  nextTaskIntent: TaskBoundaryIntent;
+  queuedUnsupportedInputCount: number;
+  busyStartedAt: string | null;
+}
+
+export function toPersistedSessionState(state: PersistableSessionState): PersistedSessionRunState {
+  return {
+    currentRun: state.currentRun,
+    lastRun: state.lastRun,
+    nextTaskIntent: state.nextTaskIntent,
+    queuedUnsupportedInputCount: state.queuedUnsupportedInputCount,
+    busyStartedAt: state.busyStartedAt,
+  };
+}
+
+export function isTaskBoundaryIntent(value: unknown): value is Exclude<TaskBoundaryIntent, null> {
+  return value === 'new_task' || value === 'continue_task';
+}
+
+export function parseCheckpoint(raw: string): RunCheckpoint | null {
+  try {
+    const value = JSON.parse(raw) as {
+      schemaVersion?: unknown;
+      seq?: unknown;
+      sessions?: unknown;
+    };
+    if (value.schemaVersion !== RUN_ANALYTICS_SCHEMA_VERSION || typeof value.seq !== 'number') {
+      return null;
+    }
+    if (!value.sessions || typeof value.sessions !== 'object') {
+      return null;
+    }
+
+    const sessions: Record<string, PersistedSessionRunState> = {};
+    for (const [sessionPath, sessionState] of Object.entries(value.sessions as Record<string, unknown>)) {
+      if (!sessionState || typeof sessionState !== 'object') {
+        continue;
+      }
+      const candidate = sessionState as {
+        currentRun?: unknown;
+        lastRun?: unknown;
+        nextTaskIntent?: unknown;
+        queuedUnsupportedInputCount?: unknown;
+        busyStartedAt?: unknown;
+      };
+      sessions[sessionPath] = {
+        currentRun: coerceRunSnapshot(candidate.currentRun),
+        lastRun: coerceRunSnapshot(candidate.lastRun),
+        nextTaskIntent: isTaskBoundaryIntent(candidate.nextTaskIntent) ? candidate.nextTaskIntent : null,
+        queuedUnsupportedInputCount:
+          typeof candidate.queuedUnsupportedInputCount === 'number'
+          && Number.isFinite(candidate.queuedUnsupportedInputCount)
+          && candidate.queuedUnsupportedInputCount >= 0
+            ? Math.trunc(candidate.queuedUnsupportedInputCount)
+            : 0,
+        busyStartedAt: typeof candidate.busyStartedAt === 'string' ? candidate.busyStartedAt : null,
+      };
+    }
+
+    return {
+      schemaVersion: RUN_ANALYTICS_SCHEMA_VERSION,
+      seq: value.seq,
+      sessions,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function appendUnique<TValue>(values: TValue[], nextValues: TValue[]): TValue[] {
+  return [...new Set([...values, ...nextValues])];
+}
+
+export function areStringArraysEqual(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  return left.every((value, index) => value === right[index]);
+}

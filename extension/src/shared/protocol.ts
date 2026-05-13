@@ -3,7 +3,21 @@
  * extension host and the backend process. The host refuses to start the backend
  * unless the values match.
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 7;
+
+export function assertProtocolVersion(peerLabel: string, protocolVersion: unknown): void {
+  if (!Number.isInteger(protocolVersion)) {
+    throw new Error(
+      `PI protocol check failed: ${peerLabel} did not report a valid integer protocolVersion (expected ${PROTOCOL_VERSION}).`,
+    );
+  }
+
+  if (protocolVersion !== PROTOCOL_VERSION) {
+    throw new Error(
+      `PI protocol mismatch: host expects version ${PROTOCOL_VERSION} but ${peerLabel} reported ${protocolVersion}. Rebuild or update both sides together.`,
+    );
+  }
+}
 
 export interface RequestEnvelope<TParams = unknown> {
   id: string;
@@ -39,11 +53,15 @@ export interface ModelSettings {
   defaultThinkingLevel: ThinkingLevel;
 }
 
+export type ModelInputKind = 'text' | 'image';
+
 export interface ModelInfo {
   id: string;
   name: string;
   provider: string;
   reasoning: boolean;
+  /** Explicit input capabilities. Backends must default to `['text']` when unsure. */
+  inputKinds: ModelInputKind[];
   contextWindow?: number;
   maxTokens?: number;
 }
@@ -61,6 +79,7 @@ export interface SessionSummary {
   modifiedAt: string;
   messageCount: number;
   modelId?: string;
+  thinkingLevel?: ThinkingLevel;
   /**
    * True when `name` is a backend-generated placeholder (not a user-meaningful
    * label). Lets the host preserve a real local name on top of placeholder
@@ -76,6 +95,62 @@ export interface ToolCall {
   result?: unknown;
   status: 'running' | 'completed' | 'failed';
 }
+
+export interface FilesystemPathComposerInput {
+  id: string;
+  kind: 'filesystemPathRef';
+  path: string;
+  name: string;
+  source: 'picker' | 'drop';
+}
+
+export interface ImageBlobComposerInput {
+  id: string;
+  kind: 'imageBlob';
+  mimeType: string;
+  name: string;
+  sizeBytes: number;
+  dataBase64: string;
+  width?: number;
+  height?: number;
+  source: 'paste' | 'drop';
+}
+
+export interface FileBlobComposerInput {
+  id: string;
+  kind: 'fileBlob';
+  mimeType: string;
+  name: string;
+  sizeBytes: number;
+  dataBase64: string;
+  source: 'paste' | 'drop';
+}
+
+export type ComposerInput =
+  | FilesystemPathComposerInput
+  | ImageBlobComposerInput
+  | FileBlobComposerInput;
+
+export type ComposerInputDraft =
+  | Omit<FilesystemPathComposerInput, 'id'>
+  | Omit<ImageBlobComposerInput, 'id'>
+  | Omit<FileBlobComposerInput, 'id'>;
+
+export interface UserContentTextPart {
+  kind: 'text';
+  text: string;
+}
+
+export interface UserContentImagePart {
+  kind: 'image';
+  mimeType: string;
+  dataBase64: string;
+  name?: string;
+  width?: number;
+  height?: number;
+}
+
+export type UserContentPart = UserContentTextPart | UserContentImagePart;
 
 export interface ChatMessageTextPart {
   kind: 'text';
@@ -102,6 +177,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system';
   createdAt: string;
   markdown: string;
+  /** Ordered user content blocks when the message contains structured user input (e.g. pasted images). */
+  userParts?: UserContentPart[];
   /** Ordered assistant content blocks as emitted by the agent. */
   parts?: ChatMessagePart[];
   /** Accumulated reasoning/thinking content (only present on assistant messages from reasoning models). */
@@ -128,6 +205,38 @@ export interface SystemPromptEntry {
   availability: SystemPromptAvailability;
 }
 
+export interface SessionContextFileFactor {
+  path: string;
+  hash: string;
+}
+
+export interface SessionToolSnippetFactor {
+  toolId: string;
+  hash: string;
+}
+
+export interface SessionSkillFactor {
+  name: string;
+  contentHash: string | null;
+  sourceHash: string | null;
+  disableModelInvocation: boolean;
+}
+
+export interface SessionAnalyticsFactors {
+  promptFamily: string | null;
+  promptHash: string | null;
+  harnessPromptHash: string | null;
+  customPromptHash: string | null;
+  appendSystemPromptHash: string | null;
+  promptGuidelineHashes: string[];
+  contextFiles: SessionContextFileFactor[];
+  selectedToolIds: string[];
+  toolSnippetHashes: SessionToolSnippetFactor[];
+  toolSetHash: string | null;
+  skills: SessionSkillFactor[];
+  skillSetHash: string | null;
+}
+
 export interface BackendReadyPayload {
   sdkPath: string;
   agentDir: string;
@@ -143,6 +252,7 @@ export interface SessionOpenedPayload {
   busy: boolean;
   selectionToken?: string;
   systemPrompts?: SystemPromptEntry[];
+  analyticsFactors?: SessionAnalyticsFactors;
   modelSettings?: ModelSettings;
   availableModels?: ModelInfo[];
   contextUsage?: ContextWindowUsage;
@@ -190,6 +300,7 @@ export interface ToolFinishedPayload {
   messageId: string;
   toolCallId: string;
   result: unknown;
+  status: Extract<ToolCall['status'], 'completed' | 'failed'>;
 }
 
 export interface ToolProgressPayload {
@@ -253,14 +364,43 @@ export type PatchOp =
 export interface ChatPrefs {
   autoExpandReasoning: boolean;
   autoExpandToolCalls: boolean;
+  autoExpandSubagentCalls: boolean;
   suppressCompletionNotifications: boolean;
+}
+
+export type ActiveRunStatus = 'open' | 'scored' | 'closed_unscored';
+
+export interface ActiveRunSummary {
+  runId: string;
+  status: ActiveRunStatus;
+  scored: boolean;
+}
+
+export type RunOutcomeResolution = 'resolved' | 'partially_resolved' | 'unresolved';
+
+export interface RunOutcome {
+  resolution: RunOutcomeResolution;
+  /** Intended to be a user-facing ordinal score (e.g. 1–5). */
+  satisfaction: number;
 }
 
 export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   autoExpandReasoning: false,
   autoExpandToolCalls: false,
+  autoExpandSubagentCalls: false,
   suppressCompletionNotifications: false,
 };
+
+export function resolveChatPrefs(prefs?: Partial<ChatPrefs> | null): ChatPrefs {
+  return {
+    ...DEFAULT_CHAT_PREFS,
+    ...prefs,
+    autoExpandSubagentCalls:
+      prefs?.autoExpandSubagentCalls
+      ?? prefs?.autoExpandToolCalls
+      ?? DEFAULT_CHAT_PREFS.autoExpandSubagentCalls,
+  };
+}
 
 /** The full view state sent from the extension host to the webview. */
 export interface ViewState {
@@ -270,6 +410,12 @@ export interface ViewState {
   unreadFinishedSessionPaths: string[];
   activeSession: SessionSummary | null;
   transcript: ChatMessage[];
+  /** Host-owned pending inputs for the active session. */
+  pendingComposerInputs: ComposerInput[];
+  /** Null when the active session has no open run. */
+  activeRunSummary: ActiveRunSummary | null;
+  /** Per-session run summaries used for tab affordances and context menus. */
+  runSummariesBySession: Record<string, ActiveRunSummary | null>;
   busy: boolean;
   notice: string | null;
   /** True once the backend process has started and emitted `backend.ready`. */
@@ -303,8 +449,11 @@ export type HostToWebviewMessage =
       revision: number;
       op: PatchOp;
     }
-  | { type: 'sendRejected'; sessionPath: string; text: string; pendingPaths: string[] }
-  | { type: 'filePickerResult'; paths: string[] };
+  | {
+      type: 'sendRejected';
+      sessionPath: string;
+      text: string;
+    };
 
 /** Messages the webview can send back to the host. */
 export type WebviewToHostMessage =
@@ -312,16 +461,26 @@ export type WebviewToHostMessage =
   | { type: 'refreshState' }
   | { type: 'requestSnapshot' }
   | { type: 'openFilePicker' }
+  | { type: 'exportRunAnalytics' }
   | { type: 'openFile'; path: string }
-  | { type: 'send'; text: string; pendingPaths?: string[] }
+  | { type: 'addComposerInput'; sessionPath: string; input: ComposerInputDraft }
+  | { type: 'removeComposerInput'; sessionPath: string; inputId: string }
+  | {
+      type: 'send';
+      text: string;
+    }
   | { type: 'editMessage'; messageId: string; text: string }
   | { type: 'interrupt' }
   | { type: 'newSession' }
   | { type: 'openSession'; sessionPath: string }
   | { type: 'closeSession'; sessionPath: string }
   | { type: 'moveSessionTab'; sessionPath?: string; fromIndex: number; toIndex: number }
+  | { type: 'recordOutcome'; sessionPath: string; outcome: RunOutcome }
+  | { type: 'startNewTask'; sessionPath: string }
+  | { type: 'continueTask'; sessionPath: string }
   | {
       type: 'setModel';
+      sessionPath?: string;
       defaultModel: string;
       defaultThinkingLevel: ThinkingLevel;
     }

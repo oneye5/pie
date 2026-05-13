@@ -5,7 +5,7 @@
  * layer without needing vscode or a real PI SDK install. Tests:
  *
  *   1. Protocol bootstrap — mock emits backend.ready with expected fields.
- *   2. Request/response round-trip — app.ping returns a response envelope.
+ *   2. Request/response round-trip — app.ping returns handshake info with the matching protocol version.
  *   3. session.list response shape.
  *   4. session.open triggers session.opened event.
  *   5. message.send triggers the full streaming event sequence.
@@ -132,7 +132,7 @@ test('mock backend emits backend.ready on startup', async () => {
   }
 });
 
-test('app.ping returns a valid ResponseEnvelope', async () => {
+test('app.ping returns a valid handshake ResponseEnvelope', async () => {
   const { nextLine, send, shutdown } = spawnMockBackend();
   try {
     await nextLine(); // skip backend.ready
@@ -141,9 +141,22 @@ test('app.ping returns a valid ResponseEnvelope', async () => {
     const line = await nextLine();
 
     assert.ok(isResponseEnvelope(line.parsed), 'app.ping reply should be a ResponseEnvelope');
-    const env = line.parsed as { id: string; ok: boolean };
+    const env = line.parsed as {
+      id: string;
+      ok: true;
+      result: {
+        protocolVersion: number;
+        sdkVersion: string;
+        sdkPath: string;
+        agentDir: string;
+      };
+    };
     assert.equal(env.id, id);
     assert.equal(env.ok, true);
+    assert.equal(env.result.protocolVersion, PROTOCOL_VERSION);
+    assert.equal(typeof env.result.sdkVersion, 'string');
+    assert.equal(typeof env.result.sdkPath, 'string');
+    assert.equal(typeof env.result.agentDir, 'string');
   } finally {
     await shutdown();
   }
@@ -203,9 +216,29 @@ test('session.open triggers session.opened EventEnvelope', async () => {
       name: 'Claude Mock',
       provider: 'mock',
       reasoning: true,
+      inputKinds: ['text', 'image'],
       contextWindow: 200000,
       maxTokens: 8192,
     }]);
+    assert.deepEqual(env.payload.analyticsFactors, {
+      promptFamily: 'harness+customPrompt+selectedTools+skills',
+      promptHash: 'mock-prompt-hash',
+      harnessPromptHash: 'mock-harness-hash',
+      customPromptHash: 'mock-custom-hash',
+      appendSystemPromptHash: null,
+      promptGuidelineHashes: ['mock-guideline-hash'],
+      contextFiles: [{ path: '/mock/context.md', hash: 'mock-context-hash' }],
+      selectedToolIds: ['read', 'bash'],
+      toolSnippetHashes: [{ toolId: 'bash', hash: 'mock-tool-snippet-hash' }],
+      toolSetHash: 'mock-tool-set-hash',
+      skills: [{
+        name: 'verification-before-completion',
+        contentHash: 'mock-skill-hash',
+        sourceHash: 'mock-skill-source-hash',
+        disableModelInvocation: false,
+      }],
+      skillSetHash: 'mock-skill-set-hash',
+    });
   } finally {
     await shutdown();
   }
@@ -275,6 +308,12 @@ test('message.send triggers full streaming sequence', async () => {
   for (let i = 1; i < seqs.length; i++) {
     assert.ok(seqs[i] > seqs[i - 1], `Busy seq should be monotonically increasing (${seqs[i - 1]} → ${seqs[i]})`);
   }
+
+  const toolFinishedEvent = events.find((e) => e.event === 'tool.finished') as
+    | { event: string; payload: { status: string } }
+    | undefined;
+  assert.ok(toolFinishedEvent, 'tool.finished event should exist');
+  assert.equal(toolFinishedEvent?.payload.status, 'completed');
 
   const startedEvent = events.find((e) => e.event === 'message.started') as
     | { event: string; payload: { modelId?: string; thinkingLevel?: string } }

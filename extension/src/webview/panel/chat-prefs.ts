@@ -1,7 +1,8 @@
 import type { ChatPrefs } from '../../shared/protocol';
 
 export type ChatPrefKey = keyof ChatPrefs;
-export type ChatPrefContextType = 'reasoning' | 'toolCalls';
+export type ChatPrefContextType = 'reasoning' | 'toolCalls' | 'subagentCalls';
+export type TranscriptContextMenuType = ChatPrefContextType | 'message';
 
 export interface ChatPrefMenuItem<K extends ChatPrefKey = ChatPrefKey> {
   key: K;
@@ -14,13 +15,29 @@ export interface ChatPrefMenuSection {
   items: ChatPrefMenuItem[];
 }
 
+const CHAT_PREF_CONTEXT_ITEMS: Record<ChatPrefContextType, ChatPrefMenuItem> = {
+  reasoning: {
+    key: 'autoExpandReasoning',
+    label: 'Auto-expand reasoning',
+  },
+  toolCalls: {
+    key: 'autoExpandToolCalls',
+    label: 'Auto-expand tool calls',
+  },
+  subagentCalls: {
+    key: 'autoExpandSubagentCalls',
+    label: 'Auto-expand sub-agent calls',
+  },
+};
+
 export const CHAT_PREF_MENU_SECTIONS: readonly ChatPrefMenuSection[] = [
   {
     id: 'transcript',
     label: 'Transcript',
     items: [
-      { key: 'autoExpandReasoning', label: 'Auto-expand reasoning' },
-      { key: 'autoExpandToolCalls', label: 'Auto-expand tool calls' },
+      CHAT_PREF_CONTEXT_ITEMS.reasoning,
+      CHAT_PREF_CONTEXT_ITEMS.toolCalls,
+      CHAT_PREF_CONTEXT_ITEMS.subagentCalls,
     ],
   },
   {
@@ -40,11 +57,11 @@ export function toggleChatPref<K extends ChatPrefKey>(prefs: ChatPrefs, key: K):
 }
 
 export function getChatPrefContextKey(type: ChatPrefContextType): ChatPrefKey {
-  return type === 'reasoning' ? 'autoExpandReasoning' : 'autoExpandToolCalls';
+  return CHAT_PREF_CONTEXT_ITEMS[type].key;
 }
 
 export function getChatPrefContextLabel(type: ChatPrefContextType): string {
-  return type === 'reasoning' ? 'Auto-expand reasoning' : 'Auto-expand tool calls';
+  return CHAT_PREF_CONTEXT_ITEMS[type].label;
 }
 
 export function getChatPrefContextValue(prefs: ChatPrefs, type: ChatPrefContextType): boolean {
@@ -56,4 +73,8 @@ export function toggleChatPrefForContext(
   type: ChatPrefContextType,
 ): Partial<ChatPrefs> {
   return toggleChatPref(prefs, getChatPrefContextKey(type));
+}
+
+export function getToolCallContextType(toolName: string): Exclude<ChatPrefContextType, 'reasoning'> {
+  return toolName === 'subagent' ? 'subagentCalls' : 'toolCalls';
 }

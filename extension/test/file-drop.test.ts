@@ -1,17 +1,42 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { canAcceptPathDrop, extractDroppedPaths } from '../src/webview/panel/file-drop';
+import {
+  canAcceptComposerTransfer,
+  canAcceptPathDrop,
+  extractComposerInputs,
+  extractDroppedPaths,
+  formatComposerTransferError,
+  hasClipboardFilePayload,
+} from '../src/webview/panel/file-drop';
 
 function makeTransfer(options: {
   types?: string[];
   textPlain?: string;
   uriList?: string;
-  files?: Array<{ path?: string }>;
+  files?: Array<{
+    path?: string;
+    type?: string;
+    name?: string;
+    size?: number;
+    arrayBuffer?: () => Promise<ArrayBuffer>;
+  }>;
+  items?: Array<{
+    kind?: string;
+    type?: string;
+    getAsFile?: () => {
+      path?: string;
+      type?: string;
+      name?: string;
+      size?: number;
+      arrayBuffer?: () => Promise<ArrayBuffer>;
+    } | null;
+  }>;
 }) {
   return {
     types: options.types ?? [],
     files: options.files ?? [],
+    items: options.items ?? [],
     getData(format: string): string {
       if (format === 'text/plain') return options.textPlain ?? '';
       if (format === 'text/uri-list') return options.uriList ?? '';
@@ -20,20 +45,25 @@ function makeTransfer(options: {
   };
 }
 
+function makeArrayBuffer(value: string): ArrayBuffer {
+  const bytes = new TextEncoder().encode(value);
+  return bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+}
+
 test('extractDroppedPaths prefers file URIs from text/uri-list', () => {
   const dataTransfer = makeTransfer({
     types: ['text/uri-list', 'Files'],
     uriList: [
       '# comment',
-      'file:///C:/workspaces/pi-config/README.md',
-      'file:///C:/workspaces/pi-config/README.md',
-      'file:///C:/workspaces/pi-config/src/index.ts',
+      'file:///C:/workspaces/pie/README.md',
+      'file:///C:/workspaces/pie/README.md',
+      'file:///C:/workspaces/pie/src/index.ts',
     ].join('\r\n'),
   });
 
   assert.deepEqual(extractDroppedPaths(dataTransfer), [
-    'C:\\workspaces\\pi-config\\README.md',
-    'C:\\workspaces\\pi-config\\src\\index.ts',
+    'C:\\workspaces\\pie\\README.md',
+    'C:\\workspaces\\pie\\src\\index.ts',
   ]);
 });
 
@@ -177,4 +207,142 @@ test('canAcceptPathDrop detects file-like drag payloads without parsing plain te
   );
   assert.equal(canAcceptPathDrop(makeTransfer({ types: ['text/plain'], textPlain: '/tmp/app.ts' })), true);
   assert.equal(canAcceptPathDrop(makeTransfer({ types: ['text/plain'], textPlain: 'hello world' })), true);
+});
+
+test('canAcceptComposerTransfer accepts image clipboard payloads', () => {
+  const dataTransfer = makeTransfer({
+    files: [{ type: 'image/png', name: 'paste.png', size: 4, arrayBuffer: async () => makeArrayBuffer('png!') }],
+  });
+
+  assert.equal(canAcceptComposerTransfer(dataTransfer), true);
+});
+
+test('hasClipboardFilePayload accepts item-based clipboard images', () => {
+  const dataTransfer = makeTransfer({
+    items: [{
+      kind: 'file',
+      type: 'image/png',
+      getAsFile: () => ({
+        type: 'image/png',
+        name: 'clipboard-item.png',
+        size: 4,
+        arrayBuffer: async () => makeArrayBuffer('png!'),
+      }),
+    }],
+  });
+
+  assert.equal(hasClipboardFilePayload(dataTransfer), true);
+  assert.equal(canAcceptComposerTransfer(dataTransfer), true);
+});
+
+test('extractComposerInputs lowers dropped path-like payloads into filesystem refs', async () => {
+  const dataTransfer = makeTransfer({
+    types: ['text/uri-list'],
+    uriList: 'file:///workspace/src/app.ts',
+  });
+
+  const result = await extractComposerInputs(dataTransfer, 'drop');
+  assert.deepEqual(result, {
+    inputs: [{
+      kind: 'filesystemPathRef',
+      path: '/workspace/src/app.ts',
+      name: 'app.ts',
+      source: 'drop',
+    }],
+    unsupportedInputs: [],
+    rejectedFiles: [],
+  });
+});
+
+test('extractComposerInputs lowers pasted image blobs into image inputs', async () => {
+  const dataTransfer = makeTransfer({
+    files: [{
+      type: 'image/png',
+      name: 'clipboard-image.png',
+      size: 4,
+      arrayBuffer: async () => makeArrayBuffer('png!'),
+    }],
+  });
+
+  const result = await extractComposerInputs(dataTransfer, 'paste');
+  assert.deepEqual(result, {
+    inputs: [{
+      kind: 'imageBlob',
+      mimeType: 'image/png',
+      name: 'clipboard-image.png',
+      sizeBytes: 4,
+      dataBase64: Buffer.from('png!').toString('base64'),
+      source: 'paste',
+    }],
+    unsupportedInputs: [],
+    rejectedFiles: [],
+  });
+});
+
+test('extractComposerInputs lowers item-based pasted image blobs into image inputs', async () => {
+  const dataTransfer = makeTransfer({
+    items: [{
+      kind: 'file',
+      type: 'image/png',
+      getAsFile: () => ({
+        type: 'image/png',
+        name: 'clipboard-item.png',
+        size: 4,
+        arrayBuffer: async () => makeArrayBuffer('png!'),
+      }),
+    }],
+  });
+
+  const result = await extractComposerInputs(dataTransfer, 'paste');
+  assert.deepEqual(result, {
+    inputs: [{
+      kind: 'imageBlob',
+      mimeType: 'image/png',
+      name: 'clipboard-item.png',
+      sizeBytes: 4,
+      dataBase64: Buffer.from('png!').toString('base64'),
+      source: 'paste',
+    }],
+    unsupportedInputs: [],
+    rejectedFiles: [],
+  });
+});
+
+test('extractComposerInputs keeps dropped non-image files as filesystem path refs when a path is available', async () => {
+  const dataTransfer = makeTransfer({
+    files: [{ path: 'C:\\repo\\notes.txt', name: 'notes.txt', type: 'text/plain', size: 12 }],
+  });
+
+  const result = await extractComposerInputs(dataTransfer, 'drop');
+  assert.deepEqual(result, {
+    inputs: [{
+      kind: 'filesystemPathRef',
+      path: 'C:\\repo\\notes.txt',
+      name: 'notes.txt',
+      source: 'drop',
+    }],
+    unsupportedInputs: [],
+    rejectedFiles: [],
+  });
+});
+
+test('extractComposerInputs rejects unsupported arbitrary file blobs without filesystem paths', async () => {
+  const dataTransfer = makeTransfer({
+    files: [{ name: 'report.pdf', type: 'application/pdf', size: 128 }],
+  });
+
+  const result = await extractComposerInputs(dataTransfer, 'drop');
+  assert.deepEqual(result, {
+    inputs: [],
+    unsupportedInputs: [{
+      kind: 'fileBlob',
+      mimeType: 'application/pdf',
+      name: 'report.pdf',
+      sizeBytes: 128,
+      dataBase64: '',
+      source: 'drop',
+    }],
+    rejectedFiles: ['report.pdf'],
+  });
+  assert.match(formatComposerTransferError(result.rejectedFiles) ?? '', /arbitrary file blobs/i);
 });

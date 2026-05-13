@@ -1,8 +1,8 @@
-# PI Assistant — Design Philosophy
+# pie — Design Philosophy
 
 ## What it is
 
-PI Assistant is a VS Code sidebar extension that surfaces a running `pi` agent process as a chat UI. Its closest analogue is GitHub Copilot Chat, but it differs in two key ways:
+pie is a VS Code sidebar extension that surfaces a running `pi` agent process as a chat UI. Its closest analogue is GitHub Copilot Chat, but it differs in two key ways:
 
 - **More minimal** — every element earns its place; decoration is removed if it adds no information
 - **More transparent** — the user can see exactly what the agent is doing (tool calls, inputs, results) without having to ask
@@ -59,3 +59,18 @@ The UI lives inside a VS Code sidebar panel and must feel like it belongs there:
 | Messages | Transcript change, busy state | Scroll-pinned to bottom unless user scrolled up |
 | Model picker | `modelSettings` / `availableModels` change | In-place `<select>` value update, no DOM rebuild |
 | Composer | `busy` / `activeSession` change | Textarea never reset except on explicit send |
+
+## Local run analytics
+
+- Run analytics stay local under the extension global storage directory and capture structured run factors, tool rollups, verification-command classes, and file-mutation summaries without storing raw transcript/tool payloads by default.
+- The composer shows local analytics status for the active run and exposes `Done…` / `Rate…` when the active run is ready to score.
+- Use the composer `Export JSON` control or the `pie: Export Run Analytics` command to export the current local analytics store as JSON.
+- Optional setting: `pie.experimentAssignment` — records an explicit treatment/experiment label on new runs for later comparison.
+
+## Local GUI development
+
+- Run `npm run watch` inside `extension/` while working on the sidebar UI.
+- The composer accepts pasted images and file drops when the selected model reports image support.
+- Screenshot/image paste is wired at the panel level, so pasting anywhere in the pie chat while it is focused attaches the image to the active composer.
+- Changes to `src/webview/panel/panel.tsx`, `panel.css`, and `index.html` rebuild/copy automatically.
+- The running sidebar webview reloads itself when those built assets change, so UI tweaks no longer need a manual Reload Window cycle.

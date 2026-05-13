@@ -29,6 +29,7 @@ export interface SdkSessionEvent {
   toolName?: string;
   args?: unknown;
   result?: unknown;
+  isError?: boolean;
   /** Partial result from onUpdate callback, present on tool_execution_update events. */
   partialResult?: unknown;
 }
@@ -41,6 +42,20 @@ export interface SdkSessionManager {
   getEntries: () => SessionEntryLike[];
 }
 
+export interface SdkImageContent {
+  type: 'image';
+  data: string;
+  mimeType: string;
+}
+
+export interface SdkPromptOptions {
+  expandPromptTemplates?: boolean;
+  images?: SdkImageContent[];
+  streamingBehavior?: 'steer' | 'followUp';
+  source?: string;
+  preflightResult?: (success: boolean) => void;
+}
+
 export interface SdkSession {
   model?: { id: string; contextWindow?: number; maxTokens?: number };
   thinkingLevel?: string;
@@ -50,7 +65,7 @@ export interface SdkSession {
   messages: unknown[];
   sessionManager: SdkSessionManager;
   subscribe: (listener: (event: SdkSessionEvent) => void) => () => void;
-  prompt: (text: string, options?: Record<string, unknown>) => Promise<void>;
+  prompt: (text: string, options?: SdkPromptOptions) => Promise<void>;
   abort: () => Promise<void>;
   setModel?: (model: unknown) => Promise<void>;
   setThinkingLevel?: (level: string) => void;
@@ -95,6 +110,7 @@ export interface SdkRuntime {
         name: string;
         provider: string;
         reasoning: boolean;
+        input: Array<'text' | 'image'>;
         contextWindow?: number;
         maxTokens?: number;
       }>;
@@ -167,7 +183,7 @@ function assertAllowedSdkPath(sdkPath: string): void {
   if (!isPathAllowed(sdkPath)) {
     throw new Error(
       `Refusing to load SDK from disallowed path: ${sdkPath}. ` +
-        `Set piAssistant.sdkPath to a directory under your user profile or system program directories.`,
+        `Set pie.sdkPath to a directory under your user profile or system program directories.`,
     );
   }
 }

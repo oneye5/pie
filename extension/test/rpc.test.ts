@@ -5,12 +5,72 @@ import {
   validateMessageSend,
   validateSessionCreate,
   validateSessionOpen,
+  validateSettingsSet,
 } from '../src/backend/rpc';
 
 test('validateMessageSend requires an explicit sessionPath', () => {
   assert.throws(
     () => validateMessageSend({ text: 'hello' }),
     /sessionPath/,
+  );
+});
+
+test('validateMessageSend accepts image-only sends with structured inputs', () => {
+  assert.deepEqual(
+    validateMessageSend({
+      sessionPath: '/workspace/session.jsonl',
+      text: '',
+      inputs: [{
+        id: 'input-1',
+        kind: 'imageBlob',
+        mimeType: 'image/png',
+        name: 'diagram.png',
+        sizeBytes: 1024,
+        dataBase64: 'ZmFrZQ==',
+        source: 'paste',
+      }],
+    }),
+    {
+      sessionPath: '/workspace/session.jsonl',
+      text: '',
+      inputs: [{
+        id: 'input-1',
+        kind: 'imageBlob',
+        mimeType: 'image/png',
+        name: 'diagram.png',
+        sizeBytes: 1024,
+        dataBase64: 'ZmFrZQ==',
+        source: 'paste',
+        width: undefined,
+        height: undefined,
+      }],
+    },
+  );
+});
+
+test('validateMessageSend rejects empty text when there are no inputs', () => {
+  assert.throws(
+    () => validateMessageSend({ sessionPath: '/workspace/session.jsonl', text: '   ', inputs: [] }),
+    /non-empty text or at least one input/,
+  );
+});
+
+test('validateMessageSend rejects unsupported fileBlob inputs', () => {
+  assert.throws(
+    () => validateMessageSend({
+      sessionPath: '/workspace/session.jsonl',
+      text: '',
+      inputs: [{
+        id: 'input-1',
+        kind: 'fileBlob',
+        mimeType: 'application/pdf',
+        name: 'spec.pdf',
+        sizeBytes: 2048,
+        dataBase64: 'ZmFrZQ==',
+        source: 'drop',
+      }],
+    }),
+    /not supported yet/,
   );
 });
 
@@ -25,5 +85,20 @@ test('validateSessionOpen accepts an optional selection token', () => {
   assert.deepEqual(
     validateSessionOpen({ sessionPath: '/workspace/session.jsonl', selectionToken: 'selection:2' }),
     { sessionPath: '/workspace/session.jsonl', selectionToken: 'selection:2' },
+  );
+});
+
+test('validateSettingsSet accepts an optional sessionPath', () => {
+  assert.deepEqual(
+    validateSettingsSet({
+      sessionPath: '/workspace/session.jsonl',
+      defaultModel: 'claude-sonnet-4-5',
+      defaultThinkingLevel: 'high',
+    }),
+    {
+      sessionPath: '/workspace/session.jsonl',
+      defaultModel: 'claude-sonnet-4-5',
+      defaultThinkingLevel: 'high',
+    },
   );
 });

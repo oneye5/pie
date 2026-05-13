@@ -2,15 +2,19 @@ import { configureStore, createSelector, createSlice, type PayloadAction } from 
 
 import {
   DEFAULT_CHAT_PREFS,
+  type ActiveRunSummary,
   type ChatMessage,
   type ChatMessagePart,
   type ChatPrefs,
+  type ComposerInput,
   type ContextWindowUsage,
   type ModelInfo,
   type ModelSettings,
+  type SessionAnalyticsFactors,
   type SessionSummary,
   type SystemPromptEntry,
   type ToolCall,
+  type UserContentPart,
   type ViewState,
 } from '../shared/protocol';
 import { moveOpenTabPath } from '../shared/tab-behavior';
@@ -57,10 +61,15 @@ function mergeSessionSummary(
 ): SessionSummary {
   if (!existing) return incoming;
   const keepExistingName =
-    existing.name !== incoming.name &&
     !existing.isPlaceholder &&
     incoming.isPlaceholder === true;
-  return { ...incoming, name: keepExistingName ? existing.name : incoming.name };
+  return {
+    ...incoming,
+    name: keepExistingName ? existing.name : incoming.name,
+    isPlaceholder: keepExistingName ? false : incoming.isPlaceholder,
+    modelId: incoming.modelId ?? existing.modelId,
+    thinkingLevel: incoming.thinkingLevel ?? existing.thinkingLevel,
+  };
 }
 
 const sessionsSlice = createSlice({
@@ -118,6 +127,15 @@ const sessionsSlice = createSlice({
         state.sessions = [merged, ...state.sessions];
       } else {
         state.sessions[idx] = merged;
+      }
+    },
+    setSessionSummary(state, action: PayloadAction<SessionSummary>) {
+      const incoming = action.payload;
+      const idx = state.sessions.findIndex((s) => s.path === incoming.path);
+      if (idx === -1) {
+        state.sessions = [incoming, ...state.sessions];
+      } else {
+        state.sessions[idx] = incoming;
       }
     },
     replaceSessionSummaries(state, action: PayloadAction<SessionSummary[]>) {
@@ -262,6 +280,19 @@ function withAssistantParts(message: ChatMessage): ChatMessage {
   const nextMessage = { ...message };
   ensureAssistantParts(nextMessage);
   return nextMessage;
+}
+
+function markdownFromUserParts(userParts: UserContentPart[] | undefined, fallbackText: string): string {
+  if (!userParts || userParts.length === 0) {
+    return fallbackText;
+  }
+
+  const text = userParts
+    .filter((part): part is Extract<UserContentPart, { kind: 'text' }> => part.kind === 'text')
+    .map((part) => part.text)
+    .join('');
+
+  return text || fallbackText;
 }
 
 function appendAssistantTextPart(
@@ -494,15 +525,21 @@ const transcriptSlice = createSlice({
     },
     appendLocalUserMessage(
       state,
-      action: PayloadAction<{ sessionPath: string; id: string; text: string }>,
+      action: PayloadAction<{
+        sessionPath: string;
+        id: string;
+        text: string;
+        userParts?: UserContentPart[];
+      }>,
     ) {
-      const { sessionPath, id, text } = action.payload;
+      const { sessionPath, id, text, userParts } = action.payload;
       const list = (state.bySession[sessionPath] ??= []);
       list.push({
         id,
         role: 'user',
         createdAt: new Date().toISOString(),
-        markdown: text,
+        markdown: markdownFromUserParts(userParts, text),
+        userParts,
         status: 'completed',
       });
     },
@@ -524,7 +561,7 @@ const transcriptSlice = createSlice({
 
 interface SettingsState {
   modelSettings: ModelSettings | null;
-  availableModels: ModelInfo[];
+  availableModelsBySession: Record<string, ModelInfo[]>;
   contextUsageBySession: Record<string, ContextWindowUsage | null>;
 }
 
@@ -532,25 +569,37 @@ const settingsSlice = createSlice({
   name: 'settings',
   initialState: {
     modelSettings: null,
-    availableModels: [],
+    availableModelsBySession: {},
     contextUsageBySession: {},
   } as SettingsState,
   reducers: {
     setModelSettings(state, action: PayloadAction<ModelSettings>) {
       state.modelSettings = action.payload;
     },
-    setAvailableModels(state, action: PayloadAction<ModelInfo[]>) {
-      if (action.payload.length > 0 || state.availableModels.length === 0) {
-        state.availableModels = action.payload;
+    setAvailableModels(
+      state,
+      action: PayloadAction<{ sessionPath: string; availableModels: ModelInfo[] }>,
+    ) {
+      const existing = state.availableModelsBySession[action.payload.sessionPath] ?? EMPTY_AVAILABLE_MODELS;
+      if (action.payload.availableModels.length > 0 || existing.length === 0) {
+        state.availableModelsBySession[action.payload.sessionPath] = action.payload.availableModels;
       }
+    },
+    clearAvailableModels(state, action: PayloadAction<string>) {
+      delete state.availableModelsBySession[action.payload];
     },
     setModelAndAvailable(
       state,
-      action: PayloadAction<{ modelSettings: ModelSettings; availableModels: ModelInfo[] }>,
+      action: PayloadAction<{
+        sessionPath: string;
+        modelSettings: ModelSettings;
+        availableModels: ModelInfo[];
+      }>,
     ) {
       state.modelSettings = action.payload.modelSettings;
-      if (action.payload.availableModels.length > 0 || state.availableModels.length === 0) {
-        state.availableModels = action.payload.availableModels;
+      const existing = state.availableModelsBySession[action.payload.sessionPath] ?? EMPTY_AVAILABLE_MODELS;
+      if (action.payload.availableModels.length > 0 || existing.length === 0) {
+        state.availableModelsBySession[action.payload.sessionPath] = action.payload.availableModels;
       }
     },
     setContextUsage(
@@ -561,6 +610,111 @@ const settingsSlice = createSlice({
     },
     clearContextUsage(state, action: PayloadAction<string>) {
       delete state.contextUsageBySession[action.payload];
+    },
+  },
+});
+
+// ─── Session-scoped view state slice ──────────────────────────────────────────
+
+interface SessionStateViewState {
+  pendingComposerInputsBySession: Record<string, ComposerInput[]>;
+  activeRunSummaryBySession: Record<string, ActiveRunSummary | null>;
+  analyticsFactorsBySession: Record<string, SessionAnalyticsFactors | null>;
+}
+
+const sessionStateSlice = createSlice({
+  name: 'sessionState',
+  initialState: {
+    pendingComposerInputsBySession: {},
+    activeRunSummaryBySession: {},
+    analyticsFactorsBySession: {},
+  } as SessionStateViewState,
+  reducers: {
+    addPendingComposerInput(
+      state,
+      action: PayloadAction<{ sessionPath: string; input: ComposerInput }>,
+    ) {
+      const list = (state.pendingComposerInputsBySession[action.payload.sessionPath] ??= []);
+      list.push(action.payload.input);
+    },
+    setPendingComposerInputs(
+      state,
+      action: PayloadAction<{ sessionPath: string; inputs: ComposerInput[] }>,
+    ) {
+      state.pendingComposerInputsBySession[action.payload.sessionPath] = action.payload.inputs;
+    },
+    removePendingComposerInput(
+      state,
+      action: PayloadAction<{ sessionPath: string; inputId: string }>,
+    ) {
+      const list = state.pendingComposerInputsBySession[action.payload.sessionPath];
+      if (!list) {
+        return;
+      }
+
+      const nextInputs = list.filter((input) => input.id !== action.payload.inputId);
+      if (nextInputs.length > 0) {
+        state.pendingComposerInputsBySession[action.payload.sessionPath] = nextInputs;
+        return;
+      }
+
+      delete state.pendingComposerInputsBySession[action.payload.sessionPath];
+    },
+    clearPendingComposerInputs(state, action: PayloadAction<string>) {
+      delete state.pendingComposerInputsBySession[action.payload];
+    },
+    replaceSessionPath(
+      state,
+      action: PayloadAction<{ oldPath: string; newPath: string }>,
+    ) {
+      const { oldPath, newPath } = action.payload;
+      if (oldPath === newPath) {
+        return;
+      }
+
+      const oldInputs = state.pendingComposerInputsBySession[oldPath];
+      if (oldInputs) {
+        const existingInputs = state.pendingComposerInputsBySession[newPath] ?? [];
+        state.pendingComposerInputsBySession[newPath] = [...existingInputs, ...oldInputs];
+        delete state.pendingComposerInputsBySession[oldPath];
+      }
+
+      if (Object.prototype.hasOwnProperty.call(state.activeRunSummaryBySession, oldPath)) {
+        state.activeRunSummaryBySession[newPath] = state.activeRunSummaryBySession[oldPath] ?? null;
+        delete state.activeRunSummaryBySession[oldPath];
+      }
+
+      if (Object.prototype.hasOwnProperty.call(state.analyticsFactorsBySession, oldPath)) {
+        state.analyticsFactorsBySession[newPath] = state.analyticsFactorsBySession[oldPath] ?? null;
+        delete state.analyticsFactorsBySession[oldPath];
+      }
+    },
+    setActiveRunSummary(
+      state,
+      action: PayloadAction<{ sessionPath: string; summary: ActiveRunSummary | null }>,
+    ) {
+      if (action.payload.summary === null) {
+        delete state.activeRunSummaryBySession[action.payload.sessionPath];
+        return;
+      }
+
+      state.activeRunSummaryBySession[action.payload.sessionPath] = action.payload.summary;
+    },
+    setAnalyticsFactors(
+      state,
+      action: PayloadAction<{ sessionPath: string; factors: SessionAnalyticsFactors | null }>,
+    ) {
+      if (action.payload.factors === null) {
+        delete state.analyticsFactorsBySession[action.payload.sessionPath];
+        return;
+      }
+
+      state.analyticsFactorsBySession[action.payload.sessionPath] = action.payload.factors;
+    },
+    clearSessionState(state, action: PayloadAction<string>) {
+      delete state.pendingComposerInputsBySession[action.payload];
+      delete state.activeRunSummaryBySession[action.payload];
+      delete state.analyticsFactorsBySession[action.payload];
     },
   },
 });
@@ -597,6 +751,7 @@ export function createAppStore() {
       sessions: sessionsSlice.reducer,
       transcript: transcriptSlice.reducer,
       settings: settingsSlice.reducer,
+      sessionState: sessionStateSlice.reducer,
       ui: uiSlice.reducer,
     },
   });
@@ -612,6 +767,7 @@ export type RootState = ReturnType<AppStore['getState']>;
 export const sessionsActions = sessionsSlice.actions;
 export const transcriptActions = transcriptSlice.actions;
 export const settingsActions = settingsSlice.actions;
+export const sessionStateActions = sessionStateSlice.actions;
 export const uiActions = uiSlice.actions;
 
 /** Resolves a message ID through the alias map (for multi-turn tool-use merging). */
@@ -646,6 +802,8 @@ export const selectActiveSession = createSelector(
 
 const EMPTY_TRANSCRIPT: ChatMessage[] = [];
 const EMPTY_SYSTEM_PROMPTS: SystemPromptEntry[] = [];
+const EMPTY_AVAILABLE_MODELS: ModelInfo[] = [];
+const EMPTY_COMPOSER_INPUTS: ComposerInput[] = [];
 
 const selectActiveTranscript = (state: RootState): ChatMessage[] => {
   const path = selectActiveSessionPath(state);
@@ -659,10 +817,28 @@ const selectActiveSystemPrompts = (state: RootState): SystemPromptEntry[] => {
   return state.transcript.systemPromptsBySession[path] ?? EMPTY_SYSTEM_PROMPTS;
 };
 
+const selectActiveAvailableModels = (state: RootState): ModelInfo[] => {
+  const path = selectActiveSessionPath(state);
+  if (!path) return EMPTY_AVAILABLE_MODELS;
+  return state.settings.availableModelsBySession[path] ?? EMPTY_AVAILABLE_MODELS;
+};
+
 const selectActiveContextUsage = (state: RootState): ContextWindowUsage | null => {
   const path = selectActiveSessionPath(state);
   if (!path) return null;
   return state.settings.contextUsageBySession[path] ?? null;
+};
+
+const selectActivePendingComposerInputs = (state: RootState): ComposerInput[] => {
+  const path = selectActiveSessionPath(state);
+  if (!path) return EMPTY_COMPOSER_INPUTS;
+  return state.sessionState.pendingComposerInputsBySession[path] ?? EMPTY_COMPOSER_INPUTS;
+};
+
+const selectActiveRunSummary = (state: RootState): ActiveRunSummary | null => {
+  const path = selectActiveSessionPath(state);
+  if (!path) return null;
+  return state.sessionState.activeRunSummaryBySession[path] ?? null;
 };
 
 /**
@@ -680,9 +856,12 @@ export const selectViewState = createSelector(
     selectActiveSession,
     (s: RootState) => s.sessions.workspaceCwd,
     selectActiveTranscript,
+    selectActivePendingComposerInputs,
+    selectActiveRunSummary,
+    (s: RootState) => s.sessionState.activeRunSummaryBySession,
     selectActiveSystemPrompts,
     (s: RootState) => s.settings.modelSettings,
-    (s: RootState) => s.settings.availableModels,
+    selectActiveAvailableModels,
     selectActiveContextUsage,
     (s: RootState) => s.ui.notice,
     (s: RootState) => s.ui.backendReady,
@@ -697,6 +876,9 @@ export const selectViewState = createSelector(
     activeSession,
     workspaceCwd,
     transcript,
+    pendingComposerInputs,
+    activeRunSummary,
+    runSummariesBySession,
     systemPrompts,
     modelSettings,
     availableModels,
@@ -713,6 +895,9 @@ export const selectViewState = createSelector(
       unreadFinishedSessionPaths,
       activeSession,
       transcript,
+      pendingComposerInputs,
+      activeRunSummary,
+      runSummariesBySession,
       busy,
       notice,
       backendReady,

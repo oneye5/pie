@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { parseFileUriList } from '../shared/file-uri-list';
 
-export const ATTACHMENTS_VIEW_ID = 'pi-assistant.attachmentsView';
+export const ATTACHMENTS_VIEW_ID = 'pie.attachmentsView';
 
 interface AttachmentDropNode {
   id: string;
@@ -29,7 +29,7 @@ export class AttachmentDropView implements vscode.TreeDataProvider<AttachmentDro
       canSelectMany: false,
       dragAndDropController: this,
     });
-    this.treeView.message = 'Drop files or folders here to attach them to PI Assistant.';
+    this.treeView.message = 'Drop files or folders here to attach them to pie.';
     context.subscriptions.push(this.treeView, this);
   }
 
@@ -51,10 +51,10 @@ export class AttachmentDropView implements vscode.TreeDataProvider<AttachmentDro
       vscode.TreeItemCollapsibleState.None,
     );
     item.description = 'Temporary native drop target';
-    item.tooltip = 'Drag files or folders from VS Code Explorer or your operating system here to attach them to the PI Assistant composer.';
+    item.tooltip = 'Drag files or folders from VS Code Explorer or your operating system here to attach them to the pie composer.';
     item.iconPath = new vscode.ThemeIcon('attach');
     item.command = {
-      command: 'pi-assistant.attachFiles',
+      command: 'pie.attachFiles',
       title: 'Attach Files',
     };
     return item;
@@ -67,7 +67,7 @@ export class AttachmentDropView implements vscode.TreeDataProvider<AttachmentDro
   ): Promise<void> {
     const droppedUris = await extractFileDropUris(dataTransfer, token);
     if (droppedUris.length === 0) {
-      void vscode.window.showWarningMessage('PI Assistant: This drop did not include any attachable file paths.');
+      void vscode.window.showWarningMessage('pie: This drop did not include any attachable file paths.');
       return;
     }
 

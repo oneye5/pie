@@ -155,13 +155,19 @@ test('uiActions.setPrefs merges into existing prefs', () => {
   store.dispatch(uiActions.setPrefs({
     autoExpandReasoning: false,
     autoExpandToolCalls: false,
+    autoExpandSubagentCalls: false,
     suppressCompletionNotifications: false,
   }));
-  store.dispatch(uiActions.setPrefs({ autoExpandReasoning: true, suppressCompletionNotifications: true }));
+  store.dispatch(uiActions.setPrefs({
+    autoExpandReasoning: true,
+    autoExpandSubagentCalls: true,
+    suppressCompletionNotifications: true,
+  }));
 
   const { prefs } = store.getState().ui;
   assert.equal(prefs.autoExpandReasoning, true);
   assert.equal(prefs.autoExpandToolCalls, false, 'unchanged pref should not be modified');
+  assert.equal(prefs.autoExpandSubagentCalls, true);
   assert.equal(prefs.suppressCompletionNotifications, true);
 });
 
@@ -173,12 +179,14 @@ test('selectViewState includes prefs from ui slice', () => {
   store.dispatch(uiActions.setPrefs({
     autoExpandReasoning: true,
     autoExpandToolCalls: true,
+    autoExpandSubagentCalls: true,
     suppressCompletionNotifications: true,
   }));
 
   const viewState = selectViewState(store.getState());
   assert.equal(viewState.prefs.autoExpandReasoning, true);
   assert.equal(viewState.prefs.autoExpandToolCalls, true);
+  assert.equal(viewState.prefs.autoExpandSubagentCalls, true);
   assert.equal(viewState.prefs.suppressCompletionNotifications, true);
 });
 

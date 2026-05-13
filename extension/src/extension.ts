@@ -1,13 +1,20 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 
 import { BackendClient } from './host/backend-client';
-import { PiAssistantExtension } from './host/extension-host';
+import { PieExtension } from './host/extension-host';
+
+let extensionInstance: PieExtension | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
-  const extension = new PiAssistantExtension(context, new BackendClient());
+  const extension = new PieExtension(context, new BackendClient());
+  extensionInstance = extension;
   extension.register();
   context.subscriptions.push(extension);
   void extension.start();
 }
 
-export function deactivate(): void {}
+export async function deactivate(): Promise<void> {
+  const extension = extensionInstance;
+  extensionInstance = null;
+  await extension?.shutdown();
+}

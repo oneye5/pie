@@ -3,7 +3,14 @@
 
 import { useState, useEffect, useRef, useCallback, useLayoutEffect } from 'preact/hooks';
 
-import type { ChatMessage, ChatMessagePart, ChatPrefs, SystemPromptEntry, ToolCall } from '../../shared/protocol';
+import type {
+  ChatMessage,
+  ChatMessagePart,
+  ChatPrefs,
+  SystemPromptEntry,
+  ToolCall,
+  UserContentPart,
+} from '../../shared/protocol';
 import type { Overlay } from './overlay';
 import {
   advanceSmoothScrollTop,
@@ -18,7 +25,9 @@ import { syncDisclosureOpenState } from './disclosure-state';
 import { renderMarkdown, reasoningSummary } from './markdown';
 import { SystemPromptMessage } from './system-prompts';
 import { assistantReplyMeta, formatDuration, formatTimestamp, roleLabel } from './transcript-header';
+import { shouldOpenSubagentContextMenu, shouldOpenUserMessageEditor } from './transcript-interactions';
 import { getToolCallPresentation, summarizeToolCall } from './tool-call-summary';
+import { type TranscriptContextMenuType, getToolCallContextType } from './chat-prefs';
 
 const MANUAL_SCROLL_INTENT_GRACE_MS = 280;
 
@@ -149,6 +158,36 @@ function assistantPartsFromMessage(message: ChatMessage): ChatMessagePart[] | un
   return message.parts && message.parts.length > 0 ? message.parts : legacyAssistantParts(message);
 }
 
+export function getRenderableUserParts(
+  message: Pick<ChatMessage, 'role' | 'markdown' | 'userParts'>,
+): UserContentPart[] | undefined {
+  if (message.role !== 'user') {
+    return undefined;
+  }
+
+  if (message.userParts && message.userParts.length > 0) {
+    return message.userParts;
+  }
+
+  if (!message.markdown) {
+    return undefined;
+  }
+
+  return [{ kind: 'text', text: message.markdown }];
+}
+
+export function messageHasUserImages(message: Pick<ChatMessage, 'role' | 'userParts'>): boolean {
+  if (message.role !== 'user') {
+    return false;
+  }
+
+  return message.userParts?.some((part) => part.kind === 'image') ?? false;
+}
+
+function userImageSrc(part: Extract<UserContentPart, { kind: 'image' }>): string {
+  return `data:${part.mimeType};base64,${part.dataBase64}`;
+}
+
 function useDisclosureOpen(defaultOpen: boolean) {
   const [open, setOpen] = useState(defaultOpen);
   const previousDefaultOpenRef = useRef(defaultOpen);
@@ -244,6 +283,7 @@ export function ReasoningBlock({ text, autoExpand, onContextMenu }: ReasoningBlo
 interface ToolCallCardProps {
   toolCall: ToolCall;
   autoExpand: boolean;
+  className?: string;
   workingDirectory: string | null;
   onOpenFile: (path: string) => void;
   onContextMenu: (e: MouseEvent) => void;
@@ -255,52 +295,83 @@ interface ToolCallHeaderProps {
   status: ToolCall['status'];
   summary: string | null;
   summaryPath?: string;
+  sizeHint?: string;
   onOpenFile: (path: string) => void;
 }
 
-function ToolCallHeader({ open, name, status, summary, summaryPath, onOpenFile }: ToolCallHeaderProps) {
+export function splitSummaryPath(summary: string): { pathSection: string | null; fileSection: string } {
+  const lastSeparatorIndex = Math.max(summary.lastIndexOf('/'), summary.lastIndexOf('\\'));
+  if (lastSeparatorIndex < 0 || lastSeparatorIndex >= summary.length - 1) {
+    return { pathSection: null, fileSection: summary };
+  }
+
+  return {
+    pathSection: summary.slice(0, lastSeparatorIndex + 1),
+    fileSection: summary.slice(lastSeparatorIndex + 1),
+  };
+}
+
+function ToolCallHeader({ open, name, status, summary, summaryPath, sizeHint, onOpenFile }: ToolCallHeaderProps) {
   const statusLabel =
     status === 'running' ? 'Running'
     : status === 'failed' ? 'Failed'
     : null;
   const showSummary = !open && !!summary;
+  const showSizeHint = !open && !!sizeHint;
+  const pathSummary = summaryPath && summary ? splitSummaryPath(summary) : null;
 
   return (
     <div class="tool-call-header">
       <svg class={`thinking-block-chevron${open ? ' open' : ''}`} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
         <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
       </svg>
-      <div class="tool-call-heading">
+      <div class={`tool-call-heading${showSummary ? ' with-summary' : ''}${showSizeHint && !showSummary ? ' with-size-hint' : ''}`}>
         <span class={`tool-call-name${showSummary ? ' with-summary' : ''}`}>{name}</span>
-        {showSummary && summaryPath ? (
-          <button
-            type="button"
-            class="tool-call-summary tool-call-summary-link"
-            title={summaryPath}
-            onMouseDown={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-            onClick={(e) => {
-              e.stopPropagation();
-              onOpenFile(summaryPath);
-            }}
-          >
-            {summary}
-          </button>
-        ) : showSummary ? <span class="tool-call-summary">{summary}</span> : null}
+        {showSummary ? (
+          summaryPath ? (
+            <button
+              type="button"
+              class="tool-call-summary-link"
+              title={summaryPath}
+              onMouseDown={(e) => e.stopPropagation()}
+              onKeyDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenFile(summaryPath);
+              }}
+            >
+              {pathSummary ? (
+                <span class="tool-call-summary tool-call-summary-file">
+                  <span class={`tool-call-file-path${pathSummary.pathSection ? '' : ' is-empty'}`}>{pathSummary.pathSection ?? ''}</span>
+                  <span class="tool-call-file-name">{pathSummary.fileSection}</span>
+                </span>
+              ) : <span class="tool-call-summary">{summary}</span>}
+            </button>
+          ) : <span class="tool-call-summary">{summary}</span>
+        ) : null}
+        {(showSummary || showSizeHint) && <span class={`tool-call-size-hint${showSizeHint ? '' : ' is-empty'}`}>{sizeHint ?? ''}</span>}
       </div>
-      {statusLabel && <span class={`tool-call-status ${status}`}>{statusLabel}</span>}
+      <span class={`tool-call-status${statusLabel ? ` ${status}` : ' is-empty'}`} aria-hidden={statusLabel ? undefined : 'true'}>{statusLabel ?? ''}</span>
     </div>
   );
 }
 
-export function ToolCallCard({ toolCall, autoExpand, workingDirectory, onOpenFile, onContextMenu }: ToolCallCardProps) {
+export function ToolCallCard({
+  toolCall,
+  autoExpand,
+  className,
+  workingDirectory,
+  onOpenFile,
+  onContextMenu,
+}: ToolCallCardProps) {
   const [open, setOpen] = useDisclosureOpen(autoExpand);
   const presentation = getToolCallPresentation(toolCall, { workingDirectory });
   const variantClass = presentation.variant ? ` tool-call-variant-${presentation.variant}` : '';
+  const customClass = className ? ` ${className}` : '';
 
   return (
     <div
-      class={`tool-call ${toolCall.status}${variantClass}`}
+      class={`tool-call ${toolCall.status}${variantClass}${customClass}`}
       role="button"
       aria-expanded={open}
       tabIndex={0}
@@ -314,6 +385,7 @@ export function ToolCallCard({ toolCall, autoExpand, workingDirectory, onOpenFil
         status={toolCall.status}
         summary={presentation.summary}
         summaryPath={presentation.summaryPath}
+        sizeHint={presentation.sizeHint}
         onOpenFile={onOpenFile}
       />
       {open && (
@@ -472,7 +544,7 @@ interface SubagentBlockProps {
   workingDirectory: string | null;
   onOpenFile: (path: string) => void;
   onContextMenu: (e: MouseEvent) => void;
-  onNestedContextMenu: (type: 'reasoning' | 'toolCalls' | 'message', rawData: string, e: MouseEvent) => void;
+  onNestedContextMenu: (type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => void;
 }
 
 function SubagentBlock({
@@ -483,7 +555,7 @@ function SubagentBlock({
   onContextMenu,
   onNestedContextMenu,
 }: SubagentBlockProps) {
-  const [open, setOpen] = useDisclosureOpen(prefs.autoExpandToolCalls);
+  const [open, setOpen] = useDisclosureOpen(prefs.autoExpandSubagentCalls);
 
   // The SDK wraps the tool result in AgentToolResult<SubagentDetails> = { content, details }.
   // Normalise both the nested shape and any legacy flat shape.
@@ -498,7 +570,8 @@ function SubagentBlock({
     return (
       <ToolCallCard
         toolCall={toolCall}
-        autoExpand={prefs.autoExpandToolCalls}
+        autoExpand={prefs.autoExpandSubagentCalls}
+        className="tool-call-subagent"
         workingDirectory={workingDirectory}
         onOpenFile={onOpenFile}
         onContextMenu={onContextMenu}
@@ -514,7 +587,7 @@ function SubagentBlock({
 
   return (
     <div
-      class={`tool-call ${toolCall.status}`}
+      class={`tool-call tool-call-subagent ${toolCall.status}`}
       role="button"
       aria-expanded={open}
       tabIndex={0}
@@ -533,7 +606,15 @@ function SubagentBlock({
         <div
           class="subagent-messages"
           onClick={(e) => e.stopPropagation()}
-          onContextMenu={(e) => e.stopPropagation()}
+          onContextMenu={(e) => {
+            if (!shouldOpenSubagentContextMenu(e.target)) {
+              e.stopPropagation();
+              return;
+            }
+            e.preventDefault();
+            e.stopPropagation();
+            onContextMenu(e as unknown as MouseEvent);
+          }}
           onKeyDown={(e) => e.stopPropagation()}
         >
           {result.results.map((r, i) => {
@@ -583,11 +664,14 @@ interface ToolCallItemProps {
   prefs: ChatPrefs;
   workingDirectory: string | null;
   onOpenFile: (path: string) => void;
-  onContextMenu: (e: MouseEvent) => void;
-  onNestedContextMenu: (type: 'reasoning' | 'toolCalls' | 'message', rawData: string, e: MouseEvent) => void;
+  onContextMenu: (type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => void;
+  onNestedContextMenu: (type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => void;
 }
 
 function ToolCallItem({ toolCall, prefs, workingDirectory, onOpenFile, onContextMenu, onNestedContextMenu }: ToolCallItemProps) {
+  const contextType = getToolCallContextType(toolCall.name);
+  const handleContextMenu = (e: MouseEvent) => onContextMenu(contextType, JSON.stringify(toolCall, null, 2), e);
+
   if (toolCall.name === 'subagent') {
     return (
       <SubagentBlock
@@ -595,7 +679,7 @@ function ToolCallItem({ toolCall, prefs, workingDirectory, onOpenFile, onContext
         prefs={prefs}
         workingDirectory={workingDirectory}
         onOpenFile={onOpenFile}
-        onContextMenu={onContextMenu}
+        onContextMenu={handleContextMenu}
         onNestedContextMenu={onNestedContextMenu}
       />
     );
@@ -606,7 +690,7 @@ function ToolCallItem({ toolCall, prefs, workingDirectory, onOpenFile, onContext
       autoExpand={prefs.autoExpandToolCalls}
       workingDirectory={workingDirectory}
       onOpenFile={onOpenFile}
-      onContextMenu={onContextMenu}
+      onContextMenu={handleContextMenu}
     />
   );
 }
@@ -694,7 +778,7 @@ interface MessageItemProps {
   onEditConfirm: (messageId: string, text: string) => void;
   onEditCancel: () => void;
   onOpenFile: (path: string) => void;
-  onContextMenu: (type: 'reasoning' | 'toolCalls' | 'message', rawData: string, e: MouseEvent) => void;
+  onContextMenu: (type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => void;
 }
 
 export function MessageItem({
@@ -717,6 +801,8 @@ export function MessageItem({
   const combinedMarkdown = message.role === 'assistant'
     ? textFromMessageParts(combinedParts)
     : message.markdown;
+  const renderableUserParts = getRenderableUserParts(message);
+  const hasUserImages = messageHasUserImages(message);
   const combinedThinking = message.role === 'assistant'
     ? reasoningFromMessageParts(combinedParts) ?? ''
     : message.thinking ?? '';
@@ -749,16 +835,29 @@ export function MessageItem({
     ...(combinedThinking ? { thinking: combinedThinking } : {}),
     ...(combinedToolCalls?.length ? { toolCalls: combinedToolCalls } : {}),
     ...(combinedParts?.length ? { parts: combinedParts } : {}),
+    ...(message.userParts?.length ? { userParts: message.userParts } : {}),
   }, null, 2);
 
-  const isClickableUserMsg = message.role === 'user' && !isEditing && !isCurrentlyStreaming && !readonly;
+  const isClickableUserMsg = message.role === 'user'
+    && !hasUserImages
+    && !isEditing
+    && !isCurrentlyStreaming
+    && !readonly;
+  const handleMessageClick = isClickableUserMsg
+    ? (event: MouseEvent) => {
+        if (!shouldOpenUserMessageEditor(event.target)) {
+          return;
+        }
+        onEditRequest(message.id);
+      }
+    : undefined;
 
   return (
     <div
-      class={`message role-${message.role}`}
+      class={`message role-${message.role}${isClickableUserMsg ? ' editable' : ''}${hasUserImages ? ' has-user-images' : ''}`}
       data-message-id={message.id}
       data-role={message.role}
-      onClick={isClickableUserMsg ? () => onEditRequest(message.id) : undefined}
+      onClick={handleMessageClick}
       style={isClickableUserMsg ? { cursor: 'pointer' } : undefined}
       title={isClickableUserMsg ? 'Click to edit' : undefined}
     >
@@ -805,7 +904,7 @@ export function MessageItem({
                       prefs={prefs}
                       workingDirectory={workingDirectory}
                       onOpenFile={onOpenFile}
-                      onContextMenu={(e) => onContextMenu('toolCalls', JSON.stringify(part.toolCall, null, 2), e)}
+                      onContextMenu={onContextMenu}
                       onNestedContextMenu={onContextMenu}
                     />
                   </div>
@@ -824,11 +923,34 @@ export function MessageItem({
                 />
               );
             })
+          ) : message.role === 'user' && renderableUserParts ? (
+            renderableUserParts.map((part, index) => (
+              part.kind === 'text' ? (
+                <div
+                  key={`user-text-${message.id}-${index}`}
+                  class="message-body"
+                  dangerouslySetInnerHTML={{ __html: renderMarkdown(part.text) }}
+                />
+              ) : (
+                <figure key={`user-image-${message.id}-${index}`} class="message-user-image">
+                  <img
+                    class="message-user-image-element"
+                    src={userImageSrc(part)}
+                    alt={part.name || 'Attached image'}
+                  />
+                  {(part.name || (part.width && part.height)) && (
+                    <figcaption class="message-user-image-caption">
+                      {part.name || 'Image'}
+                      {part.width && part.height ? ` · ${part.width}×${part.height}` : ''}
+                    </figcaption>
+                  )}
+                </figure>
+              )
+            ))
           ) : (
             <div
               class="message-body"
               dangerouslySetInnerHTML={{ __html: html }}
-              onClick={isClickableUserMsg ? (e) => e.stopPropagation() : undefined}
               onContextMenu={message.role === 'assistant' ? (e) => {
                 e.preventDefault();
                 onContextMenu('message', messageRaw, e as unknown as MouseEvent);
@@ -857,7 +979,7 @@ interface TranscriptViewProps {
   onEditConfirm: (messageId: string, text: string) => void;
   onEditCancel: () => void;
   onOpenFile: (path: string) => void;
-  onContextMenu: (type: 'reasoning' | 'toolCalls' | 'message', rawData: string, e: MouseEvent) => void;
+  onContextMenu: (type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => void;
 }
 
 export function TranscriptView({

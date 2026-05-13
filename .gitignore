@@ -1,7 +1,7 @@
-# PI runtime artifacts — never commit these
-sessions/
-auth.json
-pi-config/
+# PI local runtime data and secrets — never commit these
+/auth.json
+/pie/
+/sessions/
 
 # Environment / secrets
 .env
@@ -9,9 +9,9 @@ pi-config/
 *.env
 
 # PI managed binaries and package caches
-bin/
-git/
-npm/
+/bin/
+/git/
+/npm/
 
 # OS artifacts
 Thumbs.db
@@ -26,3 +26,6 @@ extension/*.vsix
 # Editor artifacts
 *.swp
 *.swo
+
+# Installer-generated backups
+/settings.json.session-dir.*.bak

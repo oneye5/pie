@@ -3,10 +3,12 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { attachJsonlLineReader, serializeJsonLine } from '../shared/jsonl';
+import { deriveSessionNameFromText, NEW_SESSION_NAME } from '../shared/session-name';
 import {
   PROTOCOL_VERSION,
   type BusyChangedPayload,
   type ChatMessage,
+  type ComposerInput,
   type ContextUsageChangedPayload,
   type ContextWindowUsage,
   type ErrorPayload,
@@ -17,6 +19,7 @@ import {
   type MessageStartedPayload,
   type MessageThinkingPayload,
   type ModelInfo,
+  type ModelInputKind,
   type ModelSettings,
   type RequestEnvelope,
   type ResponseEnvelope,
@@ -42,6 +45,7 @@ import {
   loadSdk,
   loadSdkInternalModule,
   type SdkBuildSystemPromptOptions,
+  type SdkImageContent,
   type SdkModule,
   type SdkRuntime,
   type SdkSession,
@@ -50,6 +54,7 @@ import {
   type SdkSkill,
   type SdkSystemPromptModule,
 } from './sdk';
+import { buildSessionAnalyticsFactors } from './session-analytics';
 import { mapAssistantMessage, mapTranscript, summarizeSession, type SessionEntryLike } from './transcript';
 
 interface ActiveRequest {
@@ -128,6 +133,55 @@ function normalizeThinkingLevel(value: string | undefined): ThinkingLevel | unde
 
 function toDisplayPath(filePath: string): string {
   return filePath.replace(/\\/g, '/');
+}
+
+function normalizeModelInputKinds(value: unknown): ModelInputKind[] | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const kinds = [...new Set(
+    value.filter((kind): kind is ModelInputKind => kind === 'text' || kind === 'image'),
+  )];
+
+  if (kinds.length === 0) {
+    return ['text'];
+  }
+
+  return kinds.includes('text') ? kinds : ['text', ...kinds];
+}
+
+function resolveModelInputKinds(model: Record<string, unknown>): ModelInputKind[] {
+  return normalizeModelInputKinds(model['input']) ?? ['text'];
+}
+
+function lowerFilesystemPathRefs(inputs: ComposerInput[]): string[] {
+  return inputs
+    .filter((input): input is Extract<ComposerInput, { kind: 'filesystemPathRef' }> =>
+      input.kind === 'filesystemPathRef')
+    .map((input) => `@${input.path}`);
+}
+
+function lowerImageInputs(inputs: ComposerInput[]): SdkImageContent[] {
+  return inputs
+    .filter((input): input is Extract<ComposerInput, { kind: 'imageBlob' }> => input.kind === 'imageBlob')
+    .map((input) => ({
+      type: 'image',
+      data: input.dataBase64,
+      mimeType: input.mimeType,
+    }));
+}
+
+function buildPromptText(text: string, inputs: ComposerInput[]): string {
+  const sections: string[] = [];
+  const pathPrelude = lowerFilesystemPathRefs(inputs);
+  if (pathPrelude.length > 0) {
+    sections.push(pathPrelude.join('\n'));
+  }
+  if (text.trim()) {
+    sections.push(text);
+  }
+  return sections.join('\n\n');
 }
 
 const PROVIDER_SYSTEM_PROMPT: SystemPromptEntry = {
@@ -279,6 +333,21 @@ export class BackendServer {
     return this.sessionContexts.values().next().value;
   }
 
+  private textFromSessionMessageContent(content: unknown): string {
+    if (typeof content === 'string') {
+      return content;
+    }
+
+    if (Array.isArray(content)) {
+      return (content as Array<{ type?: string; text?: string }>)
+        .filter((part) => part.type === 'text')
+        .map((part) => part.text ?? '')
+        .join('');
+    }
+
+    return '';
+  }
+
   private async deriveNameFromFile(filePath: string): Promise<string> {
     try {
       const content = await fs.readFile(filePath, 'utf8');
@@ -287,18 +356,11 @@ export class BackendServer {
         try {
           const entry = JSON.parse(line) as SessionEntryLike;
           if (entry.type === 'message' && entry.message?.role === 'user') {
-            const msgContent = entry.message.content;
-            const text = typeof msgContent === 'string'
-              ? msgContent
-              : Array.isArray(msgContent)
-                ? (msgContent as Array<{ type?: string; text?: string }>)
-                    .filter((p) => p.type === 'text')
-                    .map((p) => p.text ?? '')
-                    .join('')
-                : '';
-            const trimmed = text.replace(/\s+/g, ' ').trim();
-            if (trimmed) {
-              return trimmed.length > 40 ? trimmed.slice(0, 40) + '\u2026' : trimmed;
+            const derived = deriveSessionNameFromText(
+              this.textFromSessionMessageContent(entry.message.content),
+            );
+            if (!derived.isPlaceholder) {
+              return derived.name;
             }
           }
         } catch {
@@ -308,7 +370,7 @@ export class BackendServer {
     } catch {
       // file not readable
     }
-    return 'New Session';
+    return NEW_SESSION_NAME;
   }
 
   private async listSessions(): Promise<SessionSummary[]> {
@@ -316,9 +378,9 @@ export class BackendServer {
     const summaries = await Promise.all(
       sessions.map(async (session) => {
         const summary = summarizeSession(session);
-        if (summary.name === 'New Session' && session.path) {
+        if (summary.name === NEW_SESSION_NAME && session.path) {
           const derived = await this.deriveNameFromFile(session.path);
-          if (derived !== 'New Session') {
+          if (derived !== NEW_SESSION_NAME) {
             summary.name = derived;
             summary.isPlaceholder = false;
           } else {
@@ -338,24 +400,16 @@ export class BackendServer {
     const entries = context.session.sessionManager.getBranch() ?? [];
     for (const entry of entries) {
       if (entry.type === 'message' && entry.message?.role === 'user') {
-        const content = entry.message.content;
-        const text = typeof content === 'string'
-          ? content
-          : Array.isArray(content)
-            ? (content as Array<{ type?: string; text?: string }>)
-                .filter((p) => p.type === 'text')
-                .map((p) => p.text ?? '')
-                .join('')
-            : '';
-        const trimmed = text.replace(/\s+/g, ' ').trim();
-        if (trimmed) {
-          const truncated = trimmed.length > 40 ? trimmed.slice(0, 40) + '\u2026' : trimmed;
-          return { name: truncated, isPlaceholder: false };
+        const derived = deriveSessionNameFromText(
+          this.textFromSessionMessageContent(entry.message.content),
+        );
+        if (!derived.isPlaceholder) {
+          return derived;
         }
       }
     }
 
-    return { name: 'New Session', isPlaceholder: true };
+    return { name: NEW_SESSION_NAME, isPlaceholder: true };
   }
 
   private buildCurrentSummary(context: SessionContext): SessionSummary {
@@ -369,6 +423,7 @@ export class BackendServer {
       modifiedAt: new Date().toISOString(),
       messageCount,
       modelId: context.session.model?.id,
+      thinkingLevel: normalizeThinkingLevel(context.session.thinkingLevel),
     };
   }
 
@@ -381,13 +436,14 @@ export class BackendServer {
     if (!context) return [];
     try {
       const models = context.runtime.services?.modelRegistry?.getAvailable() ?? [];
-      return models.map((m) => ({
-        id: m.id,
-        name: m.name,
-        provider: m.provider,
-        reasoning: m.reasoning,
-        contextWindow: m.contextWindow,
-        maxTokens: m.maxTokens,
+      return models.map((model) => ({
+        id: model.id,
+        name: model.name,
+        provider: model.provider,
+        reasoning: model.reasoning,
+        inputKinds: resolveModelInputKinds(model as unknown as Record<string, unknown>),
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
       }));
     } catch {
       return [];
@@ -486,10 +542,13 @@ export class BackendServer {
     return sections.length > 0 ? sections.join('\n\n---\n\n') : undefined;
   }
 
-  private async buildSystemPrompts(context: SessionContext): Promise<SystemPromptEntry[]> {
+  private async buildSystemPrompts(
+    context: SessionContext,
+    harnessPromptOverride?: string,
+  ): Promise<SystemPromptEntry[]> {
     const promptState = this.getSessionPromptState(context);
     const userPrompt = this.buildUserPromptSections(promptState._baseSystemPromptOptions);
-    const harnessPrompt = await this.readHarnessSystemPrompt(context);
+    const harnessPrompt = harnessPromptOverride ?? await this.readHarnessSystemPrompt(context);
 
     const entries: SystemPromptEntry[] = [PROVIDER_SYSTEM_PROMPT];
 
@@ -577,9 +636,14 @@ export class BackendServer {
       throw new Error(`Unknown session: ${sessionPath}`);
     }
 
-    const [systemPrompts, modelSettings] = await Promise.all([
-      this.buildSystemPrompts(context),
+    const harnessPrompt = await this.readHarnessSystemPrompt(context);
+    const [systemPrompts, modelSettings, analyticsFactors] = await Promise.all([
+      this.buildSystemPrompts(context, harnessPrompt),
       this.readModelSettings(),
+      buildSessionAnalyticsFactors({
+        harnessPrompt,
+        promptOptions: this.getSessionPromptState(context)._baseSystemPromptOptions,
+      }),
     ]);
 
     const contextUsage = this.getContextUsage(context) ?? null;
@@ -591,6 +655,7 @@ export class BackendServer {
       busy: context.session.isStreaming,
       selectionToken,
       systemPrompts,
+      analyticsFactors,
       modelSettings,
       availableModels: this.listAvailableModels(context),
       contextUsage: contextUsage ?? undefined,
@@ -683,11 +748,7 @@ export class BackendServer {
       case 'session.preload': {
         const params = validateSessionPath('session.preload', request.params);
         const context = await this.ensureSessionContext(params.sessionPath);
-        const preloadPayload = await this.buildSessionOpenedPayload(context.sessionPath);
-        this.emit('session.opened', preloadPayload);
-        this.emitBusyChanged(context, context.session.isStreaming);
-        void this.emitSessionListChanged();
-        return preloadPayload;
+        return await this.buildSessionOpenedPayload(context.sessionPath);
       }
 
       case 'session.truncateAfter': {
@@ -736,6 +797,9 @@ export class BackendServer {
         }
 
         const requestId = crypto.randomUUID();
+        const promptText = buildPromptText(params.text, params.inputs);
+        const images = lowerImageInputs(params.inputs);
+        const imagePayload = images.length > 0 ? images : undefined;
         context.activeRequest = {
           id: requestId,
           messageIndex: 0,
@@ -744,18 +808,54 @@ export class BackendServer {
           aborted: false,
         };
 
-        this.emitBusyChanged(context, true);
-        void context.session
-          .prompt(params.text, { source: 'rpc' })
-          .catch((error: Error) => {
-            this.emit('error', {
-              code: 'MESSAGE_SEND_FAILED',
-              message: error.message,
-              requestId,
-            } satisfies ErrorPayload);
+        let preflightSettled = false;
+        const accepted = new Promise<void>((resolve, reject) => {
+          void context.session
+            .prompt(promptText, {
+              source: 'rpc',
+              images: imagePayload,
+              preflightResult: (success) => {
+                if (preflightSettled) {
+                  return;
+                }
+
+                preflightSettled = true;
+                if (!success) {
+                  reject(new Error('Prompt rejected before PI accepted the request.'));
+                  return;
+                }
+
+                this.emitBusyChanged(context, true);
+                resolve();
+              },
+            })
+            .catch((error: Error) => {
+              if (!preflightSettled) {
+                preflightSettled = true;
+                reject(error);
+                return;
+              }
+
+              this.emit('error', {
+                code: 'MESSAGE_SEND_FAILED',
+                message: error.message,
+                requestId,
+              } satisfies ErrorPayload);
+              if (context.activeRequest?.id === requestId) {
+                context.activeRequest = undefined;
+                this.emitBusyChanged(context, false);
+              }
+            });
+        });
+
+        try {
+          await accepted;
+        } catch (error) {
+          if (context.activeRequest?.id === requestId) {
             context.activeRequest = undefined;
-            this.emitBusyChanged(context, false);
-          });
+          }
+          throw error;
+        }
 
         return { requestId };
       }
@@ -794,32 +894,54 @@ export class BackendServer {
 
       case 'settings.set': {
         const params = validateSettingsSet(request.params);
-        const result = await this.writeModelSettings(params);
+        const { sessionPath, ...settingsUpdates } = params;
+        const previousSettings = await this.readModelSettings();
+        const targetContext = sessionPath ? await this.ensureSessionContext(sessionPath) : undefined;
+        const result = await this.writeModelSettings(settingsUpdates);
 
-        // Apply immediately to the active session so the change takes effect
-        // without needing to create a new session.
-        if (params.defaultModel) {
-          const context = this.getPreferredSessionContext();
-          if (context) {
-            try {
-              const available = context.runtime.services?.modelRegistry?.getAvailable() ?? [];
-              const info = available.find((m) => m.id === params.defaultModel);
-              if (info) {
-                const model = context.runtime.services.modelRegistry.find(info.provider, info.id);
-                if (model) {
-                  await context.session.setModel?.(model);
-                  if (params.defaultThinkingLevel) {
-                    context.session.setThinkingLevel?.(params.defaultThinkingLevel);
-                  }
-                }
-              }
-            } catch {
-              // Non-fatal: settings were saved; model applies on next session creation.
+        try {
+          // Apply immediately to the targeted session so the change takes effect
+          // without needing to create a new session.
+          if (params.defaultModel && targetContext) {
+            const available = targetContext.runtime.services?.modelRegistry?.getAvailable() ?? [];
+            const info = available.find((model) => model.id === params.defaultModel);
+            if (!info) {
+              throw new Error(`Model not available in this session: ${params.defaultModel}`);
             }
-          }
-        }
 
-        return result;
+            const resolvedModel = targetContext.runtime.services.modelRegistry.find(info.provider, info.id);
+            if (!resolvedModel) {
+              throw new Error(`Could not resolve model in registry: ${params.defaultModel}`);
+            }
+
+            if (typeof targetContext.session.setModel !== 'function') {
+              throw new Error('This PI session does not support live model switching.');
+            }
+
+            await targetContext.session.setModel(resolvedModel);
+            if (targetContext.session.model?.id !== params.defaultModel) {
+              throw new Error(`Live model switch did not take effect: ${params.defaultModel}`);
+            }
+
+            if (params.defaultThinkingLevel) {
+              targetContext.session.setThinkingLevel?.(params.defaultThinkingLevel);
+            }
+
+            targetContext.lastContextUsage = null;
+            this.emit('contextUsage.changed', {
+              sessionPath: targetContext.sessionPath,
+              contextUsage: null,
+            } satisfies ContextUsageChangedPayload);
+          }
+
+          return result;
+        } catch (error) {
+          await this.writeModelSettings({
+            defaultModel: previousSettings.defaultModel,
+            defaultThinkingLevel: previousSettings.defaultThinkingLevel,
+          });
+          throw error;
+        }
       }
 
       default:
@@ -930,6 +1052,7 @@ export class BackendServer {
           messageId: context.activeRequest.lastAssistantMessageId,
           toolCallId: event.toolCallId ?? '',
           result: event.result,
+          status: event.isError ? 'failed' : 'completed',
         } satisfies ToolFinishedPayload);
         this.emitContextUsageChanged(context);
         return;

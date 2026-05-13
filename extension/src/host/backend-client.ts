@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { attachJsonlLineReader, serializeJsonLine } from '../shared/jsonl';
 import { RequestTracker } from '../shared/request-tracker';
 import {
+  assertProtocolVersion,
   type BackendReadyPayload,
   type EventEnvelope,
   isEventEnvelope,
@@ -50,6 +51,9 @@ export class BackendClient implements vscode.Disposable {
   private requestCounter = 0;
   private stderrBuffer = '';
   private detachReader?: () => void;
+  private bufferedEvents: EventEnvelope[] = [];
+  private bufferedEventDepth = 0;
+  private bufferedEventFlushTimer?: ReturnType<typeof setTimeout>;
 
   readonly onEvent = this.events.event;
   readonly onExit = this.exits.event;
@@ -64,6 +68,12 @@ export class BackendClient implements vscode.Disposable {
     }
 
     this.stderrBuffer = '';
+    this.bufferedEvents = [];
+    this.bufferedEventDepth = 0;
+    if (this.bufferedEventFlushTimer !== undefined) {
+      clearTimeout(this.bufferedEventFlushTimer);
+      this.bufferedEventFlushTimer = undefined;
+    }
     const proc = cp.spawn(
       options.nodePath,
       [options.backendPath, '--sdkPath', options.sdkPath, '--cwd', options.cwd],
@@ -133,8 +143,17 @@ export class BackendClient implements vscode.Disposable {
       };
 
       const readyDisposable = this.onEvent((event) => {
-        if (event.event === 'backend.ready') {
-          finishResolve(event.payload as BackendReadyPayload);
+        if (event.event !== 'backend.ready') {
+          return;
+        }
+
+        try {
+          const payload = event.payload as BackendReadyPayload;
+          assertProtocolVersion('backend.ready', payload.protocolVersion);
+          finishResolve(payload);
+        } catch (error) {
+          finishReject(error instanceof Error ? error : new Error(String(error)));
+          void this.stop().catch(() => undefined);
         }
       });
 
@@ -152,7 +171,7 @@ export class BackendClient implements vscode.Disposable {
         this.proc = undefined;
         finishReject(
           new Error(
-            `Failed to spawn PI Assistant backend with node=${options.nodePath}, backend=${options.backendPath}, cwd=${options.cwd}: ${error.message}`,
+            `Failed to spawn pie backend with node=${options.nodePath}, backend=${options.backendPath}, cwd=${options.cwd}: ${error.message}`,
           ),
         );
       };
@@ -160,7 +179,7 @@ export class BackendClient implements vscode.Disposable {
       const errorDisposable = { dispose: () => proc.off('error', errorListener) };
 
       const timeout = setTimeout(() => {
-        finishReject(new Error('Timed out waiting for the PI Assistant backend to become ready.'));
+        finishReject(new Error('Timed out waiting for the pie backend to become ready.'));
       }, READY_TIMEOUT_MS);
     });
   }
@@ -173,15 +192,27 @@ export class BackendClient implements vscode.Disposable {
     const id = `req-${++this.requestCounter}`;
     const timeoutMs = RPC_TIMEOUTS_MS[method] ?? DEFAULT_RPC_TIMEOUT_MS;
     const responsePromise = this.requests.create(id, timeoutMs);
+    const shouldBufferEvents = method === 'message.send';
+
+    if (shouldBufferEvents) {
+      this.bufferedEventDepth += 1;
+    }
 
     this.proc.stdin.write(serializeJsonLine({ id, method, params }));
 
-    const response = await responsePromise;
-    if (!response.ok) {
-      throw new Error(response.error.message);
-    }
+    try {
+      const response = await responsePromise;
+      if (!response.ok) {
+        throw new Error(response.error.message);
+      }
 
-    return response.result as TResult;
+      return response.result as TResult;
+    } finally {
+      if (shouldBufferEvents) {
+        this.bufferedEventDepth = Math.max(0, this.bufferedEventDepth - 1);
+        this.flushBufferedEventsLater();
+      }
+    }
   }
 
   /**
@@ -191,6 +222,12 @@ export class BackendClient implements vscode.Disposable {
   async stop(): Promise<void> {
     this.detachReader?.();
     this.detachReader = undefined;
+    if (this.bufferedEventFlushTimer !== undefined) {
+      clearTimeout(this.bufferedEventFlushTimer);
+      this.bufferedEventFlushTimer = undefined;
+    }
+    this.bufferedEvents = [];
+    this.bufferedEventDepth = 0;
     if (this.proc) {
       this.proc.kill();
       this.proc = undefined;
@@ -213,8 +250,34 @@ export class BackendClient implements vscode.Disposable {
     }
 
     if (isEventEnvelope(value)) {
+      if (this.bufferedEventDepth > 0) {
+        this.bufferedEvents.push(value);
+        return;
+      }
       this.events.fire(value);
     }
+  }
+
+  private flushBufferedEventsLater(): void {
+    if (this.bufferedEventDepth > 0 || this.bufferedEvents.length === 0) {
+      return;
+    }
+    if (this.bufferedEventFlushTimer !== undefined) {
+      return;
+    }
+
+    this.bufferedEventFlushTimer = setTimeout(() => {
+      this.bufferedEventFlushTimer = undefined;
+      if (this.bufferedEventDepth > 0 || this.bufferedEvents.length === 0) {
+        return;
+      }
+
+      const pending = [...this.bufferedEvents];
+      this.bufferedEvents = [];
+      for (const event of pending) {
+        this.events.fire(event);
+      }
+    }, 0);
   }
 
   private appendStderr(chunk: string): void {
@@ -228,6 +291,12 @@ export class BackendClient implements vscode.Disposable {
   dispose(): void {
     this.detachReader?.();
     this.detachReader = undefined;
+    if (this.bufferedEventFlushTimer !== undefined) {
+      clearTimeout(this.bufferedEventFlushTimer);
+      this.bufferedEventFlushTimer = undefined;
+    }
+    this.bufferedEvents = [];
+    this.bufferedEventDepth = 0;
 
     if (this.proc) {
       this.proc.kill();

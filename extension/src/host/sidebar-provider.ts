@@ -11,6 +11,11 @@ import {
   flushDirtySnapshot,
   type SidebarSyncState,
 } from './sidebar-sync';
+import {
+  DEFAULT_WEBVIEW_VIEW_NAME,
+  getWebviewAssetDir,
+  isHotReloadAssetFileName,
+} from './webview-hot-reload';
 import { renderWebviewHtml, getWebviewRoots } from './webview-assets';
 import type {
   HostToWebviewMessage,
@@ -21,15 +26,17 @@ import type {
 
 /** Debounce window for batching rapid store changes into a single snapshot post. */
 const SCHEDULE_DEBOUNCE_MS = 50;
+/** Debounce window for coalescing multiple asset writes into one webview reload. */
+const HOT_RELOAD_DEBOUNCE_MS = 120;
 
 /**
- * Implements the VS Code WebviewView for the PI Assistant sidebar.
+ * Implements the VS Code WebviewView for the pie sidebar.
  *
  * Responsibilities:
  * - Resolves the webview HTML once and handles incoming messages.
  * - Posts full-state snapshots (`state`) on demand or on a debounced schedule.
  * - Posts incremental `patch` messages for high-frequency streaming updates.
- * - Posts imperative messages (e.g. `filePickerResult`) outside the state flow.
+ * - Posts imperative messages (e.g. `sendRejected`) outside the state flow.
  *
  * Each outgoing envelope carries a monotonically increasing `revision` and a
  * stable `hostInstanceId` so the webview can detect missed patches and
@@ -41,7 +48,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private syncState: SidebarSyncState;
   private visibilityDisposable?: vscode.Disposable;
   private scheduleTimer?: ReturnType<typeof setTimeout>;
+  private hotReloadTimer?: ReturnType<typeof setTimeout>;
   private messageDisposable?: vscode.Disposable;
+  private assetWatcher?: vscode.FileSystemWatcher;
+  private webviewReady = false;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -57,8 +67,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       clearTimeout(this.scheduleTimer);
       this.scheduleTimer = undefined;
     }
+    if (this.hotReloadTimer !== undefined) {
+      clearTimeout(this.hotReloadTimer);
+      this.hotReloadTimer = undefined;
+    }
+    this.webviewReady = false;
     this.visibilityDisposable?.dispose();
     this.messageDisposable?.dispose();
+    this.assetWatcher?.dispose();
   }
 
   async resolveWebviewView(
@@ -67,12 +83,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     _token: vscode.CancellationToken,
   ): Promise<void> {
     this.view = webviewView;
+    this.webviewReady = false;
 
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: getWebviewRoots(this.context),
     };
 
+    this.ensureAssetWatcher();
     webviewView.webview.html = await renderWebviewHtml(this.context, webviewView.webview);
 
     this.visibilityDisposable?.dispose();
@@ -84,6 +102,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
     this.messageDisposable?.dispose();
     this.messageDisposable = webviewView.webview.onDidReceiveMessage((msg: WebviewToHostMessage) => {
+      if (msg.type === 'ready') {
+        this.webviewReady = true;
+      }
       this.onMessage(msg);
     });
   }
@@ -109,6 +130,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     auditLog(this.context, 'sidebar-provider', 'snapshot.postState', {
       dirty: this.syncState.dirty,
       posted: !!result.message,
+      ready: this.webviewReady,
       revision: this.syncState.revision,
       visible: this.view?.visible ?? false,
     });
@@ -135,6 +157,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       this.syncState = { ...this.syncState, dirty: true };
       auditLog(this.context, 'sidebar-provider', 'snapshot.markDirty', {
         reason: 'scheduleState',
+        ready: this.webviewReady,
         revision: this.syncState.revision,
         visible: this.view?.visible ?? false,
       });
@@ -164,6 +187,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       dirty: this.syncState.dirty,
       kind: op.kind,
       posted: !!result.message,
+      ready: this.webviewReady,
       revision: this.syncState.revision,
       visible: this.view?.visible ?? false,
     });
@@ -182,16 +206,16 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   }
 
   /**
-   * Post an imperative message that does not carry a revision (e.g. file picker
-   * results). The webview handles these independently from the state/patch flow.
+   * Post an imperative message that does not carry a revision. The webview
+   * handles these independently from the state/patch flow.
    */
   postImperative(msg: HostToWebviewMessage): void {
-    if (!this.view) return;
+    if (!this.view || !this.webviewReady) return;
     void this.view.webview.postMessage(msg);
   }
 
   private canPostToView(): boolean {
-    return canPostToWebview(!!this.view, this.view?.visible ?? false);
+    return this.webviewReady && canPostToWebview(!!this.view, this.view?.visible ?? false);
   }
 
   private flushDirtyState(): void {
@@ -201,12 +225,78 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     auditLog(this.context, 'sidebar-provider', 'snapshot.flushDirty', {
       dirty: this.syncState.dirty,
       posted: !!result.message,
+      ready: this.webviewReady,
       revision: this.syncState.revision,
       visible: this.view?.visible ?? false,
     });
 
     if (result.message && this.view) {
       void this.view.webview.postMessage(result.message);
+    }
+  }
+
+  private ensureAssetWatcher(): void {
+    if (this.assetWatcher) {
+      return;
+    }
+
+    const assetDir = getWebviewAssetDir(this.context.extensionPath, DEFAULT_WEBVIEW_VIEW_NAME);
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(vscode.Uri.file(assetDir), '*'),
+    );
+    const onAssetEvent = (uri: vscode.Uri) => {
+      if (!isHotReloadAssetFileName(uri.fsPath, DEFAULT_WEBVIEW_VIEW_NAME)) {
+        return;
+      }
+      this.scheduleHotReload(uri.fsPath);
+    };
+
+    watcher.onDidChange(onAssetEvent);
+    watcher.onDidCreate(onAssetEvent);
+    watcher.onDidDelete(onAssetEvent);
+
+    this.assetWatcher = watcher;
+  }
+
+  private scheduleHotReload(changedPath: string): void {
+    if (this.hotReloadTimer !== undefined) {
+      clearTimeout(this.hotReloadTimer);
+    }
+
+    auditLog(this.context, 'sidebar-provider', 'hotReload.schedule', {
+      changedPath,
+      visible: this.view?.visible ?? false,
+    });
+
+    this.hotReloadTimer = setTimeout(() => {
+      this.hotReloadTimer = undefined;
+      void this.reloadWebviewAssets(changedPath);
+    }, HOT_RELOAD_DEBOUNCE_MS);
+  }
+
+  private async reloadWebviewAssets(changedPath: string): Promise<void> {
+    const view = this.view;
+    if (!view) {
+      return;
+    }
+
+    try {
+      const nextHtml = await renderWebviewHtml(this.context, view.webview);
+      if (this.view !== view) {
+        return;
+      }
+
+      this.webviewReady = false;
+      this.syncState = { ...this.syncState, dirty: true };
+      view.webview.html = nextHtml;
+
+      auditLog(this.context, 'sidebar-provider', 'hotReload.apply', {
+        changedPath,
+        revision: this.syncState.revision,
+        visible: view.visible,
+      });
+    } catch (error) {
+      console.warn(`[pie] Failed to hot reload webview assets after ${changedPath}: ${(error as Error).message}`);
     }
   }
 }

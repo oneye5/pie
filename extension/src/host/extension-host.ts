@@ -1,4 +1,4 @@
-﻿import * as vscode from 'vscode';
+import * as vscode from 'vscode';
 
 import { BackendClient } from './backend-client';
 import {
@@ -9,19 +9,37 @@ import {
 import { selectActiveSessionPath, selectViewState, store } from './store';
 import { SidebarViewProvider } from './sidebar-provider';
 import { SessionService } from './session-service';
+import { StatsService } from './stats-service';
 import type { WebviewToHostMessage } from '../shared/protocol';
 
-export const SIDEBAR_VIEW_TYPE = 'pi-assistant.sessionsView';
+export const SIDEBAR_VIEW_TYPE = 'pie.sessionsView';
 
-export class PiAssistantExtension implements vscode.Disposable {
+function getWorkspaceAnalyticsId(): string {
+  const folders = vscode.workspace.workspaceFolders;
+  if (folders && folders.length > 0) {
+    return folders.map((folder) => folder.uri.toString()).join('|');
+  }
+  return vscode.workspace.name ?? 'no-workspace';
+}
+
+export class PieExtension implements vscode.Disposable {
   private readonly statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   private readonly sidebarProvider: SidebarViewProvider;
+  private readonly statsService: StatsService;
   private readonly service: SessionService;
+  private shutdownPromise: Promise<void> | null = null;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly backend: BackendClient,
   ) {
+    this.statsService = new StatsService({
+      globalStoragePath: context.globalStorageUri.fsPath,
+      workspaceId: getWorkspaceAnalyticsId(),
+      scheduleRender: () => this.scheduleRender(),
+      getExperimentAssignment: () => this.getExperimentAssignment(),
+    });
+
     this.service = new SessionService(
       context,
       backend,
@@ -31,6 +49,7 @@ export class PiAssistantExtension implements vscode.Disposable {
       (event) => {
         this.handleSessionCompleted(event);
       },
+      this.statsService,
     );
 
     this.sidebarProvider = new SidebarViewProvider(
@@ -41,12 +60,13 @@ export class PiAssistantExtension implements vscode.Disposable {
       },
     );
 
-    this.statusBar.command = 'pi-assistant.openChat';
+    this.statusBar.command = 'pie.openChat';
     this.statusBar.show();
   }
 
   async start(): Promise<void> {
     this.updateStatusBar('Starting');
+    await this.statsService.start();
     await this.service.start();
   }
 
@@ -63,17 +83,20 @@ export class PiAssistantExtension implements vscode.Disposable {
       vscode.window.registerWebviewViewProvider(SIDEBAR_VIEW_TYPE, this.sidebarProvider, {
         webviewOptions: { retainContextWhenHidden: true },
       }),
-      vscode.commands.registerCommand('pi-assistant.openChat', () => {
+      vscode.commands.registerCommand('pie.openChat', () => {
         this.sidebarProvider.reveal();
       }),
-      vscode.commands.registerCommand('pi-assistant.newSession', async () => {
+      vscode.commands.registerCommand('pie.newSession', async () => {
         this.service.createNewSession();
         this.sidebarProvider.reveal();
       }),
-      vscode.commands.registerCommand('pi-assistant.restartBackend', async () => {
+      vscode.commands.registerCommand('pie.restartBackend', async () => {
         await this.restart();
       }),
-      vscode.commands.registerCommand('pi-assistant.attachFiles', async (
+      vscode.commands.registerCommand('pie.exportRunAnalytics', async () => {
+        await this.exportRunAnalytics();
+      }),
+      vscode.commands.registerCommand('pie.attachFiles', async (
         resource?: vscode.Uri,
         resources?: vscode.Uri[],
       ) => {
@@ -81,31 +104,71 @@ export class PiAssistantExtension implements vscode.Disposable {
           ...(Array.isArray(resources) ? resources : []),
           ...(resource ? [resource] : []),
         ];
-        await this.attachFiles(uris);
+        await this.attachFiles(uris, 'picker');
+      }),
+      vscode.workspace.onDidChangeConfiguration((event) => {
+        if (event.affectsConfiguration('pie.experimentAssignment')) {
+          this.statsService.onExperimentAssignmentChanged(this.getExperimentAssignment());
+        }
       }),
     );
   }
 
-  private async attachFiles(uris: vscode.Uri[]): Promise<void> {
+  private getExperimentAssignment(): string | null {
+    const configured = vscode.workspace
+      .getConfiguration('pie')
+      .get<string>('experimentAssignment', '')
+      .trim();
+    return configured.length > 0 ? configured : null;
+  }
+
+  private async exportRunAnalytics(): Promise<void> {
+    const defaultFileName = `pie-run-analytics-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    const defaultUri = vscode.Uri.joinPath(this.context.globalStorageUri, defaultFileName);
+    const target = await vscode.window.showSaveDialog({
+      defaultUri,
+      filters: { JSON: ['json'] },
+      saveLabel: 'Export pie run analytics',
+      title: 'Export pie run analytics',
+    });
+    if (!target) {
+      return;
+    }
+
+    try {
+      const payload = await this.statsService.exportRunAnalytics(target.fsPath);
+      void vscode.window.showInformationMessage(
+        `Exported ${payload.completedRuns.length} completed run(s) and ${payload.openRuns.length} open run(s).`,
+      );
+    } catch (error) {
+      void vscode.window.showErrorMessage(`Failed to export pie run analytics: ${(error as Error).message}`);
+    }
+  }
+
+  private async attachFiles(
+    uris: vscode.Uri[],
+    source: 'picker' | 'drop' = 'picker',
+  ): Promise<void> {
     const targets = this.service.normalizeAttachUris(uris);
     if (targets.length === 0) {
       const picked = await vscode.window.showOpenDialog({
         canSelectMany: true,
         canSelectFiles: true,
         canSelectFolders: true,
-        openLabel: 'Attach to PI Assistant',
-        title: 'Attach file path(s) to PI Assistant',
+        openLabel: 'Attach to pie',
+        title: 'Attach file path(s) to pie',
       });
       if (!picked || picked.length === 0) return;
-      await this.attachFiles(picked);
+      await this.attachFiles(picked, 'picker');
       return;
     }
 
     this.sidebarProvider.reveal();
-    this.sidebarProvider.postImperative({
-      type: 'filePickerResult',
-      paths: targets.map((uri) => uri.fsPath),
-    });
+    await this.service.addFilesystemPaths(
+      undefined,
+      targets.map((uri) => uri.fsPath),
+      source,
+    );
   }
 
   private scheduleRender(): void {
@@ -124,16 +187,16 @@ export class PiAssistantExtension implements vscode.Disposable {
     const text =
       state === 'Thinking'
         ? runningCount > 1
-          ? `PI: ${runningCount} Running`
-          : 'PI: Running'
+          ? `pie: ${runningCount} Running`
+          : 'pie: Running'
         : state === 'Error'
-          ? 'PI: Error'
+          ? 'pie: Error'
           : state === 'Starting'
-            ? 'PI: Starting'
-            : 'PI: Idle';
+            ? 'pie: Starting'
+            : 'pie: Idle';
 
     this.statusBar.text = text;
-    this.statusBar.tooltip = notice ?? 'Open PI Assistant chat';
+    this.statusBar.tooltip = notice ?? 'Open pie chat';
   }
 
   private handleSessionCompleted(_event: SessionCompletionEvent): void {
@@ -174,11 +237,11 @@ export class PiAssistantExtension implements vscode.Disposable {
         return;
 
       case 'send': {
-        const text = typeof msg.text === 'string' ? msg.text.trim() : '';
-        const pendingPaths = Array.isArray(msg.pendingPaths)
-          ? msg.pendingPaths.filter((path): path is string => typeof path === 'string')
-          : [];
-        if (text) await this.service.send(text, pendingPaths);
+        const text = typeof msg.text === 'string' ? msg.text : '';
+        const hasPendingInputs = selectViewState(store.getState()).pendingComposerInputs.length > 0;
+        if (text.trim() || hasPendingInputs) {
+          await this.service.send(text);
+        }
         return;
       }
 
@@ -196,13 +259,27 @@ export class PiAssistantExtension implements vscode.Disposable {
       case 'openFilePicker': {
         const uris = await vscode.window.showOpenDialog({
           canSelectMany: true,
-          openLabel: 'Insert',
-          title: 'Insert file path(s) into message',
+          canSelectFiles: true,
+          canSelectFolders: true,
+          openLabel: 'Attach',
+          title: 'Attach file path(s) to message',
         });
         if (!uris || uris.length === 0) return;
-        this.sidebarProvider.postImperative({ type: 'filePickerResult', paths: uris.map((u) => u.fsPath) });
+        await this.service.addFilesystemPaths(undefined, uris.map((u) => u.fsPath), 'picker');
         return;
       }
+
+      case 'exportRunAnalytics':
+        await this.exportRunAnalytics();
+        return;
+
+      case 'addComposerInput':
+        await this.service.addComposerInput(msg.sessionPath, msg.input);
+        return;
+
+      case 'removeComposerInput':
+        this.service.removeComposerInput(msg.sessionPath, msg.inputId);
+        return;
 
       case 'openFile':
         if (typeof msg.path !== 'string' || !msg.path.trim()) return;
@@ -226,8 +303,20 @@ export class PiAssistantExtension implements vscode.Disposable {
         this.service.moveSessionTab(msg.sessionPath, msg.fromIndex, msg.toIndex);
         return;
 
+      case 'recordOutcome':
+        this.statsService.recordOutcome(msg.sessionPath, msg.outcome);
+        return;
+
+      case 'startNewTask':
+        this.statsService.startNewTask(msg.sessionPath);
+        return;
+
+      case 'continueTask':
+        this.statsService.continueTask(msg.sessionPath);
+        return;
+
       case 'setModel':
-        await this.service.setModel(msg.defaultModel, msg.defaultThinkingLevel);
+        await this.service.setModel(msg.sessionPath, msg.defaultModel, msg.defaultThinkingLevel);
         return;
 
       case 'setPrefs':
@@ -240,8 +329,24 @@ export class PiAssistantExtension implements vscode.Disposable {
     }
   }
 
+  async shutdown(): Promise<void> {
+    if (this.shutdownPromise) {
+      await this.shutdownPromise;
+      return;
+    }
+
+    this.shutdownPromise = (async () => {
+      await this.statsService.shutdown();
+      this.service.dispose();
+      this.sidebarProvider.dispose();
+      this.backend.dispose();
+      this.statusBar.dispose();
+    })();
+
+    await this.shutdownPromise;
+  }
+
   dispose(): void {
-    this.backend.dispose();
-    this.statusBar.dispose();
+    void this.shutdown();
   }
 }

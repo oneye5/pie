@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 // Import the slices and selector directly so tests run without side-effects
 // from the singleton store module.
 import {
+  sessionStateActions,
   sessionsActions,
   transcriptActions,
   settingsActions,
@@ -124,6 +125,17 @@ test('sessionsActions.moveOpenTab reorders openTabPaths without changing the act
 
   assert.deepEqual(store.getState().sessions.openTabPaths, ['/ws/c', '/ws/a', '/ws/b']);
   assert.equal(store.getState().sessions.activeSessionPath, '/ws/b');
+});
+
+test('replaceSessionSummaries preserves an existing modelId when a list refresh omits it', () => {
+  const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
+  const store = createAppStore();
+
+  store.dispatch(sessionsActions.upsertSession({ ...session1, modelId: 'claude-sonnet-4-5' }));
+  store.dispatch(sessionsActions.replaceSessionSummaries([session1]));
+
+  const refreshed = store.getState().sessions.sessions.find((session) => session.path === session1.path);
+  assert.equal(refreshed?.modelId, 'claude-sonnet-4-5');
 });
 
 // ---------------------------------------------------------------------------
@@ -289,12 +301,18 @@ test('settingsActions.setModelSettings updates model settings', () => {
   assert.equal(store.getState().settings.modelSettings?.defaultModel, 'gpt-4o');
 });
 
-test('settingsActions.setAvailableModels skips update when incoming list is empty and existing is non-empty', () => {
-  const { store } = require('../src/host/store') as typeof import('../src/host/store');
-  const models = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false }];
-  store.dispatch(settingsActions.setAvailableModels(models));
-  store.dispatch(settingsActions.setAvailableModels([])); // empty — should not overwrite
-  assert.equal(store.getState().settings.availableModels.length, 1);
+test('settingsActions.setAvailableModels stores model catalogs per session and ignores empty refreshes', () => {
+  const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
+  const store = createAppStore();
+  const aModels = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false }];
+  const bModels = [{ id: 'claude', name: 'Claude', provider: 'anthropic', reasoning: true }];
+
+  store.dispatch(settingsActions.setAvailableModels({ sessionPath: session1.path, availableModels: aModels }));
+  store.dispatch(settingsActions.setAvailableModels({ sessionPath: session2.path, availableModels: bModels }));
+  store.dispatch(settingsActions.setAvailableModels({ sessionPath: session2.path, availableModels: [] }));
+
+  assert.deepEqual(store.getState().settings.availableModelsBySession[session1.path], aModels);
+  assert.deepEqual(store.getState().settings.availableModelsBySession[session2.path], bModels);
 });
 
 // ---------------------------------------------------------------------------
@@ -462,18 +480,22 @@ test('lifecycle: tool.started → tool.finished', () => {
 // Model settings hydration
 // ---------------------------------------------------------------------------
 
-test('settingsActions.setModelAndAvailable updates both together', () => {
+test('settingsActions.setModelAndAvailable updates both together for the target session', () => {
   const { store } = require('../src/host/store') as typeof import('../src/host/store');
   const models = [{
     id: 'claude-sonnet-4-5',
     name: 'Claude Sonnet',
     provider: 'anthropic',
     reasoning: true,
+    inputKinds: ['text'],
     contextWindow: 200000,
     maxTokens: 8192,
   }];
+  store.dispatch(sessionsActions.upsertSession(session1));
+  store.dispatch(sessionsActions.setActiveSession(session1));
   store.dispatch(
     settingsActions.setModelAndAvailable({
+      sessionPath: session1.path,
       modelSettings: { defaultModel: 'claude-sonnet-4-5', defaultThinkingLevel: 'medium' },
       availableModels: models,
     }),
@@ -481,6 +503,40 @@ test('settingsActions.setModelAndAvailable updates both together', () => {
   const vs = selectViewState(store.getState());
   assert.equal(vs.modelSettings?.defaultModel, 'claude-sonnet-4-5');
   assert.equal(vs.availableModels.length, 1);
+  assert.deepEqual(vs.pendingComposerInputs, []);
+  assert.equal(vs.activeRunSummary, null);
+  assert.deepEqual(vs.runSummariesBySession, {});
+});
+
+test('selectViewState returns the active run summary for the active session', () => {
+  const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
+  const store = createAppStore();
+
+  store.dispatch(sessionsActions.upsertSession(session1));
+  store.dispatch(sessionsActions.upsertSession(session2));
+  store.dispatch(sessionsActions.setActiveSession(session2));
+  store.dispatch(sessionStateActions.setActiveRunSummary({
+    sessionPath: session2.path,
+    summary: {
+      runId: 'run-42',
+      status: 'closed_unscored',
+      scored: false,
+    },
+  }));
+
+  const vs = selectViewState(store.getState());
+  assert.deepEqual(vs.activeRunSummary, {
+    runId: 'run-42',
+    status: 'closed_unscored',
+    scored: false,
+  });
+  assert.deepEqual(vs.runSummariesBySession, {
+    [session2.path]: {
+      runId: 'run-42',
+      status: 'closed_unscored',
+      scored: false,
+    },
+  });
 });
 
 test('selectViewState returns context usage for the active session', () => {
@@ -499,6 +555,99 @@ test('selectViewState returns context usage for the active session', () => {
 
   const vs = selectViewState(store.getState());
   assert.deepEqual(vs.contextUsage, { tokens: 7000, contextWindow: 10000, percent: 70 });
+});
+
+test('selectViewState returns available models for the active session only', () => {
+  const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
+  const store = createAppStore();
+
+  store.dispatch(sessionsActions.upsertSession(session1));
+  store.dispatch(sessionsActions.upsertSession(session2));
+  store.dispatch(sessionsActions.setActiveSession(session2));
+  store.dispatch(settingsActions.setAvailableModels({
+    sessionPath: session1.path,
+    availableModels: [{
+      id: 'gpt-4o',
+      name: 'GPT-4o',
+      provider: 'openai',
+      reasoning: false,
+      inputKinds: ['text', 'image'],
+    }],
+  }));
+  store.dispatch(settingsActions.setAvailableModels({
+    sessionPath: session2.path,
+    availableModels: [{
+      id: 'claude',
+      name: 'Claude',
+      provider: 'anthropic',
+      reasoning: true,
+      inputKinds: ['text'],
+    }],
+  }));
+
+  const vs = selectViewState(store.getState());
+  assert.deepEqual(vs.availableModels, [{
+    id: 'claude',
+    name: 'Claude',
+    provider: 'anthropic',
+    reasoning: true,
+    inputKinds: ['text'],
+  }]);
+});
+
+test('sessionStateActions.replaceSessionPath migrates pending composer inputs to the real session path', () => {
+  const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
+  const store = createAppStore();
+  const pendingPath = '__pending__:1';
+  const realPath = '/ws/real';
+
+  store.dispatch(sessionsActions.upsertSession({ ...session1, path: pendingPath }));
+  store.dispatch(sessionsActions.upsertSession({ ...session1, path: realPath }));
+  store.dispatch(sessionsActions.setActiveSessionPath(realPath));
+  store.dispatch(sessionStateActions.addPendingComposerInput({
+    sessionPath: pendingPath,
+    input: {
+      id: 'input-1',
+      kind: 'filesystemPathRef',
+      path: '/ws/a.ts',
+      name: 'a.ts',
+      source: 'picker',
+    },
+  }));
+
+  store.dispatch(sessionStateActions.replaceSessionPath({ oldPath: pendingPath, newPath: realPath }));
+
+  const vs = selectViewState(store.getState());
+  assert.deepEqual(vs.pendingComposerInputs, [{
+    id: 'input-1',
+    kind: 'filesystemPathRef',
+    path: '/ws/a.ts',
+    name: 'a.ts',
+    source: 'picker',
+  }]);
+});
+
+test('sessionStateActions.clearSessionState clears pending composer inputs for a closed session', () => {
+  const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
+  const store = createAppStore();
+
+  store.dispatch(sessionsActions.upsertSession(session1));
+  store.dispatch(sessionsActions.setActiveSession(session1));
+  store.dispatch(sessionStateActions.addPendingComposerInput({
+    sessionPath: session1.path,
+    input: {
+      id: 'input-1',
+      kind: 'filesystemPathRef',
+      path: '/ws/a.ts',
+      name: 'a.ts',
+      source: 'picker',
+    },
+  }));
+
+  store.dispatch(sessionStateActions.clearSessionState(session1.path));
+
+  const vs = selectViewState(store.getState());
+  assert.deepEqual(vs.pendingComposerInputs, []);
 });
 
 // ---------------------------------------------------------------------------

@@ -15,6 +15,7 @@ import {
   sessionsActions,
   selectActiveSessionPath,
   settingsActions,
+  sessionStateActions,
   transcriptActions,
   uiActions,
   store,
@@ -26,11 +27,16 @@ import {
   getNextVisibleTabPathOnClose,
   isPendingTabPath,
 } from '../shared/tab-behavior';
+import { NOOP_RUN_OBSERVER, type RunObserver } from './stats-service';
+import { deriveSessionNameFromText } from '../shared/session-name';
 import { resolveNodePath, resolveSdkPath } from '../shared/runtime-resolution';
 import { createCommandExecutor } from '../shared/exec-command';
+import { resolveChatPrefs } from '../shared/protocol';
 import type {
   BusyChangedPayload,
   ChatPrefs,
+  ComposerInput,
+  ComposerInputDraft,
   ContextUsageChangedPayload,
   ErrorPayload,
   EventEnvelope,
@@ -50,12 +56,21 @@ import type {
   ToolFinishedPayload,
   ToolProgressPayload,
   ToolStartedPayload,
+  UserContentPart,
 } from '../shared/protocol';
 
 const OPEN_TABS_STORAGE_KEY = 'openTabPaths';
 const ACTIVE_SESSION_STORAGE_KEY = 'activeSessionPath';
 const PREFS_STORAGE_KEY = 'chatPrefs';
 const SDK_PATH_CACHE_KEY = 'resolvedSdkPath';
+const MAX_IMAGE_INPUT_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  'image/png',
+  'image/jpeg',
+  'image/jpg',
+  'image/webp',
+  'image/gif',
+]);
 
 type ScheduleRender = () => void;
 type PostPatch = (op: PatchOp) => void;
@@ -86,9 +101,12 @@ export class SessionService implements vscode.Disposable {
   private lifecycleQueue = Promise.resolve();
   private readonly sessionOperationQueues = new Map<string, Promise<void>>();
   private readonly selectionRequests = new Map<string, SelectionRequest>();
+  private readonly sessionDataEpochs = new Map<string, number>();
   private readonly preloadingSessionPaths = new Set<string>();
   private readonly suppressNextCompletionNotification = new Set<string>();
+  private readonly requestSessionPathById = new Map<string, string>();
   private pendingSessionCounter = 0;
+  private composerInputCounter = 0;
   private selectionRequestCounter = 0;
   private currentSelectionToken: string | null = null;
 
@@ -99,6 +117,7 @@ export class SessionService implements vscode.Disposable {
     private readonly postPatch: PostPatch,
     private readonly postImperative: PostImperative,
     private readonly onSessionCompleted?: OnSessionCompleted,
+    private readonly runObserver: RunObserver = NOOP_RUN_OBSERVER,
   ) {}
 
   async start(): Promise<void> {
@@ -111,8 +130,10 @@ export class SessionService implements vscode.Disposable {
     this.busySeqMap.clear();
     this.sessionOperationQueues.clear();
     this.selectionRequests.clear();
+    this.sessionDataEpochs.clear();
     this.preloadingSessionPaths.clear();
     this.suppressNextCompletionNotification.clear();
+    this.requestSessionPathById.clear();
     this.currentSelectionToken = null;
     store.dispatch(sessionsActions.clearRunningPaths());
     store.dispatch(uiActions.setBackendReady(false));
@@ -132,7 +153,7 @@ export class SessionService implements vscode.Disposable {
    * backend. The backend will emit `session.opened` which replaces the pending
    * tab with the real session path.
    */
-  createNewSession(): void {
+  createNewSession(): string {
     const pendingPath = this.createPendingSessionPath();
     const cwd = store.getState().sessions.workspaceCwd ?? '';
     const selectionToken = this.beginSelectionRequest(pendingPath, pendingPath);
@@ -171,11 +192,14 @@ export class SessionService implements vscode.Disposable {
         );
       }
     });
+
+    return pendingPath;
   }
 
   openSession(sessionPath: string): void {
     const existing = getSessionByPath(store.getState(), sessionPath);
     const wasOpenTab = store.getState().sessions.openTabPaths.includes(sessionPath);
+    this.bumpSessionDataEpoch(sessionPath);
     const selectionToken = this.beginSelectionRequest(
       sessionPath,
       undefined,
@@ -237,6 +261,7 @@ export class SessionService implements vscode.Disposable {
     this.clearSelectionRequestsForPath(sessionPath);
 
     // Optimistically remove the tab so the UI updates immediately.
+    this.runObserver.onSessionClosed(sessionPath);
     store.dispatch(sessionsActions.removeOpenTab(sessionPath));
     this.clearSessionScope(sessionPath);
     this.saveOpenTabs();
@@ -295,23 +320,98 @@ export class SessionService implements vscode.Disposable {
     this.scheduleRender();
   }
 
-  async send(text: string, pendingPaths: string[] = []): Promise<void> {
-    const attemptedSessionPath = selectActiveSessionPath(store.getState()) ?? '__unknown__';
-    const sessionPath = this.requireActiveOpenSessionPath('send');
-    if (!sessionPath) {
-      this.postImperative({ type: 'sendRejected', sessionPath: attemptedSessionPath, text, pendingPaths });
+  async addFilesystemPaths(
+    requestedSessionPath: string | undefined,
+    paths: string[],
+    source: 'picker' | 'drop',
+  ): Promise<void> {
+    const sessionPath = this.resolveComposerTargetSessionPath(requestedSessionPath);
+    const uniquePaths = [...new Set(
+      paths
+        .filter((value): value is string => typeof value === 'string')
+        .map((value) => value.trim())
+        .filter((value) => value.length > 0),
+    )];
+    if (!sessionPath || uniquePaths.length === 0) {
       return;
     }
 
-    const composedText = pendingPaths.length > 0
-      ? `${pendingPaths.map((path) => `@${path}`).join('\n')}\n\n${text}`
-      : text;
+    for (const filesystemPath of uniquePaths) {
+      const input = this.validateAndMaterializeComposerInput(sessionPath, {
+        kind: 'filesystemPathRef',
+        path: filesystemPath,
+        name: path.basename(filesystemPath) || filesystemPath,
+        source,
+      });
+      if (!input) {
+        continue;
+      }
+      this.upsertPendingComposerInput(sessionPath, input);
+    }
+
+    this.scheduleRender();
+  }
+
+  async addComposerInput(
+    requestedSessionPath: string | undefined,
+    inputDraft: ComposerInputDraft,
+  ): Promise<void> {
+    const sessionPath = this.resolveComposerTargetSessionPath(requestedSessionPath);
+    if (!sessionPath) {
+      return;
+    }
+
+    const input = this.validateAndMaterializeComposerInput(sessionPath, inputDraft);
+    if (!input) {
+      return;
+    }
+
+    this.upsertPendingComposerInput(sessionPath, input);
+    this.scheduleRender();
+  }
+
+  removeComposerInput(requestedSessionPath: string | undefined, inputId: string): void {
+    const sessionPath = this.resolveExistingComposerTargetSessionPath(requestedSessionPath);
+    if (!sessionPath || !inputId.trim()) {
+      return;
+    }
+
+    store.dispatch(sessionStateActions.removePendingComposerInput({
+      sessionPath,
+      inputId,
+    }));
+    this.scheduleRender();
+  }
+
+  async send(text: string): Promise<void> {
+    const attemptedSessionPath = selectActiveSessionPath(store.getState()) ?? '__unknown__';
+    const sessionPath = this.requireActiveOpenSessionPath('send');
+    if (!sessionPath) {
+      this.postImperative({ type: 'sendRejected', sessionPath: attemptedSessionPath, text });
+      return;
+    }
+
+    const inputs = [
+      ...(store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? []),
+    ];
+    if (!text.trim() && inputs.length === 0) {
+      return;
+    }
+
+    this.runObserver.prepareForSend(sessionPath, inputs);
+
+    const composedText = this.buildPromptText(text, inputs);
+    const optimisticUserParts = this.buildOptimisticUserParts(text, inputs);
 
     auditLog(this.context, 'session-service', 'message.send.requested', {
-      attachedPathCount: pendingPaths.length,
+      attachedInputCount: inputs.length,
+      attachedPathCount: inputs.filter((input) => input.kind === 'filesystemPathRef').length,
+      attachedImageCount: inputs.filter((input) => input.kind === 'imageBlob').length,
       sessionPath,
       textLength: text.length,
     });
+
+    const previousSummary = this.maybeApplyOptimisticSessionName(sessionPath, composedText);
 
     // Optimistically append the user message so the UI updates immediately.
     const localId = `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
@@ -320,20 +420,34 @@ export class SessionService implements vscode.Disposable {
         sessionPath,
         id: localId,
         text: composedText,
+        userParts: optimisticUserParts,
       }),
     );
     this.scheduleRender();
 
     try {
-      await this.enqueueSessionOperation(sessionPath, async () => {
-        await this.backend.request('message.send', {
-          sessionPath,
-          text: composedText,
+      await this.enqueueLifecycle(async () => {
+        await this.enqueueSessionOperation(sessionPath, async () => {
+          const response = await this.backend.request<{ requestId?: string }>('message.send', {
+            sessionPath,
+            text,
+            inputs,
+          });
+          if (response.requestId) {
+            this.requestSessionPathById.set(response.requestId, sessionPath);
+          }
         });
       });
+      store.dispatch(sessionStateActions.clearPendingComposerInputs(sessionPath));
+      this.scheduleRender();
     } catch (err) {
+      this.runObserver.onBackendError(sessionPath, 'MESSAGE_SEND_FAILED');
       store.dispatch(transcriptActions.removeMessage({ sessionPath, messageId: localId }));
-      this.postImperative({ type: 'sendRejected', sessionPath, text, pendingPaths });
+      if (previousSummary) {
+        store.dispatch(sessionsActions.setSessionSummary(previousSummary));
+        this.saveOpenTabs();
+      }
+      this.postImperative({ type: 'sendRejected', sessionPath, text });
       store.dispatch(
         uiActions.setNotice(`Failed to send message: ${(err as Error).message}`),
       );
@@ -354,33 +468,42 @@ export class SessionService implements vscode.Disposable {
     });
 
     try {
-      await this.enqueueSessionOperation(sessionPath, async () => {
-        await this.backend.request('session.truncateAfter', {
-          sessionPath,
-          entryId: messageId,
-        });
-
-        // Keep the edited prompt visible after the truncate snapshot removes the
-        // original row and before agent_end emits the authoritative transcript.
-        localId = `local:edit:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-        store.dispatch(
-          transcriptActions.appendLocalUserMessage({
+      await this.enqueueLifecycle(async () => {
+        await this.enqueueSessionOperation(sessionPath, async () => {
+          await this.backend.request('session.truncateAfter', {
             sessionPath,
-            id: localId,
-            text,
-          }),
-        );
-        this.scheduleRender();
+            entryId: messageId,
+          });
+          this.runObserver.onTruncatedAfter(sessionPath, messageId);
+          this.runObserver.onMessageEdited(sessionPath, messageId);
 
-        await this.backend.request('message.send', {
-          sessionPath,
-          text,
+          // Keep the edited prompt visible after the truncate snapshot removes the
+          // original row and before agent_end emits the authoritative transcript.
+          localId = `local:edit:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+          store.dispatch(
+            transcriptActions.appendLocalUserMessage({
+              sessionPath,
+              id: localId,
+              text,
+            }),
+          );
+          this.scheduleRender();
+
+          this.runObserver.prepareForSend(sessionPath, []);
+          const response = await this.backend.request<{ requestId?: string }>('message.send', {
+            sessionPath,
+            text,
+          });
+          if (response.requestId) {
+            this.requestSessionPathById.set(response.requestId, sessionPath);
+          }
         });
       });
     } catch (err) {
       if (localId) {
         store.dispatch(transcriptActions.removeMessage({ sessionPath, messageId: localId }));
       }
+      this.runObserver.onBackendError(sessionPath, 'MESSAGE_EDIT_FAILED');
       store.dispatch(
         uiActions.setNotice(`Failed to edit message: ${(err as Error).message}`),
       );
@@ -397,9 +520,11 @@ export class SessionService implements vscode.Disposable {
     });
 
     try {
-      await this.enqueueSessionOperation(activeSessionPath, async () => {
-        await this.backend.request('message.interrupt', {
-          sessionPath: activeSessionPath,
+      await this.enqueueLifecycle(async () => {
+        await this.enqueueSessionOperation(activeSessionPath, async () => {
+          await this.backend.request('message.interrupt', {
+            sessionPath: activeSessionPath,
+          });
         });
       });
       this.suppressNextCompletionNotification.add(activeSessionPath);
@@ -411,14 +536,57 @@ export class SessionService implements vscode.Disposable {
     }
   }
 
-  async setModel(defaultModel: string, defaultThinkingLevel: ThinkingLevel): Promise<void> {
+  async setModel(
+    requestedSessionPath: string | undefined,
+    defaultModel: string,
+    defaultThinkingLevel: ThinkingLevel,
+  ): Promise<void> {
+    const sessionPath = this.requireOpenSessionPath('set model', requestedSessionPath);
+    if (!sessionPath) return;
+
+    const pendingInputs = store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? [];
+    const hasPendingImageInputs = pendingInputs.some((input) => input.kind === 'imageBlob');
+    const requestedModelSupportsImages = this.modelSupportsInputKind(sessionPath, defaultModel, 'image');
+    const shouldClearPendingImages = hasPendingImageInputs && requestedModelSupportsImages === false;
+
+    if (shouldClearPendingImages) {
+      const choice = await vscode.window.showWarningMessage(
+        'Switching to this model will remove pending pasted images because it does not support image inputs.',
+        { modal: true },
+        'Switch Model',
+      );
+      if (choice !== 'Switch Model') {
+        return;
+      }
+    }
+
     try {
-      const result = await this.backend.request<ModelSettings>('settings.set', {
-        defaultModel,
-        defaultThinkingLevel,
+      await this.enqueueLifecycle(async () => {
+        const result = await this.backend.request<ModelSettings>('settings.set', {
+          sessionPath,
+          defaultModel,
+          defaultThinkingLevel,
+        });
+        store.dispatch(settingsActions.setModelSettings(result));
+        store.dispatch(settingsActions.clearContextUsage(sessionPath));
+        this.bumpSessionDataEpoch(sessionPath);
+
+        const session = getSessionByPath(store.getState(), sessionPath);
+        if (session) {
+          store.dispatch(sessionsActions.upsertSession({
+            ...session,
+            modelId: defaultModel,
+            thinkingLevel: defaultThinkingLevel,
+          }));
+        }
+
+        if (shouldClearPendingImages) {
+          this.clearPendingImageInputs(sessionPath);
+        }
+
+        this.runObserver.onModelConfigChanged(sessionPath, defaultModel, defaultThinkingLevel);
+        this.scheduleRender();
       });
-      store.dispatch(settingsActions.setModelSettings(result));
-      this.scheduleRender();
     } catch (err) {
       store.dispatch(
         uiActions.setNotice(`Failed to set model: ${(err as Error).message}`),
@@ -435,6 +603,7 @@ export class SessionService implements vscode.Disposable {
       ]);
       store.dispatch(
         settingsActions.setModelAndAvailable({
+          sessionPath,
           modelSettings,
           availableModels: models,
         }),
@@ -450,9 +619,113 @@ export class SessionService implements vscode.Disposable {
     return uris.filter((u) => u.scheme === 'file');
   }
 
+  private upsertPendingComposerInput(sessionPath: string, input: ComposerInput): void {
+    const existingInputs = store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? [];
+    if (input.kind === 'filesystemPathRef') {
+      const duplicate = existingInputs.some(
+        (existing) => existing.kind === 'filesystemPathRef' && existing.path === input.path,
+      );
+      if (duplicate) {
+        return;
+      }
+    }
+
+    store.dispatch(sessionStateActions.addPendingComposerInput({ sessionPath, input }));
+  }
+
+  private validateAndMaterializeComposerInput(
+    sessionPath: string,
+    inputDraft: ComposerInputDraft,
+  ): ComposerInput | null {
+    if (inputDraft.kind === 'filesystemPathRef') {
+      const filesystemPath = inputDraft.path.trim();
+      if (!filesystemPath) {
+        store.dispatch(uiActions.setNotice('Cannot attach file path: path is empty.'));
+        this.scheduleRender();
+        return null;
+      }
+
+      return {
+        id: this.createComposerInputId(),
+        kind: 'filesystemPathRef',
+        path: filesystemPath,
+        name: inputDraft.name.trim() || path.basename(filesystemPath) || filesystemPath,
+        source: inputDraft.source,
+      };
+    }
+
+    if (inputDraft.kind === 'imageBlob') {
+      const mimeType = inputDraft.mimeType.trim().toLowerCase();
+      if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
+        store.dispatch(uiActions.setNotice(`Cannot attach image: unsupported type ${inputDraft.mimeType}.`));
+        this.scheduleRender();
+        return null;
+      }
+      if (!Number.isFinite(inputDraft.sizeBytes) || inputDraft.sizeBytes <= 0) {
+        store.dispatch(uiActions.setNotice('Cannot attach image: invalid size.'));
+        this.scheduleRender();
+        return null;
+      }
+      if (inputDraft.sizeBytes > MAX_IMAGE_INPUT_BYTES) {
+        store.dispatch(uiActions.setNotice(
+          `Cannot attach image: exceeds the ${MAX_IMAGE_INPUT_BYTES} byte limit.`,
+        ));
+        this.scheduleRender();
+        return null;
+      }
+      if (!inputDraft.dataBase64.trim()) {
+        store.dispatch(uiActions.setNotice('Cannot attach image: missing image data.'));
+        this.scheduleRender();
+        return null;
+      }
+      if (
+        inputDraft.width !== undefined
+        && (!Number.isFinite(inputDraft.width) || inputDraft.width <= 0)
+      ) {
+        store.dispatch(uiActions.setNotice('Cannot attach image: invalid width.'));
+        this.scheduleRender();
+        return null;
+      }
+      if (
+        inputDraft.height !== undefined
+        && (!Number.isFinite(inputDraft.height) || inputDraft.height <= 0)
+      ) {
+        store.dispatch(uiActions.setNotice('Cannot attach image: invalid height.'));
+        this.scheduleRender();
+        return null;
+      }
+      if (this.modelSupportsInputKind(sessionPath, undefined, 'image') === false) {
+        store.dispatch(uiActions.setNotice('The selected model does not support image inputs.'));
+        this.scheduleRender();
+        return null;
+      }
+
+      return {
+        id: this.createComposerInputId(),
+        kind: 'imageBlob',
+        mimeType,
+        name: inputDraft.name.trim() || 'image',
+        sizeBytes: inputDraft.sizeBytes,
+        dataBase64: inputDraft.dataBase64,
+        width: inputDraft.width,
+        height: inputDraft.height,
+        source: inputDraft.source,
+      };
+    }
+
+    this.runObserver.onUnsupportedInputAttempt(sessionPath);
+    store.dispatch(
+      uiActions.setNotice(
+        'Arbitrary pasted file attachments are not supported yet. Please attach a filesystem path instead.',
+      ),
+    );
+    this.scheduleRender();
+    return null;
+  }
+
   setPrefs(prefs: Partial<ChatPrefs>): void {
-    store.dispatch(uiActions.setPrefs(prefs));
-    const merged = { ...store.getState().ui.prefs, ...prefs };
+    const merged = resolveChatPrefs({ ...store.getState().ui.prefs, ...prefs });
+    store.dispatch(uiActions.setPrefs(merged));
     if (merged.suppressCompletionNotifications) {
       store.dispatch(sessionsActions.clearUnreadFinishedSessions());
     }
@@ -466,8 +739,10 @@ export class SessionService implements vscode.Disposable {
     this.busySeqMap.clear();
     this.sessionOperationQueues.clear();
     this.selectionRequests.clear();
+    this.sessionDataEpochs.clear();
     this.preloadingSessionPaths.clear();
     this.suppressNextCompletionNotification.clear();
+    this.requestSessionPathById.clear();
     this.currentSelectionToken = null;
 
     const workspaceCwd = this.resolveWorkspaceCwd();
@@ -476,7 +751,7 @@ export class SessionService implements vscode.Disposable {
     // Restore persisted prefs.
     const storedPrefs = this.context.globalState.get<Partial<ChatPrefs>>(PREFS_STORAGE_KEY);
     if (storedPrefs) {
-      store.dispatch(uiActions.setPrefs(storedPrefs));
+      store.dispatch(uiActions.setPrefs(resolveChatPrefs(storedPrefs)));
     }
 
     // Restore previously open tabs.
@@ -511,8 +786,16 @@ export class SessionService implements vscode.Disposable {
     let sdkPath: string;
 
     try {
-      const config = vscode.workspace.getConfiguration('piAssistant');
-      const configuredSdkPath = config.get<string>('sdkPath')?.trim() || undefined;
+      const config = vscode.workspace.getConfiguration('pie');
+      const rootConfig = vscode.workspace.getConfiguration();
+      const configuredNodePath =
+        config.get<string>('nodePath')?.trim() ||
+        rootConfig.get<string>('piAssistant.nodePath')?.trim() ||
+        undefined;
+      const configuredSdkPath =
+        config.get<string>('sdkPath')?.trim() ||
+        rootConfig.get<string>('piAssistant.sdkPath')?.trim() ||
+        undefined;
       const envSdkPath = process.env.PI_SDK_PATH?.trim() || undefined;
       const shouldUseSdkCache = !configuredSdkPath && !envSdkPath;
       const cachedSdkPath = shouldUseSdkCache
@@ -520,7 +803,7 @@ export class SessionService implements vscode.Disposable {
         : undefined;
 
       nodePath = resolveNodePath({
-        configuredPath: config.get<string>('nodePath'),
+        configuredPath: configuredNodePath,
         env: process.env as NodeJS.ProcessEnv,
       });
       sdkPath = await resolveSdkPath({
@@ -535,8 +818,8 @@ export class SessionService implements vscode.Disposable {
     } catch (err) {
       store.dispatch(
         uiActions.setNotice(
-          `PI Assistant setup error: ${(err as Error).message}. ` +
-            'Set piAssistant.nodePath and piAssistant.sdkPath in settings.',
+          `pie setup error: ${(err as Error).message}. ` +
+            'Set pie.nodePath and pie.sdkPath in settings.',
         ),
       );
       this.scheduleRender();
@@ -697,6 +980,11 @@ export class SessionService implements vscode.Disposable {
           newPath: session.path,
         }),
       );
+      store.dispatch(sessionStateActions.replaceSessionPath({
+        oldPath: selectionRequest.pendingPath,
+        newPath: session.path,
+      }));
+      this.runObserver.replaceSessionPath(selectionRequest.pendingPath, session.path);
       this.clearSessionScope(selectionRequest.pendingPath, true);
     }
 
@@ -724,11 +1012,20 @@ export class SessionService implements vscode.Disposable {
       );
     }
 
+    store.dispatch(sessionStateActions.setAnalyticsFactors({
+      sessionPath: session.path,
+      factors: payload.analyticsFactors ?? null,
+    }));
+    this.runObserver.onSessionAnalyticsFactorsChanged(session.path, payload.analyticsFactors ?? null);
+
     if (modelSettings) {
       store.dispatch(settingsActions.setModelSettings(modelSettings));
     }
-    if (availableModels && availableModels.length > 0) {
-      store.dispatch(settingsActions.setAvailableModels(availableModels));
+    if (availableModels) {
+      store.dispatch(settingsActions.setAvailableModels({
+        sessionPath: session.path,
+        availableModels,
+      }));
     }
     store.dispatch(settingsActions.setContextUsage({
       sessionPath: session.path,
@@ -760,6 +1057,20 @@ export class SessionService implements vscode.Disposable {
         thinkingLevel: payload.thinkingLevel,
       }),
     );
+    this.requestSessionPathById.set(payload.requestId, sessionPath);
+    this.runObserver.onAssistantTurnStarted(sessionPath, payload.messageId);
+
+    if (payload.modelId) {
+      const session = getSessionByPath(store.getState(), sessionPath);
+      if (session && (session.modelId !== payload.modelId || session.thinkingLevel !== payload.thinkingLevel)) {
+        store.dispatch(sessionsActions.upsertSession({
+          ...session,
+          modelId: payload.modelId,
+          thinkingLevel: payload.thinkingLevel,
+        }));
+      }
+    }
+
     this.scheduleRender();
   }
 
@@ -818,6 +1129,7 @@ export class SessionService implements vscode.Disposable {
     store.dispatch(
       transcriptActions.upsertToolCall({ sessionPath, messageId: canonicalId, toolCall }),
     );
+    this.runObserver.onToolStarted(sessionPath, toolCall);
 
     if (this.isActiveSession(sessionPath)) {
       this.postPatch({ kind: 'toolCall', messageId: canonicalId, toolCall });
@@ -845,12 +1157,13 @@ export class SessionService implements vscode.Disposable {
       name: existing?.name ?? '',
       input: existing?.input,
       result: payload.result,
-      status: 'completed' as const,
+      status: payload.status,
     };
 
     store.dispatch(
       transcriptActions.upsertToolCall({ sessionPath, messageId: canonicalId, toolCall }),
     );
+    this.runObserver.onToolFinished(sessionPath, toolCall);
 
     if (this.isActiveSession(sessionPath)) {
       this.postPatch({ kind: 'toolCall', messageId: canonicalId, toolCall });
@@ -896,6 +1209,12 @@ export class SessionService implements vscode.Disposable {
     store.dispatch(
       transcriptActions.upsertMessage({ sessionPath, message: payload.message }),
     );
+    this.runObserver.onAssistantTurnEnded(
+      sessionPath,
+      payload.message.id,
+      payload.message.durationMs ?? 0,
+    );
+    this.requestSessionPathById.delete(payload.requestId);
 
     // Ask the webview to clear streaming overlay bytes for this message now
     // that the canonical snapshot has been updated.
@@ -909,15 +1228,18 @@ export class SessionService implements vscode.Disposable {
 
   private onMessageAborted(payload: MessageAbortedPayload): void {
     const sessionPath = this.requireEventSessionPath('message.aborted', payload.sessionPath);
-    if (!sessionPath || !payload.messageId) return;
+    if (!sessionPath) return;
 
-    store.dispatch(
-      transcriptActions.setMessageStatus({
-        sessionPath,
-        messageId: payload.messageId,
-        status: 'interrupted',
-      }),
-    );
+    if (payload.messageId) {
+      store.dispatch(
+        transcriptActions.setMessageStatus({
+          sessionPath,
+          messageId: payload.messageId,
+          status: 'interrupted',
+        }),
+      );
+    }
+    this.runObserver.onInterrupted(sessionPath);
     this.scheduleRender();
   }
 
@@ -948,6 +1270,7 @@ export class SessionService implements vscode.Disposable {
     store.dispatch(
       sessionsActions.setSessionRunning({ sessionPath, running: payload.busy }),
     );
+    this.runObserver.onBusyChanged(sessionPath, payload.busy);
 
     if (wasRunning && !payload.busy && !this.suppressNextCompletionNotification.delete(sessionPath)) {
       if (
@@ -976,10 +1299,21 @@ export class SessionService implements vscode.Disposable {
       sessionPath,
       contextUsage: payload.contextUsage ?? null,
     }));
+    if (payload.contextUsage) {
+      this.runObserver.onContextUsageChanged(
+        sessionPath,
+        payload.contextUsage.tokens,
+        payload.contextUsage.contextWindow,
+      );
+    }
     this.scheduleRender();
   }
 
   private onError(payload: ErrorPayload): void {
+    this.runObserver.onBackendError(
+      payload.requestId ? this.requestSessionPathById.get(payload.requestId) : undefined,
+      payload.code,
+    );
     store.dispatch(uiActions.setNotice(payload.message));
     this.scheduleRender();
   }
@@ -1066,7 +1400,7 @@ export class SessionService implements vscode.Disposable {
     this.scheduleRender();
   }
 
-  private enqueueLifecycle(task: () => Promise<void>): Promise<void> {
+  private enqueueLifecycle<T>(task: () => Promise<T>): Promise<T> {
     const next = this.lifecycleQueue.catch(() => undefined).then(task);
     this.lifecycleQueue = next.then(() => undefined, () => undefined);
     return next;
@@ -1087,6 +1421,16 @@ export class SessionService implements vscode.Disposable {
     return result;
   }
 
+  private getSessionDataEpoch(sessionPath: string): number {
+    return this.sessionDataEpochs.get(sessionPath) ?? 0;
+  }
+
+  private bumpSessionDataEpoch(sessionPath: string): number {
+    const next = this.getSessionDataEpoch(sessionPath) + 1;
+    this.sessionDataEpochs.set(sessionPath, next);
+    return next;
+  }
+
   private requireEventSessionPath(eventName: string, sessionPath: string | undefined): string | null {
     if (sessionPath) {
       return sessionPath;
@@ -1101,32 +1445,172 @@ export class SessionService implements vscode.Disposable {
     return null;
   }
 
-  private requireActiveOpenSessionPath(actionName: string): string | null {
-    const sessionPath = selectActiveSessionPath(store.getState());
-    if (!sessionPath) {
+  private requireOpenSessionPath(actionName: string, sessionPath?: string): string | null {
+    const resolvedSessionPath = sessionPath ?? selectActiveSessionPath(store.getState());
+    if (!resolvedSessionPath) {
       store.dispatch(uiActions.setNotice(`Cannot ${actionName}: no active session.`));
       this.scheduleRender();
       return null;
     }
-    if (isPendingTabPath(sessionPath)) {
+    if (isPendingTabPath(resolvedSessionPath)) {
       store.dispatch(uiActions.setNotice(`Cannot ${actionName}: the session is still opening.`));
       this.scheduleRender();
       return null;
     }
-    if (!store.getState().sessions.openTabPaths.includes(sessionPath)) {
-      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: the active session is no longer open.`));
+    if (!store.getState().sessions.openTabPaths.includes(resolvedSessionPath)) {
+      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: the selected session is no longer open.`));
+      this.scheduleRender();
+      return null;
+    }
+    return resolvedSessionPath;
+  }
+
+  private requireActiveOpenSessionPath(actionName: string): string | null {
+    return this.requireOpenSessionPath(actionName);
+  }
+
+  private maybeApplyOptimisticSessionName(sessionPath: string, text: string): SessionSummary | null {
+    const session = getSessionByPath(store.getState(), sessionPath);
+    if (!session || session.isPlaceholder !== true) {
+      return null;
+    }
+
+    const derived = deriveSessionNameFromText(text);
+    if (derived.isPlaceholder || derived.name === session.name) {
+      return null;
+    }
+
+    store.dispatch(sessionsActions.upsertSession({
+      ...session,
+      name: derived.name,
+      isPlaceholder: false,
+    }));
+    this.saveOpenTabs();
+    return session;
+  }
+
+  private resolveComposerTargetSessionPath(requestedSessionPath?: string): string | null {
+    const existingPath = this.resolveExistingComposerTargetSessionPath(requestedSessionPath);
+    if (existingPath) {
+      return existingPath;
+    }
+
+    return this.createNewSession();
+  }
+
+  private resolveExistingComposerTargetSessionPath(requestedSessionPath?: string): string | null {
+    const state = store.getState();
+    const sessionPath = requestedSessionPath ?? selectActiveSessionPath(state);
+    if (!sessionPath) {
+      return null;
+    }
+    if (!state.sessions.openTabPaths.includes(sessionPath)) {
+      store.dispatch(uiActions.setNotice('Cannot update composer inputs: the selected session is no longer open.'));
       this.scheduleRender();
       return null;
     }
     return sessionPath;
   }
 
+  private createComposerInputId(): string {
+    this.composerInputCounter += 1;
+    return `input:${Date.now()}:${this.composerInputCounter}`;
+  }
+
+  private modelSupportsInputKind(
+    sessionPath: string,
+    requestedModelId: string | undefined,
+    inputKind: 'text' | 'image',
+  ): boolean {
+    const state = store.getState();
+    const modelId = requestedModelId
+      ?? getSessionByPath(state, sessionPath)?.modelId
+      ?? state.settings.modelSettings?.defaultModel;
+    if (!modelId) {
+      return inputKind === 'text';
+    }
+
+    const directModels = state.settings.availableModelsBySession[sessionPath] ?? [];
+    const fallbackModels = Object.values(state.settings.availableModelsBySession)
+      .flatMap((models) => models);
+    const model = [...directModels, ...fallbackModels].find((candidate) => candidate.id === modelId);
+    if (!model) {
+      return inputKind === 'text';
+    }
+
+    return model.inputKinds.includes(inputKind);
+  }
+
+  private clearPendingImageInputs(sessionPath: string): void {
+    const existingInputs = store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? [];
+    const remainingInputs = existingInputs.filter((input) => input.kind !== 'imageBlob');
+    if (remainingInputs.length === existingInputs.length) {
+      return;
+    }
+    if (remainingInputs.length === 0) {
+      store.dispatch(sessionStateActions.clearPendingComposerInputs(sessionPath));
+      return;
+    }
+    store.dispatch(sessionStateActions.setPendingComposerInputs({
+      sessionPath,
+      inputs: remainingInputs,
+    }));
+  }
+
+  private buildPromptText(text: string, inputs: ComposerInput[]): string {
+    const sections: string[] = [];
+    const pathPrelude = inputs
+      .filter((input): input is Extract<ComposerInput, { kind: 'filesystemPathRef' }> =>
+        input.kind === 'filesystemPathRef')
+      .map((input) => `@${input.path}`);
+    if (pathPrelude.length > 0) {
+      sections.push(pathPrelude.join('\n'));
+    }
+    if (text.trim()) {
+      sections.push(text);
+    }
+    return sections.join('\n\n');
+  }
+
+  private buildOptimisticUserParts(text: string, inputs: ComposerInput[]): UserContentPart[] | undefined {
+    const userParts: UserContentPart[] = [];
+    const promptText = this.buildPromptText(text, inputs);
+    if (promptText) {
+      userParts.push({ kind: 'text', text: promptText });
+    }
+
+    for (const input of inputs) {
+      if (input.kind !== 'imageBlob') {
+        continue;
+      }
+      userParts.push({
+        kind: 'image',
+        mimeType: input.mimeType,
+        dataBase64: input.dataBase64,
+        name: input.name,
+        width: input.width,
+        height: input.height,
+      });
+    }
+
+    return userParts.length > 0 ? userParts : undefined;
+  }
+
   private clearSessionScope(sessionPath: string, removeSessionSummary = false): void {
     this.busySeqMap.delete(sessionPath);
     this.sessionOperationQueues.delete(sessionPath);
+    this.sessionDataEpochs.delete(sessionPath);
     this.preloadingSessionPaths.delete(sessionPath);
     this.suppressNextCompletionNotification.delete(sessionPath);
+    for (const [requestId, mappedSessionPath] of this.requestSessionPathById) {
+      if (mappedSessionPath === sessionPath) {
+        this.requestSessionPathById.delete(requestId);
+      }
+    }
     store.dispatch(transcriptActions.clearSessionState(sessionPath));
+    store.dispatch(settingsActions.clearAvailableModels(sessionPath));
+    store.dispatch(settingsActions.clearContextUsage(sessionPath));
+    store.dispatch(sessionStateActions.clearSessionState(sessionPath));
     if (removeSessionSummary) {
       store.dispatch(sessionsActions.removeSession(sessionPath));
     }
@@ -1193,7 +1677,17 @@ export class SessionService implements vscode.Disposable {
     }
 
     this.preloadingSessionPaths.add(sessionPath);
-    void this.backend.request('session.preload', { sessionPath })
+    const requestEpoch = this.getSessionDataEpoch(sessionPath);
+    void this.backend.request<SessionOpenedPayload>('session.preload', { sessionPath })
+      .then((payload) => {
+        if (this.getSessionDataEpoch(sessionPath) !== requestEpoch) {
+          return;
+        }
+        if (!store.getState().sessions.openTabPaths.includes(sessionPath)) {
+          return;
+        }
+        this.onSessionOpened(payload);
+      })
       .catch((error) => {
         auditLog(this.context, 'session-service', 'session.preload.failed', {
           sessionPath,

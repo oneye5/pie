@@ -1,4 +1,4 @@
-# PI Assistant State Contract
+# pie State Contract
 
 ## Session Selection
 
@@ -17,7 +17,8 @@
 
 ## Session Cleanup
 
-- Closing or invalidating a session clears transcript state, alias state, current-turn state, busy dedup state, and queued per-session operations.
+- Closing or invalidating a session clears transcript state, alias state, current-turn state, busy dedup state, pending composer inputs, and queued per-session operations.
+- Pending composer inputs are session-scoped host state: close/invalidate clears them for that session; extension restart/shutdown clears all remaining pending inputs.
 - Pending-session placeholders are cleaned up one session at a time; overlapping creates must not share teardown.
 - Pending session identifiers must be collision-safe under rapid repeated creation.
 

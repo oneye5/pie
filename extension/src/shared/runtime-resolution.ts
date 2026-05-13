@@ -115,7 +115,7 @@ export function resolveNodePath(options: ResolveNodePathOptions): string {
   }
 
   throw new Error(
-    'Could not find a standalone Node.js runtime. Set piAssistant.nodePath, PI_NODE_PATH, or add node to PATH.',
+    'Could not find a standalone Node.js runtime. Set pie.nodePath, PI_NODE_PATH, or add node to PATH.',
   );
 }
 
@@ -152,7 +152,7 @@ export async function resolveSdkPath(options: ResolveSdkPathOptions): Promise<st
   const sdkPath = path.join(npmRoot.stdout.trim(), '@mariozechner', 'pi-coding-agent');
   if (!isValidSdkPath(sdkPath, exists)) {
     throw new Error(
-      'Could not find @mariozechner/pi-coding-agent in the global npm root. Set piAssistant.sdkPath or PI_SDK_PATH.',
+      'Could not find @mariozechner/pi-coding-agent in the global npm root. Set pie.sdkPath or PI_SDK_PATH.',
     );
   }
 
