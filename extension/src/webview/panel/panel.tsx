@@ -16,6 +16,7 @@ import type {
 import { DEFAULT_CHAT_PREFS, EMPTY_TRANSCRIPT_WINDOW } from '../../shared/protocol';
 import { emptyOverlay, applyPatch } from './overlay';
 import { resolvePanelSurface } from './panel-state';
+import { StreamSmoother } from './stream-smoother';
 import { TranscriptView } from './transcript';
 import {
   type ChatPrefContextType,
@@ -150,6 +151,9 @@ function App() {
   const [draftRestore, setDraftRestore] = useState<{ text: string; nonce: number } | null>(null);
   const [showOutcomeDialog, setShowOutcomeDialog] = useState(false);
 
+  // Stream smoother for gradual character emission
+  const smootherRef = useRef<StreamSmoother | null>(null);
+
   // Track last revision via ref (not state) to avoid triggering snapshot requests on every re-render
   const lastRevisionRef = useRef(0);
   const awaitingSnapshotRef = useRef(false);
@@ -165,10 +169,20 @@ function App() {
   }, []);
 
   useEffect(() => {
+    smootherRef.current = new StreamSmoother(
+      {},
+      (newOverlay) => setOverlay(newOverlay),
+    );
+    return () => smootherRef.current?.reset();
+  }, []);
+  useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const msg = event.data as HostToWebviewMessage;
 
       if (msg.type === 'state') {
+        // Flush any pending smoothed content when state changes
+        smootherRef.current?.flushAll();
+        smootherRef.current?.reset();
         const hostChanged = hostInstanceIdRef.current && msg.hostInstanceId !== hostInstanceIdRef.current;
         const nextActiveSessionPath = msg.state.activeSession?.path ?? null;
         const sessionChanged = activeSessionPathRef.current !== null && activeSessionPathRef.current !== nextActiveSessionPath;
@@ -217,7 +231,13 @@ function App() {
           return;
         }
         lastRevisionRef.current = msg.revision;
-        setOverlay((prev) => applyPatch(prev, msg.op));
+        // Use smoother for message deltas to create gradual character streaming
+        const smoother = smootherRef.current;
+        if (smoother) {
+          setOverlay(smoother.processPatch(msg.op));
+        } else {
+          setOverlay((prev) => applyPatch(prev, msg.op));
+        }
         return;
       }
 
