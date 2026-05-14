@@ -42,7 +42,7 @@ const DEFAULT_FILTERS: FilterState = {
   modelId: '',
   thinkingLevel: '',
   experimentAssignment: '',
-  scoredOnly: false,
+  scoredOnly: true,
   pureOnly: false,
 };
 
@@ -1000,14 +1000,42 @@ interface TimeQualityRow {
   lineMutationTotal: number;
 }
 
-interface EffortBucketRow {
-  bucket: string;
-  bucketIndex: number;
-  count: number;
-  share: number;
-  scoredRunCount: number;
-  resolvedShare: number | null;
+interface TimeProductivityRow {
+  label: string;
+  modelId: string;
+  thinkingLevel: string;
+  runCount: number;
+  medianMinutesPerTurn: number;
+  p25MinutesPerTurn: number;
+  p75MinutesPerTurn: number;
+  medianMinutesPerTurnLabel: string;
+  p25MinutesPerTurnLabel: string;
+  p75MinutesPerTurnLabel: string;
   nLabel: string;
+}
+
+interface TimeParetoRow {
+  rank: number;
+  label: string;
+  busyMinutes: number;
+  cumulativeShare: number;
+  modelId: string;
+  thinkingLevel: string;
+  resolution: string;
+  satisfaction: number | null;
+  startedAt: string;
+  busyLabel: string;
+}
+
+interface ContextSaturationPointRow {
+  fillShare: number;
+  satisfaction: number;
+  resolution: string;
+  modelId: string;
+  busyMinutes: number;
+  contextTokens: number;
+  contextLimit: number;
+  fillLabel: string;
 }
 
 interface OutcomeTimeSummaryRow {
@@ -1188,7 +1216,7 @@ function modelFrontierRows(runs: SanitizedRunRow[]): ModelFrontierRow[] {
       };
     })
     .filter((row): row is ModelFrontierRow => Boolean(row))
-    .sort((left, right) => right.runCount - left.runCount || right.resolvedRate - left.resolvedRate)
+    .sort((left, right) => left.medianBusyMinutes - right.medianBusyMinutes || right.resolvedRate - left.resolvedRate || right.scoredRunCount - left.scoredRunCount)
     .slice(0, 14);
 }
 
@@ -1258,52 +1286,86 @@ function timeQualityRows(runs: SanitizedRunRow[]): TimeQualityRow[] {
   }));
 }
 
-function effortDistributionRows(runs: SanitizedRunRow[]): EffortBucketRow[] {
-  const completed = selectedCompletedRuns(runs);
-  if (completed.length < 8) return [];
+function timeProductivityRows(runs: SanitizedRunRow[]): TimeProductivityRow[] {
+  const eligible = selectedCompletedRuns(runs).filter((run) => run.assistantTurnCount > 0);
+  const groups = groupRunsBy(eligible, (run) => JSON.stringify([
+    run.modelId ?? '(unknown)',
+    formatThinkingLevelLabel(normalizeThinkingLevel(run.thinkingLevel) ?? '(unspecified)'),
+  ]));
 
-  const times = completed.map((run) => run.busyDurationMs / 1000); // seconds
-  const { q1, q2, q3 } = quartileBoundaries(times);
+  return [...groups.entries()]
+    .map(([key, groupedRuns]) => {
+      const [modelId, thinkingLevel] = JSON.parse(key) as [string, string];
+      // minutes spent per assistant turn (busy time / turn count)
+      const perTurnMs = groupedRuns.map((run) => run.busyDurationMs / Math.max(run.assistantTurnCount, 1));
+      const summary = durationSummary(perTurnMs);
+      if (!summary) return null;
+      return {
+        label: `${modelId} · ${thinkingLevel}`,
+        modelId,
+        thinkingLevel,
+        runCount: groupedRuns.length,
+        medianMinutesPerTurn: summary.medianBusyMinutes,
+        p25MinutesPerTurn: summary.p25BusyMinutes,
+        p75MinutesPerTurn: summary.p75BusyMinutes,
+        medianMinutesPerTurnLabel: summary.medianBusyLabel,
+        p25MinutesPerTurnLabel: summary.p25BusyLabel,
+        p75MinutesPerTurnLabel: summary.p75BusyLabel,
+        nLabel: `n=${groupedRuns.length}`,
+      };
+    })
+    .filter((row): row is TimeProductivityRow => Boolean(row))
+    .sort((a, b) => a.medianMinutesPerTurn - b.medianMinutesPerTurn)
+    .slice(0, 14);
+}
 
-  const formatTime = (seconds: number): string => {
-    if (seconds < 60) return `${Math.round(seconds)}s`;
-    if (seconds < 3600) return `${Math.round(seconds / 60)}m`;
-    return `${Math.round(seconds / 3600)}h`;
-  };
+function timeParetoRows(runs: SanitizedRunRow[], limit = 30): TimeParetoRow[] {
+  const completed = selectedCompletedRuns(runs).filter((run) => run.busyDurationMs > 0);
+  if (completed.length === 0) return [];
+  const totalBusyMs = completed.reduce((sum, run) => sum + run.busyDurationMs, 0);
+  if (totalBusyMs <= 0) return [];
 
-  const labels = [
-    `≤${formatTime(q1)}`,
-    `${formatTime(q1)}-${formatTime(q2)}`,
-    `${formatTime(q2)}-${formatTime(q3)}`,
-    `>${formatTime(q3)}`,
-  ];
+  const sorted = [...completed].sort((a, b) => b.busyDurationMs - a.busyDurationMs);
+  const topN = sorted.slice(0, limit);
 
-  const bucketFor = (seconds: number): number => {
-    if (seconds <= q1) return 0;
-    if (seconds <= q2) return 1;
-    if (seconds <= q3) return 2;
-    return 3;
-  };
-
-  const bucketed: SanitizedRunRow[][] = [[], [], [], []];
-  completed.forEach((run) => {
-    const idx = bucketFor(run.busyDurationMs / 1000);
-    bucketed[idx]?.push(run);
-  });
-
-  return bucketed.map((bucketRuns, bucketIndex) => {
-    const scored = scoredRuns(bucketRuns);
-    const resolvedCount = scored.filter((run) => run.resolution === 'resolved').length;
+  let cumulativeMs = 0;
+  const rows: TimeParetoRow[] = topN.map((run, index) => {
+    cumulativeMs += run.busyDurationMs;
+    const startedShort = run.startedAt ? run.startedAt.slice(0, 10) : '—';
+    const modelId = run.modelId ?? '(unknown)';
     return {
-      bucket: labels[bucketIndex] ?? `bucket ${bucketIndex}`,
-      bucketIndex,
-      count: bucketRuns.length,
-      share: bucketRuns.length / completed.length,
-      scoredRunCount: scored.length,
-      resolvedShare: scored.length === 0 ? null : resolvedCount / scored.length,
-      nLabel: `n=${scored.length}/${bucketRuns.length}`,
+      rank: index + 1,
+      label: `#${index + 1} · ${modelId} · ${startedShort}`,
+      busyMinutes: run.busyDurationMs / 60000,
+      cumulativeShare: cumulativeMs / totalBusyMs,
+      modelId,
+      thinkingLevel: formatThinkingLevelLabel(normalizeThinkingLevel(run.thinkingLevel) ?? '(unspecified)'),
+      resolution: run.resolution ?? 'unknown',
+      satisfaction: run.satisfaction,
+      startedAt: startedShort,
+      busyLabel: formatBusyDuration(run.busyDurationMs),
     };
   });
+
+  return rows;
+}
+
+function contextSaturationPoints(runs: SanitizedRunRow[]): ContextSaturationPointRow[] {
+  return selectedScoredCompletedRuns(runs)
+    .filter((run) => run.contextTokens !== null && run.contextLimit !== null && (run.contextLimit ?? 0) > 0)
+    .map((run) => {
+      const fillShare = Math.min((run.contextTokens ?? 0) / (run.contextLimit ?? 1), 1);
+      return {
+        fillShare,
+        satisfaction: run.satisfaction ?? 0,
+        resolution: run.resolution ?? 'unknown',
+        modelId: run.modelId ?? '(unknown)',
+        busyMinutes: run.busyDurationMs / 60000,
+        contextTokens: run.contextTokens ?? 0,
+        contextLimit: run.contextLimit ?? 0,
+        fillLabel: `${(fillShare * 100).toFixed(1)}%`,
+      };
+    });
 }
 
 function outcomeTimeBucketSpec(
@@ -1325,7 +1387,7 @@ function outcomeTimeBucketSpec(
           {
             mark: { type: 'rule', strokeWidth: 2.2, opacity: 0.72 },
             encoding: {
-              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, title: options.bucketTitle },
+              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, axis: { labels: false, ticks: false, title: null } },
               y: { field: 'p25BusyMinutes', type: 'quantitative', title: options.timeTitle, scale: { type: 'log', nice: true } },
               y2: { field: 'p75BusyMinutes' },
               color: { value: CHART_COLORS.gold },
@@ -1334,7 +1396,7 @@ function outcomeTimeBucketSpec(
           {
             mark: { type: 'point', filled: true, size: 170, opacity: 0.95 },
             encoding: {
-              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, title: options.bucketTitle },
+              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, axis: { labels: false, ticks: false, title: null } },
               y: { field: 'medianBusyMinutes', type: 'quantitative', scale: { type: 'log', nice: true } },
               color: { value: CHART_COLORS.accent },
               tooltip: [
@@ -1349,10 +1411,10 @@ function outcomeTimeBucketSpec(
             },
           },
           {
-            mark: { type: 'text', dy: -12, fontSize: 11, opacity: 0.72 },
+            mark: { type: 'text', align: 'center', baseline: 'bottom', dy: -10, fontSize: 11, opacity: 0.78 },
             encoding: {
               x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' } },
-              y: { field: 'medianBusyMinutes', type: 'quantitative', scale: { type: 'log', nice: true } },
+              y: { field: 'p75BusyMinutes', type: 'quantitative', scale: { type: 'log', nice: true } },
               text: { field: 'medianBusyLabel', type: 'nominal' },
               color: { value: CHART_COLORS.muted },
             },
@@ -1366,7 +1428,7 @@ function outcomeTimeBucketSpec(
           {
             mark: { type: 'rule', strokeWidth: 2.2, opacity: 0.78 },
             encoding: {
-              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, title: options.bucketTitle },
+              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, title: options.bucketTitle, axis: { labelAngle: 0, labelPadding: 4 } },
               y: { field: 'resolvedCiLower', type: 'quantitative', title: options.rateTitle, axis: { format: '.0%' }, scale: { domain: [0, 1] } },
               y2: { field: 'resolvedCiUpper' },
               color: { value: CHART_COLORS.accent2 },
@@ -1375,7 +1437,7 @@ function outcomeTimeBucketSpec(
           {
             mark: { type: 'point', filled: true, size: 170, opacity: 0.95 },
             encoding: {
-              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, title: options.bucketTitle },
+              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, axis: { labelAngle: 0 } },
               y: { field: 'resolvedRate', type: 'quantitative', scale: { domain: [0, 1] } },
               color: {
                 field: 'resolvedRate',
@@ -1386,10 +1448,10 @@ function outcomeTimeBucketSpec(
             },
           },
           {
-            mark: { type: 'text', dy: -12, fontSize: 11, opacity: 0.72 },
+            mark: { type: 'text', align: 'center', baseline: 'bottom', dy: -10, fontSize: 11, opacity: 0.78 },
             encoding: {
               x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' } },
-              y: { field: 'resolvedRate', type: 'quantitative', scale: { domain: [0, 1] } },
+              y: { field: 'resolvedCiUpper', type: 'quantitative', scale: { domain: [0, 1] } },
               text: { field: 'nLabel', type: 'nominal' },
               color: { value: CHART_COLORS.muted },
             },
@@ -1397,7 +1459,7 @@ function outcomeTimeBucketSpec(
         ],
       },
     ],
-    spacing: 18,
+    spacing: 6,
   };
 }
 
@@ -1407,7 +1469,83 @@ function categoricalHeight(rowCount: number, rowHeight = 30, min = 260, max = 52
 
 function sampleWarning(rows: Array<{ scoredRunCount?: number; runCount?: number }>, field: 'scoredRunCount' | 'runCount' = 'scoredRunCount'): string {
   const small = rows.filter((row) => (row[field] ?? 0) > 0 && (row[field] ?? 0) < 5).length;
-  return small > 0 ? `${small} small-n groups (<5); read intervals, not ranks.` : 'Intervals show uncertainty; compare ranges before ranking.';
+  return small > 0 ? `${small} small-n groups (<5); compare intervals, not just row order.` : 'Intervals show uncertainty; compare row widths before ranking.';
+}
+
+function frontierComparisonSpec(rows: ModelFrontierRow[]): Record<string, unknown> {
+  const panelHeight = Math.max(170, Math.min(220, 48 + rows.length * 14));
+  const frontierY = {
+    field: 'label',
+    type: 'nominal',
+    sort: { field: 'medianBusyMinutes', order: 'ascending' as const },
+    title: null,
+  };
+
+  const sharedTooltip = [
+    { field: 'label', type: 'nominal', title: 'Group' },
+    { field: 'nLabel', type: 'nominal', title: 'Scored / total' },
+    { field: 'medianBusyLabel', type: 'nominal', title: 'Median busy duration' },
+    { field: 'p25BusyLabel', type: 'nominal', title: 'P25 busy duration' },
+    { field: 'p75BusyLabel', type: 'nominal', title: 'P75 busy duration' },
+    { field: 'resolvedRate', type: 'quantitative', title: 'Resolved share', format: '.1%' },
+    { field: 'resolvedCiLabel', type: 'nominal', title: 'Resolved interval' },
+  ] as const;
+
+  return {
+    width: 'container',
+    data: { values: rows },
+    vconcat: [
+      {
+        height: panelHeight,
+        layer: [
+          {
+            mark: { type: 'rule', strokeWidth: 2.2, opacity: 0.68 },
+            encoding: {
+              y: { ...frontierY, axis: { labelLimit: 190, labelPadding: 8 } },
+              x: { field: 'p25BusyMinutes', type: 'quantitative', title: 'Busy duration (minutes)', scale: { type: 'log', nice: true } },
+              x2: { field: 'p75BusyMinutes' },
+              color: { value: CHART_COLORS.gold },
+              tooltip: sharedTooltip,
+            },
+          },
+          {
+            mark: { type: 'point', filled: true, size: 120, opacity: 0.95, stroke: '#07140b', strokeWidth: 1 },
+            encoding: {
+              y: { ...frontierY, axis: { labelLimit: 190, labelPadding: 8 } },
+              x: { field: 'medianBusyMinutes', type: 'quantitative', scale: { type: 'log', nice: true } },
+              color: { value: CHART_COLORS.accent },
+              tooltip: sharedTooltip,
+            },
+          },
+        ],
+      },
+      {
+        height: panelHeight,
+        layer: [
+          {
+            mark: { type: 'rule', strokeWidth: 2.2, opacity: 0.78 },
+            encoding: {
+              y: { ...frontierY, axis: { labels: false, ticks: false, domain: false, title: null } },
+              x: { field: 'resolvedCiLower', type: 'quantitative', title: 'Resolved share (Wilson 95% CI)', axis: { format: '.0%' }, scale: { domain: [0, 1] } },
+              x2: { field: 'resolvedCiUpper' },
+              color: { value: CHART_COLORS.accent2 },
+              tooltip: sharedTooltip,
+            },
+          },
+          {
+            mark: { type: 'point', filled: true, size: 120, opacity: 0.95, stroke: '#07140b', strokeWidth: 1 },
+            encoding: {
+              y: { ...frontierY, axis: { labels: false, ticks: false, domain: false, title: null } },
+              x: { field: 'resolvedRate', type: 'quantitative', scale: { domain: [0, 1] } },
+              color: { value: CHART_COLORS.success },
+              tooltip: sharedTooltip,
+            },
+          },
+        ],
+      },
+    ],
+    spacing: 10,
+  };
 }
 
 // ─── Chart rendering ─────────────────────────────────────────────────────────
@@ -1560,67 +1698,22 @@ async function renderCharts(
   };
   await renderSpec('chart-model-efficiency', efficiencySpec, 'No completed runs match filters.', renderToken);
 
-  // ── 3. Model throughput frontier ──────────────────────────────────────────
+  // ── 3. Speed / resolution scorecard ──────────────────────────────────────
   const frontier = modelFrontierRows(runs);
-  const thinkingDomain = ['off', 'minimal', 'low', 'medium', 'high', 'max', '(unspecified)'];
-  const thinkingRange = ['#6a7486', '#8da3c2', '#8de3ff', '#78f0d6', '#c0ff72', '#ffd479', '#b9b1a3'];
   setNote(
     'frontier-note',
     frontier.length === 0
       ? 'Need scored runs grouped by model/thinking.'
-      : `${frontier.length} model/thinking groups; time uses all completed runs, outcome uses scored runs. ${sampleWarning(frontier)}`,
+      : `${frontier.length} model/thinking groups; rows sorted fastest → slowest; busy time uses completed runs in the filtered set, resolved share uses scored runs. ${sampleWarning(frontier)}`,
     renderToken,
   );
 
-  const frontierSpec: Record<string, unknown> | null = frontier.length === 0 ? null : {
-    width: 'container',
-    height: 340,
-    data: { values: frontier },
-    layer: [
-      {
-        mark: { type: 'rule', strokeWidth: 2.2, opacity: 0.42 },
-        encoding: {
-          x: { field: 'medianBusyMinutes', type: 'quantitative', title: 'Median busy duration (minutes)', scale: { type: 'log', nice: true } },
-          y: { field: 'resolvedCiLower', type: 'quantitative', title: 'Resolved share (Wilson 95% CI)', axis: { format: '.0%' }, scale: { domain: [0, 1] } },
-          y2: { field: 'resolvedCiUpper' },
-          color: { value: CHART_COLORS.accent2 },
-        },
-      },
-      {
-        mark: { type: 'rule', strokeWidth: 2.2, opacity: 0.54 },
-        encoding: {
-          y: { field: 'resolvedRate', type: 'quantitative', scale: { domain: [0, 1] } },
-          x: { field: 'p25BusyMinutes', type: 'quantitative', scale: { type: 'log', nice: true } },
-          x2: { field: 'p75BusyMinutes' },
-          color: { value: CHART_COLORS.gold },
-        },
-      },
-      {
-        mark: { type: 'point', filled: true, opacity: 0.95, stroke: '#07140b', strokeWidth: 1 },
-        encoding: {
-          x: { field: 'medianBusyMinutes', type: 'quantitative', scale: { type: 'log', nice: true } },
-          y: { field: 'resolvedRate', type: 'quantitative', scale: { domain: [0, 1] } },
-          size: { field: 'scoredRunCount', type: 'quantitative', title: 'Scored runs', scale: { range: [90, 460] } },
-          color: {
-            field: 'thinkingLevel',
-            type: 'nominal',
-            title: 'Thinking',
-            scale: { domain: thinkingDomain, range: thinkingRange },
-          },
-          tooltip: [
-            { field: 'label', type: 'nominal', title: 'Group' },
-            { field: 'nLabel', type: 'nominal', title: 'Scored / total' },
-            { field: 'resolvedRate', type: 'quantitative', title: 'Resolved share', format: '.1%' },
-            { field: 'resolvedCiLabel', type: 'nominal', title: 'Resolved interval' },
-            { field: 'medianBusyLabel', type: 'nominal', title: 'Median busy duration' },
-            { field: 'p25BusyLabel', type: 'nominal', title: 'P25 busy duration' },
-            { field: 'p75BusyLabel', type: 'nominal', title: 'P75 busy duration' },
-          ],
-        },
-      },
-    ],
-  };
-  await renderSpec('chart-model-frontier', frontierSpec, 'No scored model/thinking groups match filters.', renderToken);
+  await renderSpec(
+    'chart-model-frontier',
+    frontier.length === 0 ? null : frontierComparisonSpec(frontier),
+    'No scored model/thinking groups match filters.',
+    renderToken,
+  );
 
   // ── 4. Verification cost vs payoff ────────────────────────────────────────
   const verificationCost = verificationCostRows(runs);
@@ -2122,7 +2215,7 @@ async function renderCharts(
           encoding: {
             y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' } },
             x: { field: 'meanSatisfaction', type: 'quantitative', scale: { domain: [1, 5] } },
-            size: { field: 'scoredRunCount', type: 'quantitative', title: 'Scored runs', scale: { range: [80, 430] } },
+            size: { field: 'scoredRunCount', type: 'quantitative', title: 'Scored runs', scale: { range: [60, 240] }, legend: { orient: 'bottom', columns: 6 } },
             color: { value: CHART_COLORS.accent },
           },
         },
@@ -2220,7 +2313,7 @@ async function renderCharts(
               field: 'share',
               type: 'quantitative',
               stack: 'zero',
-              axis: { format: '.0%' },
+              axis: { format: '.0%', tickCount: 6 },
               scale: { domain: [0, 1] },
               title: 'Share of scored runs',
             },
@@ -2291,64 +2384,189 @@ async function renderCharts(
   }
   await renderSpec('chart-file-mutation', mutationSpec, 'No scored runs match the current filters.', renderToken);
 
-  // ── 9. Effort distribution ─────────────────────────────────────────
-  const effortBuckets = effortDistributionRows(runs);
-  setNote('effort-note', `${effortBuckets.length} time buckets; top = all completed runs, bottom = resolved share for scored runs.`, renderToken);
+  // ── 9. Time productivity by model (busy minutes per assistant turn) ──
+  const productivity = timeProductivityRows(runs);
+  setNote(
+    'productivity-note',
+    productivity.length === 0
+      ? 'Need completed runs with assistant turns.'
+      : `${productivity.length} model/thinking groups; bar = IQR (p25–p75) of minutes per assistant turn, point = median. Lower = more work per minute. ${sampleWarning(productivity, 'runCount')}`,
+    renderToken,
+  );
 
-  const effortSpec: Record<string, unknown> | null = effortBuckets.length === 0 ? null : {
+  const productivitySpec: Record<string, unknown> | null = productivity.length === 0 ? null : {
     width: 'container',
-    height: 320,
-    data: { values: effortBuckets },
-    vconcat: [
+    height: categoricalHeight(productivity.length),
+    data: { values: productivity },
+    layer: [
       {
-        width: 'container',
-        height: 140,
-        layer: [
-          {
-            mark: { type: 'bar', opacity: 0.8 },
-            encoding: {
-              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, title: 'Time bucket' },
-              y: { field: 'count', type: 'quantitative', title: 'Run count' },
-              color: { value: CHART_COLORS.accent },
-              tooltip: [
-                { field: 'bucket', type: 'nominal', title: 'Bucket' },
-                { field: 'count', type: 'quantitative', title: 'Runs' },
-                { field: 'share', type: 'quantitative', title: 'Share', format: '.1%' },
-                { field: 'nLabel', type: 'nominal', title: 'Scored / total' },
-              ],
-            },
-          },
-        ],
+        mark: { type: 'rule', strokeWidth: 2.2, opacity: 0.6 },
+        encoding: {
+          y: { field: 'label', type: 'nominal', sort: { field: 'medianMinutesPerTurn', order: 'ascending' }, title: null },
+          x: { field: 'p25MinutesPerTurn', type: 'quantitative', title: 'Minutes per assistant turn (log)', scale: { type: 'log', nice: true } },
+          x2: { field: 'p75MinutesPerTurn' },
+          color: { value: CHART_COLORS.gold },
+        },
       },
       {
-        width: 'container',
-        height: 140,
-        layer: [
-          {
-            transform: [{ filter: 'datum.resolvedShare != null' }],
-            mark: { type: 'bar', opacity: 0.84 },
-            encoding: {
-              x: { field: 'bucket', type: 'ordinal', sort: { field: 'bucketIndex' }, title: 'Time bucket' },
-              y: { field: 'resolvedShare', type: 'quantitative', title: 'Resolved rate', axis: { format: '.0%' }, scale: { domain: [0, 1] } },
-              color: {
-                field: 'resolvedShare',
-                type: 'quantitative',
-                legend: null,
-                scale: { domain: [0, 1], range: [CHART_COLORS.coral, CHART_COLORS.success] },
-              },
-              tooltip: [
-                { field: 'bucket', type: 'nominal', title: 'Bucket' },
-                { field: 'resolvedShare', type: 'quantitative', title: 'Resolved rate', format: '.1%' },
-                { field: 'nLabel', type: 'nominal', title: 'Scored / total' },
-              ],
-            },
-          },
-        ],
+        mark: { type: 'point', filled: true, size: 170, opacity: 0.95 },
+        encoding: {
+          y: { field: 'label', type: 'nominal', sort: { field: 'medianMinutesPerTurn', order: 'ascending' } },
+          x: { field: 'medianMinutesPerTurn', type: 'quantitative', scale: { type: 'log', nice: true } },
+          color: { value: CHART_COLORS.accent },
+          tooltip: [
+            { field: 'label', type: 'nominal', title: 'Group' },
+            { field: 'nLabel', type: 'nominal', title: 'Runs' },
+            { field: 'medianMinutesPerTurnLabel', type: 'nominal', title: 'Median per turn' },
+            { field: 'p25MinutesPerTurnLabel', type: 'nominal', title: 'P25 per turn' },
+            { field: 'p75MinutesPerTurnLabel', type: 'nominal', title: 'P75 per turn' },
+          ],
+        },
+      },
+      {
+        mark: { type: 'text', align: 'left', dx: 8, fontSize: 11, opacity: 0.72, clip: false },
+        encoding: {
+          y: { field: 'label', type: 'nominal', sort: { field: 'medianMinutesPerTurn', order: 'ascending' } },
+          x: { field: 'p75MinutesPerTurn', type: 'quantitative' },
+          text: { field: 'nLabel', type: 'nominal' },
+          color: { value: CHART_COLORS.muted },
+        },
       },
     ],
-    spacing: 18,
   };
-  await renderSpec('chart-effort-distribution', effortSpec, 'Insufficient runs for bucketing (need 8+).', renderToken);
+  await renderSpec('chart-time-productivity', productivitySpec, 'No completed runs with assistant turns match the current filters.', renderToken);
+
+  // ── 10. Time investment Pareto ────────────────────────────────────────
+  const paretoRows = timeParetoRows(runs);
+  const totalParetoMinutes = paretoRows.length === 0 ? 0 : paretoRows.reduce((sum, row) => sum + row.busyMinutes, 0);
+  setNote(
+    'pareto-note',
+    paretoRows.length === 0
+      ? 'No completed runs with busy time match the current filters.'
+      : `Top ${paretoRows.length} longest runs ranked; line = cumulative share of all completed busy time. Total shown: ${formatBusyDuration(totalParetoMinutes * 60000)}.`,
+    renderToken,
+  );
+
+  const paretoSpec: Record<string, unknown> | null = paretoRows.length === 0 ? null : {
+    width: 'container',
+    height: 320,
+    data: { values: paretoRows },
+    layer: [
+      {
+        mark: { type: 'bar', opacity: 0.78 },
+        encoding: {
+          x: { field: 'rank', type: 'ordinal', title: 'Run rank (longest first)', axis: { labelAngle: 0 } },
+          y: { field: 'busyMinutes', type: 'quantitative', title: 'Busy minutes' },
+          color: {
+            field: 'resolution',
+            type: 'nominal',
+            title: 'Resolution',
+            scale: {
+              domain: ['resolved', 'partially_resolved', 'unresolved', 'unknown'],
+              range: [CHART_COLORS.success, CHART_COLORS.gold, CHART_COLORS.coral, CHART_COLORS.muted],
+            },
+          },
+          tooltip: [
+            { field: 'rank', type: 'ordinal', title: 'Rank' },
+            { field: 'startedAt', type: 'nominal', title: 'Started' },
+            { field: 'modelId', type: 'nominal', title: 'Model' },
+            { field: 'thinkingLevel', type: 'nominal', title: 'Thinking' },
+            { field: 'busyLabel', type: 'nominal', title: 'Busy duration' },
+            { field: 'resolution', type: 'nominal', title: 'Resolution' },
+            { field: 'satisfaction', type: 'quantitative', title: 'Satisfaction', format: '.1f' },
+            { field: 'cumulativeShare', type: 'quantitative', title: 'Cumulative share', format: '.1%' },
+          ],
+        },
+      },
+      {
+        mark: { type: 'line', point: { filled: true, size: 50 }, strokeWidth: 2, opacity: 0.9 },
+        encoding: {
+          x: { field: 'rank', type: 'ordinal' },
+          y: { field: 'cumulativeShare', type: 'quantitative', title: 'Cumulative share of busy time', axis: { format: '.0%', orient: 'right' }, scale: { domain: [0, 1] } },
+          color: { value: CHART_COLORS.accent },
+        },
+      },
+    ],
+    resolve: { scale: { y: 'independent' } },
+  };
+  await renderSpec('chart-time-pareto', paretoSpec, 'No completed runs with busy time match the current filters.', renderToken);
+
+  // ── 11. Context saturation vs satisfaction (scatter + regression) ──
+  const contextPoints = contextSaturationPoints(runs);
+  const showContextSaturationTrend = contextPoints.length >= 4 && new Set(contextPoints.map((row) => row.fillShare)).size >= 2;
+  setNote(
+    'context-saturation-note',
+    contextPoints.length === 0
+      ? 'No scored runs with context fill data match the current filters.'
+      : `${contextPoints.length} scored runs${showContextSaturationTrend ? '; point = run, line = OLS fit of satisfaction over fill share.' : '.'}`,
+    renderToken,
+  );
+
+  const contextSatSpec: Record<string, unknown> | null = contextPoints.length === 0 ? null : {
+    width: 'container',
+    height: 320,
+    data: { values: contextPoints },
+    layer: [
+      {
+        mark: { type: 'point', filled: true, opacity: 0.78, size: 80, stroke: '#07140b', strokeWidth: 0.6 },
+        encoding: {
+          x: {
+            field: 'fillShare',
+            type: 'quantitative',
+            title: 'Context fill (tokens / limit)',
+            axis: { format: '.0%' },
+            scale: { domain: [0, 1] },
+          },
+          y: {
+            field: 'satisfaction',
+            type: 'quantitative',
+            title: 'Satisfaction',
+            scale: { domain: [1, 5] },
+          },
+          color: {
+            field: 'resolution',
+            type: 'nominal',
+            title: 'Resolution',
+            scale: {
+              domain: ['resolved', 'partially_resolved', 'unresolved', 'unknown'],
+              range: [CHART_COLORS.success, CHART_COLORS.gold, CHART_COLORS.coral, CHART_COLORS.muted],
+            },
+          },
+          tooltip: [
+            { field: 'modelId', type: 'nominal', title: 'Model' },
+            { field: 'fillLabel', type: 'nominal', title: 'Context fill' },
+            { field: 'contextTokens', type: 'quantitative', title: 'Tokens', format: ',' },
+            { field: 'contextLimit', type: 'quantitative', title: 'Limit', format: ',' },
+            { field: 'satisfaction', type: 'quantitative', title: 'Satisfaction' },
+            { field: 'resolution', type: 'nominal', title: 'Resolution' },
+            { field: 'busyMinutes', type: 'quantitative', title: 'Busy minutes', format: '.1f' },
+          ],
+        },
+      },
+      ...(showContextSaturationTrend ? [{
+        transform: [{ regression: 'satisfaction', on: 'fillShare', extent: [0, 1] }],
+        mark: { type: 'line', strokeWidth: 2.4, opacity: 0.9, color: CHART_COLORS.accent },
+        encoding: {
+          x: { field: 'fillShare', type: 'quantitative' },
+          y: { field: 'satisfaction', type: 'quantitative', scale: { domain: [1, 5] } },
+        },
+      },
+      {
+        transform: [
+          { regression: 'satisfaction', on: 'fillShare', params: true },
+          { calculate: "'R\u00b2 = ' + (isValid(datum.rSquared) ? format(datum.rSquared, '.2f') : '—') + ' \u00b7 slope = ' + (datum.coef && datum.coef.length > 1 ? format(datum.coef[1], '.2f') : '—')", as: 'fitLabel' },
+        ],
+        mark: { type: 'text', align: 'left', baseline: 'top', dx: 8, dy: 8, fontSize: 11, opacity: 0.85 },
+        encoding: {
+          x: { datum: 0 },
+          y: { datum: 5 },
+          text: { field: 'fitLabel', type: 'nominal' },
+          color: { value: CHART_COLORS.muted },
+        },
+      }] : []),
+    ],
+  };
+  await renderSpec('chart-context-saturation', contextSatSpec, 'No scored runs with context fill data match the current filters.', renderToken);
 }
 
 // ─── Filter controls ─────────────────────────────────────────────────────────

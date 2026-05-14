@@ -6,7 +6,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 
 import { type ChatMessage, type ChatPrefs, type SystemPromptEntry, type ToolCall, type TranscriptWindow } from '../../shared/protocol';
 import type { Overlay } from './overlay';
-import { isNearBottom } from './auto-scroll';
+import { advanceSmoothScrollTop, isNearBottom, resolveAutoFollowState } from './auto-scroll';
 import { SystemPromptMessage } from './system-prompts';
 import { MessageItem } from './transcript/message-item';
 import { ToolCallItem } from './transcript/tool-call-item';
@@ -42,6 +42,9 @@ interface ScrollAnchor {
   messageId: string;
   offsetTop: number;
 }
+
+const MANUAL_SCROLL_INTENT_GRACE_MS = 280;
+const INITIAL_BOTTOM_SNAP_FRAMES = 3;
 
 function getEstimateSize(row: TranscriptRow): number {
   if (row.kind === 'systemPrompts') {
@@ -117,12 +120,20 @@ export function TranscriptVirtualList({
 }: TranscriptVirtualListProps) {
   const [renderTick, setRenderTick] = useState(0);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isInitialPositioning, setIsInitialPositioning] = useState(true);
   const [isLoadingOlder, setIsLoadingOlder] = useState(false);
   const [isLoadingNewer, setIsLoadingNewer] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoFollowRef = useRef(true);
   const renderFrameRef = useRef<number | null>(null);
   const followFrameRef = useRef<number | null>(null);
+  const initialBottomFrameRef = useRef<number | null>(null);
+  const smoothFollowTargetRef = useRef<number | null>(null);
+  const initialBottomFramesRemainingRef = useRef(0);
+  const lastScrollTopRef = useRef(0);
+  const manualScrollIntentUntilRef = useRef(0);
+  const pointerScrollIntentRef = useRef(false);
+  const pendingJumpToLatestSnapRef = useRef(false);
   const pendingOlderAnchorRef = useRef<ScrollAnchor | null>(null);
   const loadingOlderRef = useRef(false);
   const loadingNewerRef = useRef(false);
@@ -131,11 +142,16 @@ export function TranscriptVirtualList({
   const previousLoadedStartRef = useRef(transcriptWindow.loadedStart);
   const previousLoadedEndRef = useRef(transcriptWindow.loadedEnd);
 
-  const scrollToBottom = useCallback(() => {
+  const stopSmoothFollow = useCallback(() => {
+    smoothFollowTargetRef.current = null;
     if (followFrameRef.current !== null) {
       window.cancelAnimationFrame(followFrameRef.current);
       followFrameRef.current = null;
     }
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    stopSmoothFollow();
 
     const element = scrollRef.current;
     if (!element) {
@@ -143,19 +159,103 @@ export function TranscriptVirtualList({
     }
 
     element.scrollTop = element.scrollHeight;
+    lastScrollTopRef.current = element.scrollTop;
     setIsAtBottom(true);
+  }, [stopSmoothFollow]);
+
+  const stopInitialBottomSnap = useCallback(() => {
+    initialBottomFramesRemainingRef.current = 0;
+    if (initialBottomFrameRef.current !== null) {
+      window.cancelAnimationFrame(initialBottomFrameRef.current);
+      initialBottomFrameRef.current = null;
+    }
   }, []);
 
-  const scheduleScrollToBottom = useCallback(() => {
-    if (followFrameRef.current !== null) {
+  const runInitialBottomSnap = useCallback(() => {
+    initialBottomFrameRef.current = null;
+
+    const element = scrollRef.current;
+    if (!element || !autoFollowRef.current || initialBottomFramesRemainingRef.current <= 0) {
+      initialBottomFramesRemainingRef.current = 0;
+      setIsInitialPositioning(false);
       return;
     }
 
-    followFrameRef.current = window.requestAnimationFrame(() => {
-      followFrameRef.current = null;
-      scrollToBottom();
-    });
-  }, [scrollToBottom]);
+    element.scrollTop = element.scrollHeight;
+    lastScrollTopRef.current = element.scrollTop;
+    setIsAtBottom(true);
+
+    initialBottomFramesRemainingRef.current -= 1;
+    if (initialBottomFramesRemainingRef.current > 0) {
+      initialBottomFrameRef.current = window.requestAnimationFrame(runInitialBottomSnap);
+      return;
+    }
+
+    setIsInitialPositioning(false);
+  }, []);
+
+  const startInitialBottomSnap = useCallback((hideUntilStable = false) => {
+    stopInitialBottomSnap();
+    stopSmoothFollow();
+    if (hideUntilStable) {
+      setIsInitialPositioning(true);
+    }
+    initialBottomFramesRemainingRef.current = INITIAL_BOTTOM_SNAP_FRAMES;
+    initialBottomFrameRef.current = window.requestAnimationFrame(runInitialBottomSnap);
+  }, [runInitialBottomSnap, stopInitialBottomSnap, stopSmoothFollow]);
+
+  const runSmoothFollow = useCallback(() => {
+    followFrameRef.current = null;
+
+    const element = scrollRef.current;
+    const requestedTargetScrollTop = smoothFollowTargetRef.current;
+    if (!element || requestedTargetScrollTop === null || !autoFollowRef.current) {
+      return;
+    }
+
+    const targetScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    smoothFollowTargetRef.current = targetScrollTop;
+
+    const nextScrollTop = advanceSmoothScrollTop(element.scrollTop, targetScrollTop);
+    if (Math.abs(nextScrollTop - element.scrollTop) >= 0.5) {
+      element.scrollTop = nextScrollTop;
+      lastScrollTopRef.current = element.scrollTop;
+    }
+
+    if (Math.abs(targetScrollTop - element.scrollTop) <= 1) {
+      smoothFollowTargetRef.current = null;
+      setIsAtBottom(true);
+      return;
+    }
+
+    followFrameRef.current = window.requestAnimationFrame(runSmoothFollow);
+  }, []);
+
+  const scheduleScrollToBottom = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element || !autoFollowRef.current) {
+      return;
+    }
+
+    const targetScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    if (initialBottomFramesRemainingRef.current > 0) {
+      element.scrollTop = element.scrollHeight;
+      lastScrollTopRef.current = element.scrollTop;
+      setIsAtBottom(true);
+      return;
+    }
+
+    if (Math.abs(targetScrollTop - element.scrollTop) <= 1) {
+      smoothFollowTargetRef.current = null;
+      setIsAtBottom(true);
+      return;
+    }
+
+    smoothFollowTargetRef.current = targetScrollTop;
+    if (followFrameRef.current === null) {
+      followFrameRef.current = window.requestAnimationFrame(runSmoothFollow);
+    }
+  }, [runSmoothFollow]);
 
   const scheduleVirtualRender = useCallback(() => {
     if (renderFrameRef.current !== null) {
@@ -257,6 +357,7 @@ export function TranscriptVirtualList({
       scrollToFn: elementScroll,
       observeElementRect,
       observeElementOffset,
+      initialOffset: () => Number.MAX_SAFE_INTEGER,
       overscan: 10,
       onChange: scheduleVirtualRender,
     });
@@ -272,6 +373,7 @@ export function TranscriptVirtualList({
     scrollToFn: elementScroll,
     observeElementRect,
     observeElementOffset,
+    initialOffset: () => Number.MAX_SAFE_INTEGER,
     overscan: 10,
     onChange: scheduleVirtualRender,
   });
@@ -292,6 +394,11 @@ export function TranscriptVirtualList({
     }
 
     autoFollowRef.current = true;
+    lastScrollTopRef.current = 0;
+    manualScrollIntentUntilRef.current = 0;
+    pointerScrollIntentRef.current = false;
+    pendingJumpToLatestSnapRef.current = false;
+    stopInitialBottomSnap();
     loadingOlderRef.current = false;
     loadingNewerRef.current = false;
     setIsLoadingOlder(false);
@@ -303,11 +410,14 @@ export function TranscriptVirtualList({
     previousLoadedEndRef.current = transcriptWindow.loadedEnd;
 
     scrollToBottom();
+    startInitialBottomSnap(true);
   }, [
     clearLoadingNewerTimeout,
     clearLoadingOlderTimeout,
     scrollToBottom,
     sessionKey,
+    startInitialBottomSnap,
+    stopInitialBottomSnap,
   ]);
 
   useEffect(() => {
@@ -316,27 +426,87 @@ export function TranscriptVirtualList({
       return;
     }
 
+    const markManualScrollIntent = () => {
+      manualScrollIntentUntilRef.current = Date.now() + MANUAL_SCROLL_INTENT_GRACE_MS;
+    };
+
+    const clearPointerScrollIntent = () => {
+      pointerScrollIntentRef.current = false;
+    };
+
     const updateScrollState = () => {
-      const nearBottom = isNearBottom({
+      const nextScrollTop = element.scrollTop;
+      const metrics = {
         scrollHeight: element.scrollHeight,
-        scrollTop: element.scrollTop,
+        scrollTop: nextScrollTop,
         clientHeight: element.clientHeight,
+      };
+      const hasManualScrollIntent = pointerScrollIntentRef.current
+        || Date.now() <= manualScrollIntentUntilRef.current;
+      const nextAutoFollow = resolveAutoFollowState({
+        previousAutoFollow: autoFollowRef.current,
+        previousScrollTop: lastScrollTopRef.current,
+        nextScrollTop,
+        metrics,
+        hasManualScrollIntent,
       });
-      autoFollowRef.current = nearBottom;
-      setIsAtBottom(nearBottom);
+      const nearBottom = isNearBottom(metrics);
+      autoFollowRef.current = nextAutoFollow;
+      lastScrollTopRef.current = nextScrollTop;
+      setIsAtBottom(nextAutoFollow || nearBottom);
+      if (!nextAutoFollow) {
+        stopSmoothFollow();
+        stopInitialBottomSnap();
+        setIsInitialPositioning(false);
+      }
 
       if (element.scrollTop <= 120 && transcriptWindow.hasOlder) {
         requestOlderPage();
       }
     };
 
+    const handleWheel = () => {
+      markManualScrollIntent();
+    };
+
+    const handleTouchStart = () => {
+      markManualScrollIntent();
+    };
+
+    const handleTouchMove = () => {
+      markManualScrollIntent();
+    };
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.target !== element) {
+        return;
+      }
+      pointerScrollIntentRef.current = true;
+      markManualScrollIntent();
+    };
+
+    element.addEventListener('wheel', handleWheel, { passive: true });
+    element.addEventListener('touchstart', handleTouchStart, { passive: true });
+    element.addEventListener('touchmove', handleTouchMove, { passive: true });
+    element.addEventListener('pointerdown', handlePointerDown, { passive: true });
     element.addEventListener('scroll', updateScrollState, { passive: true });
+    window.addEventListener('pointerup', clearPointerScrollIntent, { passive: true });
+    window.addEventListener('pointercancel', clearPointerScrollIntent, { passive: true });
+    window.addEventListener('blur', clearPointerScrollIntent);
     updateScrollState();
 
     return () => {
+      element.removeEventListener('wheel', handleWheel);
+      element.removeEventListener('touchstart', handleTouchStart);
+      element.removeEventListener('touchmove', handleTouchMove);
+      element.removeEventListener('pointerdown', handlePointerDown);
       element.removeEventListener('scroll', updateScrollState);
+      window.removeEventListener('pointerup', clearPointerScrollIntent);
+      window.removeEventListener('pointercancel', clearPointerScrollIntent);
+      window.removeEventListener('blur', clearPointerScrollIntent);
+      clearPointerScrollIntent();
     };
-  }, [requestOlderPage, sessionKey, transcriptWindow.hasOlder]);
+  }, [requestOlderPage, sessionKey, stopInitialBottomSnap, stopSmoothFollow, transcriptWindow.hasOlder]);
 
   useLayoutEffect(() => {
     const previousLoadedStart = previousLoadedStartRef.current;
@@ -375,9 +545,18 @@ export function TranscriptVirtualList({
       setIsLoadingNewer(false);
       clearLoadingNewerTimeout();
     }
+
+    if (pendingJumpToLatestSnapRef.current && !transcriptWindow.hasNewer) {
+      pendingJumpToLatestSnapRef.current = false;
+      autoFollowRef.current = true;
+      scrollToBottom();
+      startInitialBottomSnap();
+    }
   }, [
     clearLoadingNewerTimeout,
     clearLoadingOlderTimeout,
+    scrollToBottom,
+    startInitialBottomSnap,
     transcriptWindow.hasNewer,
     transcriptWindow.hasOlder,
     transcriptWindow.loadedEnd,
@@ -406,12 +585,10 @@ export function TranscriptVirtualList({
         window.cancelAnimationFrame(renderFrameRef.current);
         renderFrameRef.current = null;
       }
-      if (followFrameRef.current !== null) {
-        window.cancelAnimationFrame(followFrameRef.current);
-        followFrameRef.current = null;
-      }
+      stopSmoothFollow();
+      stopInitialBottomSnap();
     };
-  }, [clearLoadingNewerTimeout, clearLoadingOlderTimeout]);
+  }, [clearLoadingNewerTimeout, clearLoadingOlderTimeout, stopInitialBottomSnap, stopSmoothFollow]);
 
   const renderToolCallRef = useRef<RenderToolCall>((_toolCall, _contextMenuHandler) => null);
   const renderToolCall = useCallback<RenderToolCall>((toolCall: ToolCall, contextMenuHandler: TranscriptContextMenuHandler) => (
@@ -436,7 +613,7 @@ export function TranscriptVirtualList({
   const totalSize = virtualizer.getTotalSize();
 
   return (
-    <div class="transcript transcript-virtual" ref={scrollRef}>
+    <div class={`transcript transcript-virtual${isInitialPositioning ? ' transcript-positioning' : ''}`} ref={scrollRef}>
       <div class="transcript-virtual-inner" style={{ height: `${totalSize}px` }}>
         {virtualRows.map((virtualRow) => {
           const row = rows[virtualRow.index];
@@ -519,10 +696,12 @@ export function TranscriptVirtualList({
           title="Jump to latest"
           onClick={() => {
             autoFollowRef.current = true;
-            if (transcriptWindow.isPartial || transcriptWindow.hasNewer) {
+            if (transcriptWindow.hasNewer) {
+              pendingJumpToLatestSnapRef.current = true;
               onJumpToLatest();
             } else {
               scrollToBottom();
+              startInitialBottomSnap(false);
             }
           }}
         >

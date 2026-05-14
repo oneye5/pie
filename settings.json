@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.73.0",
-  "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4.7",
+  "defaultProvider": "ollama",
+  "defaultModel": "gpt-oss:120b-cloud",
   "defaultThinkingLevel": "medium",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
@@ -9,5 +9,6 @@
       "source": "npm:pi-web-access",
       "skills": []
     }
-  ]
+  ],
+  "steeringMode": "one-at-a-time"
 }

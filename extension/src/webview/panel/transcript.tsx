@@ -5,7 +5,6 @@ import type {
   ChatMessage,
   ChatPrefs,
   SystemPromptEntry,
-  ToolCall,
   TranscriptWindow,
 } from '../../shared/protocol';
 import type { Overlay } from './overlay';

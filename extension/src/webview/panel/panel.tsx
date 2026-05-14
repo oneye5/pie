@@ -348,7 +348,6 @@ function App() {
     if (showOutcomeDialog) {
       setShowOutcomeDialog(false);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeSession?.path]);
 
   const panelSurface = resolvePanelSurface({ backendReady, notice, openTabPaths });

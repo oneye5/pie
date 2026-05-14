@@ -50,7 +50,7 @@
             </select>
           </label>
           <label class="toggle">
-            <input id="filter-scored-only" type="checkbox" />
+            <input id="filter-scored-only" type="checkbox" checked />
             <span>Scored runs only</span>
           </label>
           <label class="toggle">
@@ -75,7 +75,7 @@
         </section>
 
         <section class="chart span-2">
-          <h3>Model speed vs resolution <span class="note" id="frontier-note">—</span></h3>
+          <h3>Speed / resolution scorecard <span class="note" id="frontier-note">—</span></h3>
           <div id="chart-model-frontier" class="chart-slot"></div>
         </section>
 
@@ -130,18 +130,18 @@
         </section>
 
         <section class="chart span-2">
-          <h3>Effort distribution <span class="note" id="effort-note">—</span></h3>
-          <div id="chart-effort-distribution" class="chart-slot"></div>
+          <h3>Time productivity by model <span class="note" id="productivity-note">—</span></h3>
+          <div id="chart-time-productivity" class="chart-slot"></div>
         </section>
 
-        <section class="notes span-2">
-          <h3>Notes</h3>
-          <ul>
-            <li><strong>Privacy:</strong> Sanitized JSON only. Raw paths, transcripts, and tool payloads excluded.</li>
-            <li><strong>Correlation ≠ causation:</strong> Charts show observed correlations. Confidence intervals show uncertainty, not proof.</li>
-            <li><strong>Objective lenses:</strong> Resolution share, verification depth, tool failures, and busy duration complement satisfaction rather than replacing it.</li>
-            <li><strong>Refresh:</strong> <code>npm run export-site-data</code> then <code>npm run serve</code>. Small n (&lt;5) = suggestive only.</li>
-          </ul>
+        <section class="chart span-2">
+          <h3>Time investment Pareto <span class="note" id="pareto-note">—</span></h3>
+          <div id="chart-time-pareto" class="chart-slot"></div>
+        </section>
+
+        <section class="chart span-2">
+          <h3>Context saturation vs satisfaction <span class="note" id="context-saturation-note">—</span></h3>
+          <div id="chart-context-saturation" class="chart-slot"></div>
         </section>
       </div>
     </div>

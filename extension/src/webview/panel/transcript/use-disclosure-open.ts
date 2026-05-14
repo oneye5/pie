@@ -22,7 +22,6 @@ export function useDisclosureOpen(storageKey: string, defaultOpen: boolean) {
     disclosureDefaultByKey.set(resolvedStorageKey, defaultOpen);
     disclosureOpenByKey.set(resolvedStorageKey, nextOpen);
     setOpen(nextOpen);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolvedStorageKey, defaultOpen]);
 
   useEffect(() => {

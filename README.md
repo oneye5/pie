@@ -27,6 +27,23 @@ Produce a higher quality / quantity of work by:
 
 ## Quick start
 
+### VS Code extension
+
+```bash
+cd extension
+npm run build
+```
+
+That rebuilds the extension and syncs the output into the locally installed VS Code extension.
+
+Useful extension commands:
+
+- `cd extension && npm run watch`
+- `cd extension && npm run test`
+- `cd extension && npm run typecheck`
+
+### Analytics site
+
 ```bash
 # from repo root
 npm run analytics:serve
@@ -41,8 +58,13 @@ Optional analytics helpers from repo root:
 
 ## Prerequisites
 
-TODO
+- Node.js 24+ for the analytics workspace in `analysis/`
+- A local PI setup if you want the extension and runtime data flow to work end-to-end
+- VS Code if you want to use the `extension/` package interactively
 
 ## More docs
 
-Reference user facing docs here
+- `AGENTS.md` for repo-specific working conventions
+- `docs/STATE_CONTRACT.md` for the host ↔ webview sync contract
+- `extension/README.md` for extension-focused notes
+- `analysis/README.md` for analytics workspace details

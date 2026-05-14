@@ -263,7 +263,7 @@ function ComposerView({
       const height = Math.ceil(el.getBoundingClientRect().height);
       try {
         document.documentElement.style.setProperty('--composer-height', `${height}px`);
-      } catch (e) {
+      } catch {
         // ignore
       }
     };
