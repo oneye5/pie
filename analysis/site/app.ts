@@ -548,6 +548,15 @@ function shortHashLabel(prefix: string | null | undefined, fallback: string): st
   return prefix?.trim() ? prefix.slice(0, 8) : fallback;
 }
 
+function skillDisplayLabel(name: string, lastModifiedAt: string | null): string {
+  const datePart = lastModifiedAt ? ` (${lastModifiedAt.slice(0, 10)})` : '';
+  const maxLen = 32;
+  const full = name + datePart;
+  if (full.length <= maxLen) return full;
+  const truncName = name.slice(0, maxLen - datePart.length - 1);
+  return truncName + '\u2026' + datePart;
+}
+
 function selectedCompletedRuns(runs: SanitizedRunRow[]): SanitizedRunRow[] {
   return completedRuns(runs);
 }
@@ -837,7 +846,6 @@ function dimensionComparisonRows(runs: SanitizedRunRow[]): { rows: DimensionRow[
     { name: 'Experiment', key: (run) => normalizedExperimentLabel(run.experimentAssignment) },
     { name: 'Prompt', key: (run) => shortHashLabel(run.promptHashPrefix, 'no-prompt') },
     { name: 'Tool set', key: (run) => shortHashLabel(run.toolSetHashPrefix, 'no-tools') },
-    { name: 'Skill set', key: (run) => shortHashLabel(run.skillSetHashPrefix, 'no-skills') },
   ];
   const completed = selectedCompletedRuns(runs);
   const out: DimensionRow[] = [];
@@ -869,6 +877,42 @@ function dimensionComparisonRows(runs: SanitizedRunRow[]): { rows: DimensionRow[
     out.push(...dimRows.slice(0, 6));
     dimensionsWithContrast += 1;
   });
+
+  // ── Skill set: expand individual skills ────────────────────────────────────
+  const skillGroups = new Map<string, SanitizedRunRow[]>();
+  for (const run of completed) {
+    for (const entry of run.skillEntries ?? []) {
+      const label = skillDisplayLabel(entry.name, entry.lastModifiedAt);
+      const existing = skillGroups.get(label) ?? [];
+      existing.push(run);
+      skillGroups.set(label, existing);
+    }
+  }
+  if (skillGroups.size >= 2) {
+    const dimRows: DimensionRow[] = [];
+    [...skillGroups.entries()].forEach(([value, groupedRuns]) => {
+      const scored = scoredRuns(groupedRuns);
+      if (scored.length < 1) return;
+      const interval = meanInterval(scored.map((run) => run.satisfaction ?? 0), { min: 1, max: 5 });
+      if (!interval) return;
+      dimRows.push({
+        dimension: 'Skill set',
+        value,
+        meanSatisfaction: interval.mean,
+        ciLower: interval.lower,
+        ciUpper: interval.upper,
+        ciLabel: interval.ciLabel,
+        scoredRunCount: scored.length,
+        runCount: groupedRuns.length,
+        nLabel: `n=${scored.length}/${groupedRuns.length}`,
+      });
+    });
+    if (dimRows.length > 0) {
+      dimRows.sort((left, right) => right.scoredRunCount - left.scoredRunCount);
+      out.push(...dimRows.slice(0, 8));
+      dimensionsWithContrast += 1;
+    }
+  }
 
   return { rows: out, dimensionsWithContrast };
 }
@@ -2197,7 +2241,7 @@ async function renderCharts(
         {
           mark: { type: 'rule', strokeWidth: 2.2, opacity: 0.72 },
           encoding: {
-            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, title: null },
+            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, title: null, axis: { labelLimit: 260, labelFontSize: 10 } },
             x: { field: 'ciLower', type: 'quantitative', title: 'Mean satisfaction (95% CI)', scale: { domain: [1, 5] } },
             x2: { field: 'ciUpper' },
             color: { value: CHART_COLORS.accent2 },
@@ -2213,7 +2257,7 @@ async function renderCharts(
         {
           mark: { type: 'point', filled: true },
           encoding: {
-            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' } },
+            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, axis: { labelLimit: 260, labelFontSize: 10 } },
             x: { field: 'meanSatisfaction', type: 'quantitative', scale: { domain: [1, 5] } },
             size: { field: 'scoredRunCount', type: 'quantitative', title: 'Scored runs', scale: { range: [60, 240] }, legend: { orient: 'bottom', columns: 6 } },
             color: { value: CHART_COLORS.accent },
@@ -2222,7 +2266,7 @@ async function renderCharts(
         {
           mark: { type: 'text', align: 'left', dx: 8, fontSize: 11, opacity: 0.72, clip: false },
           encoding: {
-            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' } },
+            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, axis: { labelLimit: 260, labelFontSize: 10 } },
             x: { field: 'ciUpper', type: 'quantitative' },
             text: { field: 'nLabel', type: 'nominal' },
             color: { value: CHART_COLORS.muted },

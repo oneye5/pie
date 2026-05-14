@@ -93,12 +93,22 @@ async function readSkillContentHash(skill: SdkSkill): Promise<string | null> {
 
 async function buildSkillFactors(skills: SdkSkill[] | undefined): Promise<SessionAnalyticsFactors['skills']> {
   const entries = skills ?? [];
-  const factors = await Promise.all(entries.map(async (skill) => ({
-    name: skill.name,
-    contentHash: await readSkillContentHash(skill),
-    sourceHash: skill.sourceInfo === undefined ? null : sha256Hex(stableJson(skill.sourceInfo)),
-    disableModelInvocation: skill.disableModelInvocation,
-  })));
+  const factors = await Promise.all(entries.map(async (skill) => {
+    let lastModifiedAt: string | null = null;
+    try {
+      const stat = await fs.stat(skill.filePath);
+      lastModifiedAt = stat.mtime.toISOString();
+    } catch {
+      // ignore — file may not exist or be inaccessible
+    }
+    return {
+      name: skill.name,
+      contentHash: await readSkillContentHash(skill),
+      sourceHash: skill.sourceInfo === undefined ? null : sha256Hex(stableJson(skill.sourceInfo)),
+      disableModelInvocation: skill.disableModelInvocation,
+      lastModifiedAt,
+    };
+  }));
 
   return factors
     .filter((skill) => skill.name.trim().length > 0)

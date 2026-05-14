@@ -323,6 +323,7 @@ function coerceSkills(value: unknown): SessionAnalyticsFactors['skills'] {
       contentHash: typeof entry.contentHash === 'string' ? entry.contentHash : null,
       sourceHash: typeof entry.sourceHash === 'string' ? entry.sourceHash : null,
       disableModelInvocation: entry.disableModelInvocation === true,
+      lastModifiedAt: typeof entry.lastModifiedAt === 'string' ? entry.lastModifiedAt : null,
     }))
     .filter((entry) => entry.name.length > 0);
 }

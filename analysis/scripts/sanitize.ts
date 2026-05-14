@@ -122,6 +122,10 @@ function sanitizeRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>)
     promptHashPrefix: existingHashPrefix(run.analyticsFactors?.promptHash),
     toolSetHashPrefix: existingHashPrefix(run.analyticsFactors?.toolSetHash),
     skillSetHashPrefix: existingHashPrefix(run.analyticsFactors?.skillSetHash),
+    skillEntries: (run.analyticsFactors?.skills ?? []).map((s) => ({
+      name: s.name,
+      lastModifiedAt: s.lastModifiedAt,
+    })),
     selectedToolCount: run.analyticsFactors?.selectedToolIds.length ?? 0,
     skillCount: run.analyticsFactors?.skills.length ?? 0,
     contextFileCount: run.analyticsFactors?.contextFiles.length ?? 0,

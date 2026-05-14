@@ -252,6 +252,7 @@ export interface SessionSkillFactor {
   contentHash: string | null;
   sourceHash: string | null;
   disableModelInvocation: boolean;
+  lastModifiedAt: string | null;
 }
 
 export interface SessionAnalyticsFactors {

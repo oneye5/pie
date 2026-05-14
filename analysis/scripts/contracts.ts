@@ -52,6 +52,7 @@ export interface SessionSkillFactor {
   contentHash: string | null;
   sourceHash: string | null;
   disableModelInvocation: boolean;
+  lastModifiedAt: string | null;
 }
 
 export interface SessionAnalyticsFactors {
@@ -166,6 +167,11 @@ export interface ResolutionCounts {
   unresolved: number;
 }
 
+export interface SanitizedSkillEntry {
+  name: string;
+  lastModifiedAt: string | null;
+}
+
 export interface SanitizedRunRow {
   runId: string;
   taskGroupId: string;
@@ -188,6 +194,7 @@ export interface SanitizedRunRow {
   promptHashPrefix: string | null;
   toolSetHashPrefix: string | null;
   skillSetHashPrefix: string | null;
+  skillEntries: SanitizedSkillEntry[];
   selectedToolCount: number;
   skillCount: number;
   contextFileCount: number;
