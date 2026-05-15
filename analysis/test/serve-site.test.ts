@@ -31,7 +31,7 @@ test('resolveSiteRequestPath rejects unapproved or escaped data paths', () => {
     /Not found/,
   );
   assert.throws(
-    () => resolveSiteRequestPath(SITE_ROOT, '/../secrets.txt'),
+    () => resolveSiteRequestPath(SITE_ROOT, '/../outside.txt'),
     /Invalid path/,
   );
 });

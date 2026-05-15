@@ -3,8 +3,10 @@ import {
   incrementNamedCount,
   mergeFileMutationDelta,
   normalizeToolCallName,
+  type ToolFailureKind,
 } from '../../shared/tool-call-analysis';
 import type {
+  AssistantUsage,
   ComposerInput,
   RunOutcome,
   SessionAnalyticsFactors,
@@ -24,6 +26,8 @@ import {
   type RootState,
 } from '../store';
 import { SessionRunStateManager } from './run-state-manager';
+
+const TOOL_FAILURE_SAMPLE_LIMIT = 20;
 
 interface SessionRunTrackerOptions {
   dispatch: AppStore['dispatch'];
@@ -106,7 +110,7 @@ export class SessionRunTracker {
     }
   }
 
-  onAssistantTurnEnded(sessionPath: string, turnId: string, durationMs: number): void {
+  onAssistantTurnEnded(sessionPath: string, turnId: string, durationMs: number, usage?: AssistantUsage): void {
     const state = this.runState.sessions.get(sessionPath);
     const run = state?.currentRun;
     if (!run || !state) {
@@ -119,6 +123,14 @@ export class SessionRunTracker {
     }
 
     run.assistantTurnDurationMs += Math.max(0, Math.trunc(durationMs));
+    if (usage) {
+      run.inputTokens += usage.inputTokens;
+      run.outputTokens += usage.outputTokens;
+      run.cacheReadTokens += usage.cacheReadTokens;
+      run.cacheWriteTokens += usage.cacheWriteTokens;
+      run.tokenReportedTurnCount += 1;
+      run.lastTurnUsage = usage;
+    }
     run.updatedAt = this.runState.isoNow();
     this.runState.persist();
   }
@@ -142,13 +154,38 @@ export class SessionRunTracker {
       return;
     }
 
-    const normalizedName = normalizeToolCallName(toolCall.name) || toolCall.name;
+    const normalizedName = normalizeToolCallName(toolCall.name) || toolCall.name || '(unknown)';
+    const analysis = analyzeToolCall(toolCall);
     if (toolCall.status === 'failed') {
       run.toolUsage.failureCount += 1;
       incrementNamedCount(run.toolUsage.failureCountsByName, normalizedName);
+
+      const failureKind = analysis.failure?.kind ?? 'unknown';
+      incrementNamedCount(run.toolUsage.failureCountsByKind, failureKind);
+      const countsForTool = run.toolUsage.failureCountsByNameAndKind[normalizedName] ?? {} as Record<ToolFailureKind, number>;
+      run.toolUsage.failureCountsByNameAndKind[normalizedName] = countsForTool;
+      incrementNamedCount(countsForTool, failureKind);
+
+      if (failureKind === 'verification_project_failure') {
+        run.toolUsage.verificationProjectFailureCount += 1;
+      } else if (failureKind === 'probe_no_match') {
+        run.toolUsage.probeFailureCount += 1;
+      } else {
+        run.toolUsage.executionFailureCount += 1;
+      }
+
+      if (run.toolUsage.failureSamples.length < TOOL_FAILURE_SAMPLE_LIMIT) {
+        run.toolUsage.failureSamples.push({
+          toolName: normalizedName,
+          failureKind,
+          exitCode: analysis.failure?.exitCode ?? null,
+          errorExcerpt: analysis.failure?.errorExcerpt ?? '',
+          verificationKinds: analysis.verificationKinds,
+          occurredAt: this.runState.isoNow(),
+        });
+      }
     }
 
-    const analysis = analyzeToolCall(toolCall);
     if (analysis.subagentCallCount > 0) {
       run.toolUsage.subagentCallCount += analysis.subagentCallCount;
       run.toolUsage.subagentTaskCount += analysis.subagentTaskCount;
@@ -156,6 +193,15 @@ export class SessionRunTracker {
         run.toolUsage.subagentAgentNames,
         analysis.subagentAgentNames,
       );
+      run.toolUsage.subagentScoredTaskCount += analysis.subagentScoredTaskCount;
+      const dims = ['precision', 'creativity', 'reasoning', 'thoroughness'] as const;
+      for (const dim of dims) {
+        const src = analysis.subagentTaskScores[dim];
+        const dst = run.toolUsage.subagentTaskScores[dim];
+        dst.sum   += src.sum;
+        dst.count += src.count;
+        dst.max   = Math.max(dst.max, src.max);
+      }
     }
 
     if (analysis.verificationKinds.length > 0) {

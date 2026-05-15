@@ -42,6 +42,16 @@ export interface SubagentSingleResult {
   errorMessage?: string;
   /** Tool names currently executing inside this subagent run. */
   runningTools?: string[];
+  /** The model chosen by scored selection. */
+  selectedModel?: string;
+  /** Thinking level applied to this run. */
+  thinkingLevel?: string;
+  /** Merged task scores used for selection. */
+  taskScores?: Record<string, number>;
+  /** Top-K candidate models. */
+  selectionPool?: string[];
+  /** Fit scores for each pool candidate. */
+  selectionFitScores?: number[];
 }
 
 export interface SubagentResult {

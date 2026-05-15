@@ -21,6 +21,10 @@ export function getDataOutcomesRootPath(
   configuredRoot: string | undefined | null,
   globalStoragePath: string,
 ): string {
+  const analyticsDir = process.env.PIE_ANALYTICS_DIR?.trim();
+  if (analyticsDir) {
+    return path.resolve(analyticsDir);
+  }
   const trimmedRoot = configuredRoot?.trim();
   return trimmedRoot
     ? path.join(trimmedRoot, 'data', 'outcomes')
@@ -34,11 +38,11 @@ export function getDefaultRunAnalyticsExportPath(
 ): string {
   const trimmedRoot = configuredRoot?.trim();
   if (trimmedRoot) {
-    return path.join(trimmedRoot, 'analysis', 'data', 'exports', 'private-run-analytics.json');
+    return path.join(trimmedRoot, 'analysis', 'data', 'exports', 'run-analytics-export.json');
   }
 
   const workspaceLabel = path.basename(workspaceRoot) || 'workspace';
-  return path.join(globalStoragePath, 'exports', workspaceLabel, 'private-run-analytics.json');
+  return path.join(globalStoragePath, 'exports', workspaceLabel, 'run-analytics-export.json');
 }
 
 export function buildWorkspaceAnalyticsId(options: BuildWorkspaceAnalyticsIdOptions): string {

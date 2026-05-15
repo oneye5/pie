@@ -1,11 +1,12 @@
 import {
   type RunOutcome,
   type RunSnapshot,
-  type SanitizedAnalyticsData,
-  type SanitizedBackendErrorRow,
-  type SanitizedRunRow,
-  type SanitizedToolUsageRow,
-  type SanitizedVerificationUsageRow,
+  type PreparedAnalyticsData,
+  type PreparedBackendErrorRow,
+  type PreparedRunRow,
+  type PreparedToolFailureRow,
+  type PreparedToolUsageRow,
+  type PreparedVerificationUsageRow,
   type SourceAnalyticsPayload,
   type ThinkingLevel,
   type VerificationCommandKind,
@@ -94,11 +95,26 @@ function dedupeRunsById(runs: RunSnapshot[]): RunSnapshot[] {
   return [...deduped.values()];
 }
 
-function sanitizeRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>): SanitizedRunRow {
+function prepareRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>): PreparedRunRow {
   const outcome = getRunOutcome(run, outcomesByRunId);
   const verificationTotalCount = run.verification.totalCount;
   const verificationFailureCount = run.verification.failureCount;
   const startedDay = toStartedDay(run.startedAt);
+
+  const dims = ['precision', 'creativity', 'reasoning', 'thoroughness'] as const;
+  function meanForDim(dim: typeof dims[number]): number | null {
+    const s = run.toolUsage.subagentTaskScores[dim];
+    return s.count > 0 ? s.sum / s.count : null;
+  }
+  function maxForDim(dim: typeof dims[number]): number | null {
+    const s = run.toolUsage.subagentTaskScores[dim];
+    return s.count > 0 ? s.max : null;
+  }
+
+  const dimMeans = dims.map((d) => meanForDim(d)).filter((v): v is number => v !== null);
+  const compositeMean: number | null = dimMeans.length > 0
+    ? dimMeans.reduce((a, b) => a + b, 0) / dimMeans.length
+    : null;
 
   return {
     runId: run.runId,
@@ -151,6 +167,16 @@ function sanitizeRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>)
     subagentCallCount: run.toolUsage.subagentCallCount,
     subagentTaskCount: run.toolUsage.subagentTaskCount,
     subagentAgentCount: run.toolUsage.subagentAgentNames.length,
+    subagentScoredTaskCount: run.toolUsage.subagentScoredTaskCount,
+    subagentMeanPrecision: meanForDim('precision'),
+    subagentMeanCreativity: meanForDim('creativity'),
+    subagentMeanReasoning: meanForDim('reasoning'),
+    subagentMeanThoroughness: meanForDim('thoroughness'),
+    subagentMaxPrecision: maxForDim('precision'),
+    subagentMaxCreativity: maxForDim('creativity'),
+    subagentMaxReasoning: maxForDim('reasoning'),
+    subagentMaxThoroughness: maxForDim('thoroughness'),
+    subagentCompositeMean: compositeMean,
     verificationTotalCount,
     verificationFailureCount,
     verificationState: normalizeVerificationState(verificationTotalCount, verificationFailureCount),
@@ -176,15 +202,59 @@ function sanitizeRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>)
   };
 }
 
-function sanitizeToolUsage(run: RunSnapshot, outcome: RunOutcome | null): SanitizedToolUsageRow[] {
+function prepareToolUsage(run: RunSnapshot, outcome: RunOutcome | null): PreparedToolUsageRow[] {
   const startedDay = toStartedDay(run.startedAt);
   return Object.entries(run.toolUsage.countsByName)
     .filter(([, callCount]) => callCount > 0)
-    .map(([toolName, callCount]) => ({
+    .map(([toolName, callCount]) => {
+      const failureCountsByKind = run.toolUsage.failureCountsByNameAndKind[toolName] ?? {};
+      const verificationProjectFailureCount = failureCountsByKind.verification_project_failure ?? 0;
+      const probeFailureCount = failureCountsByKind.probe_no_match ?? 0;
+      const failureCount = run.toolUsage.failureCountsByName[toolName] ?? 0;
+      const classifiedFailureCount = Object.values(failureCountsByKind).reduce((sum, count) => sum + count, 0);
+      return {
+        runId: run.runId,
+        toolName,
+        callCount,
+        failureCount,
+        executionFailureCount: classifiedFailureCount > 0
+          ? Math.max(0, failureCount - verificationProjectFailureCount - probeFailureCount)
+          : 0,
+        verificationProjectFailureCount,
+        probeFailureCount,
+        startedAt: run.startedAt,
+        startedDay,
+        modelId: normalizeNullableText(run.modelId),
+        thinkingLevel: normalizeThinkingLevel(run.thinkingLevel),
+        experimentAssignment: normalizeNullableText(run.experimentAssignment),
+        mixedTreatmentConfig: run.mixedTreatmentConfig,
+        scored: run.scored,
+        satisfaction: outcome?.satisfaction ?? null,
+        resolution: outcome?.resolution ?? null,
+      };
+    });
+}
+
+function prepareToolFailures(run: RunSnapshot, outcome: RunOutcome | null): PreparedToolFailureRow[] {
+  const startedDay = toStartedDay(run.startedAt);
+  const rows: PreparedToolFailureRow[] = [];
+  const sampleByKey = new Map<string, (typeof run.toolUsage.failureSamples)[number]>(
+    run.toolUsage.failureSamples.map((sample) => [`${sample.toolName}\u0000${sample.failureKind}`, sample]),
+  );
+
+  const pushFailureRow = (toolName: string, failureKind: PreparedToolFailureRow['failureKind'], count: number): void => {
+    if (count <= 0) {
+      return;
+    }
+    const sample = sampleByKey.get(`${toolName}\u0000${failureKind}`);
+    rows.push({
       runId: run.runId,
       toolName,
-      callCount,
-      failureCount: run.toolUsage.failureCountsByName[toolName] ?? 0,
+      failureKind,
+      count,
+      exitCode: sample?.exitCode ?? null,
+      errorExcerpt: sample?.errorExcerpt || null,
+      verificationKinds: sample?.verificationKinds ?? [],
       startedAt: run.startedAt,
       startedDay,
       modelId: normalizeNullableText(run.modelId),
@@ -194,10 +264,31 @@ function sanitizeToolUsage(run: RunSnapshot, outcome: RunOutcome | null): Saniti
       scored: run.scored,
       satisfaction: outcome?.satisfaction ?? null,
       resolution: outcome?.resolution ?? null,
-    }));
+    });
+  };
+
+  const classifiedTools = new Set<string>();
+  for (const [toolName, countsByKind] of Object.entries(run.toolUsage.failureCountsByNameAndKind)) {
+    classifiedTools.add(toolName);
+    let classifiedCount = 0;
+    for (const [failureKind, count] of Object.entries(countsByKind)) {
+      classifiedCount += count;
+      pushFailureRow(toolName, failureKind as PreparedToolFailureRow['failureKind'], count);
+    }
+    const totalFailureCount = run.toolUsage.failureCountsByName[toolName] ?? 0;
+    pushFailureRow(toolName, 'unknown', Math.max(0, totalFailureCount - classifiedCount));
+  }
+
+  for (const [toolName, totalFailureCount] of Object.entries(run.toolUsage.failureCountsByName)) {
+    if (!classifiedTools.has(toolName)) {
+      pushFailureRow(toolName, 'unknown', totalFailureCount);
+    }
+  }
+
+  return rows;
 }
 
-function sanitizeVerificationUsage(run: RunSnapshot, outcome: RunOutcome | null): SanitizedVerificationUsageRow[] {
+function prepareVerificationUsage(run: RunSnapshot, outcome: RunOutcome | null): PreparedVerificationUsageRow[] {
   const startedDay = toStartedDay(run.startedAt);
   const kinds: VerificationCommandKind[] = ['test', 'build', 'lint', 'typecheck', 'format', 'other'];
   return kinds
@@ -220,7 +311,7 @@ function sanitizeVerificationUsage(run: RunSnapshot, outcome: RunOutcome | null)
     }));
 }
 
-function sanitizeBackendErrors(run: RunSnapshot, outcome: RunOutcome | null): SanitizedBackendErrorRow[] {
+function prepareBackendErrors(run: RunSnapshot, outcome: RunOutcome | null): PreparedBackendErrorRow[] {
   if (run.backendErrorCodes.length === 0) {
     return [];
   }
@@ -250,23 +341,25 @@ function sanitizeBackendErrors(run: RunSnapshot, outcome: RunOutcome | null): Sa
   }));
 }
 
-export function sanitizeSourceAnalytics(source: SourceAnalyticsPayload): SanitizedAnalyticsData {
+export function prepareSourceAnalytics(source: SourceAnalyticsPayload): PreparedAnalyticsData {
   const outcomesByRunId = new Map<string, RunOutcome>();
   for (const outcome of source.outcomes) {
     outcomesByRunId.set(outcome.runId, outcome.outcome);
   }
 
   const dedupedRuns = dedupeRunsById([...source.completedRuns, ...source.openRuns]);
-  const runs = dedupedRuns.map((run) => sanitizeRun(run, outcomesByRunId));
-  const toolUsage: SanitizedToolUsageRow[] = [];
-  const verificationUsage: SanitizedVerificationUsageRow[] = [];
-  const backendErrors: SanitizedBackendErrorRow[] = [];
+  const runs = dedupedRuns.map((run) => prepareRun(run, outcomesByRunId));
+  const toolUsage: PreparedToolUsageRow[] = [];
+  const toolFailures: PreparedToolFailureRow[] = [];
+  const verificationUsage: PreparedVerificationUsageRow[] = [];
+  const backendErrors: PreparedBackendErrorRow[] = [];
 
   for (const run of dedupedRuns) {
     const outcome = getRunOutcome(run, outcomesByRunId);
-    toolUsage.push(...sanitizeToolUsage(run, outcome));
-    verificationUsage.push(...sanitizeVerificationUsage(run, outcome));
-    backendErrors.push(...sanitizeBackendErrors(run, outcome));
+    toolUsage.push(...prepareToolUsage(run, outcome));
+    toolFailures.push(...prepareToolFailures(run, outcome));
+    verificationUsage.push(...prepareVerificationUsage(run, outcome));
+    backendErrors.push(...prepareBackendErrors(run, outcome));
   }
 
   return {
@@ -275,6 +368,7 @@ export function sanitizeSourceAnalytics(source: SourceAnalyticsPayload): Sanitiz
     sourceWorkspaceKey: source.workspaceKey,
     runs,
     toolUsage,
+    toolFailures,
     verificationUsage,
     backendErrors,
   };

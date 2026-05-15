@@ -1,11 +1,12 @@
 import type {
   ActiveRunStatus,
+  AssistantUsage,
   ComposerInput,
   RunOutcome,
   SessionAnalyticsFactors,
   ThinkingLevel,
 } from '../shared/protocol';
-import type { VerificationCommandKind } from '../shared/tool-call-analysis';
+import type { VerificationCommandKind, SubagentTaskScoreRollup, ToolFailureKind } from '../shared/tool-call-analysis';
 
 export const RUN_ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -20,14 +21,34 @@ export type TreatmentChangeKind =
   | 'skills'
   | 'experimentAssignment';
 
+export interface ToolFailureSample {
+  toolName: string;
+  failureKind: ToolFailureKind;
+  exitCode: number | null;
+  errorExcerpt: string;
+  verificationKinds: VerificationCommandKind[];
+  occurredAt: string;
+}
+
 export interface ToolUsageRollup {
   totalCount: number;
   failureCount: number;
+  /** Failed tool calls excluding verification-project failures and probe/no-match outcomes. */
+  executionFailureCount: number;
+  /** Failed tool calls where the command was verification and exposed project failures. */
+  verificationProjectFailureCount: number;
+  /** Failed probe/search commands that likely mean "no matches" rather than a broken tool. */
+  probeFailureCount: number;
   countsByName: Record<string, number>;
   failureCountsByName: Record<string, number>;
+  failureCountsByKind: Record<ToolFailureKind, number>;
+  failureCountsByNameAndKind: Record<string, Record<ToolFailureKind, number>>;
+  failureSamples: ToolFailureSample[];
   subagentCallCount: number;
   subagentTaskCount: number;
   subagentAgentNames: string[];
+  subagentScoredTaskCount: number;
+  subagentTaskScores: SubagentTaskScoreRollup;
 }
 
 export interface FileMutationRollup {
@@ -76,6 +97,18 @@ export interface RunSnapshot {
   backendErrorCodes: string[];
   contextTokens: number | null;
   contextLimit: number | null;
+  /** Cumulative input tokens reported by the provider across assistant turns in this run. */
+  inputTokens: number;
+  /** Cumulative output tokens reported by the provider across assistant turns in this run. */
+  outputTokens: number;
+  /** Cumulative cache-read tokens across assistant turns in this run. */
+  cacheReadTokens: number;
+  /** Cumulative cache-write tokens across assistant turns in this run. */
+  cacheWriteTokens: number;
+  /** Number of assistant turns in this run that reported provider usage. */
+  tokenReportedTurnCount: number;
+  /** Usage from the most recent assistant turn in this run that reported it. */
+  lastTurnUsage: AssistantUsage | null;
   filesystemPathRefCount: number;
   imageInputCount: number;
   imageInputBytes: number;
@@ -126,6 +159,18 @@ const VERIFICATION_COMMAND_KINDS: VerificationCommandKind[] = [
   'other',
 ];
 
+const TOOL_FAILURE_KINDS: ToolFailureKind[] = [
+  'unavailable_tool',
+  'invalid_tool_arguments',
+  'missing_file_or_path',
+  'shell_command_error',
+  'probe_no_match',
+  'verification_project_failure',
+  'timeout',
+  'nonzero_exit',
+  'unknown',
+];
+
 const TREATMENT_CHANGE_KINDS: TreatmentChangeKind[] = [
   'model',
   'thinking',
@@ -166,6 +211,33 @@ function coerceStringArray(value: unknown): string[] {
     : [];
 }
 
+function coerceSubagentTaskScores(value: unknown): SubagentTaskScoreRollup {
+  if (!isObjectRecord(value)) {
+    return {
+      precision:    { sum: 0, count: 0, max: 0 },
+      creativity:   { sum: 0, count: 0, max: 0 },
+      reasoning:    { sum: 0, count: 0, max: 0 },
+      thoroughness: { sum: 0, count: 0, max: 0 },
+    };
+  }
+
+  const coerceDim = (dim: unknown): { sum: number; count: number; max: number } => {
+    if (!isObjectRecord(dim)) return { sum: 0, count: 0, max: 0 };
+    return {
+      sum:   toNonNegativeInteger(dim.sum),
+      count: toNonNegativeInteger(dim.count),
+      max:   toNonNegativeInteger(dim.max),
+    };
+  };
+
+  return {
+    precision:    coerceDim(value.precision),
+    creativity:   coerceDim(value.creativity),
+    reasoning:    coerceDim(value.reasoning),
+    thoroughness: coerceDim(value.thoroughness),
+  };
+}
+
 function coerceTreatmentChangeKinds(value: unknown): TreatmentChangeKind[] {
   const kinds = new Set<TreatmentChangeKind>();
   for (const item of coerceStringArray(value)) {
@@ -176,15 +248,42 @@ function coerceTreatmentChangeKinds(value: unknown): TreatmentChangeKind[] {
   return [...kinds];
 }
 
+function createEmptyToolFailureKindRecord(): Record<ToolFailureKind, number> {
+  return {
+    unavailable_tool: 0,
+    invalid_tool_arguments: 0,
+    missing_file_or_path: 0,
+    shell_command_error: 0,
+    probe_no_match: 0,
+    verification_project_failure: 0,
+    timeout: 0,
+    nonzero_exit: 0,
+    unknown: 0,
+  };
+}
+
 export function createEmptyToolUsageRollup(): ToolUsageRollup {
   return {
     totalCount: 0,
     failureCount: 0,
+    executionFailureCount: 0,
+    verificationProjectFailureCount: 0,
+    probeFailureCount: 0,
     countsByName: {},
     failureCountsByName: {},
+    failureCountsByKind: createEmptyToolFailureKindRecord(),
+    failureCountsByNameAndKind: {},
+    failureSamples: [],
     subagentCallCount: 0,
     subagentTaskCount: 0,
     subagentAgentNames: [],
+    subagentScoredTaskCount: 0,
+    subagentTaskScores: {
+      precision:    { sum: 0, count: 0, max: 0 },
+      creativity:   { sum: 0, count: 0, max: 0 },
+      reasoning:    { sum: 0, count: 0, max: 0 },
+      thoroughness: { sum: 0, count: 0, max: 0 },
+    },
   };
 }
 
@@ -216,6 +315,44 @@ export function createEmptyVerificationRollup(): VerificationRollup {
   };
 }
 
+function coerceToolFailureKindRecord(value: unknown): Record<ToolFailureKind, number> {
+  const result = createEmptyToolFailureKindRecord();
+  if (!isObjectRecord(value)) {
+    return result;
+  }
+  for (const kind of TOOL_FAILURE_KINDS) {
+    const count = value[kind];
+    if (typeof count === 'number' && Number.isFinite(count) && count >= 0) {
+      result[kind] = Math.trunc(count);
+    }
+  }
+  return result;
+}
+
+function coerceToolFailureSample(value: unknown): ToolFailureSample | null {
+  if (!isObjectRecord(value)) {
+    return null;
+  }
+  const failureKind = typeof value.failureKind === 'string' && TOOL_FAILURE_KINDS.includes(value.failureKind as ToolFailureKind)
+    ? value.failureKind as ToolFailureKind
+    : null;
+  if (typeof value.toolName !== 'string' || !failureKind || typeof value.occurredAt !== 'string') {
+    return null;
+  }
+  const exitCode = typeof value.exitCode === 'number' && Number.isFinite(value.exitCode)
+    ? Math.trunc(value.exitCode)
+    : null;
+  return {
+    toolName: value.toolName,
+    failureKind,
+    exitCode,
+    errorExcerpt: typeof value.errorExcerpt === 'string' ? value.errorExcerpt : '',
+    verificationKinds: coerceStringArray(value.verificationKinds)
+      .filter((kind): kind is VerificationCommandKind => VERIFICATION_COMMAND_KINDS.includes(kind as VerificationCommandKind)),
+    occurredAt: value.occurredAt,
+  };
+}
+
 function coerceToolUsageRollup(value: unknown): ToolUsageRollup {
   if (!isObjectRecord(value)) {
     return createEmptyToolUsageRollup();
@@ -235,15 +372,31 @@ function coerceToolUsageRollup(value: unknown): ToolUsageRollup {
         .map(([name, count]) => [name, Math.trunc(count as number)]),
     )
     : {};
+  const failureCountsByNameAndKind: Record<string, Record<ToolFailureKind, number>> = {};
+  if (isObjectRecord(value.failureCountsByNameAndKind)) {
+    for (const [toolName, counts] of Object.entries(value.failureCountsByNameAndKind)) {
+      failureCountsByNameAndKind[toolName] = coerceToolFailureKindRecord(counts);
+    }
+  }
 
   return {
     totalCount: toNonNegativeInteger(value.totalCount),
     failureCount: toNonNegativeInteger(value.failureCount),
+    executionFailureCount: toNonNegativeInteger(value.executionFailureCount),
+    verificationProjectFailureCount: toNonNegativeInteger(value.verificationProjectFailureCount),
+    probeFailureCount: toNonNegativeInteger(value.probeFailureCount),
     countsByName,
     failureCountsByName,
+    failureCountsByKind: coerceToolFailureKindRecord(value.failureCountsByKind),
+    failureCountsByNameAndKind,
+    failureSamples: Array.isArray(value.failureSamples)
+      ? value.failureSamples.map(coerceToolFailureSample).filter((sample): sample is ToolFailureSample => sample !== null)
+      : [],
     subagentCallCount: toNonNegativeInteger(value.subagentCallCount),
     subagentTaskCount: toNonNegativeInteger(value.subagentTaskCount),
     subagentAgentNames: coerceStringArray(value.subagentAgentNames),
+    subagentScoredTaskCount: toNonNegativeInteger(value.subagentScoredTaskCount),
+    subagentTaskScores: coerceSubagentTaskScores(value.subagentTaskScores),
   };
 }
 
@@ -384,6 +537,24 @@ export function coerceSessionAnalyticsFactors(value: unknown): SessionAnalyticsF
   };
 }
 
+function coerceAssistantUsage(value: unknown): AssistantUsage | null {
+  if (!isObjectRecord(value)) {
+    return null;
+  }
+  const inputTokens = toNonNegativeInteger(value.inputTokens);
+  const outputTokens = toNonNegativeInteger(value.outputTokens);
+  const cacheReadTokens = toNonNegativeInteger(value.cacheReadTokens);
+  const cacheWriteTokens = toNonNegativeInteger(value.cacheWriteTokens);
+  const reportedTotal = toNonNegativeInteger(value.totalTokens);
+  const totalTokens = reportedTotal > 0
+    ? reportedTotal
+    : inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
+  if (totalTokens === 0) {
+    return null;
+  }
+  return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens };
+}
+
 export function coerceRunSnapshot(value: unknown): RunSnapshot | null {
   if (!value || typeof value !== 'object') {
     return null;
@@ -460,6 +631,12 @@ export function coerceRunSnapshot(value: unknown): RunSnapshot | null {
     backendErrorCodes: [...candidate.backendErrorCodes],
     contextTokens: candidate.contextTokens ?? null,
     contextLimit: candidate.contextLimit ?? null,
+    inputTokens: toNonNegativeInteger(candidate.inputTokens),
+    outputTokens: toNonNegativeInteger(candidate.outputTokens),
+    cacheReadTokens: toNonNegativeInteger(candidate.cacheReadTokens),
+    cacheWriteTokens: toNonNegativeInteger(candidate.cacheWriteTokens),
+    tokenReportedTurnCount: toNonNegativeInteger(candidate.tokenReportedTurnCount),
+    lastTurnUsage: coerceAssistantUsage(candidate.lastTurnUsage),
     filesystemPathRefCount: Math.trunc(candidate.filesystemPathRefCount),
     imageInputCount: Math.trunc(candidate.imageInputCount),
     imageInputBytes: Math.trunc(candidate.imageInputBytes),

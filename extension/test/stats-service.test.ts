@@ -66,6 +66,12 @@ function createOpenRunSnapshot(sessionPath: string, runId: string): RunSnapshot 
     backendErrorCodes: [],
     contextTokens: null,
     contextLimit: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    tokenReportedTurnCount: 0,
+    lastTurnUsage: null,
     filesystemPathRefCount: 0,
     imageInputCount: 0,
     imageInputBytes: 0,
@@ -702,8 +708,8 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
       name: 'subagent',
       input: {
         tasks: [
-          { agent: 'scout', task: 'Trace tool events' },
-          { agent: 'reviewer', task: 'Check analytics snapshot' },
+          { agent: 'scout', task: 'Trace tool events', taskScores: { precision: 4, creativity: 3 } },
+          { agent: 'reviewer', task: 'Check analytics snapshot', taskScores: { precision: 5, reasoning: 4, thoroughness: 2 } },
         ],
       },
       result: 'done',
@@ -737,10 +743,29 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
         toolUsage: {
           totalCount: number;
           failureCount: number;
+          executionFailureCount: number;
+          verificationProjectFailureCount: number;
+          probeFailureCount: number;
           countsByName: Record<string, number>;
+          failureCountsByKind: Record<string, number>;
+          failureCountsByNameAndKind: Record<string, Record<string, number>>;
+          failureSamples: Array<{
+            toolName: string;
+            failureKind: string;
+            exitCode: number | null;
+            errorExcerpt: string;
+            verificationKinds: string[];
+          }>;
           subagentCallCount: number;
           subagentTaskCount: number;
           subagentAgentNames: string[];
+          subagentScoredTaskCount: number;
+          subagentTaskScores: {
+            precision:    { sum: number; count: number; max: number };
+            creativity:   { sum: number; count: number; max: number };
+            reasoning:    { sum: number; count: number; max: number };
+            thoroughness: { sum: number; count: number; max: number };
+          };
         };
         verification: {
           totalCount: number;
@@ -757,10 +782,32 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
     assert.equal(snapshotEntries.length, 1);
     assert.equal(snapshotEntries[0].run.toolUsage.totalCount, 3);
     assert.equal(snapshotEntries[0].run.toolUsage.failureCount, 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.executionFailureCount, 0);
+    assert.equal(snapshotEntries[0].run.toolUsage.verificationProjectFailureCount, 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.probeFailureCount, 0);
     assert.equal(snapshotEntries[0].run.toolUsage.countsByName['bash'], 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.failureCountsByKind['verification_project_failure'], 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.failureCountsByNameAndKind['bash']?.['verification_project_failure'], 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.failureSamples[0]?.toolName, 'bash');
+    assert.equal(snapshotEntries[0].run.toolUsage.failureSamples[0]?.failureKind, 'verification_project_failure');
+    assert.equal(snapshotEntries[0].run.toolUsage.failureSamples[0]?.exitCode, 1);
+    assert.deepEqual(snapshotEntries[0].run.toolUsage.failureSamples[0]?.verificationKinds, ['test']);
     assert.equal(snapshotEntries[0].run.toolUsage.subagentCallCount, 1);
     assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskCount, 2);
     assert.deepEqual(snapshotEntries[0].run.toolUsage.subagentAgentNames, ['scout', 'reviewer']);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentScoredTaskCount, 2);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.precision.sum, 9);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.precision.count, 2);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.precision.max, 5);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.creativity.sum, 3);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.creativity.count, 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.creativity.max, 3);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.reasoning.sum, 4);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.reasoning.count, 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.reasoning.max, 4);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.thoroughness.sum, 2);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.thoroughness.count, 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.thoroughness.max, 2);
     assert.equal(snapshotEntries[0].run.verification.totalCount, 1);
     assert.equal(snapshotEntries[0].run.verification.failureCount, 1);
     assert.equal(snapshotEntries[0].run.verification.countsByKind['test'], 1);

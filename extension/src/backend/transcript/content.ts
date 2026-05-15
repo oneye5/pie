@@ -1,4 +1,5 @@
 import type {
+  AssistantUsage,
   ChatMessage,
   ChatMessagePart,
   ThinkingLevel,
@@ -184,6 +185,60 @@ export function assistantStatus(message: MessageLike): ChatMessage['status'] {
   }
 
   return 'completed';
+}
+
+function toNonNegativeInt(value: number | undefined): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+  return Math.trunc(value);
+}
+
+/**
+ * Extract a normalised `AssistantUsage` block from a raw assistant message.
+ * Returns `undefined` for messages without usage (aborted/errored turns, or
+ * legacy entries from before the provider reported usage).
+ */
+export function usageFromMessage(message: MessageLike): AssistantUsage | undefined {
+  const usage = message.usage;
+  if (!usage) {
+    return undefined;
+  }
+
+  const input = toNonNegativeInt(usage.input);
+  const output = toNonNegativeInt(usage.output);
+  const cacheRead = toNonNegativeInt(usage.cacheRead);
+  const cacheWrite = toNonNegativeInt(usage.cacheWrite);
+  const reportedTotal = toNonNegativeInt(usage.totalTokens);
+  const total = reportedTotal > 0 ? reportedTotal : input + output + cacheRead + cacheWrite;
+
+  if (total === 0) {
+    return undefined;
+  }
+
+  return {
+    inputTokens: input,
+    outputTokens: output,
+    cacheReadTokens: cacheRead,
+    cacheWriteTokens: cacheWrite,
+    totalTokens: total,
+  };
+}
+
+/** Sum two optional usage blocks. Returns `undefined` when both are undefined. */
+export function addAssistantUsage(
+  a: AssistantUsage | undefined,
+  b: AssistantUsage | undefined,
+): AssistantUsage | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  return {
+    inputTokens: a.inputTokens + b.inputTokens,
+    outputTokens: a.outputTokens + b.outputTokens,
+    cacheReadTokens: a.cacheReadTokens + b.cacheReadTokens,
+    cacheWriteTokens: a.cacheWriteTokens + b.cacheWriteTokens,
+    totalTokens: a.totalTokens + b.totalTokens,
+  };
 }
 
 export function systemMessage(id: string, createdAt: string, markdown: string): ChatMessage {

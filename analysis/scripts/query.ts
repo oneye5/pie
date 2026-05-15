@@ -3,7 +3,7 @@ import * as fs from 'node:fs';
 
 import { parseCliOptions, formatUsage } from './cli.ts';
 import { buildDuckDbDatabase, runNamedDuckDbQuery, type NamedQuery, QUERY_FILE_BY_NAME } from './duckdb.ts';
-import { sanitizeSourceAnalytics } from './sanitize.ts';
+import { prepareSourceAnalytics } from './prepare.ts';
 import { DEFAULT_DUCKDB_PATH, DEFAULT_STAGING_EXPORTS_DIR, loadSourceAnalytics } from './source.ts';
 
 async function main(): Promise<void> {
@@ -25,11 +25,11 @@ async function main(): Promise<void> {
   const dbPath = options.dbPath ?? DEFAULT_DUCKDB_PATH;
   if (!fs.existsSync(dbPath) || options.exportPath || options.storageDir) {
     const loaded = await loadSourceAnalytics({ exportPath: options.exportPath, storageDir: options.storageDir });
-    const sanitized = sanitizeSourceAnalytics(loaded.source);
+    const prepared = prepareSourceAnalytics(loaded.source);
     await buildDuckDbDatabase({
       dbPath,
       exportsDir: options.exportsDir ?? DEFAULT_STAGING_EXPORTS_DIR,
-      sanitized,
+      prepared,
     });
   }
 

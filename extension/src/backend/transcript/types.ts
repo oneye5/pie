@@ -40,4 +40,12 @@ export interface MessageLike {
   summary?: string;
   stopReason?: string;
   errorMessage?: string;
+  /** Raw provider usage block on assistant messages, when reported. */
+  usage?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    totalTokens?: number;
+  };
 }

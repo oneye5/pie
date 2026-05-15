@@ -29,6 +29,7 @@ interface ComposerToolbarProps {
   supportsReasoning: boolean;
   contextIndicator: { label: string | null; ariaLabel: string; severity: string | null } | null;
   contextBreakdownTitle: string | null;
+  sessionTokenIndicator: { label: string; rateLabel: string; ariaLabel: string; tooltip: string };
   runStatus: ComposerToolbarStatus | null;
   onModelChange: (model: string, thinkingLevel: ThinkingLevel) => void;
 }
@@ -42,6 +43,7 @@ export function ComposerToolbar({
   supportsReasoning,
   contextIndicator,
   contextBreakdownTitle,
+  sessionTokenIndicator,
   runStatus,
   onModelChange,
 }: ComposerToolbarProps) {
@@ -49,46 +51,63 @@ export function ComposerToolbar({
 
   return (
     <div class="composer-toolbar">
-      <ComposerSettingsMenu prefs={prefs} onSetPrefs={onSetPrefs} />
+      <div class="composer-toolbar-left">
+        <ComposerSettingsMenu prefs={prefs} onSetPrefs={onSetPrefs} />
 
-      {availableModels.length > 0 ? (
-        <select
-          class="model-select"
-          value={selectedModel}
-          onChange={(e) => {
-            const target = e.target as HTMLSelectElement;
-            onModelChange(target.value, selectedLevel);
-          }}
-          aria-label="Model"
-          title="Select model"
+        {availableModels.length > 0 ? (
+          <select
+            class="model-select"
+            value={selectedModel}
+            onChange={(e) => {
+              const target = e.target as HTMLSelectElement;
+              onModelChange(target.value, selectedLevel);
+            }}
+            aria-label="Model"
+            title="Select model"
+          >
+            {availableModels.map((model) => (
+              <option key={model.id} value={model.id}>{model.name}</option>
+            ))}
+          </select>
+        ) : selectedModel ? (
+          <span class="model-select-static" title={selectedModel}>{selectedModel}</span>
+        ) : null}
+
+        {supportsReasoning && (
+          <select
+            class="model-select model-select-sm"
+            value={selectedLevel}
+            onChange={(e) => {
+              const target = e.target as HTMLSelectElement;
+              onModelChange(selectedModel, target.value as ThinkingLevel);
+            }}
+            aria-label="Reasoning level"
+            title="Reasoning level"
+          >
+            {(Object.keys(THINKING_LEVEL_LABELS) as ThinkingLevel[]).map((level) => (
+              <option key={level} value={level}>{THINKING_LEVEL_LABELS[level]}</option>
+            ))}
+          </select>
+        )}
+      </div>
+
+      <div class="composer-toolbar-right">
+        <span
+          class="model-select-static session-token-rate"
+          aria-label={`Output rate: ${sessionTokenIndicator.rateLabel}`}
+          title="Output token rate"
         >
-          {availableModels.map((model) => (
-            <option key={model.id} value={model.id}>{model.name}</option>
-          ))}
-        </select>
-      ) : selectedModel ? (
-        <span class="model-select-static" title={selectedModel}>{selectedModel}</span>
-      ) : null}
-
-      {supportsReasoning && (
-        <select
-          class="model-select model-select-sm"
-          value={selectedLevel}
-          onChange={(e) => {
-            const target = e.target as HTMLSelectElement;
-            onModelChange(selectedModel, target.value as ThinkingLevel);
-          }}
-          aria-label="Reasoning level"
-          title="Reasoning level"
+          {sessionTokenIndicator.rateLabel}
+        </span>
+        <span
+          class="model-select-static session-token-indicator"
+          aria-label={sessionTokenIndicator.ariaLabel}
+          title={sessionTokenIndicator.tooltip}
         >
-          {(Object.keys(THINKING_LEVEL_LABELS) as ThinkingLevel[]).map((level) => (
-            <option key={level} value={level}>{THINKING_LEVEL_LABELS[level]}</option>
-          ))}
-        </select>
-      )}
+          {sessionTokenIndicator.label}
+        </span>
 
-      {contextIndicator?.label && contextBreakdownTitle && (
-        <div class="context-window-indicator-anchor">
+        {contextIndicator?.label && contextBreakdownTitle && (
           <span
             class={`model-select-static context-window-indicator${contextIndicatorClass}`}
             aria-label={contextIndicator.ariaLabel}
@@ -97,19 +116,19 @@ export function ComposerToolbar({
           >
             {contextIndicator.label}
           </span>
-        </div>
-      )}
+        )}
 
-      {runStatus && (
-        <div class="composer-run-controls">
-          <span
-            class={`composer-meta-chip ${runStatus.tone}`}
-            title={runStatus.title}
-          >
-            {runStatus.text}
-          </span>
-        </div>
-      )}
+        {runStatus && (
+          <div class="composer-run-controls">
+            <span
+              class={`composer-meta-chip ${runStatus.tone}`}
+              title={runStatus.title}
+            >
+              {runStatus.text}
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

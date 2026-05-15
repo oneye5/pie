@@ -1,5 +1,7 @@
-# PI local runtime data and secrets — never commit these
-/auth.json
+# PI local runtime data and auth files
+auth.json
+auth.json.*
+*.auth.json
 /data/
 
 # Legacy repo-local PI runtime dirs kept ignored for compatibility
@@ -9,9 +11,8 @@
 
 # Legacy local export drop locations kept ignored for compatibility
 /run-analytics-export.json
-/private-run-analytics.json
 
-# Environment / secrets
+# Environment files
 .env
 .env.*
 *.env
@@ -44,7 +45,7 @@ out-tsc/
 .parcel-cache/
 .eslintcache
 
-# Analysis package private/generated outputs
+# Analysis package generated outputs
 /analysis/data/*.duckdb
 /analysis/data/*.duckdb.*
 /analysis/data/exports/

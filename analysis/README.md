@@ -9,24 +9,16 @@ This package is a human-facing and agent-facing view over the existing local ana
 Data flow:
 
 ```text
-private source export or analytics store
-  -> sanitized intermediate model
+analytics source export or analytics store
+  -> prepared intermediate model
   -> DuckDB database + SQL queries
   -> generated site-data JSON
   -> static localhost dashboard
 ```
 
-## Privacy boundary
+## Local dashboard data
 
-Raw `run-analytics.json` exports are **private source inputs only**.
-
-They may contain:
-
-- raw `sessionPath` values,
-- raw `analyticsFactors.contextFiles[].path` values,
-- workspace-derived identifiers.
-
-Generated site data under `analysis/site/data/` excludes those raw path fields by default and is the privacy boundary for the dashboard. Unexpected JSON files in that directory are treated as validation failures and are not served by the local dashboard server.
+Raw `run-analytics.json` exports and generated `analysis/site/data/*.json` are local analysis inputs/outputs. The dashboard server serves only the expected generated site-data files so accidental extra files in that directory do not affect the UI.
 
 ## Install
 
@@ -83,11 +75,11 @@ Use the command palette entry:
 
 - `pie: Export Run Analytics`
 
-Save the export to a git-ignored private path such as `analysis/data/exports/private-run-analytics.json`, then point analysis scripts at it:
+Save the export to a git-ignored path such as `analysis/data/exports/run-analytics-export.json`, then point analysis scripts at it:
 
 ```bash
 cd analysis
-npm run export-site-data -- --export ./data/exports/private-run-analytics.json
+npm run export-site-data -- --export ./data/exports/run-analytics-export.json
 ```
 
 ### Option 2: read directly from a run store directory
@@ -100,7 +92,7 @@ npm run export-site-data -- --storage-dir ../data/outcomes/<workspace-hash>
 
 ## Generated outputs
 
-Private/generated outputs are git-ignored:
+Generated outputs are git-ignored:
 
 - `analysis/data/usage.duckdb`
 - `analysis/data/exports/*.json`
@@ -125,6 +117,7 @@ core_runs
 model_quality
 verification_impact
 tool_usage
+tool_failures
 treatment_comparison
 timeline
 ```
@@ -133,7 +126,7 @@ Example:
 
 ```bash
 cd analysis
-npm run query -- --name tool_usage --export ./data/exports/private-run-analytics.json
+npm run query -- --name tool_usage --export ./data/exports/run-analytics-export.json
 ```
 
 ## Dashboard workflow
@@ -146,14 +139,14 @@ npm run serve
 `npm run serve` will:
 
 1. auto-detect your local run store under `../data/outcomes/`,
-2. regenerate privacy-safe `analysis/site/data/*.json`,
+2. regenerate dashboard-ready `analysis/site/data/*.json`,
 3. start the localhost dashboard server.
 
 If multiple run stores exist and none matches the current workspace hash, `serve` will ask for an explicit source. You can always force one with:
 
 ```bash
 npm run serve -- --storage-dir ../data/outcomes/<workspace-hash>
-npm run serve -- --export ./data/exports/private-run-analytics.json
+npm run serve -- --export ./data/exports/run-analytics-export.json
 ```
 
 Then open the localhost URL printed by the server.
@@ -169,5 +162,4 @@ Do not rely on `file://` loading.
    - charts render,
    - global filters update multiple charts,
    - empty/no-scored subsets show useful messages,
-   - browser devtools show no CDN or third-party requests,
-   - raw session paths and raw context-file paths do not appear in JSON or UI.
+   - browser devtools show no CDN or third-party requests.

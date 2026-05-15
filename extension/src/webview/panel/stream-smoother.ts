@@ -4,48 +4,54 @@ import type { Overlay } from './overlay';
 
 /** Configuration for stream smoothing. */
 export interface StreamSmootherConfig {
-  /** Characters per second to emit during smoothed streaming. Default: 30 */
-  charsPerSecond: number;
-  /** Minimum characters before triggering smoothing. Default: 5 */
+  /**
+   * Minimum time each character takes to display, in milliseconds.
+   * Lower values = faster streaming. Default: 50ms (20 chars/sec)
+   */
+  charDisplayMs: number;
+  /**
+   * Minimum characters before triggering smoothing.
+   * Small deltas bypass smoothing for responsiveness. Default: 4
+   */
   minCharsForSmoothing: number;
-  /** Maximum characters to buffer for smooth emission at once. Default: 50 */
-  maxSmoothBatch: number;
-  /** Maximum characters to hold before forcing immediate emission. Default: 200 */
-  maxImmediateChars: number;
-  /** Minimum delay between emit batches in ms. Default: 16 (approx 60fps) */
+  /**
+   * Maximum characters to emit in a single batch.
+   * Keeps the streaming smooth even when large chunks arrive. Default: 20
+   */
+  maxEmitBatch: number;
+  /**
+   * Minimum delay between emit batches, in milliseconds.
+   * Prevents batching up too fast. Default: 20ms (approx 50 batches/sec at max)
+   */
   minEmitIntervalMs: number;
 }
 
 export const DEFAULT_STREAM_SMOOTHER_CONFIG: StreamSmootherConfig = {
-  charsPerSecond: 30,
-  minCharsForSmoothing: 5,
-  maxSmoothBatch: 50,
-  maxImmediateChars: 200,
-  minEmitIntervalMs: 16,
+  charDisplayMs: 50,
+  minCharsForSmoothing: 4,
+  maxEmitBatch: 20,
+  minEmitIntervalMs: 20,
 };
 
 interface PendingDelta {
   messageId: string;
   delta: string;
-  receivedAt: number;
 }
 
 interface StreamSmootherState {
   pendingDeltas: PendingDelta[];
   emitTimer: ReturnType<typeof setTimeout> | null;
-  lastEmitTime: number;
 }
 
 /**
  * StreamSmoother smooths incoming message deltas by gradually emitting characters
- * over time, creating the illusion of a character-by-character stream instead of
+ * over time, creating the illusion of character-by-character streaming instead of
  * chunky bursts. This is particularly helpful for providers like Ollama that tend
  * to send text in larger, less frequent chunks.
  *
  * Features:
- * - Buffers incoming deltas and releases them at a configurable rate
+ * - Buffers incoming deltas and releases them gradually
  * - Bypasses smoothing for small deltas (avoids unnecessary overhead)
- * - Forces immediate emission for large/sustained throughput (edge case handling)
  * - Configurable via StreamSmootherConfig
  */
 export class StreamSmoother {
@@ -62,15 +68,13 @@ export class StreamSmoother {
     this.state = {
       pendingDeltas: [],
       emitTimer: null,
-      lastEmitTime: 0,
     };
     this.overlay = emptyOverlay();
     this.onFlush = onFlush;
   }
 
   /**
-   * Process an incoming patch operation. Returns the overlay to use (possibly unchanged)
-   * and schedules smoothing for text deltas that meet the smoothing criteria.
+   * Process an incoming patch operation. Buffers deltas for smooth streaming.
    */
   processPatch(op: PatchOp): Overlay {
     if (op.kind !== 'messageDelta') {
@@ -90,59 +94,42 @@ export class StreamSmoother {
       return this.overlay;
     }
 
-    // Large delta: apply immediately (sustained high throughput)
-    if (deltaLength >= this.config.maxImmediateChars) {
-      this.overlay = applyPatch(this.overlay, op);
-      this.onFlush(this.overlay);
-      return this.overlay;
-    }
-
-    // Medium delta: buffer for smooth streaming
-    const pendingDelta: PendingDelta = {
+    // Buffer for smooth streaming
+    this.state.pendingDeltas.push({
       messageId: op.messageId,
       delta,
-      receivedAt: Date.now(),
-    };
-    this.state.pendingDeltas.push(pendingDelta);
+    });
 
     // Cancel any existing timer to avoid multiple timers
     if (this.state.emitTimer !== null) {
       clearTimeout(this.state.emitTimer);
+      this.state.emitTimer = null;
     }
 
-    // Calculate delay based on character rate
+    // Schedule emit - delay based on batch size and display time
     const emitDelayMs = Math.max(
       this.config.minEmitIntervalMs,
-      Math.round((deltaLength / this.config.charsPerSecond) * 1000),
+      Math.round((this.config.maxEmitBatch * this.config.charDisplayMs) / this.config.minEmitIntervalMs),
     );
-
-    // Ensure minimum time has passed since last emit
-    const timeSinceLastEmit = Date.now() - this.state.lastEmitTime;
-    const actualDelay = Math.max(0, emitDelayMs - timeSinceLastEmit);
 
     this.state.emitTimer = setTimeout(() => {
       this.state.emitTimer = null;
       this.emitSmoothedBatch();
-    }, actualDelay);
+    }, emitDelayMs);
 
-    // Return current overlay without the buffered delta (will be flushed later)
     return this.overlay;
   }
 
   /**
-   * Emit a batch of buffered deltas with smoothing. Releases characters gradually
-   * up to maxSmoothBatch, leaving larger amounts to be emitted in subsequent batches.
+   * Emit a batch of buffered deltas with smoothing.
    */
   private emitSmoothedBatch(): void {
     if (this.state.pendingDeltas.length === 0) {
       return;
     }
 
-    const now = Date.now();
-    this.state.lastEmitTime = now;
-
     // Calculate how many characters we can emit in this batch
-    let charsRemaining = this.config.maxSmoothBatch;
+    let charsRemaining = this.config.maxEmitBatch;
     const emittedDeltas: PendingDelta[] = [];
 
     // Process deltas in order, splitting as needed
@@ -160,12 +147,10 @@ export class StreamSmoother {
         this.state.pendingDeltas[0] = {
           messageId: pending.messageId,
           delta: keepPortion,
-          receivedAt: pending.receivedAt,
         };
         emittedDeltas.push({
           messageId: pending.messageId,
           delta: emitPortion,
-          receivedAt: pending.receivedAt,
         });
         charsRemaining = 0;
       }
@@ -185,7 +170,7 @@ export class StreamSmoother {
     if (this.state.pendingDeltas.length > 0) {
       const nextBatchDelay = Math.max(
         this.config.minEmitIntervalMs,
-        Math.round((this.config.maxSmoothBatch / this.config.charsPerSecond) * 1000),
+        Math.round((this.config.maxEmitBatch * this.config.charDisplayMs) / this.config.minEmitIntervalMs),
       );
 
       this.state.emitTimer = setTimeout(() => {
@@ -197,7 +182,6 @@ export class StreamSmoother {
 
   /**
    * Flush all pending deltas immediately, bypassing smoothing.
-   * Useful when the stream completes or is interrupted.
    */
   flushAll(): Overlay {
     if (this.state.emitTimer !== null) {
@@ -209,7 +193,6 @@ export class StreamSmoother {
       return this.overlay;
     }
 
-    // Apply all remaining pending deltas
     for (const pending of this.state.pendingDeltas) {
       this.overlay = applyPatch(this.overlay, {
         kind: 'messageDelta',
@@ -223,7 +206,7 @@ export class StreamSmoother {
   }
 
   /**
-   * Reset the smoother state. Call when switching sessions or when a new stream begins.
+   * Reset the smoother state.
    */
   reset(): void {
     if (this.state.emitTimer !== null) {
@@ -231,12 +214,11 @@ export class StreamSmoother {
       this.state.emitTimer = null;
     }
     this.state.pendingDeltas = [];
-    this.state.lastEmitTime = 0;
     this.overlay = emptyOverlay();
   }
 
   /**
-   * Get current pending character count (for debugging/metrics).
+   * Get current pending character count.
    */
   getPendingCharCount(): number {
     return this.state.pendingDeltas.reduce((sum, p) => sum + p.delta.length, 0);

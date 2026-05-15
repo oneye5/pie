@@ -6,7 +6,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const extensionModuleUrl = pathToFileURL(path.resolve(__dirname, '../../extensions/cwd-skills/index.ts')).href;
+const extensionModuleUrl = pathToFileURL(path.resolve(__dirname, '../index.ts')).href;
 
 type ResourceDiscoverHandler = (event: { cwd: string; reason: 'startup' | 'reload' }, ctx: unknown) => Promise<unknown> | unknown;
 

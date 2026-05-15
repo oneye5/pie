@@ -5,6 +5,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getAgentDir, parseFrontmatter } from "@mariozechner/pi-coding-agent";
+import type { TaskScores } from "./model-selection.js";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -13,6 +14,7 @@ export interface AgentConfig {
 	description: string;
 	tools?: string[];
 	model?: string;
+	defaultScores?: TaskScores;
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -21,6 +23,21 @@ export interface AgentConfig {
 export interface AgentDiscoveryResult {
 	agents: AgentConfig[];
 	projectAgentsDir: string | null;
+}
+
+function parseDefaultScores(raw: string | undefined): TaskScores | undefined {
+	if (!raw) return undefined;
+	const scores: TaskScores = {};
+	for (const part of raw.split(",")) {
+		const [key, val] = part.split("=").map((s) => s.trim());
+		const num = parseInt(val, 10);
+		if (key && !isNaN(num) && num >= 0 && num <= 5) {
+			if (key === "precision" || key === "creativity" || key === "thoroughness" || key === "reasoning") {
+				scores[key] = num;
+			}
+		}
+	}
+	return Object.keys(scores).length > 0 ? scores : undefined;
 }
 
 function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
@@ -65,6 +82,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			description: frontmatter.description,
 			tools: tools && tools.length > 0 ? tools : undefined,
 			model: frontmatter.model,
+			defaultScores: parseDefaultScores(frontmatter.defaultScores),
 			systemPrompt: body,
 			source,
 			filePath,

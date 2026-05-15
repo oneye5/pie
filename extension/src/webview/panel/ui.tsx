@@ -19,6 +19,7 @@ import type {
 } from '../../shared/protocol';
 import { buildContextWindowBreakdown } from './context-window-breakdown';
 import { buildContextWindowIndicatorState } from './context-window-indicator';
+import { buildSessionTokenIndicator, buildSessionTokenUsage, type TokenRateState } from './session-token-usage';
 import { shouldHandleGlobalComposerPaste } from './composer-affordances';
 import { describeComposerInputSummary } from './composer-inputs';
 import { resolveComposerModelState } from './composer-model-state';
@@ -55,6 +56,7 @@ interface ComposerProps {
   pendingComposerInputs: ComposerInput[];
   activeRunSummary?: ActiveRunSummary | null;
   focusTrigger?: string;
+  tokenRate: TokenRateState | null;
   onSend: (text: string) => void;
   onInterrupt: () => void;
   onOpenFilePicker: () => void;
@@ -80,6 +82,7 @@ function ComposerView({
   pendingComposerInputs,
   activeRunSummary,
   focusTrigger,
+  tokenRate,
   onSend,
   onInterrupt,
   onOpenFilePicker,
@@ -298,6 +301,11 @@ function ComposerView({
       ? buildContextWindowIndicatorState(contextBreakdown.summary)
       : null
   ), [contextBreakdown]);
+  const sessionTokenUsage = useMemo(() => buildSessionTokenUsage(transcript), [transcript]);
+  const sessionTokenIndicator = useMemo(
+    () => buildSessionTokenIndicator(sessionTokenUsage, tokenRate),
+    [sessionTokenUsage, tokenRate],
+  );
   const canSend = text.trim().length > 0 || pendingComposerInputs.length > 0;
   const attachmentSummary = useMemo(
     () => describeComposerInputSummary(pendingComposerInputs),
@@ -325,6 +333,12 @@ function ComposerView({
             }
           : null}
         contextBreakdownTitle={contextBreakdown?.title ?? null}
+        sessionTokenIndicator={{
+              label: sessionTokenIndicator.label,
+              rateLabel: sessionTokenIndicator.rateLabel,
+              ariaLabel: sessionTokenIndicator.ariaLabel,
+              tooltip: sessionTokenIndicator.tooltip,
+            }}
         runStatus={runControls.status}
         onModelChange={onModelChange}
       />

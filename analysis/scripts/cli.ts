@@ -90,7 +90,7 @@ export function formatUsage(command: string, summary: string, extraLines: string
     'Common options:',
     '  --output-dir <path>   Target directory for generated JSON output.',
     '  --db <path>           DuckDB database path.',
-    '  --exports-dir <path>  Directory for generated private staging exports.',
+    '  --exports-dir <path>  Directory for generated staging exports.',
     '  --name <query>        Named SQL query to run.',
     '  --port <number>       Local server port.',
     '  --help                Show this help message.',

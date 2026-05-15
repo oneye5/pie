@@ -114,9 +114,11 @@ export function buildSessionSystemPrompts(options: {
 
   const appendSystemPrompt = normalizePromptText(promptOptions?.appendSystemPrompt);
   if (appendSystemPrompt) {
+    const headingMatch = appendSystemPrompt.match(/^#\s+(.+)$/m);
+    const title = headingMatch ? headingMatch[1] : 'Appended system prompt';
     entries.push({
       source: 'user',
-      title: 'Appended system prompt',
+      title,
       summary: summarizePrompt(appendSystemPrompt),
       text: appendSystemPrompt,
       availability: 'available',

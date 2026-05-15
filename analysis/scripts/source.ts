@@ -14,6 +14,8 @@ import {
   type SessionAnalyticsFactors,
   type SourceAnalyticsPayload,
   type ThinkingLevel,
+  type ToolFailureKind,
+  type ToolFailureSample,
   type ToolUsageRollup,
   type TreatmentChangeKind,
   type VerificationCommandKind,
@@ -46,6 +48,17 @@ const VERIFICATION_COMMAND_KINDS: VerificationCommandKind[] = [
   'typecheck',
   'format',
   'other',
+];
+const TOOL_FAILURE_KINDS: ToolFailureKind[] = [
+  'unavailable_tool',
+  'invalid_tool_arguments',
+  'missing_file_or_path',
+  'shell_command_error',
+  'probe_no_match',
+  'verification_project_failure',
+  'timeout',
+  'nonzero_exit',
+  'unknown',
 ];
 
 export interface SourceSelection {
@@ -93,15 +106,55 @@ function coerceCountRecord(value: unknown): Record<string, number> {
   return result;
 }
 
+function coerceSubagentTaskScores(value: unknown): ToolUsageRollup['subagentTaskScores'] {
+  if (!isRecord(value)) {
+    return {
+      precision:    { sum: 0, count: 0, max: 0 },
+      creativity:   { sum: 0, count: 0, max: 0 },
+      reasoning:    { sum: 0, count: 0, max: 0 },
+      thoroughness: { sum: 0, count: 0, max: 0 },
+    };
+  }
+
+  const coerceDim = (dim: unknown): { sum: number; count: number; max: number } => {
+    if (!isRecord(dim)) return { sum: 0, count: 0, max: 0 };
+    return {
+      sum:   toNonNegativeInteger(dim.sum),
+      count: toNonNegativeInteger(dim.count),
+      max:   toNonNegativeInteger(dim.max),
+    };
+  };
+
+  return {
+    precision:    coerceDim(value.precision),
+    creativity:   coerceDim(value.creativity),
+    reasoning:    coerceDim(value.reasoning),
+    thoroughness: coerceDim(value.thoroughness),
+  };
+}
+
 function createEmptyToolUsageRollup(): ToolUsageRollup {
   return {
     totalCount: 0,
     failureCount: 0,
+    executionFailureCount: 0,
+    verificationProjectFailureCount: 0,
+    probeFailureCount: 0,
     countsByName: {},
     failureCountsByName: {},
+    failureCountsByKind: {} as Record<ToolFailureKind, number>,
+    failureCountsByNameAndKind: {},
+    failureSamples: [],
     subagentCallCount: 0,
     subagentTaskCount: 0,
     subagentAgentNames: [],
+    subagentScoredTaskCount: 0,
+    subagentTaskScores: {
+      precision:    { sum: 0, count: 0, max: 0 },
+      creativity:   { sum: 0, count: 0, max: 0 },
+      reasoning:    { sum: 0, count: 0, max: 0 },
+      thoroughness: { sum: 0, count: 0, max: 0 },
+    },
   };
 }
 
@@ -133,19 +186,71 @@ function createEmptyVerificationRollup(): VerificationRollup {
   };
 }
 
+function coerceToolFailureKindRecord(value: unknown): Record<ToolFailureKind, number> {
+  const result = {} as Record<ToolFailureKind, number>;
+  if (!isRecord(value)) {
+    return result;
+  }
+  for (const kind of TOOL_FAILURE_KINDS) {
+    const count = value[kind];
+    if (typeof count === 'number' && Number.isFinite(count) && count >= 0) {
+      result[kind] = Math.trunc(count);
+    }
+  }
+  return result;
+}
+
+function coerceToolFailureSample(value: unknown): ToolFailureSample | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const failureKind = typeof value.failureKind === 'string' && TOOL_FAILURE_KINDS.includes(value.failureKind as ToolFailureKind)
+    ? value.failureKind as ToolFailureKind
+    : null;
+  if (typeof value.toolName !== 'string' || !failureKind || typeof value.occurredAt !== 'string') {
+    return null;
+  }
+  return {
+    toolName: value.toolName,
+    failureKind,
+    exitCode: typeof value.exitCode === 'number' && Number.isFinite(value.exitCode) ? Math.trunc(value.exitCode) : null,
+    errorExcerpt: typeof value.errorExcerpt === 'string' ? value.errorExcerpt : '',
+    verificationKinds: coerceStringArray(value.verificationKinds)
+      .filter((kind): kind is VerificationCommandKind => VERIFICATION_COMMAND_KINDS.includes(kind as VerificationCommandKind)),
+    occurredAt: value.occurredAt,
+  };
+}
+
 function coerceToolUsageRollup(value: unknown): ToolUsageRollup {
   if (!isRecord(value)) {
     return createEmptyToolUsageRollup();
   }
 
+  const failureCountsByNameAndKind: Record<string, Record<ToolFailureKind, number>> = {};
+  if (isRecord(value.failureCountsByNameAndKind)) {
+    for (const [toolName, counts] of Object.entries(value.failureCountsByNameAndKind)) {
+      failureCountsByNameAndKind[toolName] = coerceToolFailureKindRecord(counts);
+    }
+  }
+
   return {
     totalCount: toNonNegativeInteger(value.totalCount),
     failureCount: toNonNegativeInteger(value.failureCount),
+    executionFailureCount: toNonNegativeInteger(value.executionFailureCount),
+    verificationProjectFailureCount: toNonNegativeInteger(value.verificationProjectFailureCount),
+    probeFailureCount: toNonNegativeInteger(value.probeFailureCount),
     countsByName: coerceCountRecord(value.countsByName),
     failureCountsByName: coerceCountRecord(value.failureCountsByName),
+    failureCountsByKind: coerceToolFailureKindRecord(value.failureCountsByKind),
+    failureCountsByNameAndKind,
+    failureSamples: Array.isArray(value.failureSamples)
+      ? value.failureSamples.map(coerceToolFailureSample).filter((sample): sample is ToolFailureSample => sample !== null)
+      : [],
     subagentCallCount: toNonNegativeInteger(value.subagentCallCount),
     subagentTaskCount: toNonNegativeInteger(value.subagentTaskCount),
     subagentAgentNames: coerceStringArray(value.subagentAgentNames),
+    subagentScoredTaskCount: toNonNegativeInteger(value.subagentScoredTaskCount),
+    subagentTaskScores: coerceSubagentTaskScores(value.subagentTaskScores),
   };
 }
 
@@ -508,19 +613,3 @@ export async function loadSourceAnalytics(selection: SourceSelection = {}): Prom
   };
 }
 
-export function collectSensitiveSourceStrings(source: SourceAnalyticsPayload): string[] {
-  const sensitiveValues = new Set<string>();
-
-  for (const run of [...source.completedRuns, ...source.openRuns]) {
-    sensitiveValues.add(run.sessionPath);
-    for (const contextFile of run.analyticsFactors?.contextFiles ?? []) {
-      sensitiveValues.add(contextFile.path);
-    }
-  }
-
-  for (const outcome of source.outcomes) {
-    sensitiveValues.add(outcome.sessionPath);
-  }
-
-  return [...sensitiveValues].filter((value) => value.trim().length > 0);
-}

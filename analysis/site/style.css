@@ -224,6 +224,7 @@ button:hover {
 
 .chart-slot {
   min-height: 260px;
+  overflow: visible;
 }
 
 .chart-empty {
@@ -251,10 +252,19 @@ button:hover {
 
 .vega-embed {
   width: 100%;
+  overflow: visible;
 }
 
 .vega-embed summary {
   color: var(--text-muted);
+}
+
+/* Prevent legend text overflow/truncation */
+.vega-embed .vega-legend {
+  overflow: visible;
+}
+.vega-embed .vega-legend-label {
+  white-space: nowrap;
 }
 
 @media (max-width: 1120px) {

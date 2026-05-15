@@ -3,15 +3,15 @@ import * as path from 'node:path';
 
 import {
   GENERATOR_VERSION,
-  PRIVACY_MODE_LOCAL_DEFAULT,
+  DATA_MODE_LOCAL_DEFAULT,
   SITE_DATA_FILE_NAMES,
   SITE_DATA_SCHEMA_VERSION,
   type ModelQualityAggregateRow,
   type ModelQualityData,
   type OverviewData,
   type ResolutionCounts,
-  type SanitizedAnalyticsData,
-  type SanitizedRunRow,
+  type PreparedAnalyticsData,
+  type PreparedRunRow,
   type SiteDataBundle,
   type SiteDataFileName,
   type SiteManifest,
@@ -25,26 +25,6 @@ import {
   type VerificationImpactRow,
 } from './contracts.ts';
 import { ensureDir, writeJsonFile } from './fs-utils.ts';
-
-const FORBIDDEN_SITE_KEYS = new Set([
-  'analyticsFactors',
-  'completedRuns',
-  'contextFiles',
-  'dataBase64',
-  'input',
-  'markdown',
-  'messages',
-  'openRuns',
-  'outcomes',
-  'parts',
-  'result',
-  'sessionPath',
-]);
-
-const SUSPICIOUS_PATH_PATTERNS = [
-  /[A-Za-z]:\\(?:[^"\\]|\\.)+/,
-  /\/([^"\\/]+\/)+[^"\\/]+/,
-];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -105,7 +85,7 @@ function createEmptyResolutionCounts(): ResolutionCounts {
   };
 }
 
-function addResolutionCount(counts: ResolutionCounts, resolution: SanitizedRunRow['resolution']): void {
+function addResolutionCount(counts: ResolutionCounts, resolution: PreparedRunRow['resolution']): void {
   switch (resolution) {
     case 'resolved':
       counts.resolved += 1;
@@ -121,27 +101,27 @@ function addResolutionCount(counts: ResolutionCounts, resolution: SanitizedRunRo
   }
 }
 
-function createManifest(sanitized: SanitizedAnalyticsData, generatedAt: Date): SiteManifest {
-  const completedRunCount = sanitized.runs.filter((run) => run.status !== 'open').length;
-  const openRunCount = sanitized.runs.filter((run) => run.status === 'open').length;
-  const scoredRunCount = sanitized.runs.filter((run) => run.scored && run.satisfaction !== null).length;
+function createManifest(prepared: PreparedAnalyticsData, generatedAt: Date): SiteManifest {
+  const completedRunCount = prepared.runs.filter((run) => run.status !== 'open').length;
+  const openRunCount = prepared.runs.filter((run) => run.status === 'open').length;
+  const scoredRunCount = prepared.runs.filter((run) => run.scored && run.satisfaction !== null).length;
 
   return {
     schemaVersion: SITE_DATA_SCHEMA_VERSION,
-    sourceAnalyticsSchemaVersion: sanitized.sourceSchemaVersion,
+    sourceAnalyticsSchemaVersion: prepared.sourceSchemaVersion,
     generatedAt: generatedAt.toISOString(),
-    sourceWorkspaceKey: sanitized.sourceWorkspaceKey,
-    sourceExportedAt: sanitized.sourceExportedAt,
+    sourceWorkspaceKey: prepared.sourceWorkspaceKey,
+    sourceExportedAt: prepared.sourceExportedAt,
     completedRunCount,
     openRunCount,
     scoredRunCount,
-    privacyMode: PRIVACY_MODE_LOCAL_DEFAULT,
+    dataMode: DATA_MODE_LOCAL_DEFAULT,
     generatorVersion: GENERATOR_VERSION,
   };
 }
 
-function createOverview(sanitized: SanitizedAnalyticsData): OverviewData {
-  const runs = sanitized.runs;
+function createOverview(prepared: PreparedAnalyticsData): OverviewData {
+  const runs = prepared.runs;
   const completedRuns = runs.filter((run) => run.status !== 'open');
   const scoredRuns = completedRuns.filter((run) => run.satisfaction !== null);
   const resolutionCounts = createEmptyResolutionCounts();
@@ -172,9 +152,9 @@ function createOverview(sanitized: SanitizedAnalyticsData): OverviewData {
   };
 }
 
-function createModelQuality(sanitized: SanitizedAnalyticsData): ModelQualityData {
-  const groups = new Map<string, SanitizedRunRow[]>();
-  for (const run of sanitized.runs.filter((entry) => entry.status !== 'open')) {
+function createModelQuality(prepared: PreparedAnalyticsData): ModelQualityData {
+  const groups = new Map<string, PreparedRunRow[]>();
+  for (const run of prepared.runs.filter((entry) => entry.status !== 'open')) {
     const key = [
       normalizeModelId(run.modelId),
       normalizeThinkingLevel(run.thinkingLevel),
@@ -229,12 +209,12 @@ function createModelQuality(sanitized: SanitizedAnalyticsData): ModelQualityData
   };
 }
 
-function createVerificationImpact(sanitized: SanitizedAnalyticsData): VerificationImpactData {
-  const groupedRuns = new Map<string, SanitizedRunRow[]>();
-  const summaryGroups = new Map<string, SanitizedRunRow[]>();
+function createVerificationImpact(prepared: PreparedAnalyticsData): VerificationImpactData {
+  const groupedRuns = new Map<string, PreparedRunRow[]>();
+  const summaryGroups = new Map<string, PreparedRunRow[]>();
 
-  for (const run of sanitized.runs) {
-    const kinds = sanitized.verificationUsage
+  for (const run of prepared.runs) {
+    const kinds = prepared.verificationUsage
       .filter((row) => row.runId === run.runId)
       .map((row) => row.kind);
     const effectiveKinds = kinds.length > 0 ? [...new Set(kinds)] : ['none'];
@@ -303,15 +283,15 @@ function createVerificationImpact(sanitized: SanitizedAnalyticsData): Verificati
   };
 }
 
-function createToolUsage(sanitized: SanitizedAnalyticsData): ToolUsageData {
-  const grouped = new Map<string, typeof sanitized.toolUsage>();
-  for (const row of sanitized.toolUsage) {
+function createToolUsage(prepared: PreparedAnalyticsData): ToolUsageData {
+  const grouped = new Map<string, typeof prepared.toolUsage>();
+  for (const row of prepared.toolUsage) {
     const existing = grouped.get(row.toolName) ?? [];
     existing.push(row);
     grouped.set(row.toolName, existing);
   }
 
-  const scoredRuns = sanitized.runs.filter((run) => run.satisfaction !== null);
+  const scoredRuns = prepared.runs.filter((run) => run.satisfaction !== null);
 
   const summaryRows: ToolUsageAggregateRow[] = [...grouped.entries()].map(([toolName, toolRows]) => {
     const usedRunIds = new Set(toolRows.map((row) => row.runId));
@@ -321,6 +301,9 @@ function createToolUsage(sanitized: SanitizedAnalyticsData): ToolUsageData {
       toolName,
       callCount: toolRows.reduce((sum, row) => sum + row.callCount, 0),
       failureCount: toolRows.reduce((sum, row) => sum + row.failureCount, 0),
+      executionFailureCount: toolRows.reduce((sum, row) => sum + row.executionFailureCount, 0),
+      verificationProjectFailureCount: toolRows.reduce((sum, row) => sum + row.verificationProjectFailureCount, 0),
+      probeFailureCount: toolRows.reduce((sum, row) => sum + row.probeFailureCount, 0),
       affectedRunCount: usedRunIds.size,
       averageSatisfactionWhenUsed: average(usedRuns.map((run) => run.satisfaction ?? 0), 2),
       averageSatisfactionWhenUnused: average(unusedRuns.map((run) => run.satisfaction ?? 0), 2),
@@ -336,14 +319,14 @@ function createToolUsage(sanitized: SanitizedAnalyticsData): ToolUsageData {
 
   return {
     schemaVersion: SITE_DATA_SCHEMA_VERSION,
-    rows: sanitized.toolUsage,
+    rows: prepared.toolUsage,
     summaryRows,
   };
 }
 
-function createTreatmentComparison(sanitized: SanitizedAnalyticsData): TreatmentComparisonData {
-  const groups = new Map<string, SanitizedRunRow[]>();
-  for (const run of sanitized.runs.filter((entry) => entry.status !== 'open')) {
+function createTreatmentComparison(prepared: PreparedAnalyticsData): TreatmentComparisonData {
+  const groups = new Map<string, PreparedRunRow[]>();
+  for (const run of prepared.runs.filter((entry) => entry.status !== 'open')) {
     const key = [
       normalizePromptFamily(run.promptFamily),
       run.promptHashPrefix ?? '',
@@ -395,9 +378,9 @@ function createTreatmentComparison(sanitized: SanitizedAnalyticsData): Treatment
   };
 }
 
-function createTimeline(sanitized: SanitizedAnalyticsData): TimelineData {
-  const groups = new Map<string, SanitizedRunRow[]>();
-  for (const run of sanitized.runs) {
+function createTimeline(prepared: PreparedAnalyticsData): TimelineData {
+  const groups = new Map<string, PreparedRunRow[]>();
+  for (const run of prepared.runs) {
     const existing = groups.get(run.startedDay) ?? [];
     existing.push(run);
     groups.set(run.startedDay, existing);
@@ -433,19 +416,19 @@ function createTimeline(sanitized: SanitizedAnalyticsData): TimelineData {
   };
 }
 
-export function buildSiteDataBundle(sanitized: SanitizedAnalyticsData, generatedAt = new Date()): SiteDataBundle {
+export function buildSiteDataBundle(prepared: PreparedAnalyticsData, generatedAt = new Date()): SiteDataBundle {
   return {
-    manifest: createManifest(sanitized, generatedAt),
-    overview: createOverview(sanitized),
+    manifest: createManifest(prepared, generatedAt),
+    overview: createOverview(prepared),
     runSummary: {
       schemaVersion: SITE_DATA_SCHEMA_VERSION,
-      rows: sanitized.runs,
+      rows: prepared.runs,
     },
-    modelQuality: createModelQuality(sanitized),
-    verificationImpact: createVerificationImpact(sanitized),
-    toolUsage: createToolUsage(sanitized),
-    treatmentComparison: createTreatmentComparison(sanitized),
-    timeline: createTimeline(sanitized),
+    modelQuality: createModelQuality(prepared),
+    verificationImpact: createVerificationImpact(prepared),
+    toolUsage: createToolUsage(prepared),
+    treatmentComparison: createTreatmentComparison(prepared),
+    timeline: createTimeline(prepared),
   };
 }
 
@@ -505,22 +488,6 @@ export async function writeSiteData(outputDir: string, bundle: SiteDataBundle): 
   );
 }
 
-function assertNoForbiddenKeys(value: unknown, currentPath = '$'): void {
-  if (Array.isArray(value)) {
-    value.forEach((entry, index) => assertNoForbiddenKeys(entry, `${currentPath}[${index}]`));
-    return;
-  }
-  if (!isRecord(value)) {
-    return;
-  }
-  for (const [key, child] of Object.entries(value)) {
-    if (FORBIDDEN_SITE_KEYS.has(key)) {
-      throw new Error(`Forbidden raw source key ${key} found at ${currentPath}.${key}.`);
-    }
-    assertNoForbiddenKeys(child, `${currentPath}.${key}`);
-  }
-}
-
 function validateManifest(manifest: unknown): asserts manifest is SiteManifest {
   assert(isRecord(manifest), 'manifest.json must contain an object.');
   assert(manifest.schemaVersion === SITE_DATA_SCHEMA_VERSION, 'manifest.json has an unexpected schemaVersion.');
@@ -530,7 +497,7 @@ function validateManifest(manifest: unknown): asserts manifest is SiteManifest {
   assert(typeof manifest.completedRunCount === 'number', 'manifest.json is missing completedRunCount.');
   assert(typeof manifest.openRunCount === 'number', 'manifest.json is missing openRunCount.');
   assert(typeof manifest.scoredRunCount === 'number', 'manifest.json is missing scoredRunCount.');
-  assert(manifest.privacyMode === PRIVACY_MODE_LOCAL_DEFAULT, 'manifest.json has an unexpected privacyMode.');
+  assert(manifest.dataMode === DATA_MODE_LOCAL_DEFAULT, 'manifest.json has an unexpected dataMode.');
 }
 
 function validateOverview(overview: unknown, manifest: SiteManifest): asserts overview is OverviewData {
@@ -609,7 +576,7 @@ function validateTimeline(timeline: unknown): asserts timeline is TimelineData {
   }
 }
 
-export function validateSiteDataBundle(bundle: SiteDataBundle, sensitiveStrings: string[] = []): void {
+export function validateSiteDataBundle(bundle: SiteDataBundle): void {
   validateManifest(bundle.manifest);
   validateOverview(bundle.overview, bundle.manifest);
   validateRunSummary(bundle.runSummary);
@@ -618,27 +585,6 @@ export function validateSiteDataBundle(bundle: SiteDataBundle, sensitiveStrings:
   validateToolUsage(bundle.toolUsage);
   validateComparativeRows('treatment-comparison.json', bundle.treatmentComparison.rows);
   validateTimeline(bundle.timeline);
-
-  const files = siteDataFileMap(bundle);
-  for (const fileName of SITE_DATA_FILE_NAMES) {
-    const value = files[fileName];
-    assertNoForbiddenKeys(value, `$${fileName}`);
-    const serialized = JSON.stringify(value);
-    if (serialized.includes('"completedRuns"') || serialized.includes('"openRuns"')) {
-      throw new Error(`${fileName} looks like a raw source payload.`);
-    }
-    for (const pattern of SUSPICIOUS_PATH_PATTERNS) {
-      if (pattern.test(serialized)) {
-        throw new Error(`Path-like content leaked into ${fileName}: ${pattern}`);
-      }
-    }
-    for (const sensitiveString of sensitiveStrings) {
-      const escapedSensitiveString = JSON.stringify(sensitiveString).slice(1, -1);
-      if (sensitiveString && (serialized.includes(sensitiveString) || serialized.includes(escapedSensitiveString))) {
-        throw new Error(`Sensitive source value leaked into ${fileName}: ${sensitiveString}`);
-      }
-    }
-  }
 }
 
 export async function readSiteDataBundle(outputDir: string): Promise<SiteDataBundle> {

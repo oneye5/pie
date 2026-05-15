@@ -1,6 +1,7 @@
 {
   "name": "pi-config",
   "private": true,
+  "//workspaces": "npm workspaces are intentionally NOT enabled. extensions/subagent and extensions/cwd-skills do not yet have package.json files; activating workspaces here would break root npm install. Track enabling this in docs/INSTALLATION_INFRA_PLAN.md.",
   "scripts": {
     "analytics:typecheck": "npm --prefix analysis run typecheck --",
     "analytics:test": "npm --prefix analysis run test --",
@@ -10,6 +11,12 @@
     "analytics:validate-site-data": "npm --prefix analysis run validate-site-data --",
     "analytics:build-site": "npm --prefix analysis run build-site --",
     "analytics:serve": "npm --prefix analysis run serve --",
-    "analytics:validate": "npm --prefix analysis run validate --"
+    "analytics:validate": "npm --prefix analysis run validate --",
+    "extension:build": "npm --prefix extension run build --",
+    "extension:test": "npm --prefix extension run test --",
+    "extension:typecheck": "npm --prefix extension run typecheck --",
+    "extensions:test": "npx tsx --test extensions/*/test/*.test.ts",
+    "ci:typecheck": "npm run extension:typecheck && npm run analytics:typecheck",
+    "ci:test": "npm run extension:test && npm run extensions:test && npm run analytics:test"
   }
 }

@@ -1,4 +1,5 @@
 import type {
+  AssistantUsage,
   ComposerInput,
   SessionAnalyticsFactors,
   ThinkingLevel,
@@ -22,7 +23,12 @@ export interface SessionRunState {
 export interface RunObserver {
   prepareForSend(sessionPath: string, inputs: ComposerInput[]): string;
   onAssistantTurnStarted(sessionPath: string, turnId: string): void;
-  onAssistantTurnEnded(sessionPath: string, turnId: string, durationMs: number): void;
+  onAssistantTurnEnded(
+    sessionPath: string,
+    turnId: string,
+    durationMs: number,
+    usage?: AssistantUsage,
+  ): void;
   onToolStarted(sessionPath: string, toolCall: ToolCall): void;
   onToolFinished(sessionPath: string, toolCall: ToolCall): void;
   onInterrupted(sessionPath: string): void;

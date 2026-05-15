@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import test from 'node:test';
 
 import { RUN_ANALYTICS_SCHEMA_VERSION, type SourceAnalyticsPayload } from '../scripts/contracts.ts';
-import { collectSensitiveSourceStrings, loadSourceAnalytics, readSourceAnalyticsPayload } from '../scripts/source.ts';
+import { loadSourceAnalytics, readSourceAnalyticsPayload } from '../scripts/source.ts';
 import { deepClone, loadFixture, withTempDir } from './helpers.ts';
 
 test('readSourceAnalyticsPayload loads the committed fixture', async () => {
@@ -79,13 +79,6 @@ test('loadSourceAnalytics can query a storage-dir run store', async () => {
     assert.equal(loaded.source.outcomes.length, 2);
     assert.equal(loaded.source.workspaceKey, path.basename(dir));
   });
-});
-
-test('collectSensitiveSourceStrings captures raw session and context-file paths', async () => {
-  const fixture = await loadFixture();
-  const sensitiveStrings = collectSensitiveSourceStrings(fixture);
-  assert.ok(sensitiveStrings.some((value) => value.includes('SENTINEL_PRIVATE_SESSION_PATH_ALPHA')));
-  assert.ok(sensitiveStrings.some((value) => value.includes('SENTINEL_PRIVATE_CONTEXT_FILE_ALPHA')));
 });
 
 test('missing optional fields are coerced safely', async () => {

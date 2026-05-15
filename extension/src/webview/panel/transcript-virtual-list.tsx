@@ -650,7 +650,11 @@ export function TranscriptVirtualList({
 
               {row.kind === 'message' && (() => {
                 const overlayParts = overlay.partsByMessage.get(row.message.id);
-                const isStreaming = busy && row.message.status === 'streaming';
+                const isStreaming = busy && row.message.role === 'assistant' && row.message.status === 'streaming';
+                const isLastAssistantMessage = busy
+                  && row.message.role === 'assistant'
+                  && rows.length > 0
+                  && rows[rows.length - 1] === row;
                 return (
                   <MessageItem
                     key={row.message.id}
@@ -667,6 +671,7 @@ export function TranscriptVirtualList({
                     onOpenFile={onOpenFile}
                     onContextMenu={onContextMenu}
                     renderToolCall={renderToolCall}
+                    isLastAssistantMessage={isLastAssistantMessage}
                   />
                 );
               })()}

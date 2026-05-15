@@ -389,6 +389,7 @@ export class SessionServiceEvents {
       sessionPath,
       payload.message.id,
       payload.message.durationMs ?? 0,
+      payload.message.usage,
     );
     this.state.unbindRequestSessionPath(payload.requestId);
 

@@ -1,4 +1,4 @@
--- Core privacy-safe per-run dataset for agent inspection.
+-- Core per-run dataset for agent inspection.
 SELECT
   run_id,
   task_group_id,

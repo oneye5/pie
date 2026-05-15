@@ -11,6 +11,7 @@ import {
   getRenderableSubagentResultFromToolCall,
   subagentSingleResultToChatMessages,
   type SubagentResult,
+  type SubagentSingleResult,
 } from './subagent';
 import { ToolCallCard } from './tool-call-card';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
@@ -36,6 +37,121 @@ interface SubagentBlockProps {
   renderToolCall: RenderToolCall;
 }
 
+const SCORE_DIMS = [
+  { key: 'precision', label: 'P', full: 'Precision' },
+  { key: 'creativity', label: 'C', full: 'Creativity' },
+  { key: 'reasoning', label: 'R', full: 'Reasoning' },
+  { key: 'thoroughness', label: 'T', full: 'Thoroughness' },
+] as const;
+
+function shortenModelId(id: string): string {
+  return id.replace(/:cloud$/, '').replace(/:local$/, '');
+}
+
+/** Count how many score dimensions have values. */
+function countScoreDims(scores: Record<string, number> | undefined): number {
+  if (!scores) return 0;
+  let n = 0;
+  for (const { key } of SCORE_DIMS) {
+    if (scores[key] != null) n++;
+  }
+  return n;
+}
+
+function isRunning(result: SubagentSingleResult): boolean {
+  return result.exitCode === -1 || (result.runningTools?.length ?? 0) > 0;
+}
+
+function isFailed(result: SubagentSingleResult): boolean {
+  if (isRunning(result)) return false;
+  return result.exitCode !== 0 || result.stopReason === 'error' || result.stopReason === 'aborted';
+}
+
+/** Aggregate status across all results in a subagent call. */
+function aggregateStatus(results: SubagentSingleResult[], toolCallStatus: ToolCall['status']): 'running' | 'failed' | 'completed' {
+  if (toolCallStatus === 'running') return 'running';
+  if (toolCallStatus === 'failed') return 'failed';
+  // Any child still running?
+  if (results.some((r) => isRunning(r))) return 'running';
+  // Any child failed?
+  if (results.some((r) => isFailed(r))) return 'failed';
+  return 'completed';
+}
+
+/** Compact score bar: colored number badges for each dimension that has a value. */
+function ScoreBar({ scores }: { scores: Record<string, number> | undefined }) {
+  if (!scores || countScoreDims(scores) === 0) return null;
+  return (
+    <span class="subagent-scores">
+      {SCORE_DIMS.map(({ key, label, full }) => {
+        const val = scores[key];
+        if (val == null) return null;
+        return (
+          <span
+            key={key}
+            class="subagent-score-dim"
+            data-score={val}
+            title={`${full}: ${val}/5`}
+          >{label}{val}</span>
+        );
+      })}
+    </span>
+  );
+}
+
+/** Model badge shown in the header row. */
+function ModelTag({ result }: { result: SubagentSingleResult }) {
+  const model = result.selectedModel ?? result.model;
+  if (!model) return null;
+  const short = shortenModelId(model);
+  return <span class="subagent-model-tag" title={model}>{short}</span>;
+}
+
+/** Thinking pill, if present. */
+function ThinkingTag({ result }: { result: SubagentSingleResult }) {
+  if (!result.thinkingLevel) return null;
+  return <span class="subagent-thinking-tag">{result.thinkingLevel}</span>;
+}
+
+/** Build a tooltip showing model-selection pool details. */
+function modelPoolTooltip(result: SubagentSingleResult): string | undefined {
+  if (!result.selectionPool || !result.selectionFitScores) return undefined;
+  let tooltip = 'Model selection:\n';
+  tooltip += result.selectionPool
+    .map((m, i) => {
+      const marker = m === result.selectedModel ? '→ ' : '  ';
+      const fit = result.selectionFitScores![i];
+      return `${marker}${shortenModelId(m)}${fit != null ? ` (${fit})` : ''}`;
+    })
+    .join('\n');
+  if (result.thinkingLevel) tooltip += `\nThinking: ${result.thinkingLevel}`;
+  return tooltip;
+}
+
+/** Compact badge for inline use in multi-agent labels when expanded. */
+function InlineBadge({ result }: { result: SubagentSingleResult }) {
+  const hasScores = countScoreDims(result.taskScores) > 0;
+  const model = result.selectedModel ?? result.model;
+  if (!hasScores && !model) return null;
+
+  return (
+    <span class="subagent-inline-badge" title={modelPoolTooltip(result)}>
+      {hasScores && <ScoreBar scores={result.taskScores} />}
+      {model && <span class="subagent-model-tag">{shortenModelId(model)}</span>}
+      {result.thinkingLevel && <span class="subagent-thinking-tag">{result.thinkingLevel}</span>}
+    </span>
+  );
+}
+
+/** Status indicator: small dot or label at the right side of the header. */
+function StatusIndicator({ status }: { status: 'running' | 'failed' | 'completed' }) {
+  if (status === 'completed') return null;
+  if (status === 'running') {
+    return <span class="subagent-status subagent-status-running" aria-label="Running" />;
+  }
+  return <span class="subagent-status subagent-status-failed">Failed</span>;
+}
+
 function SubagentBlock({
   toolCall,
   subagentResult,
@@ -51,7 +167,6 @@ function SubagentBlock({
   const result = subagentResult ?? getRenderableSubagentResultFromToolCall(toolCall);
 
   if (!result) {
-    // Dispatch/setup failures may still have a failed top-level result but no child runs.
     return (
       <ToolCallCard
         toolCall={toolCall}
@@ -65,10 +180,16 @@ function SubagentBlock({
   }
 
   const agentNames = [...new Set(result.results.map((r) => r.agent))];
-  const nameDisplay = agentNames.length === 1 ? agentNames[0] : `${agentNames.length} agents`;
   const multipleResults = result.results.length > 1;
+  const singleResult = result.results.length === 1 ? result.results[0] : undefined;
   const summary = summarizeToolCall(toolCall);
+  const status = aggregateStatus(result.results, toolCall.status);
   const nestedDisclosureDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
+
+  // Name display: for single agent show the name; for multi show "N agents"
+  const nameDisplay = multipleResults
+    ? (agentNames.length === 1 ? `${result.results.length}× ${agentNames[0]}` : `${agentNames.length} agents`)
+    : agentNames[0] ?? 'agent';
 
   return (
     <div
@@ -80,17 +201,22 @@ function SubagentBlock({
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
     >
-      <div class="tool-call-header">
+      <div class="subagent-header">
         <svg class={`thinking-block-chevron${open ? ' open' : ''}`} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        <div class={`tool-call-heading${!open && summary ? ' with-summary' : ''}`}>
-          <span class={`tool-call-name${!open && summary ? ' with-summary' : ''}`}>{nameDisplay}</span>
-          {!open && summary ? <span class="tool-call-summary">{summary}</span> : null}
-        </div>
-        <span class={`tool-call-status${toolCall.status === 'running' || toolCall.status === 'failed' ? ` ${toolCall.status}` : ' is-empty'}`} aria-hidden={toolCall.status === 'completed' ? 'true' : undefined}>
-          {toolCall.status === 'running' ? 'Running' : toolCall.status === 'failed' ? 'Failed' : ''}
-        </span>
+        <span class="subagent-agent-name">{nameDisplay}</span>
+        {singleResult ? (
+          <>
+            <ScoreBar scores={singleResult.taskScores} />
+            <ModelTag result={singleResult} />
+            <ThinkingTag result={singleResult} />
+          </>
+        ) : (
+          <MultiAgentSummary results={result.results} />
+        )}
+        {!open && summary && <span class="subagent-header-summary">{summary}</span>}
+        <StatusIndicator status={status} />
       </div>
       {open && (
         <div
@@ -112,7 +238,10 @@ function SubagentBlock({
             return (
               <div key={index} class={`subagent-result${multipleResults ? ' labeled' : ''}`}>
                 {multipleResults && (
-                  <div class="subagent-result-label">{singleResult.agent}</div>
+                  <div class="subagent-result-label">
+                    {singleResult.agent}
+                    <InlineBadge result={singleResult} />
+                  </div>
                 )}
                 {singleResult.runningTools && singleResult.runningTools.length > 0 && (
                   <div class="subagent-running-tools">
@@ -145,6 +274,17 @@ function SubagentBlock({
         </div>
       )}
     </div>
+  );
+}
+
+/** For multi-agent results shown collapsed: list unique model names. */
+function MultiAgentSummary({ results }: { results: SubagentSingleResult[] }) {
+  const models = [...new Set(results.map((r) => r.selectedModel ?? r.model).filter(Boolean))];
+  if (models.length === 0) return null;
+  return (
+    <span class="subagent-multi-models">
+      {models.map((m) => <span key={m} class="subagent-model-tag">{shortenModelId(m!)}</span>)}
+    </span>
   );
 }
 

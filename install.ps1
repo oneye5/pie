@@ -323,6 +323,65 @@ Assert-Command 'node' 'Install a standalone Node.js runtime first: https://nodej
 Assert-Command 'npm' 'Install npm together with Node.js: https://nodejs.org/' | Out-Null
 $piCmd = Get-Command 'pi' -ErrorAction SilentlyContinue
 
+# ── Relocate auth.json out of the working tree ─────────────────────────────────
+# See docs/internal/SECRET_AND_STORAGE_RELOCATION_PLAN.md Phase 2.
+$authDirEnv = [System.Environment]::GetEnvironmentVariable('PI_CODING_AGENT_AUTH_DIR', [System.EnvironmentVariableTarget]::User)
+if (-not $authDirEnv) {
+  $authDirEnv = $env:PI_CODING_AGENT_AUTH_DIR
+}
+
+$inTreeAuth = Join-Path $repoRoot 'auth.json'
+$targetAuthDir = Join-Path $env:LOCALAPPDATA 'pie'
+$targetAuth = Join-Path $targetAuthDir 'auth.json'
+
+if ((Test-Path $inTreeAuth) -and -not $authDirEnv) {
+  Write-Host ""
+  Write-Host "==> SECURITY: auth.json is inside the working tree."
+  Write-Host "    Target location: $targetAuth"
+  $moveChoice = Read-Host "    Move auth.json to the secure OS user-data directory? [Y/n]"
+  if ($moveChoice -eq '' -or $moveChoice -match '^[Yy]') {
+    New-Item -ItemType Directory -Path $targetAuthDir -Force | Out-Null
+    Copy-Item -LiteralPath $inTreeAuth -Destination $targetAuth -Force
+
+    # Verify the copy
+    $sourceHash = (Get-FileHash -LiteralPath $inTreeAuth -Algorithm SHA256).Hash
+    $destHash = (Get-FileHash -LiteralPath $targetAuth -Algorithm SHA256).Hash
+    if ($sourceHash -ne $destHash) {
+      Remove-Item -LiteralPath $targetAuth -Force -ErrorAction SilentlyContinue
+      Write-Warning "Hash verification failed after copy. auth.json was NOT moved."
+    } else {
+      # Restrict ACLs on the target file
+      $acl = Get-Acl -LiteralPath $targetAuth
+      $acl.SetAccessRuleProtection($true, $false)
+      $acl.Access | ForEach-Object { $acl.RemoveAccessRule($_) } | Out-Null
+      $userRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        [System.Security.Principal.WindowsIdentity]::GetCurrent().Name,
+        'FullControl',
+        'Allow'
+      )
+      $acl.AddAccessRule($userRule)
+      Set-Acl -LiteralPath $targetAuth -AclObject $acl
+
+      # Set the environment variable persistently
+      [System.Environment]::SetEnvironmentVariable(
+        'PI_CODING_AGENT_AUTH_DIR',
+        $targetAuthDir,
+        [System.EnvironmentVariableTarget]::User
+      )
+      $env:PI_CODING_AGENT_AUTH_DIR = $targetAuthDir
+
+      # Remove the in-tree file and leave a breadcrumb
+      Remove-Item -LiteralPath $inTreeAuth -Force
+      Write-Utf8NoBomFile (Join-Path $repoRoot 'auth.json.removed') "Relocated to: $targetAuth`nSee: docs/internal/SECRET_AND_STORAGE_RELOCATION_PLAN.md"
+      Write-Host "==> auth.json moved to '$targetAuth' and PI_CODING_AGENT_AUTH_DIR set."
+    }
+  } else {
+    Write-Warning "auth.json remains in the working tree. See SECURITY.md for recommended hardening."
+  }
+} elseif ((Test-Path $inTreeAuth) -and $authDirEnv) {
+  Write-Warning "auth.json exists in the working tree AND PI_CODING_AGENT_AUTH_DIR is set to '$authDirEnv'. Consider removing the in-tree copy."
+}
+
 # Reinstall any packages listed in settings.json
 if ($piCmd) {
   Write-Host "==> Running 'pi update' to restore packages from settings.json"
@@ -338,6 +397,13 @@ if ($sessionDirOverride) {
 } else {
   Write-Host "Session history is stored in local '$newSessions' (git-ignored)."
 }
+
+# Final summary of resolved paths
+Write-Host ""
+Write-Host "==> Resolved storage paths:"
+$resolvedAuthDir = if ($env:PI_CODING_AGENT_AUTH_DIR) { $env:PI_CODING_AGENT_AUTH_DIR } else { $repoRoot }
+Write-Host "    Auth:     $(Join-Path $resolvedAuthDir 'auth.json')"
+Write-Host "    Sessions: $resolvedNewSessions"
 Write-Host "Session JSONL contains raw transcripts, so treat it as sensitive local data rather than something to sync/commit by default."
 
 # Build and install the pie VSCode extension

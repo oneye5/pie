@@ -3,7 +3,7 @@
  * extension host and the backend process. The host refuses to start the backend
  * unless the values match.
  */
-export const PROTOCOL_VERSION = 8;
+export const PROTOCOL_VERSION = 9;
 
 export function assertProtocolVersion(peerLabel: string, protocolVersion: unknown): void {
   if (!Number.isInteger(protocolVersion)) {
@@ -70,6 +70,19 @@ export interface ContextWindowUsage {
   tokens: number | null;
   contextWindow: number;
   percent: number | null;
+}
+
+/**
+ * Per-assistant-message token usage. Mirrors the fields on the pi-ai `Usage`
+ * object — kept optional so older messages (or aborted/errored ones) can omit
+ * fields the provider didn't report.
+ */
+export interface AssistantUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
 }
 
 export interface SessionSummary {
@@ -191,6 +204,8 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   /** How long the response took to complete, in milliseconds. Only set on finished assistant messages. */
   durationMs?: number;
+  /** Token accounting reported by the provider for this assistant turn, when available. */
+  usage?: AssistantUsage;
 }
 
 export type TranscriptPageDirection = 'older' | 'newer' | 'latest';
@@ -277,6 +292,8 @@ export interface BackendReadyPayload {
   sdkVersion: string;
   /** Wire protocol version. Must match `PROTOCOL_VERSION` in the host. */
   protocolVersion: number;
+  /** Resolved path to the auth.json file used by the backend. */
+  authPath?: string;
 }
 
 export interface SessionOpenedPayload {

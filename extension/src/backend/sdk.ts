@@ -19,7 +19,18 @@ export interface SdkSessionEvent {
     | 'tool_execution_update'
     | 'tool_execution_end'
     | string;
-  message?: { role?: 'user' | 'assistant'; content?: unknown; stopReason?: string };
+  message?: {
+    role?: 'user' | 'assistant';
+    content?: unknown;
+    stopReason?: string;
+    usage?: {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      totalTokens?: number;
+    };
+  };
   assistantMessageEvent?: {
     type: 'text_delta' | 'thinking_delta' | string;
     delta?: string;

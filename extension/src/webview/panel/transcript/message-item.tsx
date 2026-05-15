@@ -154,6 +154,7 @@ interface MessageItemProps {
   onOpenFile: (path: string) => void;
   onContextMenu: TranscriptContextMenuHandler;
   renderToolCall: RenderToolCall;
+  isLastAssistantMessage?: boolean;
 }
 
 function MessageItemView({
@@ -170,6 +171,7 @@ function MessageItemView({
   onOpenFile: _onOpenFile,
   onContextMenu,
   renderToolCall,
+  isLastAssistantMessage,
 }: MessageItemProps) {
   const combinedParts = useMemo(() => (
     message.role === 'assistant'
@@ -343,6 +345,10 @@ function MessageItemView({
                 onContextMenu('message', getMessageRaw(), e as unknown as MouseEvent);
               } : undefined}
             />
+          )}
+
+          {isLastAssistantMessage && message.role === 'assistant' && (
+            <div class="message-glow-indicator" aria-label="Agent is responding" role="status" />
           )}
 
         </>

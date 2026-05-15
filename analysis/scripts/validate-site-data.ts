@@ -6,8 +6,8 @@ import * as path from 'node:path';
 
 import type { SiteDataBundle } from './contracts.ts';
 import { parseCliOptions, formatUsage } from './cli.ts';
-import { collectSensitiveSourceStrings, DEFAULT_SITE_DATA_DIR, loadSourceAnalytics } from './source.ts';
-import { sanitizeSourceAnalytics } from './sanitize.ts';
+import { DEFAULT_SITE_DATA_DIR, loadSourceAnalytics } from './source.ts';
+import { prepareSourceAnalytics } from './prepare.ts';
 import { buildSiteDataBundle, readSiteDataBundle, validateSiteDataBundle, writeSiteData } from './site-data.ts';
 
 function normalizedForComparison(
@@ -27,7 +27,7 @@ function normalizedForComparison(
 async function main(): Promise<void> {
   const options = parseCliOptions(process.argv.slice(2));
   if (options.help) {
-    console.log(formatUsage('npm run validate-site-data --', 'Validate generated site data and privacy invariants.'));
+    console.log(formatUsage('npm run validate-site-data --', 'Validate generated site data and site-data invariants.'));
     return;
   }
 
@@ -47,21 +47,20 @@ async function main(): Promise<void> {
   }
 
   const loaded = await loadSourceAnalytics({ exportPath: options.exportPath, storageDir: options.storageDir });
-  const sensitiveStrings = collectSensitiveSourceStrings(loaded.source);
-  const sanitized = sanitizeSourceAnalytics(loaded.source);
-  const bundle = buildSiteDataBundle(sanitized);
-  validateSiteDataBundle(bundle, sensitiveStrings);
+  const prepared = prepareSourceAnalytics(loaded.source);
+  const bundle = buildSiteDataBundle(prepared);
+  validateSiteDataBundle(bundle);
 
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'pie-analysis-site-data-'));
 
   try {
     await writeSiteData(tempDir, bundle);
     const roundTrip = await readSiteDataBundle(tempDir);
-    validateSiteDataBundle(roundTrip, sensitiveStrings);
+    validateSiteDataBundle(roundTrip);
 
     if (outputDirExists) {
       const existingBundle = await readSiteDataBundle(outputDir);
-      validateSiteDataBundle(existingBundle, sensitiveStrings);
+      validateSiteDataBundle(existingBundle);
       assert.deepEqual(
         normalizedForComparison(existingBundle, { ignoreSourceExportedAt: loaded.sourceKind === 'storage-dir' }),
         normalizedForComparison(bundle, { ignoreSourceExportedAt: loaded.sourceKind === 'storage-dir' }),

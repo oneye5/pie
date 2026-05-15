@@ -17,12 +17,13 @@ import * as readline from 'node:readline';
 const SESSION_PATH = '/mock/sessions/test-session.jsonl';
 const SESSION_NAME = 'Test Session';
 const CWD = '/mock';
-const PROTOCOL_VERSION = 8;
+const PROTOCOL_VERSION = 9;
 const HANDSHAKE = {
   sdkPath: '/mock/sdk',
   agentDir: '/mock/agent',
   sdkVersion: '0.0.0-mock',
   protocolVersion: PROTOCOL_VERSION,
+  authPath: '/mock/agent/auth.json',
 };
 
 let seq = 0;

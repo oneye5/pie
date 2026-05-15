@@ -87,26 +87,51 @@ test('buildWorkspaceAnalyticsId uses the persisted no-workspace id as a collisio
 });
 
 test('getDataOutcomesRootPath prefers PI_CODING_AGENT_DIR when configured', () => {
-  assert.equal(
-    getDataOutcomesRootPath('  /repo/root  ', '/global/storage'),
-    path.join('/repo/root', 'data', 'outcomes'),
-  );
-  assert.equal(
-    getDataOutcomesRootPath('', '/global/storage'),
-    path.join('/global/storage', 'data', 'outcomes'),
-  );
+  const savedEnv = process.env.PIE_ANALYTICS_DIR;
+  delete process.env.PIE_ANALYTICS_DIR;
+  try {
+    assert.equal(
+      getDataOutcomesRootPath('  /repo/root  ', '/global/storage'),
+      path.join('/repo/root', 'data', 'outcomes'),
+    );
+    assert.equal(
+      getDataOutcomesRootPath('', '/global/storage'),
+      path.join('/global/storage', 'data', 'outcomes'),
+    );
+  } finally {
+    if (savedEnv !== undefined) {
+      process.env.PIE_ANALYTICS_DIR = savedEnv;
+    }
+  }
+});
+
+test('getDataOutcomesRootPath prefers PIE_ANALYTICS_DIR env var over all other sources', () => {
+  const savedEnv = process.env.PIE_ANALYTICS_DIR;
+  process.env.PIE_ANALYTICS_DIR = '/custom/analytics';
+  try {
+    assert.equal(
+      getDataOutcomesRootPath('/repo/root', '/global/storage'),
+      path.resolve('/custom/analytics'),
+    );
+  } finally {
+    if (savedEnv !== undefined) {
+      process.env.PIE_ANALYTICS_DIR = savedEnv;
+    } else {
+      delete process.env.PIE_ANALYTICS_DIR;
+    }
+  }
 });
 
 test('getDefaultRunAnalyticsExportPath prefers the configured PI repo path when available', () => {
   assert.equal(
     getDefaultRunAnalyticsExportPath('/pi-config', '/global/storage', '/workspace/project'),
-    path.join('/pi-config', 'analysis', 'data', 'exports', 'private-run-analytics.json'),
+    path.join('/pi-config', 'analysis', 'data', 'exports', 'run-analytics-export.json'),
   );
 });
 
 test('getDefaultRunAnalyticsExportPath falls back to extension global storage outside the PI repo', () => {
   assert.equal(
     getDefaultRunAnalyticsExportPath('', '/global/storage', '/workspace/project'),
-    path.join('/global/storage', 'exports', 'project', 'private-run-analytics.json'),
+    path.join('/global/storage', 'exports', 'project', 'run-analytics-export.json'),
   );
 });

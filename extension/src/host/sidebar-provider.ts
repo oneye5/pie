@@ -23,6 +23,7 @@ import type {
   ViewState,
   WebviewToHostMessage,
 } from '../shared/protocol';
+import { validateWebviewToHostMessage } from '../shared/protocol-validation';
 
 /** Debounce window for batching rapid store changes into a single snapshot post. */
 const SCHEDULE_DEBOUNCE_MS = 50;
@@ -102,6 +103,16 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
     this.messageDisposable?.dispose();
     this.messageDisposable = webviewView.webview.onDidReceiveMessage((msg: WebviewToHostMessage) => {
+      // Audit-only validation: log invalid envelopes but still pass through so
+      // unrecognised future additions don't break older host builds. Promote
+      // to rejection once the audit log is clean.
+      const validation = validateWebviewToHostMessage(msg);
+      if (!validation.ok) {
+        auditLog(this.context, 'sidebar-provider', 'message.invalid', {
+          reason: validation.reason,
+          type: (msg as { type?: unknown })?.type ?? null,
+        });
+      }
       if (msg.type === 'ready') {
         this.webviewReady = true;
       }

@@ -4,7 +4,7 @@
   "workspaceKey": "wk_4f0b82c93a7d1e11",
   "completedRuns": [
     {
-      "sessionPath": "C:\\Users\\analyst\\SENTINEL_PRIVATE_SESSION_PATH_ALPHA\\run-001.jsonl",
+      "sessionPath": "C:\\Users\\analyst\\SENTINEL_SESSION_PATH_ALPHA\\run-001.jsonl",
       "runId": "run-001",
       "taskGroupId": "task-001",
       "status": "scored",
@@ -35,7 +35,7 @@
         ],
         "contextFiles": [
           {
-            "path": "D:\\Repo\\SENTINEL_PRIVATE_CONTEXT_FILE_ALPHA\\plan.md",
+            "path": "D:\\Repo\\SENTINEL_CONTEXT_FILE_ALPHA\\plan.md",
             "hash": "ctx_a1"
           }
         ],
@@ -120,7 +120,7 @@
       }
     },
     {
-      "sessionPath": "C:\\Users\\analyst\\SENTINEL_PRIVATE_SESSION_PATH_BRAVO\\run-002.jsonl",
+      "sessionPath": "C:\\Users\\analyst\\SENTINEL_SESSION_PATH_BRAVO\\run-002.jsonl",
       "runId": "run-002",
       "taskGroupId": "task-002",
       "status": "scored",
@@ -153,11 +153,11 @@
         ],
         "contextFiles": [
           {
-            "path": "D:\\Repo\\SENTINEL_PRIVATE_CONTEXT_FILE_BRAVO\\query.sql",
+            "path": "D:\\Repo\\SENTINEL_CONTEXT_FILE_BRAVO\\query.sql",
             "hash": "ctx_b1"
           },
           {
-            "path": "D:\\Repo\\SENTINEL_PRIVATE_CONTEXT_FILE_DELTA\\schema.md",
+            "path": "D:\\Repo\\SENTINEL_CONTEXT_FILE_DELTA\\schema.md",
             "hash": "ctx_b2"
           }
         ],
@@ -242,7 +242,7 @@
       }
     },
     {
-      "sessionPath": "/Users/analyst/SENTINEL_PRIVATE_SESSION_PATH_CHARLIE/run-003.jsonl",
+      "sessionPath": "/Users/analyst/SENTINEL_SESSION_PATH_CHARLIE/run-003.jsonl",
       "runId": "run-003",
       "taskGroupId": "task-003",
       "status": "scored",
@@ -272,7 +272,7 @@
         ],
         "contextFiles": [
           {
-            "path": "/workspace/SENTINEL_PRIVATE_CONTEXT_FILE_CHARLIE/dashboard.ts",
+            "path": "/workspace/SENTINEL_CONTEXT_FILE_CHARLIE/dashboard.ts",
             "hash": "ctx_c1"
           }
         ],
@@ -362,7 +362,7 @@
       }
     },
     {
-      "sessionPath": "/Users/analyst/SENTINEL_PRIVATE_SESSION_PATH_DELTA/run-004.jsonl",
+      "sessionPath": "/Users/analyst/SENTINEL_SESSION_PATH_DELTA/run-004.jsonl",
       "runId": "run-004",
       "taskGroupId": "task-004",
       "status": "closed_unscored",
@@ -444,7 +444,7 @@
       }
     },
     {
-      "sessionPath": "D:\\Sessions\\SENTINEL_PRIVATE_SESSION_PATH_ECHO\\run-005.jsonl",
+      "sessionPath": "D:\\Sessions\\SENTINEL_SESSION_PATH_ECHO\\run-005.jsonl",
       "runId": "run-005",
       "taskGroupId": "task-005",
       "status": "scored",
@@ -476,7 +476,7 @@
         ],
         "contextFiles": [
           {
-            "path": "/workspace/SENTINEL_PRIVATE_CONTEXT_FILE_ECHO/notes.md",
+            "path": "/workspace/SENTINEL_CONTEXT_FILE_ECHO/notes.md",
             "hash": "ctx_e1"
           }
         ],
@@ -559,7 +559,7 @@
       }
     },
     {
-      "sessionPath": "/srv/local/SENTINEL_PRIVATE_SESSION_PATH_FOXTROT/run-006.jsonl",
+      "sessionPath": "/srv/local/SENTINEL_SESSION_PATH_FOXTROT/run-006.jsonl",
       "runId": "run-006",
       "taskGroupId": "task-006",
       "status": "scored",
@@ -636,7 +636,7 @@
   ],
   "openRuns": [
     {
-      "sessionPath": "/srv/local/SENTINEL_PRIVATE_SESSION_PATH_GOLF/run-007.jsonl",
+      "sessionPath": "/srv/local/SENTINEL_SESSION_PATH_GOLF/run-007.jsonl",
       "runId": "run-007",
       "taskGroupId": "task-007",
       "status": "open",
@@ -660,7 +660,7 @@
         ],
         "contextFiles": [
           {
-            "path": "/workspace/SENTINEL_PRIVATE_CONTEXT_FILE_GOLF/live-metrics.csv",
+            "path": "/workspace/SENTINEL_CONTEXT_FILE_GOLF/live-metrics.csv",
             "hash": "ctx_g1"
           }
         ],
@@ -732,7 +732,7 @@
       "schemaVersion": 1,
       "kind": "run_outcome",
       "recordedAt": "2026-05-10T14:19:00.000Z",
-      "sessionPath": "C:\\Users\\analyst\\SENTINEL_PRIVATE_SESSION_PATH_ALPHA\\run-001.jsonl",
+      "sessionPath": "C:\\Users\\analyst\\SENTINEL_SESSION_PATH_ALPHA\\run-001.jsonl",
       "runId": "run-001",
       "taskGroupId": "task-001",
       "outcome": {
@@ -744,7 +744,7 @@
       "schemaVersion": 1,
       "kind": "run_outcome",
       "recordedAt": "2026-05-10T17:04:00.000Z",
-      "sessionPath": "C:\\Users\\analyst\\SENTINEL_PRIVATE_SESSION_PATH_BRAVO\\run-002.jsonl",
+      "sessionPath": "C:\\Users\\analyst\\SENTINEL_SESSION_PATH_BRAVO\\run-002.jsonl",
       "runId": "run-002",
       "taskGroupId": "task-002",
       "outcome": {
@@ -756,7 +756,7 @@
       "schemaVersion": 1,
       "kind": "run_outcome",
       "recordedAt": "2026-05-11T09:35:00.000Z",
-      "sessionPath": "/Users/analyst/SENTINEL_PRIVATE_SESSION_PATH_CHARLIE/run-003.jsonl",
+      "sessionPath": "/Users/analyst/SENTINEL_SESSION_PATH_CHARLIE/run-003.jsonl",
       "runId": "run-003",
       "taskGroupId": "task-003",
       "outcome": {
@@ -768,7 +768,7 @@
       "schemaVersion": 1,
       "kind": "run_outcome",
       "recordedAt": "2026-05-12T10:30:00.000Z",
-      "sessionPath": "D:\\Sessions\\SENTINEL_PRIVATE_SESSION_PATH_ECHO\\run-005.jsonl",
+      "sessionPath": "D:\\Sessions\\SENTINEL_SESSION_PATH_ECHO\\run-005.jsonl",
       "runId": "run-005",
       "taskGroupId": "task-005",
       "outcome": {
@@ -780,7 +780,7 @@
       "schemaVersion": 1,
       "kind": "run_outcome",
       "recordedAt": "2026-05-12T16:00:00.000Z",
-      "sessionPath": "/srv/local/SENTINEL_PRIVATE_SESSION_PATH_FOXTROT/run-006.jsonl",
+      "sessionPath": "/srv/local/SENTINEL_SESSION_PATH_FOXTROT/run-006.jsonl",
       "runId": "run-006",
       "taskGroupId": "task-006",
       "outcome": {

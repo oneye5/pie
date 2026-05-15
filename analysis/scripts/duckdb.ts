@@ -3,11 +3,12 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type {
-  SanitizedAnalyticsData,
-  SanitizedBackendErrorRow,
-  SanitizedRunRow,
-  SanitizedToolUsageRow,
-  SanitizedVerificationUsageRow,
+  PreparedAnalyticsData,
+  PreparedBackendErrorRow,
+  PreparedRunRow,
+  PreparedToolFailureRow,
+  PreparedToolUsageRow,
+  PreparedVerificationUsageRow,
 } from './contracts.ts';
 import { ensureDir, sqlStringLiteral, writeJsonFile } from './fs-utils.ts';
 
@@ -18,6 +19,7 @@ export const QUERY_FILE_BY_NAME = {
   model_quality: path.resolve(SCRIPT_DIR, '../queries/model_quality.sql'),
   verification_impact: path.resolve(SCRIPT_DIR, '../queries/verification_impact.sql'),
   tool_usage: path.resolve(SCRIPT_DIR, '../queries/tool_usage.sql'),
+  tool_failures: path.resolve(SCRIPT_DIR, '../queries/tool_failures.sql'),
   treatment_comparison: path.resolve(SCRIPT_DIR, '../queries/treatment_comparison.sql'),
   timeline: path.resolve(SCRIPT_DIR, '../queries/timeline.sql'),
 } as const;
@@ -71,6 +73,16 @@ interface DuckDbRunRow {
   subagent_call_count: number;
   subagent_task_count: number;
   subagent_agent_count: number;
+  subagent_scored_task_count: number;
+  subagent_mean_precision: number | null;
+  subagent_mean_creativity: number | null;
+  subagent_mean_reasoning: number | null;
+  subagent_mean_thoroughness: number | null;
+  subagent_max_precision: number | null;
+  subagent_max_creativity: number | null;
+  subagent_max_reasoning: number | null;
+  subagent_max_thoroughness: number | null;
+  subagent_composite_mean: number | null;
   verification_total_count: number;
   verification_failure_count: number;
   verification_state: string;
@@ -97,6 +109,28 @@ interface DuckDbToolUsageRow {
   tool_name: string;
   call_count: number;
   failure_count: number;
+  execution_failure_count: number;
+  verification_project_failure_count: number;
+  probe_failure_count: number;
+  started_at: string;
+  started_day: string;
+  model_id: string | null;
+  thinking_level: string | null;
+  experiment_assignment: string | null;
+  mixed_treatment_config: boolean;
+  scored: boolean;
+  satisfaction: number | null;
+  resolution: string | null;
+}
+
+interface DuckDbToolFailureRow {
+  run_id: string;
+  tool_name: string;
+  failure_kind: string;
+  count: number;
+  exit_code: number | null;
+  error_excerpt: string | null;
+  verification_kinds: string[];
   started_at: string;
   started_day: string;
   model_id: string | null;
@@ -138,7 +172,7 @@ interface DuckDbBackendErrorRow {
   resolution: string | null;
 }
 
-function toDuckDbRunRow(row: SanitizedRunRow): DuckDbRunRow {
+function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
   return {
     run_id: row.runId,
     task_group_id: row.taskGroupId,
@@ -186,6 +220,16 @@ function toDuckDbRunRow(row: SanitizedRunRow): DuckDbRunRow {
     subagent_call_count: row.subagentCallCount,
     subagent_task_count: row.subagentTaskCount,
     subagent_agent_count: row.subagentAgentCount,
+    subagent_scored_task_count: row.subagentScoredTaskCount,
+    subagent_mean_precision: row.subagentMeanPrecision,
+    subagent_mean_creativity: row.subagentMeanCreativity,
+    subagent_mean_reasoning: row.subagentMeanReasoning,
+    subagent_mean_thoroughness: row.subagentMeanThoroughness,
+    subagent_max_precision: row.subagentMaxPrecision,
+    subagent_max_creativity: row.subagentMaxCreativity,
+    subagent_max_reasoning: row.subagentMaxReasoning,
+    subagent_max_thoroughness: row.subagentMaxThoroughness,
+    subagent_composite_mean: row.subagentCompositeMean,
     verification_total_count: row.verificationTotalCount,
     verification_failure_count: row.verificationFailureCount,
     verification_state: row.verificationState,
@@ -208,12 +252,15 @@ function toDuckDbRunRow(row: SanitizedRunRow): DuckDbRunRow {
   };
 }
 
-function toDuckDbToolUsageRow(row: SanitizedToolUsageRow): DuckDbToolUsageRow {
+function toDuckDbToolUsageRow(row: PreparedToolUsageRow): DuckDbToolUsageRow {
   return {
     run_id: row.runId,
     tool_name: row.toolName,
     call_count: row.callCount,
     failure_count: row.failureCount,
+    execution_failure_count: row.executionFailureCount,
+    verification_project_failure_count: row.verificationProjectFailureCount,
+    probe_failure_count: row.probeFailureCount,
     started_at: row.startedAt,
     started_day: row.startedDay,
     model_id: row.modelId,
@@ -226,7 +273,28 @@ function toDuckDbToolUsageRow(row: SanitizedToolUsageRow): DuckDbToolUsageRow {
   };
 }
 
-function toDuckDbVerificationUsageRow(row: SanitizedVerificationUsageRow): DuckDbVerificationUsageRow {
+function toDuckDbToolFailureRow(row: PreparedToolFailureRow): DuckDbToolFailureRow {
+  return {
+    run_id: row.runId,
+    tool_name: row.toolName,
+    failure_kind: row.failureKind,
+    count: row.count,
+    exit_code: row.exitCode,
+    error_excerpt: row.errorExcerpt,
+    verification_kinds: row.verificationKinds,
+    started_at: row.startedAt,
+    started_day: row.startedDay,
+    model_id: row.modelId,
+    thinking_level: row.thinkingLevel,
+    experiment_assignment: row.experimentAssignment,
+    mixed_treatment_config: row.mixedTreatmentConfig,
+    scored: row.scored,
+    satisfaction: row.satisfaction,
+    resolution: row.resolution,
+  };
+}
+
+function toDuckDbVerificationUsageRow(row: PreparedVerificationUsageRow): DuckDbVerificationUsageRow {
   return {
     run_id: row.runId,
     kind: row.kind,
@@ -244,7 +312,7 @@ function toDuckDbVerificationUsageRow(row: SanitizedVerificationUsageRow): DuckD
   };
 }
 
-function toDuckDbBackendErrorRow(row: SanitizedBackendErrorRow): DuckDbBackendErrorRow {
+function toDuckDbBackendErrorRow(row: PreparedBackendErrorRow): DuckDbBackendErrorRow {
   return {
     run_id: row.runId,
     error_code: row.errorCode,
@@ -260,26 +328,29 @@ function toDuckDbBackendErrorRow(row: SanitizedBackendErrorRow): DuckDbBackendEr
   };
 }
 
-export async function writeDuckDbStagingExports(exportsDir: string, sanitized: SanitizedAnalyticsData): Promise<{
+export async function writeDuckDbStagingExports(exportsDir: string, prepared: PreparedAnalyticsData): Promise<{
   runsPath: string;
   toolUsagePath: string;
   verificationUsagePath: string;
+  toolFailuresPath: string;
   backendErrorsPath: string;
 }> {
   await ensureDir(exportsDir);
   const runsPath = path.join(exportsDir, 'runs.json');
   const toolUsagePath = path.join(exportsDir, 'tool-usage.json');
+  const toolFailuresPath = path.join(exportsDir, 'tool-failures.json');
   const verificationUsagePath = path.join(exportsDir, 'verification-usage.json');
   const backendErrorsPath = path.join(exportsDir, 'backend-errors.json');
 
   await Promise.all([
-    writeJsonFile(runsPath, sanitized.runs.map(toDuckDbRunRow)),
-    writeJsonFile(toolUsagePath, sanitized.toolUsage.map(toDuckDbToolUsageRow)),
-    writeJsonFile(verificationUsagePath, sanitized.verificationUsage.map(toDuckDbVerificationUsageRow)),
-    writeJsonFile(backendErrorsPath, sanitized.backendErrors.map(toDuckDbBackendErrorRow)),
+    writeJsonFile(runsPath, prepared.runs.map(toDuckDbRunRow)),
+    writeJsonFile(toolUsagePath, prepared.toolUsage.map(toDuckDbToolUsageRow)),
+    writeJsonFile(toolFailuresPath, prepared.toolFailures.map(toDuckDbToolFailureRow)),
+    writeJsonFile(verificationUsagePath, prepared.verificationUsage.map(toDuckDbVerificationUsageRow)),
+    writeJsonFile(backendErrorsPath, prepared.backendErrors.map(toDuckDbBackendErrorRow)),
   ]);
 
-  return { runsPath, toolUsagePath, verificationUsagePath, backendErrorsPath };
+  return { runsPath, toolUsagePath, toolFailuresPath, verificationUsagePath, backendErrorsPath };
 }
 
 async function openDuckDb(dbPath: string) {
@@ -351,6 +422,16 @@ CREATE TABLE runs (
   subagent_call_count INTEGER,
   subagent_task_count INTEGER,
   subagent_agent_count INTEGER,
+  subagent_scored_task_count INTEGER,
+  subagent_mean_precision DOUBLE,
+  subagent_mean_creativity DOUBLE,
+  subagent_mean_reasoning DOUBLE,
+  subagent_mean_thoroughness DOUBLE,
+  subagent_max_precision INTEGER,
+  subagent_max_creativity INTEGER,
+  subagent_max_reasoning INTEGER,
+  subagent_max_thoroughness INTEGER,
+  subagent_composite_mean DOUBLE,
   verification_total_count INTEGER,
   verification_failure_count INTEGER,
   verification_state VARCHAR,
@@ -381,6 +462,32 @@ CREATE TABLE tool_usage (
   tool_name VARCHAR,
   call_count INTEGER,
   failure_count INTEGER,
+  execution_failure_count INTEGER,
+  verification_project_failure_count INTEGER,
+  probe_failure_count INTEGER,
+  started_at TIMESTAMP,
+  started_day DATE,
+  model_id VARCHAR,
+  thinking_level VARCHAR,
+  experiment_assignment VARCHAR,
+  mixed_treatment_config BOOLEAN,
+  scored BOOLEAN,
+  satisfaction DOUBLE,
+  resolution VARCHAR
+);
+`.trim();
+}
+
+function toolFailuresTableSchema(): string {
+  return `
+CREATE TABLE tool_failures (
+  run_id VARCHAR,
+  tool_name VARCHAR,
+  failure_kind VARCHAR,
+  count INTEGER,
+  exit_code INTEGER,
+  error_excerpt VARCHAR,
+  verification_kinds VARCHAR[],
   started_at TIMESTAMP,
   started_day DATE,
   model_id VARCHAR,
@@ -507,15 +614,16 @@ FROM runs;
 export async function buildDuckDbDatabase(params: {
   dbPath: string;
   exportsDir: string;
-  sanitized: SanitizedAnalyticsData;
+  prepared: PreparedAnalyticsData;
 }): Promise<void> {
   await ensureDir(path.dirname(params.dbPath));
-  const stagingPaths = await writeDuckDbStagingExports(params.exportsDir, params.sanitized);
+  const stagingPaths = await writeDuckDbStagingExports(params.exportsDir, params.prepared);
   const { instance, connection } = await openDuckDb(params.dbPath);
 
   try {
     await populateTableFromJson(connection, 'runs', runsTableSchema(), stagingPaths.runsPath);
     await populateTableFromJson(connection, 'tool_usage', toolUsageTableSchema(), stagingPaths.toolUsagePath);
+    await populateTableFromJson(connection, 'tool_failures', toolFailuresTableSchema(), stagingPaths.toolFailuresPath);
     await populateTableFromJson(connection, 'verification_usage', verificationUsageTableSchema(), stagingPaths.verificationUsagePath);
     await populateTableFromJson(connection, 'backend_errors', backendErrorsTableSchema(), stagingPaths.backendErrorsPath);
     await createDerivedViews(connection);

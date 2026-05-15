@@ -154,6 +154,14 @@ function App() {
   // Stream smoother for gradual character emission
   const smootherRef = useRef<StreamSmoother | null>(null);
 
+  // Token rate tracking: rolling window of output token samples
+  const RATE_WINDOW_SECONDS = 10;
+  const tokenRateRef = useRef<{ tokens: number; timestamp: number }[]>([]);
+  const [tokenRateState, setTokenRateState] = useState<{ tokensPerSecond: number | null; windowSeconds: number }>({
+    tokensPerSecond: null,
+    windowSeconds: RATE_WINDOW_SECONDS,
+  });
+
   // Track last revision via ref (not state) to avoid triggering snapshot requests on every re-render
   const lastRevisionRef = useRef(0);
   const awaitingSnapshotRef = useRef(false);
@@ -199,6 +207,8 @@ function App() {
         lastRevisionRef.current = msg.revision;
         if (hostChanged || sessionChanged) {
           clearTransientUi();
+          tokenRateRef.current = [];
+          setTokenRateState({ tokensPerSecond: null, windowSeconds: RATE_WINDOW_SECONDS });
         }
         if (queuedDraftRestore && nextActiveSessionPath) {
           pendingDraftRestoreRef.current.delete(nextActiveSessionPath);
@@ -237,6 +247,30 @@ function App() {
           setOverlay(smoother.processPatch(msg.op));
         } else {
           setOverlay((prev) => applyPatch(prev, msg.op));
+        }
+        // Track output token rate from streaming deltas
+        if (msg.op.kind === 'messageDelta') {
+          const now = Date.now();
+          const chars = msg.op.delta.length;
+          // Rough estimate: ~4 chars per token for typical English output
+          const estimatedTokens = chars / 4;
+          const samples = tokenRateRef.current;
+          samples.push({ tokens: estimatedTokens, timestamp: now });
+          // Evict samples outside the window
+          const cutoff = now - RATE_WINDOW_SECONDS * 1000;
+          let i = 0;
+          while (i < samples.length && samples[i].timestamp < cutoff) i++;
+          if (i > 0) samples.splice(0, i);
+          // Compute smoothed rate
+          if (samples.length >= 2) {
+            const first = samples[0];
+            const last = samples[samples.length - 1];
+            const elapsed = (last.timestamp - first.timestamp) / 1000;
+            if (elapsed > 0.5) {
+              const totalTokens = samples.reduce((s, p) => s + p.tokens, 0);
+              setTokenRateState({ tokensPerSecond: totalTokens / elapsed, windowSeconds: RATE_WINDOW_SECONDS });
+            }
+          }
         }
         return;
       }
@@ -486,6 +520,7 @@ function App() {
           onModelChange={handleModelChange}
           onSetPrefs={handleSetPrefs}
           onMarkComplete={handleMarkComplete}
+          tokenRate={tokenRateState}
         />
       )}
     </div>

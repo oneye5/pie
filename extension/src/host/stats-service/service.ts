@@ -2,6 +2,7 @@ import { defaultCreateId, defaultNow } from '../stats-service-helpers';
 import { store } from '../store';
 import type { RunAnalyticsExportPayload, RunAnalyticsQueryResult } from '../run-analytics-query';
 import type {
+  AssistantUsage,
   ComposerInput,
   RunOutcome,
   SessionAnalyticsFactors,
@@ -81,8 +82,13 @@ export class StatsService implements RunObserver {
     this.tracker.onAssistantTurnStarted(sessionPath, turnId);
   }
 
-  onAssistantTurnEnded(sessionPath: string, turnId: string, durationMs: number): void {
-    this.tracker.onAssistantTurnEnded(sessionPath, turnId, durationMs);
+  onAssistantTurnEnded(
+    sessionPath: string,
+    turnId: string,
+    durationMs: number,
+    usage?: AssistantUsage,
+  ): void {
+    this.tracker.onAssistantTurnEnded(sessionPath, turnId, durationMs, usage);
   }
 
   onToolStarted(sessionPath: string, toolCall: ToolCall): void {

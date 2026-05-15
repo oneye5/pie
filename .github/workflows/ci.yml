@@ -1,0 +1,81 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  guard-secrets:
+    name: Guard against committed secrets
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fail if secret files are tracked
+        run: |
+          set -euo pipefail
+          # These files must never be tracked. Gitignore is not a security
+          # boundary; CI is the gate that actually enforces it.
+          banned=(
+            "auth.json"
+            "pie/auth.json"
+          )
+          fail=0
+          for f in "${banned[@]}"; do
+            if git ls-files --error-unmatch "$f" >/dev/null 2>&1; then
+              echo "ERROR: $f is tracked by git" >&2
+              fail=1
+            fi
+          done
+          # Reject any tracked file under data/ or with a .auth.json suffix.
+          if git ls-files | grep -E '(^data/|\.auth\.json$|^auth\.json\..*$)' >/dev/null; then
+            echo "ERROR: sensitive paths are tracked:" >&2
+            git ls-files | grep -E '(^data/|\.auth\.json$|^auth\.json\..*$)' >&2
+            fail=1
+          fi
+          exit $fail
+
+  extension:
+    name: Extension — typecheck, test, build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: extension/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test
+      - run: npm run build
+      - name: Package VSIX
+        run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pie-vsix
+          path: extension/*.vsix
+          if-no-files-found: warn
+
+  analysis:
+    name: Analytics — typecheck, test
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: analysis
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: analysis/package-lock.json
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run test

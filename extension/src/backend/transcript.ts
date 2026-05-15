@@ -7,6 +7,7 @@ import { NEW_SESSION_NAME } from '../shared/session-name';
 import { formatToolResult } from '../shared/tool-result-format';
 
 import {
+  addAssistantUsage,
   applyToolResultToParts,
   appendAssistantParts,
   assistantPartsFromContent,
@@ -17,6 +18,7 @@ import {
   textFromParts,
   thinkingFromParts,
   toolCallsFromMessageParts,
+  usageFromMessage,
   userPartsFromContent,
 } from './transcript/content';
 import type { MessageLike } from './transcript/types';
@@ -76,6 +78,7 @@ export function mapAssistantMessage(
     status: assistantStatus(message),
     toolCalls: toolCallsFromMessageParts(messageParts),
     durationMs,
+    usage: usageFromMessage(message),
   };
 }
 
@@ -128,6 +131,7 @@ export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
           : undefined;
         const assistantModelId = message.model ?? currentModelId;
         const assistantThinkingLevel = currentThinkingLevel;
+        const turnUsage = usageFromMessage(message);
         if (message.model) {
           currentModelId = message.model;
         }
@@ -159,6 +163,7 @@ export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
           if (durationMs !== undefined) {
             currentAssistant.durationMs = (currentAssistant.durationMs ?? 0) + durationMs;
           }
+          currentAssistant.usage = addAssistantUsage(currentAssistant.usage, turnUsage);
         } else {
           currentAssistant = {
             id: entry.id,
@@ -172,6 +177,7 @@ export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
             status: assistantStatus(message),
             toolCalls: toolCallsFromMessageParts(messageParts),
             durationMs,
+            usage: turnUsage,
           };
           transcript.push(currentAssistant);
         }

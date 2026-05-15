@@ -62,8 +62,8 @@ The UI lives inside a VS Code sidebar panel and must feel like it belongs there:
 
 ## Local run analytics
 
-- Run analytics stay local under `data/outcomes/<workspace-hash>/` inside the repo-aligned outcomes directory and capture structured run factors, tool rollups, verification-command classes, and file-mutation summaries without storing raw transcript/tool payloads by default.
-- Analytics UI is intentionally hidden for now; the store updates automatically and refreshes a private `run-analytics.json` source snapshot alongside the raw JSONL/checkpoint files. Do not treat that file as browser-served or shareable dashboard data.
+- Run analytics stay local under `data/outcomes/<workspace-hash>/` inside the repo-aligned outcomes directory and capture structured run factors, tool rollups, verification-command classes, and file-mutation summaries.
+- Analytics UI is intentionally hidden for now; the store updates automatically and refreshes a `run-analytics.json` source snapshot alongside the raw JSONL/checkpoint files.
 - Optional setting: `pie.experimentAssignment` — records an explicit treatment/experiment label on new runs for later comparison.
 
 ## Local GUI development

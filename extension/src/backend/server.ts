@@ -52,6 +52,80 @@ import {
 } from './transcript-window';
 import type { SessionEntryLike } from './transcript';
 
+/**
+ * Walk up from a file path looking for a `.git` directory. Returns true if the
+ * file resides inside a Git working tree.
+ */
+async function isInsideGitWorkTree(filePath: string): Promise<boolean> {
+  let dir = path.dirname(path.resolve(filePath));
+  const root = path.parse(dir).root;
+  while (true) {
+    try {
+      const stat = await fs.stat(path.join(dir, '.git'));
+      if (stat.isDirectory() || stat.isFile()) {
+        return true;
+      }
+    } catch {
+      // .git not found at this level — continue walking up.
+    }
+    if (dir === root) {
+      break;
+    }
+    dir = path.dirname(dir);
+  }
+  return false;
+}
+
+/**
+ * Returns the platform-standard directory for pie credentials.
+ * - Windows: %LOCALAPPDATA%\pie
+ * - macOS/Linux: ~/.config/pie
+ */
+function getDefaultAuthDir(): string {
+  if (process.platform === 'win32') {
+    const localAppData = process.env.LOCALAPPDATA;
+    if (localAppData) {
+      return path.join(localAppData, 'pie');
+    }
+  }
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
+  return path.join(home, '.config', 'pie');
+}
+
+/**
+ * Ensures a directory exists, creating it (and parents) if needed.
+ */
+async function ensureDir(dir: string): Promise<void> {
+  await fs.mkdir(dir, { recursive: true });
+}
+
+/**
+ * If `source` exists and `dest` does not, copy source to dest and remove the
+ * original. Returns true if a migration occurred.
+ */
+async function migrateAuthFile(source: string, dest: string): Promise<boolean> {
+  try {
+    await fs.access(source);
+  } catch {
+    return false; // source doesn't exist — nothing to migrate
+  }
+  try {
+    await fs.access(dest);
+    return false; // dest already exists — don't overwrite
+  } catch {
+    // dest doesn't exist — proceed with migration
+  }
+  await ensureDir(path.dirname(dest));
+  await fs.copyFile(source, dest);
+  // Verify copy matches before removing original
+  const [srcBuf, dstBuf] = await Promise.all([fs.readFile(source), fs.readFile(dest)]);
+  if (srcBuf.equals(dstBuf)) {
+    await fs.unlink(source);
+    return true;
+  }
+  return false;
+}
+
 export class BackendServer {
   private sdk!: SdkModule;
   private readonly sdkPath: string;
@@ -70,13 +144,43 @@ export class BackendServer {
   async start(): Promise<void> {
     this.sdk = await loadSdk(this.sdkPath);
     this.agentDir = this.sdk.getAgentDir();
-    this.authStorage = this.sdk.AuthStorage.create();
+
+    const authDir = process.env.PI_CODING_AGENT_AUTH_DIR?.trim();
+    let authPath: string;
+
+    if (authDir) {
+      // Explicit override — use as-is.
+      authPath = path.resolve(authDir, 'auth.json');
+    } else {
+      // Default: check if agentDir is inside a git tree.
+      const agentDirAuthPath = path.resolve(this.agentDir, 'auth.json');
+      if (await isInsideGitWorkTree(agentDirAuthPath)) {
+        const allowInTree = process.env.PIE_ALLOW_IN_TREE_AUTH === '1';
+        if (allowInTree) {
+          authPath = agentDirAuthPath;
+        } else {
+          // Auto-resolve to the platform-standard auth location.
+          const defaultDir = getDefaultAuthDir();
+          authPath = path.resolve(defaultDir, 'auth.json');
+          // Migrate existing in-tree auth.json to the default location.
+          await migrateAuthFile(agentDirAuthPath, authPath);
+        }
+      } else {
+        authPath = agentDirAuthPath;
+      }
+    }
+
+    // Ensure the auth directory exists so the SDK can write to it.
+    await ensureDir(path.dirname(authPath));
+
+    this.authStorage = this.sdk.AuthStorage.create(authPath);
 
     this.emit('backend.ready', {
       sdkPath: this.sdkPath,
       agentDir: this.agentDir,
       sdkVersion: this.sdk.VERSION,
       protocolVersion: PROTOCOL_VERSION,
+      authPath,
     });
 
     const detachReader = attachJsonlLineReader(process.stdin, (line) => {

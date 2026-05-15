@@ -5,7 +5,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { parseCliOptions, formatUsage } from './cli.ts';
-import { sanitizeSourceAnalytics } from './sanitize.ts';
+import { prepareSourceAnalytics } from './prepare.ts';
 import { resolveSiteRequestPath } from './serve-site-paths.ts';
 import {
   buildSiteDataBundle,
@@ -14,7 +14,6 @@ import {
   writeSiteData,
 } from './site-data.ts';
 import {
-  collectSensitiveSourceStrings,
   DEFAULT_SITE_DATA_DIR,
   loadSourceAnalytics,
 } from './source.ts';
@@ -120,11 +119,10 @@ async function refreshSiteDataForServe(options: ReturnType<typeof parseCliOption
   }
 
   const loaded = await loadSourceAnalytics(resolvedSelection.selection);
-  const sensitiveStrings = collectSensitiveSourceStrings(loaded.source);
-  const sanitized = sanitizeSourceAnalytics(loaded.source);
-  const bundle = buildSiteDataBundle(sanitized);
+  const prepared = prepareSourceAnalytics(loaded.source);
+  const bundle = buildSiteDataBundle(prepared);
 
-  validateSiteDataBundle(bundle, sensitiveStrings);
+  validateSiteDataBundle(bundle);
   await writeSiteData(outputDir, bundle);
 
   console.log(`Site data refreshed from ${loaded.sourceKind} source: ${loaded.sourcePath}`);

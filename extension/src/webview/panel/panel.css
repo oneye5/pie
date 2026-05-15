@@ -1005,16 +1005,13 @@ body.session-tab-dragging {
   background: transparent;
 }
 
-.tool-call.tool-call-subagent[aria-expanded="false"] .tool-call-header {
+.tool-call.tool-call-subagent[aria-expanded="false"] .subagent-header {
   background: var(--panel-subagent-header-surface);
   box-shadow: inset 0 0 0 1px var(--panel-subagent-header-border);
+  border-radius: 6px;
 }
 
-.tool-call.tool-call-subagent[aria-expanded="false"]:hover {
-  background: var(--panel-raised-surface);
-}
-
-.tool-call.tool-call-subagent[aria-expanded="false"]:hover .tool-call-header {
+.tool-call.tool-call-subagent[aria-expanded="false"]:hover .subagent-header {
   background: var(--panel-subagent-header-surface-hover);
 }
 
@@ -1127,6 +1124,131 @@ body.session-tab-dragging {
   /* Allow the name to expand within the row; the summary is capped and
      allowed to shrink first so the title stays readable. */
   max-width: none;
+}
+
+/* ── Subagent header ─────────────────────────────────────── */
+
+.subagent-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.subagent-header-summary {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--panel-muted);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+}
+
+.subagent-agent-name {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  white-space: nowrap;
+}
+
+/* Score bar: compact inline score dimensions */
+.subagent-scores {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+}
+
+.subagent-score-dim {
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  transition: opacity 0.15s ease;
+}
+
+.subagent-score-dim[data-score="0"] { opacity: 0.25; color: var(--panel-muted); }
+.subagent-score-dim[data-score="1"] { opacity: 0.4; color: var(--panel-muted); }
+.subagent-score-dim[data-score="2"] { opacity: 0.55; color: var(--vscode-foreground); }
+.subagent-score-dim[data-score="3"] { opacity: 0.7; color: var(--vscode-foreground); }
+.subagent-score-dim[data-score="4"] { opacity: 0.85; color: var(--panel-accent); }
+.subagent-score-dim[data-score="5"] { opacity: 1.0; color: var(--panel-accent); font-weight: 700; }
+
+/* Model tag */
+.subagent-model-tag {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--panel-muted);
+  background: color-mix(in srgb, var(--panel-subtle-surface) 60%, transparent);
+  border-radius: 3px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+/* Thinking level tag */
+.subagent-thinking-tag {
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--panel-accent);
+  opacity: 0.7;
+}
+
+/* Status indicator */
+.subagent-status {
+  margin-inline-start: auto;
+  flex-shrink: 0;
+}
+
+.subagent-status-running {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--panel-accent);
+  opacity: 0.6;
+  animation: subagent-pulse 1.6s ease-in-out infinite;
+}
+
+.subagent-status-failed {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--panel-danger);
+  font-weight: 600;
+}
+
+@keyframes subagent-pulse {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.85; }
+}
+
+/* Multi-agent collapsed: compact model list */
+.subagent-multi-models {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* Inline badge for expanded multi-agent result labels */
+.subagent-inline-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  font-weight: 400;
+  white-space: nowrap;
 }
 
 .tool-call-summary {
@@ -1308,6 +1430,9 @@ body.session-tab-dragging {
 }
 
 .subagent-result-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
@@ -1350,6 +1475,32 @@ body.session-tab-dragging {
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+  width: 100%;
+}
+
+.composer-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  flex: 1;
+}
+
+.composer-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.context-window-indicator-anchor {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  margin-left: auto;
 }
 
 .composer-meta {
@@ -1441,6 +1592,7 @@ button.composer-meta-chip.open:focus {
   gap: 6px;
   flex-shrink: 0;
   margin-left: auto;
+  margin-right: 0;
 }
 
 .composer-run-action {
@@ -1535,6 +1687,7 @@ button.composer-meta-chip.open:focus {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   max-width: 220px;
+  margin-left: auto;
 }
 
 .context-window-indicator-anchor {
@@ -1549,6 +1702,28 @@ button.composer-meta-chip.open:focus {
 
 .context-window-indicator.critical {
   color: var(--panel-danger);
+}
+
+.session-token-rate {
+  justify-content: center;
+  color: var(--vscode-foreground);
+  font-weight: 400;
+  cursor: help;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: 4px;
+}
+
+.session-token-indicator {
+  justify-content: center;
+  color: var(--vscode-foreground);
+  font-weight: 400;
+  cursor: help;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: 4px;
 }
 
 .toolbar-settings {
@@ -2109,7 +2284,49 @@ button.composer-meta-chip.open:focus {
   }
 }
 
+.transcript-typing-indicator {
+  display: none; /* Removed - replaced with glow indicator */
+}
+
+.message-glow-indicator {
+  position: relative;
+  height: 1px;
+  margin-top: 12px;
+  overflow: hidden;
+}
+
+.message-glow-indicator::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--panel-accent, var(--panel-muted)) 50%,
+    transparent 100%
+  );
+  animation: message-glow-pulse 4s ease-in-out infinite;
+}
+
+@keyframes message-glow-pulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scaleX(0.5);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scaleX(1);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .transcript-typing-dot {
+    animation: none;
+    opacity: 0.7;
+  }
+
   .session-tab-running,
   .session-tab.unread-finished:not(.active) .session-tab-shell {
     animation: none;

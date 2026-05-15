@@ -117,6 +117,14 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
 
   const backendPath = path.join(options.context.extensionPath, 'out', 'backend.js');
 
+  // Pass the in-tree auth opt-in setting to the backend via env.
+  const allowInTreeAuth = vscode.workspace.getConfiguration('pie').get<boolean>('allowInTreeAuth', false);
+  if (allowInTreeAuth) {
+    process.env.PIE_ALLOW_IN_TREE_AUTH = '1';
+  } else {
+    delete process.env.PIE_ALLOW_IN_TREE_AUTH;
+  }
+
   options.events.attach(options.backend);
 
   try {

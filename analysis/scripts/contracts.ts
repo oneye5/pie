@@ -1,6 +1,6 @@
 export const RUN_ANALYTICS_SCHEMA_VERSION = 1;
 export const SITE_DATA_SCHEMA_VERSION = 1;
-export const PRIVACY_MODE_LOCAL_DEFAULT = 'local-default';
+export const DATA_MODE_LOCAL_DEFAULT = 'local-default';
 export const GENERATOR_VERSION = 'analysis-v1';
 
 export const SITE_DATA_FILE_NAMES = [
@@ -21,6 +21,16 @@ export type RunFinalizationReason = 'scored' | 'closed_unscored' | 'new_task';
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type InputKind = 'filesystemPathRef' | 'imageBlob' | 'fileBlob';
 export type VerificationCommandKind = 'test' | 'build' | 'lint' | 'typecheck' | 'format' | 'other';
+export type ToolFailureKind =
+  | 'unavailable_tool'
+  | 'invalid_tool_arguments'
+  | 'missing_file_or_path'
+  | 'shell_command_error'
+  | 'probe_no_match'
+  | 'verification_project_failure'
+  | 'timeout'
+  | 'nonzero_exit'
+  | 'unknown';
 export type TreatmentChangeKind =
   | 'model'
   | 'thinking'
@@ -70,14 +80,38 @@ export interface SessionAnalyticsFactors {
   skillSetHash: string | null;
 }
 
+export interface SubagentTaskScoreRollup {
+  precision:    { sum: number; count: number; max: number };
+  creativity:   { sum: number; count: number; max: number };
+  reasoning:    { sum: number; count: number; max: number };
+  thoroughness: { sum: number; count: number; max: number };
+}
+
+export interface ToolFailureSample {
+  toolName: string;
+  failureKind: ToolFailureKind;
+  exitCode: number | null;
+  errorExcerpt: string;
+  verificationKinds: VerificationCommandKind[];
+  occurredAt: string;
+}
+
 export interface ToolUsageRollup {
   totalCount: number;
   failureCount: number;
+  executionFailureCount: number;
+  verificationProjectFailureCount: number;
+  probeFailureCount: number;
   countsByName: Record<string, number>;
   failureCountsByName: Record<string, number>;
+  failureCountsByKind: Record<ToolFailureKind, number>;
+  failureCountsByNameAndKind: Record<string, Record<ToolFailureKind, number>>;
+  failureSamples: ToolFailureSample[];
   subagentCallCount: number;
   subagentTaskCount: number;
   subagentAgentNames: string[];
+  subagentScoredTaskCount: number;
+  subagentTaskScores: SubagentTaskScoreRollup;
 }
 
 export interface FileMutationRollup {
@@ -167,12 +201,12 @@ export interface ResolutionCounts {
   unresolved: number;
 }
 
-export interface SanitizedSkillEntry {
+export interface PreparedSkillEntry {
   name: string;
   lastModifiedAt: string | null;
 }
 
-export interface SanitizedRunRow {
+export interface PreparedRunRow {
   runId: string;
   taskGroupId: string;
   sessionPathHash: string;
@@ -194,7 +228,7 @@ export interface SanitizedRunRow {
   promptHashPrefix: string | null;
   toolSetHashPrefix: string | null;
   skillSetHashPrefix: string | null;
-  skillEntries: SanitizedSkillEntry[];
+  skillEntries: PreparedSkillEntry[];
   selectedToolCount: number;
   skillCount: number;
   contextFileCount: number;
@@ -220,6 +254,16 @@ export interface SanitizedRunRow {
   subagentCallCount: number;
   subagentTaskCount: number;
   subagentAgentCount: number;
+  subagentScoredTaskCount: number;
+  subagentMeanPrecision: number | null;
+  subagentMeanCreativity: number | null;
+  subagentMeanReasoning: number | null;
+  subagentMeanThoroughness: number | null;
+  subagentMaxPrecision: number | null;
+  subagentMaxCreativity: number | null;
+  subagentMaxReasoning: number | null;
+  subagentMaxThoroughness: number | null;
+  subagentCompositeMean: number | null;
   verificationTotalCount: number;
   verificationFailureCount: number;
   verificationState: VerificationState;
@@ -236,11 +280,14 @@ export interface SanitizedRunRow {
   lineMutationTotal: number;
 }
 
-export interface SanitizedToolUsageRow {
+export interface PreparedToolUsageRow {
   runId: string;
   toolName: string;
   callCount: number;
   failureCount: number;
+  executionFailureCount: number;
+  verificationProjectFailureCount: number;
+  probeFailureCount: number;
   startedAt: string;
   startedDay: string;
   modelId: string | null;
@@ -252,7 +299,26 @@ export interface SanitizedToolUsageRow {
   resolution: RunOutcomeResolution | null;
 }
 
-export interface SanitizedVerificationUsageRow {
+export interface PreparedToolFailureRow {
+  runId: string;
+  toolName: string;
+  failureKind: ToolFailureKind;
+  count: number;
+  exitCode: number | null;
+  errorExcerpt: string | null;
+  verificationKinds: VerificationCommandKind[];
+  startedAt: string;
+  startedDay: string;
+  modelId: string | null;
+  thinkingLevel: ThinkingLevel | null;
+  experimentAssignment: string | null;
+  mixedTreatmentConfig: boolean;
+  scored: boolean;
+  satisfaction: number | null;
+  resolution: RunOutcomeResolution | null;
+}
+
+export interface PreparedVerificationUsageRow {
   runId: string;
   kind: VerificationCommandKind;
   count: number;
@@ -268,7 +334,7 @@ export interface SanitizedVerificationUsageRow {
   resolution: RunOutcomeResolution | null;
 }
 
-export interface SanitizedBackendErrorRow {
+export interface PreparedBackendErrorRow {
   runId: string;
   errorCode: string;
   count: number;
@@ -282,14 +348,15 @@ export interface SanitizedBackendErrorRow {
   resolution: RunOutcomeResolution | null;
 }
 
-export interface SanitizedAnalyticsData {
+export interface PreparedAnalyticsData {
   sourceSchemaVersion: number;
   sourceExportedAt: string;
   sourceWorkspaceKey: string;
-  runs: SanitizedRunRow[];
-  toolUsage: SanitizedToolUsageRow[];
-  verificationUsage: SanitizedVerificationUsageRow[];
-  backendErrors: SanitizedBackendErrorRow[];
+  runs: PreparedRunRow[];
+  toolUsage: PreparedToolUsageRow[];
+  toolFailures: PreparedToolFailureRow[];
+  verificationUsage: PreparedVerificationUsageRow[];
+  backendErrors: PreparedBackendErrorRow[];
 }
 
 export interface SiteManifest {
@@ -301,7 +368,7 @@ export interface SiteManifest {
   completedRunCount: number;
   openRunCount: number;
   scoredRunCount: number;
-  privacyMode: typeof PRIVACY_MODE_LOCAL_DEFAULT;
+  dataMode: typeof DATA_MODE_LOCAL_DEFAULT;
   generatorVersion: string;
 }
 
@@ -320,7 +387,7 @@ export interface OverviewData {
 
 export interface RunSummaryData {
   schemaVersion: number;
-  rows: SanitizedRunRow[];
+  rows: PreparedRunRow[];
 }
 
 export interface ModelQualityAggregateRow {
@@ -371,6 +438,9 @@ export interface ToolUsageAggregateRow {
   toolName: string;
   callCount: number;
   failureCount: number;
+  executionFailureCount: number;
+  verificationProjectFailureCount: number;
+  probeFailureCount: number;
   affectedRunCount: number;
   averageSatisfactionWhenUsed: number | null;
   averageSatisfactionWhenUnused: number | null;
@@ -378,7 +448,7 @@ export interface ToolUsageAggregateRow {
 
 export interface ToolUsageData {
   schemaVersion: number;
-  rows: SanitizedToolUsageRow[];
+  rows: PreparedToolUsageRow[];
   summaryRows: ToolUsageAggregateRow[];
 }
 

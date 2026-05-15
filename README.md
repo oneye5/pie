@@ -1,70 +1,112 @@
-# Pie
+# pi-config
 
-My personal PI stack, complete with VSC extention GUI and local data collection for dialing in on what actually works backed by concrete numbers rather than 'vibes'.
+A personal stack built around the [`pi` coding agent](https://www.npmjs.com/package/@mariozechner/pi-coding-agent): a VS Code sidebar extension (*pie*), reusable pi plugins, local run-analytics tooling, and the maintainer's own agents/skills/config.
 
-## Purpose
+> **Read this first if you are not the maintainer.** This repo contains *both* generally useful tooling (the pie extension, the pi plugins) and the maintainer's personal config (`agents/`, `skills/`, `settings.json`, `APPEND_SYSTEM.md`). Treat the personal layer as an example to fork, not a default to adopt.
+>
+> The checked-in config is tuned for this repository. Review paths and defaults before reusing it elsewhere.
 
-Produce a higher quality / quantity of work by:
+## What's in this repo
 
-- Taking effective workflows and refining them. Ie the flow of using VSC to write docs, make tweaks, review changes whilst agents work in the side bar.
+| Path | What it is | Distribution |
+|---|---|---|
+| [`extension/`](extension) | *pie* — VS Code sidebar extension that surfaces a `pi` agent as chat | Source build today; CI-built VSIX planned (see [`docs/INSTALLATION_INFRA_PLAN.md`](docs/INSTALLATION_INFRA_PLAN.md)) |
+| [`extensions/subagent/`](extensions/subagent), [`extensions/cwd-skills/`](extensions/cwd-skills) | Reusable pi plugins (subagent delegation, cwd-scoped skill discovery) | Loaded by `pi` via `settings.json` packages |
+| [`analysis/`](analysis) | Local DuckDB + static-site workspace for run analytics | Internal research tool |
+| [`agents/`](agents), [`skills/`](skills), [`APPEND_SYSTEM.md`](APPEND_SYSTEM.md), [`settings.json`](settings.json) | Maintainer's personal pi config | Reference / example only |
+| [`data/`](data), [`pie/`](pie), [`auth.json`](#) | Local runtime/auth data | Local-only; excluded from the portable config |
+| [`docs/`](docs) | Design contracts and plans; start at [`docs/INDEX.md`](docs/INDEX.md) | Internal |
 
-- Collecting usage data to improve outcomes. Ie, what models, skills, extentions, tools, etc produce the best results FOR ME.
+## Goals (maintainer)
 
-- Having a centralized portable config. Multiple devices, one global config, while session history stays local and out of git.
+- Take effective workflows and refine them — the flow of writing docs, making tweaks, and reviewing changes in VS Code while agents work in the sidebar.
+- Collect local usage data to improve outcomes — which models, skills, tools, and treatments actually produce results.
+- Keep one portable config across machines, with session history local and out of git.
 
-- Making session switching more natural than available tooling.
+These are the *original* design drivers. The architecture is being adjusted so external users can adopt the publishable pieces (extension, pi plugins) without inheriting the personal layer; see [`docs/INDEX.md`](docs/INDEX.md) and the open plans under it.
 
-## Persistence
+## Prerequisites
 
-- PI session history is stored as canonical JSONL under this checkout's local `data/outcomes/sessions/` tree once `PI_CODING_AGENT_DIR` points here.
-- `data/` is git-ignored. It is local runtime data, not part of the portable repo/config state.
-- PI still organizes session files by working directory inside `data/outcomes/sessions/`; using a stable checkout path helps project-scoped resume behavior on a given machine.
-- `auth.json` remains ignored because it is secret material.
-- Session JSONL contains full transcripts (and may contain image payloads), so treat `data/outcomes/sessions/` as sensitive local data.
-- `install.ps1` migrates legacy session files from `~/.pi/agent/sessions/` and the older repo-local `data/sessions/` layout, repairs reachable absolute or `~`-based legacy `sessionDir` stores into this checkout's local `data/outcomes/sessions/--<cwd>--/` layout, prefers the newer transcript on conflicts, and preserves conflicting versions as backup files.
-- Relative `sessionDir` overrides cannot be repaired safely by the installer and need manual cleanup.
-- The tracked `settings.json` points `sessionDir` at `data/outcomes/sessions`; if you override it locally, clear that override when you want to return to the shared layout.
+- Node.js 20+ (Node 24+ for the `analysis/` workspace)
+- npm 10+
+- [`pi`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent) installed globally if you want the runtime flow end-to-end
+- VS Code, for interactive extension work
+
+## Install
+
+### Windows
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+.\install.ps1
+```
+
+### macOS / Linux
+
+```bash
+chmod +x install.sh
+./install.sh
+```
+
+The macOS/Linux script currently does the essentials (env var, auth migration, `pi update`). Full feature parity with `install.ps1` (session migration, sessionDir repair, settings patching) is tracked in [`docs/INSTALLATION_INFRA_PLAN.md`](docs/INSTALLATION_INFRA_PLAN.md) Phase 1.
+
+Both installers are idempotent: re-running updates/repairs rather than duplicating state.
 
 ## Quick start
 
-### VS Code extension
+### Build the pie VS Code extension
 
 ```bash
 cd extension
-npm run build
+npm install
+npm run build      # builds and syncs into the installed extension
 ```
-
-That rebuilds the extension and syncs the output into the locally installed VS Code extension.
 
 Useful extension commands:
 
-- `cd extension && npm run watch`
-- `cd extension && npm run test`
-- `cd extension && npm run typecheck`
+- `npm run watch` — incremental rebuild for UI work
+- `npm run test` — unit tests
+- `npm run typecheck` — type-only check
+- `npm run package` — produce a `.vsix`
 
-### Analytics site
+### Run the analytics workspace
 
 ```bash
 # from repo root
 npm run analytics:serve
 ```
 
-Optional analytics helpers from repo root:
+Other analytics helpers from the repo root: `analytics:build-db`, `analytics:query -- --name model_quality`, `analytics:export-site-data`, `analytics:validate`.
 
-- `npm run analytics:build-db`
-- `npm run analytics:query -- --name model_quality`
-- `npm run analytics:export-site-data`
-- `npm run analytics:validate`
+## Persistence and storage
 
-## Prerequisites
+- PI session history is stored as canonical JSONL under this checkout's local `data/outcomes/sessions/` once `PI_CODING_AGENT_DIR` points here.
+- `data/` is git-ignored. It is local runtime data, not part of the portable repo/config state.
+- `install.ps1` migrates legacy session files (`~/.pi/agent/sessions/`, `data/sessions/`), repairs reachable absolute / `~`-based legacy `sessionDir` overrides, prefers newer transcripts on conflict, and preserves the loser as `.conflict.*.bak`.
+- Relative `sessionDir` overrides cannot be repaired safely by the installer and need manual cleanup.
 
-- Node.js 24+ for the analytics workspace in `analysis/`
-- A local PI setup if you want the extension and runtime data flow to work end-to-end
-- VS Code if you want to use the `extension/` package interactively
+### Storage locations
+
+| State | Default location | Override env var |
+|---|---|---|
+| Auth tokens | `%LOCALAPPDATA%\pie\auth.json` (Win) / `~/.config/pie/auth.json` (macOS/Linux) | `PI_CODING_AGENT_AUTH_DIR` |
+| Sessions | `data/outcomes/sessions/` (in-tree, git-ignored) | `PI_CODING_AGENT_SESSION_DIR` |
+| Run analytics | `data/outcomes/<id>/` or `PIE_ANALYTICS_DIR` override | `PIE_ANALYTICS_DIR` |
+
+The backend logs resolved storage paths on startup via the `backend.ready` event.
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for which subtrees accept outside contributions and how to file PRs. By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+License pending. Until a `LICENSE` file is added, default copyright applies and no rights are granted beyond reading the source on the hosting platform.
 
 ## More docs
 
-- `AGENTS.md` for repo-specific working conventions
-- `docs/STATE_CONTRACT.md` for the host ↔ webview sync contract
-- `extension/README.md` for extension-focused notes
-- `analysis/README.md` for analytics workspace details
+- [AGENTS.md](AGENTS.md) — repo-specific working conventions for AI assistants
+- [docs/INDEX.md](docs/INDEX.md) — curated index of design docs and plans
+- [docs/STATE_CONTRACT.md](docs/STATE_CONTRACT.md) — authoritative host ↔ webview sync contract
+- [extension/README.md](extension/README.md) — extension design philosophy
+- [analysis/README.md](analysis/README.md) — analytics workspace details

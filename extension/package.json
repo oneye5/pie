@@ -86,6 +86,11 @@
           "type": "string",
           "default": "",
           "description": "Optional experiment/treatment assignment label recorded on new run analytics snapshots."
+        },
+        "pie.allowInTreeAuth": {
+          "type": "boolean",
+          "default": false,
+          "description": "Allow loading auth credentials from inside a Git working tree."
         }
       }
     }

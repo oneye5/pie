@@ -47,24 +47,9 @@ test('StreamSmoother applies small deltas immediately without smoothing', () => 
   assert.equal(result.partsByMessage.get('msg1')?.[0].text, 'hi');
 });
 
-test('StreamSmoother applies large deltas immediately without smoothing', () => {
-  let flushedOverlay: ReturnType<typeof smoother.processPatch> | null = null;
-  const smoother = new StreamSmoother({ maxImmediateChars: 10 }, (o) => { flushedOverlay = o; });
-
-  const largeDelta: PatchOp = {
-    kind: 'messageDelta',
-    messageId: 'msg1',
-    delta: 'this is a large chunk of text',
-  };
-
-  const result = smoother.processPatch(largeDelta);
-  assert.ok(flushedOverlay !== null);
-  assert.equal(result.partsByMessage.get('msg1')?.[0].text, 'this is a large chunk of text');
-});
-
 test('StreamSmoother buffers medium deltas for smoothing', () => {
   const smoother = new StreamSmoother(
-    { minCharsForSmoothing: 5, maxImmediateChars: 200 },
+    { minCharsForSmoothing: 4, maxEmitBatch: 20 },
     () => {},
   );
 
@@ -82,7 +67,7 @@ test('StreamSmoother buffers medium deltas for smoothing', () => {
 
 test('StreamSmoother flushAll emits all pending deltas', () => {
   const smoother = new StreamSmoother(
-    { minCharsForSmoothing: 5, maxImmediateChars: 200 },
+    { minCharsForSmoothing: 4, maxEmitBatch: 20 },
     () => {},
   );
 
@@ -103,7 +88,7 @@ test('StreamSmoother flushAll emits all pending deltas', () => {
 
 test('StreamSmoother reset clears pending deltas', () => {
   const smoother = new StreamSmoother(
-    { minCharsForSmoothing: 5, maxImmediateChars: 200 },
+    { minCharsForSmoothing: 4, maxEmitBatch: 20 },
     () => {},
   );
 
@@ -122,7 +107,7 @@ test('StreamSmoother reset clears pending deltas', () => {
 
 test('StreamSmoother getPendingCharCount returns sum of pending delta lengths', () => {
   const smoother = new StreamSmoother(
-    { minCharsForSmoothing: 3, maxImmediateChars: 200 },
+    { minCharsForSmoothing: 3 },
     () => {},
   );
 
@@ -146,9 +131,46 @@ test('StreamSmoother getPendingCharCount returns sum of pending delta lengths', 
 });
 
 test('StreamSmoother default config has sensible values', () => {
-  assert.equal(DEFAULT_STREAM_SMOOTHER_CONFIG.charsPerSecond, 30);
-  assert.equal(DEFAULT_STREAM_SMOOTHER_CONFIG.minCharsForSmoothing, 5);
-  assert.equal(DEFAULT_STREAM_SMOOTHER_CONFIG.maxSmoothBatch, 50);
-  assert.equal(DEFAULT_STREAM_SMOOTHER_CONFIG.maxImmediateChars, 200);
-  assert.equal(DEFAULT_STREAM_SMOOTHER_CONFIG.minEmitIntervalMs, 16);
+  assert.equal(DEFAULT_STREAM_SMOOTHER_CONFIG.charDisplayMs, 50);
+  assert.equal(DEFAULT_STREAM_SMOOTHER_CONFIG.minCharsForSmoothing, 4);
+  assert.equal(DEFAULT_STREAM_SMOOTHER_CONFIG.maxEmitBatch, 20);
+  assert.equal(DEFAULT_STREAM_SMOOTHER_CONFIG.minEmitIntervalMs, 20);
+});
+
+test('StreamSmoother splits large deltas across batches', () => {
+  const smoother = new StreamSmoother(
+    { minCharsForSmoothing: 2, maxEmitBatch: 5 },
+    () => {},
+  );
+
+  // Large delta that will be split
+  smoother.processPatch({
+    kind: 'messageDelta',
+    messageId: 'msg1',
+    delta: 'abcdefghij', // 10 chars, batch is 5
+  });
+
+  // All buffered, nothing emitted yet
+  assert.equal(smoother.getPendingCharCount(), 10);
+});
+
+test('StreamSmoother handles multiple messages independently', () => {
+  const smoother = new StreamSmoother(
+    { minCharsForSmoothing: 4 },
+    () => {},
+  );
+
+  smoother.processPatch({
+    kind: 'messageDelta',
+    messageId: 'msg1',
+    delta: 'hello',
+  });
+
+  smoother.processPatch({
+    kind: 'messageDelta',
+    messageId: 'msg2',
+    delta: 'world',
+  });
+
+  assert.equal(smoother.getPendingCharCount(), 10);
 });
