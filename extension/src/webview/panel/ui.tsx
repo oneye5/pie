@@ -11,18 +11,19 @@ import type {
   ComposerInput,
   ComposerInputDraft,
   ContextWindowUsage,
+  ExtensionInfo,
   ModelInfo,
   ModelSettings,
   SystemPromptEntry,
   ThinkingLevel,
   TranscriptWindow,
 } from '../../shared/protocol';
-import { buildContextWindowBreakdown } from './context-window-breakdown';
-import { buildContextWindowIndicatorState } from './context-window-indicator';
-import { buildSessionTokenIndicator, buildSessionTokenUsage, type TokenRateState } from './session-token-usage';
-import { shouldHandleGlobalComposerPaste } from './composer-affordances';
-import { describeComposerInputSummary } from './composer-inputs';
-import { resolveComposerModelState } from './composer-model-state';
+import { buildContextWindowBreakdown } from './context-window/breakdown';
+import { buildContextWindowIndicatorState } from './context-window/indicator';
+import { buildSessionTokenIndicator, buildSessionTokenUsage, type TokenRateState } from './session-tabs/token-usage';
+import { shouldHandleGlobalComposerPaste } from './composer/affordances';
+import { describeComposerInputSummary } from './composer/inputs';
+import { resolveComposerModelState } from './composer/model-state';
 import {
   canAcceptComposerTransfer,
   extractComposerInputs,
@@ -31,7 +32,7 @@ import {
 } from './file-drop';
 import { ComposerAttachments } from './composer/attachments';
 import { ComposerToolbar } from './composer/toolbar';
-import { getComposerRunControls } from './session-tab-run-state';
+import { getComposerRunControls } from './session-tabs/run-state';
 export { SessionTabs } from './session-tabs';
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
@@ -48,6 +49,7 @@ interface ComposerProps {
   activeThinkingLevel?: ThinkingLevel;
   modelSettings: ModelSettings | null;
   availableModels: ModelInfo[];
+  availableExtensions: ExtensionInfo[];
   contextUsage: ContextWindowUsage | null;
   prefs: ChatPrefs;
   systemPrompts: SystemPromptEntry[];
@@ -74,6 +76,7 @@ function ComposerView({
   activeThinkingLevel,
   modelSettings,
   availableModels,
+  availableExtensions,
   contextUsage,
   prefs,
   systemPrompts,
@@ -321,6 +324,7 @@ function ComposerView({
       <ComposerToolbar
         prefs={prefs}
         onSetPrefs={onSetPrefs}
+        availableExtensions={availableExtensions}
         availableModels={availableModels}
         selectedModel={selectedModel}
         selectedLevel={selectedLevel}

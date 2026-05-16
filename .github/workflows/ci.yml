@@ -53,6 +53,7 @@ jobs:
           cache-dependency-path: extension/package-lock.json
       - run: npm ci
       - run: npm run typecheck
+      - run: npm run lint
       - run: npm run test
       - run: npm run build
       - name: Package VSIX
@@ -62,6 +63,16 @@ jobs:
           name: pie-vsix
           path: extension/*.vsix
           if-no-files-found: warn
+
+  extensions:
+    name: Extensions — test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm run extensions:test
 
   analysis:
     name: Analytics — typecheck, test

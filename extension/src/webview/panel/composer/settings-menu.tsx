@@ -3,15 +3,17 @@
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 
-import type { ChatPrefs } from '../../../shared/protocol';
-import { CHAT_PREF_MENU_SECTIONS, toggleChatPref } from '../chat-prefs';
+import type { ChatPrefs, ExtensionInfo, ModelInfo } from '../../../shared/protocol';
+import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
 
 interface ComposerSettingsMenuProps {
   prefs: ChatPrefs;
+  availableExtensions: ExtensionInfo[];
+  availableModels: ModelInfo[];
   onSetPrefs: (prefs: Partial<ChatPrefs>) => void;
 }
 
-export function ComposerSettingsMenu({ prefs, onSetPrefs }: ComposerSettingsMenuProps) {
+export function ComposerSettingsMenu({ prefs, availableExtensions, availableModels, onSetPrefs }: ComposerSettingsMenuProps) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -38,6 +40,11 @@ export function ComposerSettingsMenu({ prefs, onSetPrefs }: ComposerSettingsMenu
       document.removeEventListener('keydown', handleKeyDown);
     };
   }, [open]);
+
+  // Extract unique providers from available models, sorted alphabetically
+  const providers = [...new Set(availableModels.map((m) => m.provider))].sort((a, b) =>
+    a.localeCompare(b),
+  );
 
   return (
     <div ref={menuRef} class="toolbar-settings">
@@ -85,6 +92,62 @@ export function ComposerSettingsMenu({ prefs, onSetPrefs }: ComposerSettingsMenu
               </div>
             </div>
           ))}
+          {availableExtensions.length > 0 && (
+            <div key="extensions" class="toolbar-settings-section">
+              <div class="toolbar-settings-section-label">Extensions</div>
+              <div class="toolbar-settings-list">
+                {availableExtensions.map((ext) => {
+                  // If the extension ID is not in the toggles map, it's enabled by default.
+                  const checked = prefs.extensionToggles[ext.id] !== false;
+                  return (
+                    <button
+                      key={ext.id}
+                      class={`toolbar-settings-item${checked ? ' checked' : ''}`}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={checked}
+                      title={ext.description}
+                      onClick={() => onSetPrefs(setExtensionEnabled(prefs, ext.id, !checked))}
+                    >
+                      <span class="toolbar-settings-item-check" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
+                          <polyline points="2.5,6.5 5,9 10.5,3.5" />
+                        </svg>
+                      </span>
+                      <span class="toolbar-settings-item-label">{ext.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          {providers.length > 0 && (
+            <div key="providers" class="toolbar-settings-section">
+              <div class="toolbar-settings-section-label">Providers</div>
+              <div class="toolbar-settings-list">
+                {providers.map((provider) => {
+                  const checked = prefs.providerToggles[provider] !== false;
+                  return (
+                    <button
+                      key={provider}
+                      class={`toolbar-settings-item${checked ? ' checked' : ''}`}
+                      type="button"
+                      role="menuitemcheckbox"
+                      aria-checked={checked}
+                      onClick={() => onSetPrefs(setProviderEnabled(prefs, provider, !checked))}
+                    >
+                      <span class="toolbar-settings-item-check" aria-hidden="true">
+                        <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
+                          <polyline points="2.5,6.5 5,9 10.5,3.5" />
+                        </svg>
+                      </span>
+                      <span class="toolbar-settings-item-label">{provider}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

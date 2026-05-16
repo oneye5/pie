@@ -9,6 +9,7 @@ import type {
 import { normalizeThinkingLevel, resolveModelInputKinds } from './message-inputs';
 import type { SdkModule } from './sdk';
 import type { SessionContext } from './server-types';
+import { loadSubagentProfiles } from './subagent-profiles';
 import { mapTranscript, summarizeSession, type SessionEntryLike } from './transcript';
 
 function textFromSessionMessageContent(content: unknown): string {
@@ -117,22 +118,29 @@ export function buildTranscript(context: SessionContext): ChatMessage[] {
   return mapTranscript(entries);
 }
 
-export function listAvailableModels(context?: SessionContext): ModelInfo[] {
+export function listAvailableModels(context?: SessionContext, agentDir?: string): ModelInfo[] {
   if (!context) {
     return [];
   }
 
+  const profiles = agentDir ? loadSubagentProfiles(agentDir) : new Map();
+
   try {
     const models = context.runtime.services?.modelRegistry?.getAvailable() ?? [];
-    return models.map((model) => ({
-      id: model.id,
-      name: model.name,
-      provider: model.provider,
-      reasoning: model.reasoning,
-      inputKinds: resolveModelInputKinds(model as unknown as Record<string, unknown>),
-      contextWindow: model.contextWindow,
-      maxTokens: model.maxTokens,
-    }));
+    return models.map((model) => {
+      const info: ModelInfo = {
+        id: model.id,
+        name: model.name,
+        provider: model.provider,
+        reasoning: model.reasoning,
+        inputKinds: resolveModelInputKinds(model as unknown as Record<string, unknown>),
+        contextWindow: model.contextWindow,
+        maxTokens: model.maxTokens,
+      };
+      const profile = profiles.get(model.id);
+      if (profile) info.subagent = profile;
+      return info;
+    });
   } catch {
     return [];
   }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveComposerModelState } from '../src/webview/panel/composer-model-state';
+import { resolveComposerModelState } from '../src/webview/panel/composer/model-state';
 
 test('resolveComposerModelState prefers the active session model over the global default', () => {
   const state = resolveComposerModelState({

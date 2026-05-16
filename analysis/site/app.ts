@@ -3775,14 +3775,20 @@ function emptyOverviewData(schemaVersion: number): OverviewData {
     averageSatisfaction: null,
     resolutionCounts: { resolved: 0, partiallyResolved: 0, unresolved: 0 },
     medianBusyDurationMs: null,
+    p90BusyDurationMs: null,
+    p99BusyDurationMs: null,
     verificationRunRate: null,
     toolFailureRate: null,
+    medianTokenEfficiency: null,
+    averageContextUtilization: null,
+    averageCacheHitRatio: null,
+    firstAttemptSuccessRate: null,
     latestRunTimestamp: null,
   };
 }
 
 function emptyModelQualityData(schemaVersion: number): ModelQualityData {
-  return { schemaVersion, rows: [] };
+  return { schemaVersion, rows: [], notes: [] };
 }
 
 function emptyVerificationImpactData(schemaVersion: number): VerificationImpactData {

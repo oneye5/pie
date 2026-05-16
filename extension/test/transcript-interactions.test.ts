@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   shouldOpenSubagentContextMenu,
   shouldOpenUserMessageEditor,
-} from '../src/webview/panel/transcript-interactions';
+} from '../src/webview/panel/transcript/interactions';
 
 function closestTarget(matchesInteractiveDescendant: boolean): EventTarget {
   return {

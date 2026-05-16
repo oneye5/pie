@@ -1,0 +1,50 @@
+export interface MessageScrollAnchor {
+  messageId: string;
+  offsetTop: number;
+}
+
+export function captureMessageScrollAnchor(container: HTMLDivElement): MessageScrollAnchor | null {
+  const containerTop = container.getBoundingClientRect().top;
+  const candidates = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
+  for (const candidate of candidates) {
+    const rect = candidate.getBoundingClientRect();
+    if (rect.bottom <= containerTop) {
+      continue;
+    }
+
+    const messageId = candidate.dataset.messageId;
+    if (!messageId) {
+      continue;
+    }
+
+    return {
+      messageId,
+      offsetTop: rect.top - containerTop,
+    };
+  }
+
+  return null;
+}
+
+export function restoreMessageScrollAnchor(
+  container: HTMLDivElement,
+  anchor: MessageScrollAnchor | null,
+): void {
+  if (!anchor) {
+    return;
+  }
+
+  const containerTop = container.getBoundingClientRect().top;
+  const candidates = Array.from(container.querySelectorAll<HTMLElement>('[data-message-id]'));
+  const match = candidates.find((candidate) => candidate.dataset.messageId === anchor.messageId);
+  if (!match) {
+    return;
+  }
+
+  const delta = match.getBoundingClientRect().top - containerTop - anchor.offsetTop;
+  if (Math.abs(delta) < 1) {
+    return;
+  }
+
+  container.scrollTop += delta;
+}

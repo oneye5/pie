@@ -1,0 +1,919 @@
+{
+  "topK": 2,
+  "profiles": [
+    {
+      "_comment": "=== GITHUB COPILOT MODELS ==="
+    },
+    {
+      "_comment": "--- Claude (current gen) ---"
+    },
+    {
+      "id": "claude-opus-4.7",
+      "precision": 5,
+      "creativity": 5,
+      "thoroughness": 5,
+      "reasoning": 5,
+      "thinking": [
+        "medium"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "claude-opus-4.6",
+      "precision": 5,
+      "creativity": 5,
+      "thoroughness": 5,
+      "reasoning": 5,
+      "thinking": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "claude-sonnet-4.6",
+      "precision": 4,
+      "creativity": 4,
+      "thoroughness": 4,
+      "reasoning": 5,
+      "thinking": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "claude-sonnet-4.5",
+      "precision": 4,
+      "creativity": 4,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "claude-haiku-4.5",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "minimal",
+        "low",
+        "medium"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- Claude (old gen, disabled) ---"
+    },
+    {
+      "id": "claude-opus-4.5",
+      "precision": 5,
+      "creativity": 5,
+      "thoroughness": 5,
+      "reasoning": 5,
+      "thinking": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by opus-4.6/4.7"
+    },
+    {
+      "id": "claude-sonnet-4",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by sonnet-4.5/4.6"
+    },
+    {
+      "_comment": "--- GPT (current gen) ---"
+    },
+    {
+      "id": "gpt-5.5",
+      "precision": 5,
+      "creativity": 4,
+      "thoroughness": 5,
+      "reasoning": 5,
+      "thinking": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "gpt-5.4",
+      "precision": 4,
+      "creativity": 4,
+      "thoroughness": 4,
+      "reasoning": 5,
+      "thinking": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "gpt-5.3-codex",
+      "precision": 5,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "gpt-5.2-codex",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "gpt-5.2",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- GPT (old gen, disabled) ---"
+    },
+    {
+      "id": "gpt-5.1",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gpt-5.2+"
+    },
+    {
+      "id": "gpt-5.1-codex",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gpt-5.2-codex/5.3-codex"
+    },
+    {
+      "id": "gpt-5.1-codex-max",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gpt-5.3-codex"
+    },
+    {
+      "id": "gpt-5.1-codex-mini",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "low",
+        "medium"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gpt-5.4-mini"
+    },
+    {
+      "id": "gpt-5",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gpt-5.4/5.5"
+    },
+    {
+      "id": "gpt-5-mini",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "low",
+        "medium"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gpt-5.4-mini"
+    },
+    {
+      "id": "gpt-4.1",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 3,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gpt-5.x series"
+    },
+    {
+      "id": "gpt-4o",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gpt-5.x series"
+    },
+    {
+      "_comment": "--- Gemini (copilot, current gen) ---"
+    },
+    {
+      "id": "gemini-3.1-pro-preview",
+      "precision": 4,
+      "creativity": 4,
+      "thoroughness": 4,
+      "reasoning": 5,
+      "thinking": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "gemini-3-pro-preview",
+      "precision": 4,
+      "creativity": 4,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "gemini-3-flash-preview",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "minimal",
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- Gemini (copilot, old gen) ---"
+    },
+    {
+      "id": "gemini-2.5-pro",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gemini-3.x"
+    },
+    {
+      "_comment": "--- Grok ---"
+    },
+    {
+      "id": "grok-code-fast-1",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "minimal",
+        "low",
+        "medium"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "=== OLLAMA CLOUD MODELS ==="
+    },
+    {
+      "_comment": "--- DeepSeek (current gen) ---"
+    },
+    {
+      "id": "deepseek-v4-pro:cloud",
+      "precision": 5,
+      "creativity": 3,
+      "thoroughness": 5,
+      "reasoning": 5,
+      "thinking": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "deepseek-v4-flash:cloud",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "deepseek-v3.2:cloud",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- DeepSeek (old gen) ---"
+    },
+    {
+      "id": "deepseek-v3.1:671b-cloud",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by deepseek-v3.2"
+    },
+    {
+      "_comment": "--- Cogito ---"
+    },
+    {
+      "id": "cogito-2.1:671b-cloud",
+      "precision": 4,
+      "creativity": 4,
+      "thoroughness": 4,
+      "reasoning": 5,
+      "thinking": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- Gemini (ollama) ---"
+    },
+    {
+      "id": "gemini-3-flash-preview:cloud",
+      "precision": 4,
+      "creativity": 4,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "gemma4:31b-cloud",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "minimal",
+        "low",
+        "medium"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- Gemma (old gen) ---"
+    },
+    {
+      "id": "gemma3:27b-cloud",
+      "precision": 2,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gemma4:31b"
+    },
+    {
+      "id": "gemma3:12b-cloud",
+      "precision": 2,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gemma4:31b"
+    },
+    {
+      "id": "gemma3:4b-cloud",
+      "precision": 1,
+      "creativity": 1,
+      "thoroughness": 1,
+      "reasoning": 1,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Too small for agentic work"
+    },
+    {
+      "_comment": "--- Qwen (current gen) ---"
+    },
+    {
+      "id": "qwen3.5:397b-cloud",
+      "precision": 4,
+      "creativity": 4,
+      "thoroughness": 4,
+      "reasoning": 5,
+      "thinking": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "qwen3.5:cloud",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "qwen3-next:80b-cloud",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "qwen3-vl:235b-cloud",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "qwen3-coder-next:cloud",
+      "precision": 5,
+      "creativity": 2,
+      "thoroughness": 4,
+      "reasoning": 3,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "qwen3-coder:480b-cloud",
+      "precision": 5,
+      "creativity": 2,
+      "thoroughness": 4,
+      "reasoning": 3,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- Qwen (old/redundant) ---"
+    },
+    {
+      "id": "qwen3-vl:235b-instruct-cloud",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 3,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Redundant with qwen3-vl:235b-cloud thinking variant"
+    },
+    {
+      "_comment": "--- Kimi (current gen) ---"
+    },
+    {
+      "id": "kimi-k2.6:cloud",
+      "precision": 4,
+      "creativity": 4,
+      "thoroughness": 4,
+      "reasoning": 5,
+      "thinking": [
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "kimi-k2.5:cloud",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- Kimi (old gen) ---"
+    },
+    {
+      "id": "kimi-k2-thinking:cloud",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "medium",
+        "high"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by kimi-k2.5/k2.6"
+    },
+    {
+      "id": "kimi-k2:1t-cloud",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 3,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by kimi-k2.5/k2.6"
+    },
+    {
+      "_comment": "--- Nemotron ---"
+    },
+    {
+      "id": "nemotron-3-super:cloud",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high",
+        "xhigh"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "nemotron-3-nano:30b-cloud",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "minimal",
+        "low",
+        "medium"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- GLM (current gen) ---"
+    },
+    {
+      "id": "glm-5.1:cloud",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "glm-4.7:cloud",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "low",
+        "medium"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- GLM (old gen) ---"
+    },
+    {
+      "id": "glm-5:cloud",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by glm-5.1"
+    },
+    {
+      "id": "glm-4.6:cloud",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "low",
+        "medium"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by glm-4.7"
+    },
+    {
+      "_comment": "--- GPT-OSS ---"
+    },
+    {
+      "id": "gpt-oss:120b-cloud",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 4,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "gpt-oss:20b-cloud",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 3,
+      "thinking": [
+        "minimal",
+        "low",
+        "medium"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by gpt-oss:120b"
+    },
+    {
+      "_comment": "--- Minimax (current gen) ---"
+    },
+    {
+      "id": "minimax-m2.7:cloud",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "low",
+        "medium",
+        "high"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- Minimax (old gen) ---"
+    },
+    {
+      "id": "minimax-m2.5:cloud",
+      "precision": 3,
+      "creativity": 3,
+      "thoroughness": 3,
+      "reasoning": 3,
+      "thinking": [
+        "low",
+        "medium"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by m2.7"
+    },
+    {
+      "id": "minimax-m2.1:cloud",
+      "precision": 2,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by m2.5/m2.7"
+    },
+    {
+      "id": "minimax-m2:cloud",
+      "precision": 2,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Superseded by m2.5/m2.7"
+    },
+    {
+      "_comment": "--- Devstral / Mistral ---"
+    },
+    {
+      "id": "devstral-2:123b-cloud",
+      "precision": 4,
+      "creativity": 2,
+      "thoroughness": 3,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "devstral-small-2:24b-cloud",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "mistral-large-3:675b-cloud",
+      "precision": 4,
+      "creativity": 3,
+      "thoroughness": 4,
+      "reasoning": 3,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": true
+    },
+    {
+      "id": "ministral-3:14b-cloud",
+      "precision": 3,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": true
+    },
+    {
+      "_comment": "--- Ministral (old/too small) ---"
+    },
+    {
+      "id": "ministral-3:8b-cloud",
+      "precision": 2,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "14b variant exists at same cost"
+    },
+    {
+      "id": "ministral-3:3b-cloud",
+      "precision": 1,
+      "creativity": 1,
+      "thoroughness": 1,
+      "reasoning": 1,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Too small for agentic work"
+    }
+  ]
+}

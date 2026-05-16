@@ -17,8 +17,8 @@ test('site data generation writes the expected files and passes validation', asy
     await writeSiteData(dir, bundle);
 
     const roundTrip = await readSiteDataBundle(dir);
-    assert.equal(roundTrip.manifest.completedRunCount, 6);
-    assert.equal(roundTrip.runSummary.rows.length, 7);
+    assert.equal(roundTrip.manifest.completedRunCount, 7);
+    assert.equal(roundTrip.runSummary.rows.length, 8);
     assert.ok(roundTrip.verificationImpact.summaryRows.length > 0);
     assert.ok(roundTrip.toolUsage.summaryRows.length > 0);
   });

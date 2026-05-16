@@ -16,12 +16,12 @@
   --panel-subagent-header-border: rgba(0, 122, 204, 0.24);
   --panel-subagent-header-border: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
   --panel-code-surface: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
-  --session-tabs-strip-surface: color-mix(in srgb, var(--vscode-sideBar-background, var(--panel-surface)) 90%, var(--panel-subtle-surface) 10%);
-  --session-tab-active-surface: color-mix(in srgb, var(--vscode-editor-background, var(--panel-surface)) 94%, var(--panel-accent) 6%);
+  --session-tabs-strip-surface: color-mix(in srgb, var(--vscode-sideBar-background, var(--panel-surface)) 74%, var(--panel-subtle-surface) 26%);
+  --session-tab-active-surface: color-mix(in srgb, var(--vscode-editor-background, var(--panel-surface)) 82%, var(--vscode-foreground) 18%);
   --session-tab-inactive-surface: color-mix(in srgb, var(--panel-subtle-surface) 82%, transparent 18%);
   --session-tab-hover-surface: color-mix(in srgb, var(--panel-hover-surface) 68%, var(--panel-subtle-surface) 32%);
   --session-tab-outline: color-mix(in srgb, var(--panel-border) 82%, transparent 18%);
-  --session-tab-active-outline: color-mix(in srgb, var(--panel-accent) 22%, var(--panel-border));
+  --session-tab-active-outline: color-mix(in srgb, var(--panel-accent) 34%, var(--panel-border));
   --session-tab-shadow: 0 10px 22px -22px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.24)) 85%, transparent);
   --session-tab-drag-shadow: 0 18px 30px -20px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.28)) 100%, transparent);
   /* Maximum width for summary content when a summary is present.
@@ -125,10 +125,12 @@ body.session-tab-dragging {
   display: flex;
   align-items: stretch;
   flex-shrink: 0;
-  padding: 8px 10px 7px;
+  padding: 6px 10px 6px;
   position: relative;
   background: var(--session-tabs-strip-surface);
   box-shadow: inset 0 -1px 0 var(--panel-border);
+  border: none;
+  border-bottom: 1px solid var(--panel-border);
 }
 
 .session-tabs.dragging .session-tabs-strip,
@@ -175,7 +177,7 @@ body.session-tab-dragging {
 .session-tab-shell {
   position: absolute;
   inset: 0;
-  border-radius: 10px;
+  border-radius: 7px;
   background: var(--session-tab-surface);
   box-shadow: inset 0 0 0 1px var(--session-tab-outline);
   pointer-events: none;
@@ -382,7 +384,7 @@ body.session-tab-dragging {
 .session-tab-drop-slot {
   position: absolute;
   inset: 2px 0;
-  border-radius: 10px;
+  border-radius: 7px;
   background: color-mix(in srgb, var(--panel-accent) 12%, transparent);
   box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--panel-accent) 32%, var(--panel-border));
   opacity: 0.95;
@@ -460,6 +462,8 @@ body.session-tab-dragging {
   flex: 1;
   min-height: 0;
   display: flex;
+  position: relative;
+  isolation: isolate;
 }
 
 .empty-state {
@@ -1474,26 +1478,30 @@ body.session-tab-dragging {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   width: 100%;
+  container-type: inline-size;
+  container-name: toolbar;
 }
 
 .composer-toolbar-left {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   flex: 1;
+  min-width: 0;
 }
 
 .composer-toolbar-right {
   display: flex;
   align-items: center;
   gap: 6px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   justify-content: flex-end;
   margin-left: auto;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .context-window-indicator-anchor {
@@ -1654,9 +1662,66 @@ button.composer-meta-chip.open:focus {
   max-width: 110px;
 }
 
+.model-picker-shell {
+  position: relative;
+  display: inline-flex;
+  min-width: 80px;
+  min-height: 22px;
+  max-width: 180px;
+}
+
+.model-picker-sizer,
+.model-picker-value {
+  min-width: 0;
+  max-width: 100%;
+  padding: 2px 24px 2px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.model-picker-sizer {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.model-picker-value {
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  color: var(--vscode-foreground);
+  pointer-events: none;
+}
+
+.model-picker-shell::after {
+  content: '▾';
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  color: var(--vscode-foreground);
+  opacity: 0.72;
+  font-size: 10px;
+  pointer-events: none;
+}
+
 .model-select {
   cursor: pointer;
   appearance: auto;
+}
+
+.model-select-picker {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  padding-right: 24px;
+  color: transparent;
+  appearance: none;
 }
 
 .model-select:hover,
@@ -1668,6 +1733,11 @@ button.composer-meta-chip.open:focus {
 .model-select option {
   background: var(--vscode-dropdown-background, var(--vscode-input-background, var(--panel-surface)));
   color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+}
+
+.model-select option.model-option-ineligible {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  font-style: italic;
 }
 
 .model-select-static {
@@ -1713,6 +1783,7 @@ button.composer-meta-chip.open:focus {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   margin-left: 4px;
+  overflow: hidden;
 }
 
 .session-token-indicator {
@@ -1724,6 +1795,29 @@ button.composer-meta-chip.open:focus {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
   margin-left: 4px;
+  overflow: hidden;
+}
+
+/* Progressive hide as toolbar narrows:
+   1st hidden: token rate (least important)
+   2nd hidden: token in/out counts
+   3rd hidden: context window indicator (most important, kept longest) */
+@container toolbar (max-width: 440px) {
+  .session-token-rate {
+    display: none;
+  }
+}
+
+@container toolbar (max-width: 340px) {
+  .session-token-indicator {
+    display: none;
+  }
+}
+
+@container toolbar (max-width: 260px) {
+  .context-window-indicator {
+    display: none;
+  }
 }
 
 .toolbar-settings {
@@ -2331,4 +2425,221 @@ button.composer-meta-chip.open:focus {
   .session-tab.unread-finished:not(.active) .session-tab-shell {
     animation: none;
   }
+}
+
+/* ── File Changes Panel ───────────────────────────────────────────────────── */
+
+.file-changes-panel {
+  position: absolute;
+  top: -1px;
+  right: 16px;
+  z-index: 260;
+  max-width: min(420px, calc(100% - 32px));
+  border: 1px solid color-mix(in srgb, var(--panel-border) 88%, var(--vscode-foreground) 12%);
+  border-top: none;
+  border-radius: 0 0 6px 6px;
+  background: var(--session-tabs-strip-surface);
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--vscode-foreground) 8%, transparent),
+    0 8px 20px -18px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.28)) 100%, transparent);
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.file-changes-panel:not(.expanded) {
+  background: var(--session-tabs-strip-surface);
+  border-color: var(--panel-border);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--panel-border) 72%, transparent),
+    0 7px 16px -12px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36)) 100%, transparent);
+}
+
+.file-changes-panel.expanded {
+  width: min(420px, calc(100% - 32px));
+}
+
+.file-changes-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.15;
+  color: var(--vscode-foreground);
+  transition: background 0.12s ease;
+}
+
+.file-changes-panel:not(.expanded) .file-changes-header {
+  width: auto;
+  gap: 6px;
+  padding: 4px 10px 5px;
+}
+
+.file-changes-header:hover {
+  background: var(--panel-hover-surface);
+}
+
+.file-changes-panel:not(.expanded) .file-changes-header:hover {
+  background: color-mix(in srgb, var(--panel-hover-surface) 76%, var(--vscode-foreground) 24%);
+}
+
+.file-changes-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  color: var(--panel-muted);
+  transition: transform 0.18s ease;
+  transform: rotate(0deg);
+}
+
+.file-changes-panel:not(.expanded) .file-changes-chevron {
+  color: color-mix(in srgb, var(--vscode-foreground) 68%, var(--panel-muted));
+}
+
+.file-changes-chevron.open {
+  transform: rotate(90deg);
+}
+
+.file-changes-title {
+  flex: 1;
+  text-align: left;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.file-changes-panel:not(.expanded) .file-changes-title {
+  flex: 0 0 auto;
+}
+
+.file-changes-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 19px;
+  height: 17px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--vscode-foreground) 12%, var(--panel-subtle-surface));
+  color: color-mix(in srgb, var(--vscode-foreground) 82%, var(--panel-muted));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
+  font-size: 10px;
+  font-weight: 650;
+  line-height: 1;
+}
+
+.file-changes-list {
+  border-top: 1px solid var(--panel-border);
+  max-height: min(260px, calc(50vh - 38px));
+  overflow-y: auto;
+}
+
+.file-change-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  transition: background 0.1s ease;
+}
+
+.file-change-item + .file-change-item {
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
+}
+
+.file-change-item:hover {
+  background: var(--panel-hover-surface);
+}
+
+.file-change-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  flex-shrink: 0;
+}
+
+.file-change-icon.created {
+  background: var(--panel-success);
+}
+
+.file-change-icon.modified {
+  background: var(--panel-warning);
+}
+
+.file-change-icon.deleted {
+  background: var(--panel-danger);
+}
+
+.file-change-path {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.file-change-path:hover .file-change-name {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.file-change-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-change-dir {
+  font-size: 10px;
+  color: var(--panel-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-change-revert {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--panel-muted);
+  cursor: pointer;
+  font-size: 13px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.file-change-item:hover .file-change-revert {
+  opacity: 0.75;
+}
+
+.file-change-revert:hover {
+  opacity: 1 !important;
+  background: var(--panel-danger-surface);
+  color: var(--panel-danger);
+  border-color: var(--panel-danger);
 }

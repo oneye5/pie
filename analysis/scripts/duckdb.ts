@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import type {
   PreparedAnalyticsData,
   PreparedBackendErrorRow,
+  PreparedFileExtensionRow,
   PreparedRunRow,
   PreparedToolFailureRow,
   PreparedToolUsageRow,
@@ -48,6 +49,7 @@ interface DuckDbRunRow {
   prompt_hash_prefix: string | null;
   tool_set_hash_prefix: string | null;
   skill_set_hash_prefix: string | null;
+  active_extensions: string[];
   selected_tool_count: number;
   skill_count: number;
   context_file_count: number;
@@ -63,6 +65,11 @@ interface DuckDbRunRow {
   backend_error_count: number;
   context_tokens: number | null;
   context_limit: number | null;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  token_reported_turn_count: number;
   filesystem_path_ref_count: number;
   image_input_count: number;
   image_input_bytes: number;
@@ -102,6 +109,10 @@ interface DuckDbRunRow {
   line_deletions: number;
   line_modifications: number;
   line_mutation_total: number;
+  token_efficiency: number | null;
+  context_utilization: number | null;
+  cache_hit_ratio: number | null;
+  first_attempt_success: boolean;
 }
 
 interface DuckDbToolUsageRow {
@@ -172,6 +183,24 @@ interface DuckDbBackendErrorRow {
   resolution: string | null;
 }
 
+interface DuckDbFileExtensionRow {
+  run_id: string;
+  extension: string;
+  read_count: number;
+  write_count: number;
+  edit_count: number;
+  total_count: number;
+  started_at: string;
+  started_day: string;
+  model_id: string | null;
+  thinking_level: string | null;
+  experiment_assignment: string | null;
+  mixed_treatment_config: boolean;
+  scored: boolean;
+  satisfaction: number | null;
+  resolution: string | null;
+}
+
 function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
   return {
     run_id: row.runId,
@@ -195,6 +224,7 @@ function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
     prompt_hash_prefix: row.promptHashPrefix,
     tool_set_hash_prefix: row.toolSetHashPrefix,
     skill_set_hash_prefix: row.skillSetHashPrefix,
+    active_extensions: row.activeExtensions,
     selected_tool_count: row.selectedToolCount,
     skill_count: row.skillCount,
     context_file_count: row.contextFileCount,
@@ -210,6 +240,11 @@ function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
     backend_error_count: row.backendErrorCount,
     context_tokens: row.contextTokens,
     context_limit: row.contextLimit,
+    input_tokens: row.inputTokens,
+    output_tokens: row.outputTokens,
+    cache_read_tokens: row.cacheReadTokens,
+    cache_write_tokens: row.cacheWriteTokens,
+    token_reported_turn_count: row.tokenReportedTurnCount,
     filesystem_path_ref_count: row.filesystemPathRefCount,
     image_input_count: row.imageInputCount,
     image_input_bytes: row.imageInputBytes,
@@ -249,6 +284,10 @@ function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
     line_deletions: row.lineDeletions,
     line_modifications: row.lineModifications,
     line_mutation_total: row.lineMutationTotal,
+    token_efficiency: row.tokenEfficiency,
+    context_utilization: row.contextUtilization,
+    cache_hit_ratio: row.cacheHitRatio,
+    first_attempt_success: row.firstAttemptSuccess,
   };
 }
 
@@ -328,12 +367,33 @@ function toDuckDbBackendErrorRow(row: PreparedBackendErrorRow): DuckDbBackendErr
   };
 }
 
+function toDuckDbFileExtensionRow(row: PreparedFileExtensionRow): DuckDbFileExtensionRow {
+  return {
+    run_id: row.runId,
+    extension: row.extension,
+    read_count: row.readCount,
+    write_count: row.writeCount,
+    edit_count: row.editCount,
+    total_count: row.totalCount,
+    started_at: row.startedAt,
+    started_day: row.startedDay,
+    model_id: row.modelId,
+    thinking_level: row.thinkingLevel,
+    experiment_assignment: row.experimentAssignment,
+    mixed_treatment_config: row.mixedTreatmentConfig,
+    scored: row.scored,
+    satisfaction: row.satisfaction,
+    resolution: row.resolution,
+  };
+}
+
 export async function writeDuckDbStagingExports(exportsDir: string, prepared: PreparedAnalyticsData): Promise<{
   runsPath: string;
   toolUsagePath: string;
   verificationUsagePath: string;
   toolFailuresPath: string;
   backendErrorsPath: string;
+  fileExtensionsPath: string;
 }> {
   await ensureDir(exportsDir);
   const runsPath = path.join(exportsDir, 'runs.json');
@@ -341,6 +401,7 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
   const toolFailuresPath = path.join(exportsDir, 'tool-failures.json');
   const verificationUsagePath = path.join(exportsDir, 'verification-usage.json');
   const backendErrorsPath = path.join(exportsDir, 'backend-errors.json');
+  const fileExtensionsPath = path.join(exportsDir, 'file-extensions.json');
 
   await Promise.all([
     writeJsonFile(runsPath, prepared.runs.map(toDuckDbRunRow)),
@@ -348,9 +409,10 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
     writeJsonFile(toolFailuresPath, prepared.toolFailures.map(toDuckDbToolFailureRow)),
     writeJsonFile(verificationUsagePath, prepared.verificationUsage.map(toDuckDbVerificationUsageRow)),
     writeJsonFile(backendErrorsPath, prepared.backendErrors.map(toDuckDbBackendErrorRow)),
+    writeJsonFile(fileExtensionsPath, prepared.fileExtensions.map(toDuckDbFileExtensionRow)),
   ]);
 
-  return { runsPath, toolUsagePath, toolFailuresPath, verificationUsagePath, backendErrorsPath };
+  return { runsPath, toolUsagePath, toolFailuresPath, verificationUsagePath, backendErrorsPath, fileExtensionsPath };
 }
 
 async function openDuckDb(dbPath: string) {
@@ -397,6 +459,7 @@ CREATE TABLE runs (
   prompt_hash_prefix VARCHAR,
   tool_set_hash_prefix VARCHAR,
   skill_set_hash_prefix VARCHAR,
+  active_extensions VARCHAR[],
   selected_tool_count INTEGER,
   skill_count INTEGER,
   context_file_count INTEGER,
@@ -412,6 +475,11 @@ CREATE TABLE runs (
   backend_error_count INTEGER,
   context_tokens BIGINT,
   context_limit BIGINT,
+  input_tokens BIGINT,
+  output_tokens BIGINT,
+  cache_read_tokens BIGINT,
+  cache_write_tokens BIGINT,
+  token_reported_turn_count INTEGER,
   filesystem_path_ref_count INTEGER,
   image_input_count INTEGER,
   image_input_bytes BIGINT,
@@ -450,7 +518,11 @@ CREATE TABLE runs (
   line_additions BIGINT,
   line_deletions BIGINT,
   line_modifications BIGINT,
-  line_mutation_total BIGINT
+  line_mutation_total BIGINT,
+  token_efficiency DOUBLE,
+  context_utilization DOUBLE,
+  cache_hit_ratio DOUBLE,
+  first_attempt_success BOOLEAN
 );
 `.trim();
 }
@@ -539,6 +611,28 @@ CREATE TABLE backend_errors (
 `.trim();
 }
 
+function fileExtensionsTableSchema(): string {
+  return `
+CREATE TABLE file_extensions (
+  run_id VARCHAR,
+  extension VARCHAR,
+  read_count INTEGER,
+  write_count INTEGER,
+  edit_count INTEGER,
+  total_count INTEGER,
+  started_at TIMESTAMP,
+  started_day DATE,
+  model_id VARCHAR,
+  thinking_level VARCHAR,
+  experiment_assignment VARCHAR,
+  mixed_treatment_config BOOLEAN,
+  scored BOOLEAN,
+  satisfaction DOUBLE,
+  resolution VARCHAR
+);
+`.trim();
+}
+
 async function populateTableFromJson(connection: { run: (sql: string) => Promise<unknown> }, tableName: string, schemaSql: string, sourcePath: string): Promise<void> {
   await runStatements(connection, [
     `DROP TABLE IF EXISTS ${tableName};`,
@@ -578,6 +672,7 @@ SELECT
   prompt_hash_prefix,
   tool_set_hash_prefix,
   skill_set_hash_prefix,
+  active_extensions,
   selected_tool_count,
   skill_count,
   context_file_count,
@@ -626,6 +721,7 @@ export async function buildDuckDbDatabase(params: {
     await populateTableFromJson(connection, 'tool_failures', toolFailuresTableSchema(), stagingPaths.toolFailuresPath);
     await populateTableFromJson(connection, 'verification_usage', verificationUsageTableSchema(), stagingPaths.verificationUsagePath);
     await populateTableFromJson(connection, 'backend_errors', backendErrorsTableSchema(), stagingPaths.backendErrorsPath);
+    await populateTableFromJson(connection, 'file_extensions', fileExtensionsTableSchema(), stagingPaths.fileExtensionsPath);
     await createDerivedViews(connection);
   } finally {
     await closeDuckDb(instance, connection);

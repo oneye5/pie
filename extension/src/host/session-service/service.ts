@@ -175,7 +175,18 @@ export class SessionService implements vscode.Disposable {
   }
 
   setPrefs(prefs: Partial<ChatPrefs>): void {
-    const merged = resolveChatPrefs({ ...store.getState().ui.prefs, ...prefs });
+    const current = store.getState().ui.prefs;
+    // Deep-merge toggle maps so partial patches don't discard existing entries.
+    const deepMerged: Partial<ChatPrefs> = {
+      ...prefs,
+      ...(prefs.extensionToggles && {
+        extensionToggles: { ...current.extensionToggles, ...prefs.extensionToggles },
+      }),
+      ...(prefs.providerToggles && {
+        providerToggles: { ...current.providerToggles, ...prefs.providerToggles },
+      }),
+    };
+    const merged = resolveChatPrefs({ ...current, ...deepMerged });
     store.dispatch(uiActions.setPrefs(merged));
     if (merged.suppressCompletionNotifications) {
       store.dispatch(sessionsActions.clearUnreadFinishedSessions());

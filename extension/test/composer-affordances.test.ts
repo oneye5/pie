@@ -5,7 +5,7 @@ import {
   describeImagePasteAffordance,
   describeRunAnalyticsStatus,
   shouldHandleGlobalComposerPaste,
-} from '../src/webview/panel/composer-affordances';
+} from '../src/webview/panel/composer/affordances';
 
 function closestTarget(matchesBlockingSelector: boolean): EventTarget {
   return {

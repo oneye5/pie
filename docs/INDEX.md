@@ -8,14 +8,13 @@ This folder mixes design contracts, implementation plans (some completed, some o
 
 ## Open plans (work outstanding)
 
-- [INSTALLATION_INFRA_PLAN.md](INSTALLATION_INFRA_PLAN.md) — cross-platform installer + VSIX distribution. Phase 1 partially shipped (`install.sh` exists; `scripts/bootstrap.mjs` does not yet).
-- [internal/TRANSCRIPT_WINDOWING_AND_CULLING_PLAN.md](internal/TRANSCRIPT_WINDOWING_AND_CULLING_PLAN.md) — multi-phase plan to virtualize the transcript UI. Not yet started in code.
 
 ## Completed plans (kept for context, not action items)
 
-- [COMPOSER_INPUTS_AND_RUN_ANALYTICS_PLAN.md](COMPOSER_INPUTS_AND_RUN_ANALYTICS_PLAN.md) — closed 2026-05-13. Treat sections under "Context (already implemented)" as repository facts, not TODOs.
-- [internal/ANALYTICS_SITE_EXECUTION_STATUS.md](internal/ANALYTICS_SITE_EXECUTION_STATUS.md) — execution status for the analytics-site work.
-- [internal/ANALYTICS_SITE_PLAN.md](internal/ANALYTICS_SITE_PLAN.md) — original analytics-site plan.
+The following work was completed without a formal plan document being created. The code is the authoritative record:
+
+- Composer inputs and run analytics — closed 2026-05-13. See `extension/src/host/session-service/composer.ts` and `extension/src/host/stats-service/`.
+- Analytics site — original execution and plan are embodied in `analysis/`. See `analysis/README.md` for current state.
 
 ## Reference / informational
 
@@ -24,6 +23,6 @@ This folder mixes design contracts, implementation plans (some completed, some o
 
 ## Conventions
 
-- A doc named `*_PLAN.md` under `docs/` describes work that is **either in progress or not yet started**. When work completes, either update the plan with an explicit "closed" status at the top (see `COMPOSER_INPUTS_AND_RUN_ANALYTICS_PLAN.md` as the reference style) or move the file under `docs/internal/`.
+- A doc named `*_PLAN.md` under `docs/` describes work that is **either in progress or not yet started**. When work completes, update the plan with an explicit "closed" status at the top, or remove the plan doc and update this index to reflect the code as the authoritative record.
 - Plans under `docs/internal/` are status reports or implementation notes, not user-facing contracts.
 - The only file in `docs/` that downstream code is allowed to depend on (via tests pinning invariants) is `STATE_CONTRACT.md`.

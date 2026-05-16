@@ -38,6 +38,32 @@ export interface SelectionResult {
 const DIMENSIONS = ["precision", "creativity", "thoroughness", "reasoning"] as const;
 const DEFAULT_SCORE = 2;
 
+/**
+ * Scoring weights for asymmetric fitness + cost model.
+ *
+ * The scoring function replaces a simple dot product with:
+ *
+ *   fitness = Σ [ min(model[d], task[d]) * task[d]              // capped base reward
+ *                 + SURPLUS_WEIGHT * max(0, model[d] - task[d])   // small bonus for exceeding
+ *                 - DEFICIT_WEIGHT * max(0, task[d] - model[d])² ] // heavy penalty for falling short
+ *
+ *   final_score = fitness - COST_WEIGHT * Σ model[d]             // prefer cheaper models
+ *
+ * This avoids the "always pick the strongest model" problem of a plain dot product,
+ * where overshooting requirements is purely rewarded. Instead:
+ * - Meeting a requirement gives the bulk of the score (capped at task level)
+ * - Exceeding a requirement adds a small linear bonus (diminishing incentive)
+ * - Falling short incurs a steep quadratic penalty (unsuitable models are strongly avoided)
+ * - Cheaper models (lower aggregate) are preferred when fitness is comparable
+ *
+ * The aggregate (sum of model dimensions) serves as a cost proxy: more capable models
+ * tend to be more expensive and slower, so preferring a lower aggregate when
+ * requirements are met saves resources.
+ */
+const SURPLUS_WEIGHT = 0.3;
+const DEFICIT_WEIGHT = 3.0;
+const COST_WEIGHT = 0.5;
+
 const REASONING_TO_THINKING: ThinkingLevel[] = [
 	"minimal", // 0
 	"low",     // 1
@@ -59,10 +85,39 @@ export function reasoningToThinking(reasoningScore: number | undefined): Thinkin
 }
 
 /**
+ * Compute fitness score for a model against a task using asymmetric scoring.
+ *
+ * - Capped base reward: min(model, task) × task — only counts what the task needs
+ * - Small surplus bonus: linear bonus for exceeding requirements (SURPLUS_WEIGHT)
+ * - Heavy deficit penalty: quadratic penalty for falling short (DEFICIT_WEIGHT)
+ * - Cost subtraction: linear penalty proportional to model aggregate (COST_WEIGHT)
+ */
+export function computeFitness(taskScores: TaskScores, profile: ModelProfile): number {
+	let fitness = 0;
+
+	for (const dim of DIMENSIONS) {
+		const t = taskScores[dim] ?? DEFAULT_SCORE;
+		const m = profile[dim];
+		const met = Math.min(m, t);
+		const deficit = Math.max(0, t - m);
+		const surplus = Math.max(0, m - t);
+
+		fitness += met * t;                              // capped base reward
+		fitness += SURPLUS_WEIGHT * surplus;              // small bonus for exceeding
+		fitness -= DEFICIT_WEIGHT * deficit * deficit;   // quadratic penalty for falling short
+	}
+
+	const cost = DIMENSIONS.reduce((sum, d) => sum + profile[d], 0);
+	fitness -= COST_WEIGHT * cost;
+
+	return fitness;
+}
+
+/**
  * Select a model from eligible profiles:
  * 1. Determine required thinking level from reasoning score
  * 2. Filter to models that support that thinking level
- * 3. Score remaining by dot product against task vector
+ * 3. Score remaining by asymmetric fitness function
  * 4. Pick from top-K randomly
  *
  * Returns `undefined` when no eligible models exist.
@@ -82,20 +137,16 @@ export function selectModel(
 
 	if (eligible.length === 0) return undefined;
 
-	// Score by dot product (excluding reasoning from scoring since it's handled by thinking level)
-	const tv = DIMENSIONS.map((d) => taskScores[d] ?? DEFAULT_SCORE);
-
 	const scored = eligible.map((profile) => {
-		const mv = DIMENSIONS.map((d) => profile[d]);
-		const dot = tv.reduce((sum, t, i) => sum + t * mv[i], 0);
-		return { profile, dot };
+		const fitness = computeFitness(taskScores, profile);
+		return { profile, fitness };
 	});
 
-	scored.sort((a, b) => b.dot - a.dot);
+	scored.sort((a, b) => b.fitness - a.fitness);
 
 	const topK = scored.slice(0, Math.max(1, config.topK));
 	const pool = topK.map((s) => s.profile.id);
-	const fitScores = topK.map((s) => s.dot);
+	const fitScores = topK.map((s) => s.fitness);
 
 	const pick = Math.floor(Math.random() * topK.length);
 

@@ -6,7 +6,7 @@ import type {
   ToolCall,
 } from '../../shared/protocol';
 import type { AppStore, RootState } from '../store';
-import type { TaskBoundaryIntent, RunSnapshot } from '../run-analytics-types';
+import type { TaskBoundaryIntent, RunSnapshot } from '../run-analytics';
 
 export type StoreDispatch = AppStore['dispatch'];
 export type StoreGetState = () => RootState;

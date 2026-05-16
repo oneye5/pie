@@ -15,6 +15,7 @@ import type {
 } from '../../shared/protocol';
 import { DEFAULT_CHAT_PREFS, EMPTY_TRANSCRIPT_WINDOW } from '../../shared/protocol';
 import { emptyOverlay, applyPatch } from './overlay';
+import { FileChangesPanel } from './file-changes-panel';
 import { resolvePanelSurface } from './panel-state';
 import { StreamSmoother } from './stream-smoother';
 import { TranscriptView } from './transcript';
@@ -64,6 +65,8 @@ const EMPTY_VIEW_STATE: ViewState = {
   availableModels: [],
   contextUsage: null,
   prefs: { ...DEFAULT_CHAT_PREFS },
+  availableExtensions: [],
+  fileChanges: [],
 };
 
 // ─── ContextMenu ─────────────────────────────────────────────────────────────
@@ -368,6 +371,18 @@ function App() {
     setEditingId(messageId);
   }, []);
 
+  const handleOpenFileDiff = useCallback((filePath: string) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'openFileDiff', sessionPath, filePath });
+  }, []);
+
+  const handleRevertFile = useCallback((filePath: string) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'revertFile', sessionPath, filePath });
+  }, []);
+
   const handleSetPrefs = useCallback((partial: Partial<ChatPrefs>) => {
     postMessage({ type: 'setPrefs', prefs: partial });
   }, []);
@@ -395,7 +410,10 @@ function App() {
     contextUsage,
     prefs,
     systemPrompts,
+    fileChanges,
   } = viewState;
+
+  const availableExtensions = viewState.availableExtensions;
 
   // Close outcome dialog if the active session changes.
   useEffect(() => {
@@ -448,6 +466,13 @@ function App() {
       )}
 
       <div class="panel-main">
+        {showSessionChrome && (
+          <FileChangesPanel
+            fileChanges={fileChanges}
+            onOpenDiff={handleOpenFileDiff}
+            onRevertFile={handleRevertFile}
+          />
+        )}
         {panelSurface === 'loading' ? (
           <div class="empty-state">
             <div class="empty-state-title">Starting pie</div>
@@ -503,6 +528,7 @@ function App() {
           activeThinkingLevel={activeSession?.thinkingLevel}
           modelSettings={modelSettings}
           availableModels={availableModels}
+          availableExtensions={availableExtensions}
           contextUsage={contextUsage}
           prefs={prefs}
           systemPrompts={systemPrompts}

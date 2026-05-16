@@ -1,6 +1,15 @@
 import * as crypto from 'node:crypto';
+import * as path from 'node:path';
 
 import * as vscode from 'vscode';
+
+const EMPTY_DIFF_SCHEME = 'pie-empty-diff';
+
+class EmptyDiffContentProvider implements vscode.TextDocumentContentProvider {
+  provideTextDocumentContent(): string {
+    return '';
+  }
+}
 
 import {
   buildWorkspaceAnalyticsId,
@@ -129,6 +138,7 @@ export class PieExtension implements vscode.Disposable {
       this.backend,
       this.service,
       this.statusBar,
+      vscode.workspace.registerTextDocumentContentProvider(EMPTY_DIFF_SCHEME, new EmptyDiffContentProvider()),
       vscode.window.registerWebviewViewProvider(SIDEBAR_VIEW_TYPE, this.sidebarProvider, {
         webviewOptions: { retainContextWhenHidden: true },
       }),
@@ -285,6 +295,85 @@ export class PieExtension implements vscode.Disposable {
     );
   }
 
+  private resolveFileChangePath(sessionPath: string, filePath: string): string {
+    if (path.isAbsolute(filePath)) {
+      return filePath;
+    }
+
+    const state = store.getState();
+    const sessionCwd = state.sessions.sessions.find((session) => session.path === sessionPath)?.cwd;
+    const basePath = sessionCwd || state.sessions.workspaceCwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return basePath ? path.resolve(basePath, filePath) : filePath;
+  }
+
+  private getFileChangeKind(
+    sessionPath: string,
+    filePath: string,
+    resolvedPath: string,
+  ): 'created' | 'modified' | 'deleted' {
+    const changes = store.getState().fileChanges.bySession[sessionPath] ?? [];
+    const change = changes.find((entry) => {
+      const entryPath = this.resolveFileChangePath(sessionPath, entry.path);
+      return entry.path === filePath || entryPath === resolvedPath;
+    });
+    return change?.kind ?? 'modified';
+  }
+
+  private toGitUri(uri: vscode.Uri, ref: string): vscode.Uri {
+    return uri.with({
+      scheme: 'git',
+      query: JSON.stringify({ path: uri.fsPath, ref }),
+    });
+  }
+
+  private toEmptyDiffUri(uri: vscode.Uri): vscode.Uri {
+    return uri.with({
+      scheme: EMPTY_DIFF_SCHEME,
+      query: '',
+      fragment: '',
+    });
+  }
+
+  private async openFileDiff(sessionPath: string, filePath: string): Promise<void> {
+    const resolvedPath = this.resolveFileChangePath(sessionPath, filePath);
+    const uri = vscode.Uri.file(resolvedPath);
+    const kind = this.getFileChangeKind(sessionPath, filePath, resolvedPath);
+    const emptyUri = this.toEmptyDiffUri(uri);
+    const originalUri = kind === 'created' ? emptyUri : this.toGitUri(uri, 'HEAD');
+    const modifiedUri = kind === 'deleted' ? emptyUri : uri;
+
+    try {
+      await vscode.commands.executeCommand(
+        'vscode.diff',
+        originalUri,
+        modifiedUri,
+        `${path.basename(resolvedPath)} — agent changes`,
+        { preview: true },
+      );
+    } catch {
+      await vscode.commands.executeCommand('git.openChange', uri);
+    }
+  }
+
+  private async revertFile(sessionPath: string, filePath: string): Promise<void> {
+    try {
+      const uri = vscode.Uri.file(this.resolveFileChangePath(sessionPath, filePath));
+      // Try git revert first
+      await vscode.commands.executeCommand(
+        'git.revertChange',
+        uri,
+      );
+    } catch {
+      // Fallback: try the workbench revert command
+      try {
+        await vscode.commands.executeCommand('workbench.action.files.revert');
+      } catch {
+        void vscode.window.showWarningMessage(
+          `Could not revert ${filePath}. The file may not be under source control.`,
+        );
+      }
+    }
+  }
   private async handleWebviewMessage(msg: WebviewToHostMessage): Promise<void> {
     switch (msg.type) {
       case 'ready':
@@ -397,6 +486,14 @@ export class PieExtension implements vscode.Disposable {
 
       case 'setModel':
         await this.service.setModel(msg.sessionPath, msg.defaultModel, msg.defaultThinkingLevel);
+        return;
+
+      case 'openFileDiff':
+        await this.openFileDiff(msg.sessionPath, msg.filePath);
+        return;
+
+      case 'revertFile':
+        await this.revertFile(msg.sessionPath, msg.filePath);
         return;
 
       case 'setPrefs':

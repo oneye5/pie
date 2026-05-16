@@ -6,7 +6,7 @@ import type { PatchOp } from '../src/shared/protocol';
 
 test('StreamSmoother uses default config when no overrides provided', () => {
   let flushCalls = 0;
-  const smoother = new StreamSmoother({}, () => flushCalls++);
+  const _smoother = new StreamSmoother({}, () => flushCalls++);
   assert.equal(flushCalls, 0);
 });
 

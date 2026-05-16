@@ -6,7 +6,7 @@ import {
   composerInputDetail,
   composerInputDisplayName,
   composerInputTitle,
-} from '../composer-inputs';
+} from './inputs';
 
 interface ComposerAttachmentsProps {
   pendingComposerInputs: ComposerInput[];

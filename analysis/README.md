@@ -153,6 +153,15 @@ Then open the localhost URL printed by the server.
 
 Do not rely on `file://` loading.
 
+## Data quality notes
+
+- **Tool failure classification**: Runs recorded before per-tool failure classification was added lack `failureCountsByNameAndKind`. For these runs, the pipeline falls back to `failureCountsByKind` (aggregate-level classification) and emits failures under a sentinel tool name `(unattributed)`.
+- **Scoring gap**: Most runs are `closed_unscored` (no satisfaction/resolution data). Model quality and treatment comparison metrics are only meaningful for the scored subset.
+- **Open runs excluded**: Verification impact and timeline metrics exclude open (in-progress) runs since they have no finalized outcome.
+- **Token usage**: `inputTokens`, `outputTokens`, `cacheReadTokens`, and `cacheWriteTokens` are available when the provider reports them. Many older runs have zero token data.
+- **Task group correlation**: Multiple runs can share the same `taskGroupId`. Per-run sample sizes in model quality and treatment comparison should be treated as upper bounds since runs in the same task group are not independent.
+- **Small samples**: Model quality cells with fewer than 3 scored runs have highly variable satisfaction averages. Notes in `model-quality.json` flag this.
+
 ## Manual smoke test
 
 1. Ensure you have local run data (use pie normally; optional: export manually with `pie: Export Run Analytics`).

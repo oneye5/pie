@@ -155,14 +155,14 @@ export class BackendServer {
       // Default: check if agentDir is inside a git tree.
       const agentDirAuthPath = path.resolve(this.agentDir, 'auth.json');
       if (await isInsideGitWorkTree(agentDirAuthPath)) {
-        const allowInTree = process.env.PIE_ALLOW_IN_TREE_AUTH === '1';
+        const allowInTree = process.env.PIE_ALLOW_IN_TREE_SECRETS === '1';
         if (allowInTree) {
           authPath = agentDirAuthPath;
         } else {
-          // Auto-resolve to the platform-standard auth location.
-          const defaultDir = getDefaultAuthDir();
-          authPath = path.resolve(defaultDir, 'auth.json');
-          // Migrate existing in-tree auth.json to the default location.
+          // Auto-resolve to platform-standard safe location.
+          const safeDir = getDefaultAuthDir();
+          authPath = path.resolve(safeDir, 'auth.json');
+          // Migrate existing in-tree auth.json to the safe location.
           await migrateAuthFile(agentDirAuthPath, authPath);
         }
       } else {
@@ -387,11 +387,15 @@ export class BackendServer {
   ): Promise<SystemPromptEntry[]> {
     const promptState = this.getSessionPromptState(context);
     const harnessPrompt = harnessPromptOverride ?? await this.readHarnessSystemPrompt(context);
+    const tools = typeof context.session.getAllTools === 'function'
+      ? context.session.getAllTools()
+      : [];
 
     return buildSessionSystemPrompts({
       harnessPrompt,
       promptOptions: promptState._baseSystemPromptOptions,
       formatSkillsForPrompt: this.sdk.formatSkillsForPrompt,
+      tools,
     });
   }
 

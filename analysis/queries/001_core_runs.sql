@@ -16,6 +16,11 @@ SELECT
   verification_total_count,
   verification_failure_count,
   busy_duration_ms,
-  line_mutation_total
+  line_mutation_total,
+  input_tokens,
+  output_tokens,
+  cache_read_tokens,
+  cache_write_tokens,
+  token_reported_turn_count
 FROM runs
 ORDER BY started_at DESC;

@@ -37,7 +37,8 @@ export type TreatmentChangeKind =
   | 'prompt'
   | 'toolSelection'
   | 'skills'
-  | 'experimentAssignment';
+  | 'experimentAssignment'
+  | 'extensions';;
 export type RunOutcomeResolution = 'resolved' | 'partially_resolved' | 'unresolved';
 export type VerificationState = 'none' | 'passing' | 'failing';
 export type VerificationCountBucket = '0' | '1' | '2-3' | '4+';
@@ -78,6 +79,8 @@ export interface SessionAnalyticsFactors {
   toolSetHash: string | null;
   skills: SessionSkillFactor[];
   skillSetHash: string | null;
+  /** Names of extensions active during this run (e.g. 'subagent', 'safeguard'). */
+  activeExtensions: string[];
 }
 
 export interface SubagentTaskScoreRollup {
@@ -125,6 +128,12 @@ export interface FileMutationRollup {
   lineModifications: number;
 }
 
+export interface FileExtensionRollup {
+  readCountsByExtension: Record<string, number>;
+  writeCountsByExtension: Record<string, number>;
+  editCountsByExtension: Record<string, number>;
+}
+
 export interface VerificationRollup {
   totalCount: number;
   failureCount: number;
@@ -160,6 +169,11 @@ export interface RunSnapshot {
   backendErrorCodes: string[];
   contextTokens: number | null;
   contextLimit: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  tokenReportedTurnCount: number;
   filesystemPathRefCount: number;
   imageInputCount: number;
   imageInputBytes: number;
@@ -167,6 +181,7 @@ export interface RunSnapshot {
   inputKindsUsed: InputKind[];
   toolUsage: ToolUsageRollup;
   fileMutation: FileMutationRollup;
+  fileExtensions: FileExtensionRollup;
   verification: VerificationRollup;
 }
 
@@ -229,6 +244,8 @@ export interface PreparedRunRow {
   toolSetHashPrefix: string | null;
   skillSetHashPrefix: string | null;
   skillEntries: PreparedSkillEntry[];
+  /** Names of extensions active during this run. */
+  activeExtensions: string[];
   selectedToolCount: number;
   skillCount: number;
   contextFileCount: number;
@@ -244,6 +261,11 @@ export interface PreparedRunRow {
   backendErrorCount: number;
   contextTokens: number | null;
   contextLimit: number | null;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  tokenReportedTurnCount: number;
   filesystemPathRefCount: number;
   imageInputCount: number;
   imageInputBytes: number;
@@ -278,6 +300,10 @@ export interface PreparedRunRow {
   lineDeletions: number;
   lineModifications: number;
   lineMutationTotal: number;
+  tokenEfficiency: number | null;
+  contextUtilization: number | null;
+  cacheHitRatio: number | null;
+  firstAttemptSuccess: boolean;
 }
 
 export interface PreparedToolUsageRow {
@@ -348,6 +374,24 @@ export interface PreparedBackendErrorRow {
   resolution: RunOutcomeResolution | null;
 }
 
+export interface PreparedFileExtensionRow {
+  runId: string;
+  extension: string;
+  readCount: number;
+  writeCount: number;
+  editCount: number;
+  totalCount: number;
+  startedAt: string;
+  startedDay: string;
+  modelId: string | null;
+  thinkingLevel: ThinkingLevel | null;
+  experimentAssignment: string | null;
+  mixedTreatmentConfig: boolean;
+  scored: boolean;
+  satisfaction: number | null;
+  resolution: RunOutcomeResolution | null;
+}
+
 export interface PreparedAnalyticsData {
   sourceSchemaVersion: number;
   sourceExportedAt: string;
@@ -357,6 +401,7 @@ export interface PreparedAnalyticsData {
   toolFailures: PreparedToolFailureRow[];
   verificationUsage: PreparedVerificationUsageRow[];
   backendErrors: PreparedBackendErrorRow[];
+  fileExtensions: PreparedFileExtensionRow[];
 }
 
 export interface SiteManifest {
@@ -380,8 +425,14 @@ export interface OverviewData {
   averageSatisfaction: number | null;
   resolutionCounts: ResolutionCounts;
   medianBusyDurationMs: number | null;
+  p90BusyDurationMs: number | null;
+  p99BusyDurationMs: number | null;
   verificationRunRate: number | null;
   toolFailureRate: number | null;
+  medianTokenEfficiency: number | null;
+  averageContextUtilization: number | null;
+  averageCacheHitRatio: number | null;
+  firstAttemptSuccessRate: number | null;
   latestRunTimestamp: string | null;
 }
 
@@ -399,14 +450,21 @@ export interface ModelQualityAggregateRow {
   averageSatisfaction: number | null;
   averageBusyDurationMs: number | null;
   medianBusyDurationMs: number | null;
+  p90BusyDurationMs: number | null;
+  p99BusyDurationMs: number | null;
   averageToolFailures: number | null;
   verificationRunRate: number | null;
+  medianTokenEfficiency: number | null;
+  averageContextUtilization: number | null;
+  averageCacheHitRatio: number | null;
+  firstAttemptSuccessRate: number | null;
   resolutionCounts: ResolutionCounts;
 }
 
 export interface ModelQualityData {
   schemaVersion: number;
   rows: ModelQualityAggregateRow[];
+  notes: string[];
 }
 
 export interface VerificationImpactRow {

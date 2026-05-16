@@ -6,6 +6,7 @@ import { resolveSessionOpenedTranscript } from '../session-opened-transcript';
 import { type RunObserver } from '../stats-service';
 import { auditLog } from '../state-audit';
 import {
+  fileChangesActions,
   getCanonicalMessageId,
   getSessionByPath,
   selectActiveSessionPath,
@@ -16,11 +17,13 @@ import {
   transcriptActions,
   uiActions,
 } from '../store';
+import { deriveFileChangeFromToolCall, deriveFileChangesFromTranscript } from '../store/file-changes-slice';
 import type {
   BusyChangedPayload,
   ContextUsageChangedPayload,
   ErrorPayload,
   EventEnvelope,
+  ExtensionInfo,
   MessageAbortedPayload,
   MessageDeltaPayload,
   MessageFinishedPayload,
@@ -161,6 +164,12 @@ export class SessionServiceEvents {
     }));
     this.runObserver.onSessionAnalyticsFactorsChanged(session.path, payload.analyticsFactors ?? null);
 
+    if (payload.analyticsFactors) {
+      store.dispatch(uiActions.setAvailableExtensions(
+        deriveAvailableExtensions(payload.analyticsFactors.selectedToolIds),
+      ));
+    }
+
     if (modelSettings) {
       store.dispatch(settingsActions.setModelSettings(modelSettings));
     }
@@ -173,6 +182,13 @@ export class SessionServiceEvents {
     store.dispatch(settingsActions.setContextUsage({
       sessionPath: session.path,
       contextUsage: contextUsage ?? null,
+    }));
+
+    // Derive file changes from the loaded transcript
+    const derivedChanges = deriveFileChangesFromTranscript(transcriptResolution.transcript);
+    store.dispatch(fileChangesActions.setFileChanges({
+      sessionPath: session.path,
+      changes: derivedChanges,
     }));
 
     this.state.touchSessionTranscript(session.path);
@@ -303,6 +319,16 @@ export class SessionServiceEvents {
       transcriptActions.upsertToolCall({ sessionPath, messageId: canonicalId, toolCall }),
     );
     this.runObserver.onToolStarted(sessionPath, toolCall);
+
+    // Track file changes from file-modifying tools
+    const fileChange = deriveFileChangeFromToolCall(
+      { id: payload.toolCallId, name: payload.name, input: payload.input },
+      payload.messageId,
+      new Date().toISOString(),
+    );
+    if (fileChange) {
+      store.dispatch(fileChangesActions.addFileChange({ sessionPath, change: fileChange }));
+    }
 
     if (this.state.isActiveSession(sessionPath)) {
       this.postPatch({ kind: 'toolCall', messageId: canonicalId, toolCall });
@@ -512,4 +538,36 @@ export class SessionServiceEvents {
     this.scheduleRender();
     return null;
   }
+}
+
+/**
+ * Known pi extensions and the tool IDs they register.
+ * Hook-only extensions (safeguard) are listed by name since they
+ * don't register tools but still participate in every session.
+ */
+const KNOWN_EXTENSIONS: ExtensionInfo[] = [
+  { id: 'subagent', label: 'Subagent', description: 'Delegate tasks to specialized sub-agents' },
+  { id: 'safeguard', label: 'Safeguard', description: 'Block dangerous shell commands and file writes' },
+  { id: 'cwd-skills', label: 'CWD Skills', description: 'Auto-discover skills from the working directory' },
+];
+
+const TOOL_TO_EXTENSION: Record<string, string> = {
+  subagent: 'subagent',
+};
+
+/** Derive available extensions from selected tool IDs + known hook-only extensions. */
+function deriveAvailableExtensions(selectedToolIds: string[]): ExtensionInfo[] {
+  const activeExtensionIds = new Set<string>();
+  for (const toolId of selectedToolIds) {
+    const extId = TOOL_TO_EXTENSION[toolId];
+    if (extId) {
+      activeExtensionIds.add(extId);
+    }
+  }
+  // Always include known hook-only extensions (they're active if the extension is loaded).
+  // The backend doesn't expose hook registration, so we include them by convention.
+  activeExtensionIds.add('safeguard');
+  activeExtensionIds.add('cwd-skills');
+
+  return KNOWN_EXTENSIONS.filter((ext) => activeExtensionIds.has(ext.id));
 }

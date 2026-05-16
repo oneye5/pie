@@ -9,7 +9,7 @@ import {
   type PersistedSessionRunState,
   type RunCheckpoint,
   type RunSnapshot,
-} from './run-analytics-types';
+} from './run-analytics';
 
 export interface RunAnalyticsQueryResult {
   completedRuns: RunSnapshot[];

@@ -1,11 +1,22 @@
-import type { ChatPrefs } from '../../shared/protocol';
+import type { ChatPrefs, ExtensionInfo } from '../../shared/protocol';
+
+export type BooleanPrefKey =
+  | 'autoExpandReasoning'
+  | 'autoExpandToolCalls'
+  | 'autoExpandSubagentCalls'
+  | 'suppressCompletionNotifications';
 
 export type ChatPrefKey = keyof ChatPrefs;
 export type ChatPrefContextType = 'reasoning' | 'toolCalls' | 'subagentCalls';
 export type TranscriptContextMenuType = ChatPrefContextType | 'message';
 
-export interface ChatPrefMenuItem<K extends ChatPrefKey = ChatPrefKey> {
-  key: K;
+export interface ExtensionToggleItem {
+  id: string;
+  label: string;
+}
+
+export interface ChatPrefMenuItem {
+  key: BooleanPrefKey;
   label: string;
 }
 
@@ -52,11 +63,11 @@ export const CHAT_PREF_MENU_SECTIONS: readonly ChatPrefMenuSection[] = [
   },
 ] as const;
 
-export function toggleChatPref<K extends ChatPrefKey>(prefs: ChatPrefs, key: K): Pick<ChatPrefs, K> {
-  return { [key]: !prefs[key] } as Pick<ChatPrefs, K>;
+export function toggleChatPref(prefs: ChatPrefs, key: BooleanPrefKey): Partial<ChatPrefs> {
+  return { [key]: !prefs[key] } as Partial<ChatPrefs>;
 }
 
-export function getChatPrefContextKey(type: ChatPrefContextType): ChatPrefKey {
+export function getChatPrefContextKey(type: ChatPrefContextType): BooleanPrefKey {
   return CHAT_PREF_CONTEXT_ITEMS[type].key;
 }
 
@@ -77,4 +88,21 @@ export function toggleChatPrefForContext(
 
 export function getToolCallContextType(toolName: string): Exclude<ChatPrefContextType, 'reasoning'> {
   return toolName === 'subagent' ? 'subagentCalls' : 'toolCalls';
+}
+
+export function setExtensionEnabled(prefs: ChatPrefs, extensionId: string, enabled: boolean): Partial<ChatPrefs> {
+  return {
+    extensionToggles: {
+      ...prefs.extensionToggles,
+      [extensionId]: enabled,
+    },
+  };
+}
+export function setProviderEnabled(prefs: ChatPrefs, provider: string, enabled: boolean): Partial<ChatPrefs> {
+  return {
+    providerToggles: {
+      ...prefs.providerToggles,
+      [provider]: enabled,
+    },
+  };
 }

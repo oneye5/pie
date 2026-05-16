@@ -52,6 +52,7 @@ function buildPromptFamily(options: {
   selectedToolIds: string[];
   toolSnippetHashes: SessionAnalyticsFactors['toolSnippetHashes'];
   skills: SessionAnalyticsFactors['skills'];
+  activeExtensions: string[];
 }): string | null {
   const familyParts: string[] = [];
   if (options.harnessPromptHash) {
@@ -77,6 +78,9 @@ function buildPromptFamily(options: {
   }
   if (options.skills.length > 0) {
     familyParts.push('skills');
+  }
+  if (options.activeExtensions.length > 0) {
+    familyParts.push('extensions');
   }
 
   return familyParts.length > 0 ? familyParts.join('+') : null;
@@ -155,6 +159,11 @@ export async function buildSessionAnalyticsFactors(options: {
   const skillSetHash = skills.length > 0
     ? sha256Hex(stableJson(skills))
     : null;
+  const activeExtensions = [...new Set(
+    (promptOptions?.activeExtensions ?? [])
+      .map((ext) => ext.trim())
+      .filter((ext) => ext.length > 0),
+  )].sort();
   const promptFamily = buildPromptFamily({
     harnessPromptHash,
     customPromptHash,
@@ -164,6 +173,7 @@ export async function buildSessionAnalyticsFactors(options: {
     selectedToolIds,
     toolSnippetHashes,
     skills,
+    activeExtensions,
   });
 
   const promptHash = sha256Hex(stableJson({
@@ -175,6 +185,7 @@ export async function buildSessionAnalyticsFactors(options: {
     selectedToolIds,
     toolSnippetHashes,
     skills,
+    activeExtensions,
   }));
 
   return {
@@ -190,5 +201,6 @@ export async function buildSessionAnalyticsFactors(options: {
     toolSetHash,
     skills,
     skillSetHash,
+    activeExtensions,
   };
 }

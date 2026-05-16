@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { ChatMessage, SystemPromptEntry } from '../src/shared/protocol';
-import { isTranscriptHydrating } from '../src/webview/panel/transcript-state';
+import { isTranscriptHydrating } from '../src/webview/panel/transcript/state';
 
 function userMessage(markdown: string): ChatMessage {
   return {

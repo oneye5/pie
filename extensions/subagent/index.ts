@@ -1,31 +1,28 @@
 /**
  * Subagent Tool - Delegate tasks to specialized agents
  *
- * Spawns a separate `pi` process for each subagent invocation,
- * giving it an isolated context window.
+ * Each subagent invocation runs an isolated AgentSession in-process via the
+ * pi SDK (`createAgentSession`). The session shares the parent's auth and
+ * model registry but gets its own context window, system prompt, and tools.
  *
  * Supports three modes:
  *   - Single: { agent: "name", task: "..." }
  *   - Parallel: { tasks: [{ agent: "name", task: "..." }, ...] }
  *   - Chain: { chain: [{ agent: "name", task: "... {previous} ..." }, ...] }
  *
- * Uses JSON mode to capture structured output from subagents.
- *
- * Implementation has been split across files (all behaviour-preserving):
+ * Files:
  *   - ./types.ts        — shared interfaces and constants
  *   - ./formatting.ts   — token / tool-call / display formatters
  *   - ./validation.ts   — agent-name validation + error helpers
- *   - ./runner.ts       — pi subprocess spawn and event-stream parsing
+ *   - ./runner.ts       — in-process AgentSession runner + depth/trail context
  *   - ./schema.ts       — typebox parameter schema
- *
- * This file is now just the tool registration + execute/render bodies.
  */
 
 import { type ExtensionAPI, getMarkdownTheme } from "@mariozechner/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@mariozechner/pi-tui";
-import { type AgentConfig, type AgentScope, discoverAgents } from "./agents.js";
+import { type AgentConfig, type AgentScope, discoverAgents, formatAgentList } from "./agents.js";
 import { formatSelectionInfo, formatToolCall, formatUsageStats, getDisplayItems, getFinalOutput } from "./formatting.js";
-import { mapWithConcurrencyLimit, runSingleAgent } from "./runner.js";
+import { mapWithConcurrencyLimit, readRuntimeContext, runSingleAgent, subagentRuntime } from "./runner.js";
 import { SubagentParams } from "./schema.js";
 import {
 	COLLAPSED_ITEM_COUNT,
@@ -43,44 +40,109 @@ import { type TaskScores, type ThinkingLevel, type SelectionResult, loadSelectio
 // All helper code lives in the modules listed above.
 
 const MAX_DEPTH = 3;
-const MAX_CALLS_PER_PROCESS = 10;
-let subagentCallCount = 0;
+/** Cap on sub-agent sessions spawned within a single subagent tool call (one reply). */
+const MAX_SESSIONS_PER_CALL = 20;
+
+function buildDescription(disabled = false): string {
+	if (disabled) {
+		return "DISABLED: Sub agents are currently disabled. Calls to this tool will return an error immediately. Enable by removing the --no-subagent flag or unsetting the PI_SUBAGENT_DISABLED environment variable.";
+	}
+
+	const lines = [
+		"Delegate tasks to specialized subagents with isolated context.",
+		"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
+		'The "agent" field must be an exact discovered agent name, not a scope keyword like "user", "project", or "both".',
+		'Default agent scope is "user" (from ~/.pi/agent/agents).',
+		'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
+	];
+
+	try {
+		const { agents } = discoverAgents(process.cwd(), "user");
+		if (agents.length > 0) {
+			const listing = agents.map((a) => `${a.name}: ${a.description}`).join("; ");
+			lines.push(`Available agents: ${listing}.`);
+		}
+	} catch {
+		// Discovery failed — omit listing; agents will still be validated at execution time
+	}
+
+	return lines.join(" ");
+}
+
+function buildPromptSnippet(disabled = false): string {
+	if (disabled) {
+		return "DISABLED: Sub agents are disabled. Do not call the subagent tool — it will return an error.";
+	}
+	try {
+		const { agents } = discoverAgents(process.cwd(), "user");
+		if (agents.length > 0) {
+			const names = agents.map((a) => a.name).join(', ');
+			return `Delegate tasks to specialized subagents with isolated context. Available agents: ${names}.`;
+		}
+	} catch { /* ignore */ }
+	return 'Delegate tasks to specialized subagents with isolated context.';
+}
 
 export default function (pi: ExtensionAPI) {
+	// Register a CLI flag so users can disable subagent execution.
+	// When set, the tool still registers (preventing LLM tool-call hangs)
+	// but execute() returns an immediate error.
+	pi.registerFlag("no-subagent", {
+		description: "Disable subagent execution. The subagent tool will still appear in the tool list but will return an error immediately when called.",
+		type: "boolean",
+		default: false,
+	});
+
+	/** Check whether subagent execution is disabled via flag or env var. */
+	const isDisabled = (): boolean =>
+		pi.getFlag("no-subagent") === true ||
+		["1", "true", "yes"].includes((process.env.PI_SUBAGENT_DISABLED ?? "").toLowerCase());
+
+	const DISABLED_MESSAGE = "Sub agents are disabled. Enable them by removing the --no-subagent flag or unsetting the PI_SUBAGENT_DISABLED environment variable.";
+
+	const disabled = isDisabled();
+
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
-		description: [
-			"Delegate tasks to specialized subagents with isolated context.",
-			"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
-			'The "agent" field must be an exact discovered agent name, not a scope keyword like "user", "project", or "both".',
-			'Default agent scope is "user" (from ~/.pi/agent/agents).',
-			'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
-		].join(" "),
+		description: buildDescription(disabled),
+		promptSnippet: buildPromptSnippet(disabled),
 		parameters: SubagentParams,
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
-			// --- Depth limit ---
-			const currentDepth = parseInt(process.env.PI_SUBAGENT_DEPTH ?? "0", 10);
+			// --- Fast-fail when subagents are disabled ---
+			if (isDisabled()) {
+				return {
+					content: [{ type: "text", text: DISABLED_MESSAGE }],
+					details: { mode: "single" as const, agentScope: "user" as AgentScope, projectAgentsDir: null, results: [] },
+					isError: true,
+				};
+			}
+
+			// --- Resolve agentScope first (used in early-return details) ---
+			const agentScope: AgentScope = params.agentScope ?? "user";
+
+			// --- Depth + trail from async-local context (env-var fallback for outermost call) ---
+			const runtimeCtx = readRuntimeContext();
+			const currentDepth = runtimeCtx.depth;
+			const trail = runtimeCtx.trail;
 			if (currentDepth >= MAX_DEPTH) {
 				return {
 					content: [{ type: "text", text: `Subagent depth limit reached (max ${MAX_DEPTH}). Cannot spawn further subagents.` }],
-					details: { mode: "single", agentScope: "user", projectAgentsDir: null, results: [] },
+					details: { mode: "single", agentScope, projectAgentsDir: null, results: [] },
 					isError: true,
 				};
 			}
 
-			// --- Per-process call counter ---
-			subagentCallCount++;
-			if (subagentCallCount > MAX_CALLS_PER_PROCESS) {
-				return {
-					content: [{ type: "text", text: `Subagent call limit reached (max ${MAX_CALLS_PER_PROCESS} calls per process). Refusing further subagent invocations.` }],
-					details: { mode: "single", agentScope: "user", projectAgentsDir: null, results: [] },
-					isError: true,
-				};
-			}
-
-			const agentScope: AgentScope = params.agentScope ?? "user";
+			// --- Per-call session counter (scoped to this reply, not the whole session) ---
+			let sessionsSpawned = 0;
+			const checkSessionLimit = (): string | undefined => {
+				sessionsSpawned++;
+				if (sessionsSpawned > MAX_SESSIONS_PER_CALL) {
+					return `Sub-agent session limit reached (max ${MAX_SESSIONS_PER_CALL} sessions per reply).`;
+				}
+				return undefined;
+			};
 			const discovery = discoverAgents(ctx.cwd, agentScope);
 			const agents = discovery.agents;
 			const confirmProjectAgents = params.confirmProjectAgents ?? true;
@@ -169,7 +231,11 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			// --- Model selection setup ---
-			const selectionConfigPath = path.join(import.meta.dirname, "model-profiles.json");
+			// Shared registry lives at the pi config root so the VS Code extension's
+			// model picker and this subagent dispatcher read the exact same file.
+			// When absent, model selection silently falls back to the calling agent's
+			// own model (no override emitted below).
+			const selectionConfigPath = path.join(import.meta.dirname, "..", "..", "model-profiles.json");
 			let selectionConfig: ReturnType<typeof loadSelectionConfig> | undefined;
 			try {
 				selectionConfig = loadSelectionConfig(selectionConfigPath);
@@ -177,7 +243,6 @@ export default function (pi: ExtensionAPI) {
 				// Missing or invalid config — fall through to agent.model defaults
 			}
 
-			const trail = (process.env.PI_SUBAGENT_TRAIL ?? "").split(",").filter(Boolean);
 			const checkTrailLoop = (agentName: string): boolean => {
 				const occurrences = trail.filter((t) => t === agentName).length;
 				return occurrences >= 2;
@@ -239,19 +304,34 @@ export default function (pi: ExtensionAPI) {
 					const chainAgent = agents.find((a) => a.name === step.agent)!;
 					const chainResolved = resolveModel(chainAgent, step.taskScores);
 
-					const result = await runSingleAgent(
-						ctx.cwd,
-						agents,
-						step.agent,
-						taskWithContext,
-						step.cwd,
-						i + 1,
-						signal,
-						chainUpdate,
-						makeDetails("chain"),
-						chainResolved.modelOverride,
-						currentDepth,
-						chainResolved.thinkingLevel,
+					const sessionLimitError = checkSessionLimit();
+					if (sessionLimitError) {
+						results.push({ agent: step.agent, agentSource: "unknown", task: taskWithContext, exitCode: 1, messages: [], stderr: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 }, errorMessage: sessionLimitError, step: i + 1 });
+						return {
+							content: [{ type: "text", text: `Chain stopped at step ${i + 1}: ${sessionLimitError}` }],
+							details: makeDetails("chain")(results),
+							isError: true,
+						};
+					}
+
+					const result = await subagentRuntime.run(
+						{ depth: currentDepth + 1, trail: [...trail, step.agent] },
+						() =>
+							runSingleAgent(
+								ctx.cwd,
+								agents,
+								step.agent,
+								taskWithContext,
+								step.cwd,
+								i + 1,
+								signal,
+								chainUpdate,
+								makeDetails("chain"),
+								ctx.modelRegistry,
+								ctx.model,
+								chainResolved.modelOverride,
+								chainResolved.thinkingLevel,
+							),
 					);
 					attachSelectionMetadata(result, chainResolved);
 					results.push(result);
@@ -318,6 +398,14 @@ export default function (pi: ExtensionAPI) {
 				};
 
 				const results = await mapWithConcurrencyLimit(params.tasks, MAX_CONCURRENCY, async (t, index) => {
+					const sessionLimitError = checkSessionLimit();
+					if (sessionLimitError) {
+						const limitResult: SingleResult = { agent: t.agent, agentSource: "unknown", task: t.task, exitCode: 1, messages: [], stderr: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 }, errorMessage: sessionLimitError };
+						allResults[index] = limitResult;
+						emitParallelUpdate();
+						return limitResult;
+					}
+
 					if (checkTrailLoop(t.agent)) {
 						const loopResult: SingleResult = { agent: t.agent, agentSource: "unknown", task: t.task, exitCode: 1, messages: [], stderr: "", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 }, errorMessage: `Trail loop detected: agent "${t.agent}" already appeared twice in ancestor chain.` };
 						allResults[index] = loopResult;
@@ -328,25 +416,30 @@ export default function (pi: ExtensionAPI) {
 					const parallelAgent = agents.find((a) => a.name === t.agent)!;
 					const parallelResolved = resolveModel(parallelAgent, t.taskScores);
 
-					const result = await runSingleAgent(
-						ctx.cwd,
-						agents,
-						t.agent,
-						t.task,
-						t.cwd,
-						undefined,
-						signal,
-						// Per-task update callback
-						(partial) => {
-							if (partial.details?.results[0]) {
-								allResults[index] = partial.details.results[0];
-								emitParallelUpdate();
-							}
-						},
-						makeDetails("parallel"),
-						parallelResolved.modelOverride,
-						currentDepth,
-						parallelResolved.thinkingLevel,
+					const result = await subagentRuntime.run(
+						{ depth: currentDepth + 1, trail: [...trail, t.agent] },
+						() =>
+							runSingleAgent(
+								ctx.cwd,
+								agents,
+								t.agent,
+								t.task,
+								t.cwd,
+								undefined,
+								signal,
+								// Per-task update callback
+								(partial) => {
+									if (partial.details?.results[0]) {
+										allResults[index] = partial.details.results[0];
+										emitParallelUpdate();
+									}
+								},
+								makeDetails("parallel"),
+								ctx.modelRegistry,
+								ctx.model,
+								parallelResolved.modelOverride,
+								parallelResolved.thinkingLevel,
+							),
 					);
 					attachSelectionMetadata(result, parallelResolved);
 					allResults[index] = result;
@@ -388,19 +481,24 @@ export default function (pi: ExtensionAPI) {
 				const singleAgent = agents.find((a) => a.name === params.agent)!;
 				const singleResolved = resolveModel(singleAgent, params.taskScores);
 
-				const result = await runSingleAgent(
-					ctx.cwd,
-					agents,
-					params.agent,
-					params.task,
-					params.cwd,
-					undefined,
-					signal,
-					onUpdate,
-					makeDetails("single"),
-					singleResolved.modelOverride,
-					currentDepth,
-					singleResolved.thinkingLevel,
+				const result = await subagentRuntime.run(
+					{ depth: currentDepth + 1, trail: [...trail, params.agent] },
+					() =>
+						runSingleAgent(
+							ctx.cwd,
+							agents,
+							params.agent!,
+							params.task!,
+							params.cwd,
+							undefined,
+							signal,
+							onUpdate,
+							makeDetails("single"),
+							ctx.modelRegistry,
+							ctx.model,
+							singleResolved.modelOverride,
+							singleResolved.thinkingLevel,
+						),
 				);
 				attachSelectionMetadata(result, singleResolved);
 				const isError = result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";

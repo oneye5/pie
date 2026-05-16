@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import type { RunCheckpoint } from './run-analytics-types';
+import type { RunCheckpoint } from './run-analytics';
 
 export type CheckpointSlot = 'a' | 'b';
 

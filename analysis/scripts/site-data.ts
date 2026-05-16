@@ -48,6 +48,21 @@ function average(values: number[], digits = 3): number | null {
   return round(values.reduce((sum, value) => sum + value, 0) / values.length, digits);
 }
 
+function percentile(values: number[], p: number, digits = 0): number | null {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const sorted = [...values].sort((left, right) => left - right);
+  const index = (p / 100) * (sorted.length - 1);
+  const lower = Math.floor(index);
+  const upper = Math.ceil(index);
+  if (lower === upper) {
+    return round(sorted[lower]!, digits);
+  }
+  return round(sorted[lower]! * (1 - (index - lower)) + sorted[upper]! * (index - lower), digits);
+}
+
 function median(values: number[]): number | null {
   if (values.length === 0) {
     return null;
@@ -131,7 +146,7 @@ function createOverview(prepared: PreparedAnalyticsData): OverviewData {
 
   const totalToolCalls = completedRuns.reduce((sum, run) => sum + run.toolCallCount, 0);
   const totalToolFailures = completedRuns.reduce((sum, run) => sum + run.toolFailureCount, 0);
-  const latestRunTimestamp = [...runs]
+  const latestRunTimestamp = [...completedRuns]
     .map((run) => run.updatedAt)
     .sort((left, right) => left.localeCompare(right))
     .at(-1) ?? null;
@@ -141,13 +156,21 @@ function createOverview(prepared: PreparedAnalyticsData): OverviewData {
     totalCompletedRuns: completedRuns.length,
     totalOpenRuns: runs.filter((run) => run.status === 'open').length,
     totalScoredRuns: scoredRuns.length,
-    averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction ?? 0), 2),
+    averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction!), 2),
     resolutionCounts,
     medianBusyDurationMs: median(completedRuns.map((run) => run.busyDurationMs)),
+    p90BusyDurationMs: percentile(completedRuns.map((run) => run.busyDurationMs), 90),
+    p99BusyDurationMs: percentile(completedRuns.map((run) => run.busyDurationMs), 99),
     verificationRunRate: completedRuns.length === 0
       ? null
       : round(completedRuns.filter((run) => run.verificationTotalCount > 0).length / completedRuns.length, 3),
     toolFailureRate: totalToolCalls === 0 ? null : round(totalToolFailures / totalToolCalls, 3),
+    medianTokenEfficiency: percentile(completedRuns.map((r) => r.tokenEfficiency).filter((v): v is number => v !== null), 50, 1),
+    averageContextUtilization: average(completedRuns.map((r) => r.contextUtilization).filter((v): v is number => v !== null), 3),
+    averageCacheHitRatio: average(completedRuns.map((r) => r.cacheHitRatio).filter((v): v is number => v !== null), 3),
+    firstAttemptSuccessRate: completedRuns.length === 0
+      ? null
+      : round(completedRuns.filter((r) => r.firstAttemptSuccess).length / completedRuns.length, 3),
     latestRunTimestamp,
   };
 }
@@ -179,13 +202,21 @@ function createModelQuality(prepared: PreparedAnalyticsData): ModelQualityData {
       experimentAssignment: experimentAssignment ?? '(none)',
       runCount: runs.length,
       scoredRunCount: scoredRuns.length,
-      averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction ?? 0), 2),
+      averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction!), 2),
       averageBusyDurationMs: average(runs.map((run) => run.busyDurationMs), 0),
       medianBusyDurationMs: median(runs.map((run) => run.busyDurationMs)),
+      p90BusyDurationMs: percentile(runs.map((run) => run.busyDurationMs), 90),
+      p99BusyDurationMs: percentile(runs.map((run) => run.busyDurationMs), 99),
       averageToolFailures: average(runs.map((run) => run.toolFailureCount), 2),
       verificationRunRate: runs.length === 0
         ? null
         : round(runs.filter((run) => run.verificationTotalCount > 0).length / runs.length, 3),
+      medianTokenEfficiency: percentile(runs.map((r) => r.tokenEfficiency).filter((v): v is number => v !== null), 50, 1),
+      averageContextUtilization: average(runs.map((r) => r.contextUtilization).filter((v): v is number => v !== null), 3),
+      averageCacheHitRatio: average(runs.map((r) => r.cacheHitRatio).filter((v): v is number => v !== null), 3),
+      firstAttemptSuccessRate: runs.length === 0
+        ? null
+        : round(runs.filter((r) => r.firstAttemptSuccess).length / runs.length, 3),
       resolutionCounts,
     };
   });
@@ -206,6 +237,10 @@ function createModelQuality(prepared: PreparedAnalyticsData): ModelQualityData {
   return {
     schemaVersion: SITE_DATA_SCHEMA_VERSION,
     rows,
+    notes: [
+      'Satisfaction averages from fewer than 3 scored runs are highly variable and should be interpreted with caution.',
+      'Runs from the same task group are not independent observations; treat per-run sample sizes as upper bounds.',
+    ],
   };
 }
 
@@ -213,7 +248,7 @@ function createVerificationImpact(prepared: PreparedAnalyticsData): Verification
   const groupedRuns = new Map<string, PreparedRunRow[]>();
   const summaryGroups = new Map<string, PreparedRunRow[]>();
 
-  for (const run of prepared.runs) {
+  for (const run of prepared.runs.filter((entry) => entry.status !== 'open')) {
     const kinds = prepared.verificationUsage
       .filter((row) => row.runId === run.runId)
       .map((row) => row.kind);
@@ -243,7 +278,7 @@ function createVerificationImpact(prepared: PreparedAnalyticsData): Verification
       verificationState: (verificationState ?? 'none') as VerificationImpactRow['verificationState'],
       runCount: new Set(runs.map((run) => run.runId)).size,
       scoredRunCount: new Set(scoredRuns.map((run) => run.runId)).size,
-      averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction ?? 0), 2),
+      averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction!), 2),
       resolutionCounts,
     };
   });
@@ -268,7 +303,7 @@ function createVerificationImpact(prepared: PreparedAnalyticsData): Verification
       verificationState: verificationState as VerificationImpactData['summaryRows'][number]['verificationState'],
       runCount: runs.length,
       scoredRunCount: scoredRuns.length,
-      averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction ?? 0), 2),
+      averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction!), 2),
       resolutionCounts,
     };
   });
@@ -279,6 +314,7 @@ function createVerificationImpact(prepared: PreparedAnalyticsData): Verification
     summaryRows,
     notes: [
       'Verification failures are tracked at the run level; per-kind failure attribution is not available in the source snapshots.',
+      'Open (in-progress) runs are excluded from verification impact metrics.',
     ],
   };
 }
@@ -305,8 +341,8 @@ function createToolUsage(prepared: PreparedAnalyticsData): ToolUsageData {
       verificationProjectFailureCount: toolRows.reduce((sum, row) => sum + row.verificationProjectFailureCount, 0),
       probeFailureCount: toolRows.reduce((sum, row) => sum + row.probeFailureCount, 0),
       affectedRunCount: usedRunIds.size,
-      averageSatisfactionWhenUsed: average(usedRuns.map((run) => run.satisfaction ?? 0), 2),
-      averageSatisfactionWhenUnused: average(unusedRuns.map((run) => run.satisfaction ?? 0), 2),
+      averageSatisfactionWhenUsed: average(usedRuns.map((run) => run.satisfaction!), 2),
+      averageSatisfactionWhenUnused: average(unusedRuns.map((run) => run.satisfaction!), 2),
     };
   });
 
@@ -357,7 +393,7 @@ function createTreatmentComparison(prepared: PreparedAnalyticsData): TreatmentCo
       mixedTreatmentConfig: purity === 'mixed',
       runCount: runs.length,
       scoredRunCount: scoredRuns.length,
-      averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction ?? 0), 2),
+      averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction!), 2),
       resolutionCounts,
     };
   });
@@ -380,7 +416,7 @@ function createTreatmentComparison(prepared: PreparedAnalyticsData): TreatmentCo
 
 function createTimeline(prepared: PreparedAnalyticsData): TimelineData {
   const groups = new Map<string, PreparedRunRow[]>();
-  for (const run of prepared.runs) {
+  for (const run of prepared.runs.filter((entry) => entry.status !== 'open')) {
     const existing = groups.get(run.startedDay) ?? [];
     existing.push(run);
     groups.set(run.startedDay, existing);
@@ -402,7 +438,7 @@ function createTimeline(prepared: PreparedAnalyticsData): TimelineData {
         bucketStart,
         runCount: runs.length,
         scoredRunCount: scoredRuns.length,
-        averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction ?? 0), 2),
+        averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction!), 2),
         verificationRunCount: runs.filter((run) => run.verificationTotalCount > 0).length,
         toolFailureCount: runs.reduce((sum, run) => sum + run.toolFailureCount, 0),
         averageBusyDurationMs: average(runs.map((run) => run.busyDurationMs), 0),

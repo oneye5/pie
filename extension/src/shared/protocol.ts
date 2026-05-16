@@ -55,6 +55,19 @@ export interface ModelSettings {
 
 export type ModelInputKind = 'text' | 'image';
 
+/**
+ * Per-model metadata sourced from the shared `<agentDir>/model-profiles.json`.
+ * Drives ordering and warning badges in the model picker.
+ */
+export interface ModelSubagentInfo {
+  /** True when the model is allowed as a subagent target (profile `eligible`). */
+  eligible: boolean;
+  /** Sum of precision+creativity+thoroughness+reasoning (0-20). Used as overall rating. */
+  aggregate: number;
+  /** Optional human-readable reason recorded in the profile when ineligible. */
+  disabledReason?: string;
+}
+
 export interface ModelInfo {
   id: string;
   name: string;
@@ -64,6 +77,8 @@ export interface ModelInfo {
   inputKinds: ModelInputKind[];
   contextWindow?: number;
   maxTokens?: number;
+  /** Present when a matching subagent profile exists; absent for unprofiled models. */
+  subagent?: ModelSubagentInfo;
 }
 
 export interface ContextWindowUsage {
@@ -283,6 +298,8 @@ export interface SessionAnalyticsFactors {
   toolSetHash: string | null;
   skills: SessionSkillFactor[];
   skillSetHash: string | null;
+  /** Names of extensions active during this run (e.g. 'subagent', 'safeguard'). */
+  activeExtensions: string[];
 }
 
 export interface BackendReadyPayload {
@@ -396,6 +413,17 @@ export interface ErrorPayload {
   requestId?: string;
 }
 
+export type FileChangeKind = 'created' | 'modified' | 'deleted';
+
+export interface FileChangeEntry {
+  path: string;
+  kind: FileChangeKind;
+  toolCallId: string;
+  messageId: string;
+  description: string;
+  timestamp: string;
+}
+
 export function isEventEnvelope(value: unknown): value is EventEnvelope {
   return !!value && typeof value === 'object' && 'event' in value;
 }
@@ -412,11 +440,25 @@ export type PatchOp =
   | { kind: 'clearOverlay'; messageIds?: string[] };
 
 /** Webview-local UI preferences. Owned by the host so they survive teardown. */
+/** Metadata describing a known pi extension (tool or hook). */
+export interface ExtensionInfo {
+  /** Machine-readable extension name (e.g. 'subagent', 'safeguard'). */
+  id: string;
+  /** Human-readable label shown in the settings UI. */
+  label: string;
+  /** Short description of what the extension does. */
+  description: string;
+}
+
 export interface ChatPrefs {
   autoExpandReasoning: boolean;
   autoExpandToolCalls: boolean;
   autoExpandSubagentCalls: boolean;
   suppressCompletionNotifications: boolean;
+  /** Per-extension enabled/disabled toggles. Keys are extension IDs. */
+  extensionToggles: Record<string, boolean>;
+  /** Per-provider enabled/disabled toggles. Keys are provider names. */
+  providerToggles: Record<string, boolean>;
 }
 
 export type ActiveRunStatus = 'open' | 'scored' | 'closed_unscored';
@@ -442,6 +484,8 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   autoExpandToolCalls: false,
   autoExpandSubagentCalls: false,
   suppressCompletionNotifications: false,
+  extensionToggles: {},
+  providerToggles: {},
 };
 
 export const EMPTY_TRANSCRIPT_WINDOW: TranscriptWindow = {
@@ -458,6 +502,14 @@ export function resolveChatPrefs(prefs?: Partial<ChatPrefs> | null): ChatPrefs {
   return {
     ...DEFAULT_CHAT_PREFS,
     ...prefs,
+    extensionToggles: {
+      ...DEFAULT_CHAT_PREFS.extensionToggles,
+      ...(prefs?.extensionToggles ?? {}),
+    },
+    providerToggles: {
+      ...DEFAULT_CHAT_PREFS.providerToggles,
+      ...(prefs?.providerToggles ?? {}),
+    },
     autoExpandSubagentCalls:
       prefs?.autoExpandSubagentCalls
       ?? prefs?.autoExpandToolCalls
@@ -490,6 +542,10 @@ export interface ViewState {
   availableModels: ModelInfo[];
   contextUsage: ContextWindowUsage | null;
   prefs: ChatPrefs;
+  /** Extensions discovered from the backend (tools + hooks). */
+  availableExtensions: ExtensionInfo[];
+  /** File changes tracked from tool calls in the active session. */
+  fileChanges: FileChangeEntry[];
 }
 
 // ─── Host ↔ webview envelopes ────────────────────────────────────────────────
@@ -550,4 +606,6 @@ export type WebviewToHostMessage =
       defaultModel: string;
       defaultThinkingLevel: ThinkingLevel;
     }
-  | { type: 'setPrefs'; prefs: Partial<ChatPrefs> };
+  | { type: 'setPrefs'; prefs: Partial<ChatPrefs> }
+  | { type: 'openFileDiff'; sessionPath: string; filePath: string }
+  | { type: 'revertFile'; sessionPath: string; filePath: string };

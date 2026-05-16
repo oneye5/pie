@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { ChatMessage, SystemPromptEntry } from '../src/shared/protocol';
-import { buildContextWindowBreakdown } from '../src/webview/panel/context-window-breakdown';
+import { buildContextWindowBreakdown } from '../src/webview/panel/context-window/breakdown';
 
 function makePrompt(overrides: Partial<SystemPromptEntry> = {}): SystemPromptEntry {
   return {

@@ -10,8 +10,8 @@ import { deepClone, loadFixture, withTempDir } from './helpers.ts';
 test('readSourceAnalyticsPayload loads the committed fixture', async () => {
   const fixture = await loadFixture();
   assert.equal(fixture.schemaVersion, RUN_ANALYTICS_SCHEMA_VERSION);
-  assert.equal(fixture.completedRuns.length, 6);
-  assert.equal(fixture.openRuns.length, 1);
+  assert.equal(fixture.completedRuns.length, 7);
+  assert.equal(fixture.openRuns.length, 2);
   assert.equal(fixture.outcomes.length, 5);
 });
 

@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { BackendClient } from '../backend-client';
 import { assertInvariant, auditLog } from '../state-audit';
 import {
+  fileChangesActions,
   sessionStateActions,
   sessionsActions,
   settingsActions,
@@ -288,6 +289,7 @@ export class SessionServiceState {
     store.dispatch(settingsActions.clearAvailableModels(sessionPath));
     store.dispatch(settingsActions.clearContextUsage(sessionPath));
     store.dispatch(sessionStateActions.clearSessionState(sessionPath));
+    store.dispatch(fileChangesActions.clearFileChanges(sessionPath));
     if (removeSessionSummary) {
       store.dispatch(sessionsActions.removeSession(sessionPath));
     }

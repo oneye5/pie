@@ -19,7 +19,7 @@ import {
   type OutcomeHistoryLogEntry,
   type RunSnapshot,
   type TreatmentChangeKind,
-} from '../run-analytics-types';
+} from '../run-analytics';
 import {
   sessionStateActions,
   type AppStore,
@@ -216,6 +216,14 @@ export class SessionRunTracker {
 
     if (toolCall.status !== 'failed') {
       run.fileMutation = mergeFileMutationDelta(run.fileMutation, analysis.fileMutation);
+
+      if (analysis.fileExtension) {
+        const { extension, operation } = analysis.fileExtension;
+        const target = operation === 'read' ? run.fileExtensions.readCountsByExtension
+          : operation === 'write' ? run.fileExtensions.writeCountsByExtension
+          : run.fileExtensions.editCountsByExtension;
+        incrementNamedCount(target, extension);
+      }
     }
 
     run.updatedAt = this.runState.isoNow();

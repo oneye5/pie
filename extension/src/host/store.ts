@@ -6,6 +6,8 @@ import {
   type ChatMessage,
   type ComposerInput,
   type ContextWindowUsage,
+  type ExtensionInfo,
+  type FileChangeEntry,
   type ModelInfo,
   type SessionSummary,
   type SystemPromptEntry,
@@ -13,6 +15,7 @@ import {
   type ViewState,
 } from '../shared/protocol';
 import { sessionStateActions, sessionStateReducer } from './store/session-state-slice';
+import { fileChangesActions, fileChangesReducer } from './store/file-changes-slice';
 import { settingsActions, settingsReducer } from './store/settings-slice';
 import { sessionsActions, sessionsReducer } from './store/sessions-slice';
 import { transcriptActions, transcriptReducer } from './store/transcript-slice';
@@ -28,6 +31,7 @@ export function createAppStore() {
       settings: settingsReducer,
       sessionState: sessionStateReducer,
       ui: uiReducer,
+      fileChanges: fileChangesReducer,
     },
   });
 }
@@ -45,6 +49,7 @@ export {
   sessionsActions,
   transcriptActions,
   uiActions,
+  fileChangesActions,
 };
 
 /** Resolves a message ID through the alias map (for multi-turn tool-use merging). */
@@ -81,6 +86,7 @@ const EMPTY_TRANSCRIPT: ChatMessage[] = [];
 const EMPTY_SYSTEM_PROMPTS: SystemPromptEntry[] = [];
 const EMPTY_AVAILABLE_MODELS: ModelInfo[] = [];
 const EMPTY_COMPOSER_INPUTS: ComposerInput[] = [];
+const EMPTY_FILE_CHANGES: FileChangeEntry[] = [];
 const EMPTY_WINDOW: TranscriptWindow = EMPTY_TRANSCRIPT_WINDOW;
 
 const selectActiveTranscript = (state: RootState): ChatMessage[] => {
@@ -119,6 +125,16 @@ const selectActivePendingComposerInputs = (state: RootState): ComposerInput[] =>
   return state.sessionState.pendingComposerInputsBySession[path] ?? EMPTY_COMPOSER_INPUTS;
 };
 
+const selectActiveFileChanges = (state: RootState): FileChangeEntry[] => {
+  const path = selectActiveSessionPath(state);
+  if (!path) return EMPTY_FILE_CHANGES;
+  return state.fileChanges.bySession[path] ?? EMPTY_FILE_CHANGES;
+};
+
+const selectAvailableExtensions = (state: RootState): ExtensionInfo[] => {
+  return state.ui.availableExtensions;
+};
+
 const selectActiveRunSummary = (state: RootState): ActiveRunSummary | null => {
   const path = selectActiveSessionPath(state);
   if (!path) return null;
@@ -151,6 +167,8 @@ export const selectViewState = createSelector(
     (s: RootState) => s.ui.notice,
     (s: RootState) => s.ui.backendReady,
     (s: RootState) => s.ui.prefs,
+    selectActiveFileChanges,
+    selectAvailableExtensions,
   ],
   (
     sessions,
@@ -172,6 +190,8 @@ export const selectViewState = createSelector(
     notice,
     backendReady,
     prefs,
+    fileChanges,
+    availableExtensions,
   ): ViewState => {
     const busy = !!activeSessionPath && runningSessionPaths.includes(activeSessionPath);
     return {
@@ -194,6 +214,8 @@ export const selectViewState = createSelector(
       availableModels,
       contextUsage,
       prefs,
+      fileChanges,
+      availableExtensions,
     };
   },
 );

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { SdkBuildSystemPromptOptions, SdkSkill } from '../src/backend/sdk';
+import type { SdkBuildSystemPromptOptions, SdkSkill, SdkToolInfo } from '../src/backend/sdk';
 import { buildSessionSystemPrompts } from '../src/backend/system-prompts';
 
 function makeSkill(name: string): SdkSkill {
@@ -129,4 +129,59 @@ test('buildSessionSystemPrompts matches Pi skill inclusion rules when read is un
   });
 
   assert.ok(!prompts.some((prompt) => prompt.title === 'Skills'));
+});
+
+test('buildSessionSystemPrompts includes a Tools entry when tools are provided', () => {
+  const tools: SdkToolInfo[] = [
+    { name: 'read', description: 'Read file contents' },
+    { name: 'subagent', description: 'Delegate tasks to specialized subagents', parameters: { type: 'object', properties: { agent: { type: 'string' } } } },
+  ];
+
+  const prompts = buildSessionSystemPrompts({
+    harnessPrompt: 'Harness instructions\nCurrent date: 2026-05-13\nCurrent working directory: /repo',
+    promptOptions: { cwd: '/repo', skills: [] },
+    formatSkillsForPrompt: () => '',
+    tools,
+  });
+
+  const toolEntry = prompts.find((p) => p.title === 'Tools');
+  assert.ok(toolEntry, 'Tools entry should exist');
+  assert.equal(toolEntry.source, 'harness');
+  assert.equal(toolEntry.availability, 'available');
+  assert.equal(toolEntry.summary, 'read, subagent');
+  assert.match(toolEntry.text, /## read/);
+  assert.match(toolEntry.text, /## subagent/);
+  assert.match(toolEntry.text, /Read file contents/);
+  assert.match(toolEntry.text, /Delegate tasks/);
+  assert.match(toolEntry.text, /"agent"/);
+});
+
+test('buildSessionSystemPrompts omits Tools entry when tools array is empty', () => {
+  const prompts = buildSessionSystemPrompts({
+    harnessPrompt: 'Harness instructions\nCurrent date: 2026-05-13\nCurrent working directory: /repo',
+    promptOptions: { cwd: '/repo', skills: [] },
+    formatSkillsForPrompt: () => '',
+    tools: [],
+  });
+
+  assert.ok(!prompts.some((p) => p.title === 'Tools'));
+});
+
+test('buildSessionSystemPrompts truncates long tool summary', () => {
+  const tools: SdkToolInfo[] = Array.from({ length: 20 }, (_, i) => ({
+    name: `tool_with_long_name_${i}`,
+    description: `Description ${i}`,
+  }));
+
+  const prompts = buildSessionSystemPrompts({
+    harnessPrompt: 'Harness\nCurrent date: 2026-05-13\nCurrent working directory: /repo',
+    promptOptions: { cwd: '/repo', skills: [] },
+    formatSkillsForPrompt: () => '',
+    tools,
+  });
+
+  const toolEntry = prompts.find((p) => p.title === 'Tools');
+  assert.ok(toolEntry);
+  assert.ok(toolEntry.summary.length <= 83); // 80 + '...'
+  assert.ok(toolEntry.summary.endsWith('...'));
 });

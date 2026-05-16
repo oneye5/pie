@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { assistantReplyMeta, formatThinkingLevelLabel } from '../src/webview/panel/transcript-header';
+import { assistantReplyMeta, formatThinkingLevelLabel } from '../src/webview/panel/transcript/header';
 import type { ChatMessage } from '../src/shared/protocol';
 
 function assistantMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {

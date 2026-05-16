@@ -8,7 +8,7 @@ import {
   composerInputTitle,
   describeComposerInputSummary,
   formatImageMeta,
-} from '../src/webview/panel/composer-inputs';
+} from '../src/webview/panel/composer/inputs';
 
 const imageInput: Extract<ComposerInput, { kind: 'imageBlob' }> = {
   id: 'image-1',

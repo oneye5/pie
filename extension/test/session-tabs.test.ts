@@ -6,7 +6,7 @@ import {
   getComposerRunControls,
   getSessionTabRunBadge,
   getSessionTabRunMenuItems,
-} from '../src/webview/panel/session-tab-run-state';
+} from '../src/webview/panel/session-tabs/run-state';
 
 test('getSessionTabRunMenuItems exposes completion and task actions for open runs', () => {
   assert.deepEqual(getSessionTabRunMenuItems({

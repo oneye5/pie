@@ -3,6 +3,7 @@ import {
   type RunSnapshot,
   type PreparedAnalyticsData,
   type PreparedBackendErrorRow,
+  type PreparedFileExtensionRow,
   type PreparedRunRow,
   type PreparedToolFailureRow,
   type PreparedToolUsageRow,
@@ -12,6 +13,10 @@ import {
   type VerificationCommandKind,
 } from './contracts.ts';
 import { existingHashPrefix, hashToPrefix } from './hash.ts';
+
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
 
 function normalizeNullableText(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
@@ -72,6 +77,19 @@ function updatedAtMs(run: RunSnapshot): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * Deduplicate runs by runId, preferring finalized over open and newer over older.
+ *
+ * Priority rules for same runId:
+ *   1. Closed (scored / closed_unscored) over open
+ *   2. Newer updatedAt over older updatedAt
+ *   3. If both status and updatedAt are equal, prefer the later entry
+ *
+ * Note: if a run was closed and then reopened, the open version is discarded
+ * in favor of the closed version, even though the open version has more recent data.
+ * The closed version carries the outcome (satisfaction/resolution) which is preferred
+ * for analytics purposes.
+ */
 function pickPreferredRun(left: RunSnapshot, right: RunSnapshot): RunSnapshot {
   const leftPriority = runStatusPriority(left.status);
   const rightPriority = runStatusPriority(right.status);
@@ -142,6 +160,7 @@ function prepareRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>):
       name: s.name,
       lastModifiedAt: s.lastModifiedAt,
     })),
+    activeExtensions: run.analyticsFactors?.activeExtensions ?? [],
     selectedToolCount: run.analyticsFactors?.selectedToolIds.length ?? 0,
     skillCount: run.analyticsFactors?.skills.length ?? 0,
     contextFileCount: run.analyticsFactors?.contextFiles.length ?? 0,
@@ -157,6 +176,11 @@ function prepareRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>):
     backendErrorCount: run.backendErrorCodes.length,
     contextTokens: run.contextTokens,
     contextLimit: run.contextLimit,
+    inputTokens: run.inputTokens ?? 0,
+    outputTokens: run.outputTokens ?? 0,
+    cacheReadTokens: run.cacheReadTokens ?? 0,
+    cacheWriteTokens: run.cacheWriteTokens ?? 0,
+    tokenReportedTurnCount: run.tokenReportedTurnCount ?? 0,
     filesystemPathRefCount: run.filesystemPathRefCount,
     imageInputCount: run.imageInputCount,
     imageInputBytes: run.imageInputBytes,
@@ -199,6 +223,16 @@ function prepareRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>):
     lineModifications: run.fileMutation.lineModifications,
     lineMutationTotal:
       run.fileMutation.lineAdditions + run.fileMutation.lineDeletions + run.fileMutation.lineModifications,
+    tokenEfficiency: (run.fileMutation.lineAdditions + run.fileMutation.lineDeletions + run.fileMutation.lineModifications) > 0
+      ? round3((run.outputTokens ?? 0) / (run.fileMutation.lineAdditions + run.fileMutation.lineDeletions + run.fileMutation.lineModifications))
+      : null,
+    contextUtilization: (run.contextTokens != null && run.contextLimit != null && run.contextLimit > 0)
+      ? round3(run.contextTokens / run.contextLimit)
+      : null,
+    cacheHitRatio: ((run.cacheReadTokens ?? 0) + (run.inputTokens ?? 0)) > 0
+      ? round3((run.cacheReadTokens ?? 0) / ((run.cacheReadTokens ?? 0) + (run.inputTokens ?? 0)))
+      : null,
+    firstAttemptSuccess: run.interruptedCount === 0 && run.messageEditCount === 0 && run.truncatedAfterCount === 0 && (outcome?.resolution === 'resolved'),
   };
 }
 
@@ -235,6 +269,12 @@ function prepareToolUsage(run: RunSnapshot, outcome: RunOutcome | null): Prepare
     });
 }
 
+/**
+ * When `failureCountsByNameAndKind` is absent (runs recorded before per-tool
+ * classification was added), fall back to `failureCountsByKind` to preserve
+ * classification at the aggregate level. Failures that cannot be attributed
+ * to a specific tool are emitted as run-level rows (toolName = '(unattributed)').
+ */
 function prepareToolFailures(run: RunSnapshot, outcome: RunOutcome | null): PreparedToolFailureRow[] {
   const startedDay = toStartedDay(run.startedAt);
   const rows: PreparedToolFailureRow[] = [];
@@ -267,21 +307,44 @@ function prepareToolFailures(run: RunSnapshot, outcome: RunOutcome | null): Prep
     });
   };
 
-  const classifiedTools = new Set<string>();
-  for (const [toolName, countsByKind] of Object.entries(run.toolUsage.failureCountsByNameAndKind)) {
-    classifiedTools.add(toolName);
-    let classifiedCount = 0;
-    for (const [failureKind, count] of Object.entries(countsByKind)) {
-      classifiedCount += count;
-      pushFailureRow(toolName, failureKind as PreparedToolFailureRow['failureKind'], count);
-    }
-    const totalFailureCount = run.toolUsage.failureCountsByName[toolName] ?? 0;
-    pushFailureRow(toolName, 'unknown', Math.max(0, totalFailureCount - classifiedCount));
-  }
+  const hasNameAndKindBreakdown = Object.keys(run.toolUsage.failureCountsByNameAndKind).length > 0;
 
-  for (const [toolName, totalFailureCount] of Object.entries(run.toolUsage.failureCountsByName)) {
-    if (!classifiedTools.has(toolName)) {
-      pushFailureRow(toolName, 'unknown', totalFailureCount);
+  if (hasNameAndKindBreakdown) {
+    // Per-tool classified breakdown is available — use it directly.
+    const classifiedTools = new Set<string>();
+    for (const [toolName, countsByKind] of Object.entries(run.toolUsage.failureCountsByNameAndKind)) {
+      classifiedTools.add(toolName);
+      let classifiedCount = 0;
+      for (const [failureKind, count] of Object.entries(countsByKind)) {
+        classifiedCount += count;
+        pushFailureRow(toolName, failureKind as PreparedToolFailureRow['failureKind'], count);
+      }
+      const totalFailureCount = run.toolUsage.failureCountsByName[toolName] ?? 0;
+      pushFailureRow(toolName, 'unknown', Math.max(0, totalFailureCount - classifiedCount));
+    }
+
+    for (const [toolName, totalFailureCount] of Object.entries(run.toolUsage.failureCountsByName)) {
+      if (!classifiedTools.has(toolName)) {
+        pushFailureRow(toolName, 'unknown', totalFailureCount);
+      }
+    }
+  } else {
+    // Per-tool breakdown unavailable (runs recorded before classification was added).
+    // Fall back to aggregate failureCountsByKind to preserve failure-kind classification
+    // at the run level. Assign to a sentinel tool name since we can't attribute per-tool.
+    for (const [failureKind, count] of Object.entries(run.toolUsage.failureCountsByKind)) {
+      pushFailureRow('(unattributed)', failureKind as PreparedToolFailureRow['failureKind'], count);
+    }
+    // Emit any remaining unclassified count as 'unknown' per tool.
+    let classifiedTotal = 0;
+    for (const count of Object.values(run.toolUsage.failureCountsByKind)) {
+      classifiedTotal += count;
+    }
+    const unclassifiedTotal = run.toolUsage.failureCount - classifiedTotal;
+    if (unclassifiedTotal > 0) {
+      for (const [toolName, totalFailureCount] of Object.entries(run.toolUsage.failureCountsByName)) {
+        pushFailureRow(toolName, 'unknown', totalFailureCount);
+      }
     }
   }
 
@@ -341,6 +404,47 @@ function prepareBackendErrors(run: RunSnapshot, outcome: RunOutcome | null): Pre
   }));
 }
 
+function prepareFileExtensions(run: RunSnapshot, outcome: RunOutcome | null): PreparedFileExtensionRow[] {
+  const exts = run.fileExtensions;
+  if (!exts) {
+    return [];
+  }
+
+  const allExtensions = new Set<string>([
+    ...Object.keys(exts.readCountsByExtension ?? {}),
+    ...Object.keys(exts.writeCountsByExtension ?? {}),
+    ...Object.keys(exts.editCountsByExtension ?? {}),
+  ]);
+
+  if (allExtensions.size === 0) {
+    return [];
+  }
+
+  const startedDay = toStartedDay(run.startedAt);
+  return [...allExtensions].map((extension) => {
+    const readCount = exts.readCountsByExtension?.[extension] ?? 0;
+    const writeCount = exts.writeCountsByExtension?.[extension] ?? 0;
+    const editCount = exts.editCountsByExtension?.[extension] ?? 0;
+    return {
+      runId: run.runId,
+      extension,
+      readCount,
+      writeCount,
+      editCount,
+      totalCount: readCount + writeCount + editCount,
+      startedAt: run.startedAt,
+      startedDay,
+      modelId: normalizeNullableText(run.modelId),
+      thinkingLevel: normalizeThinkingLevel(run.thinkingLevel),
+      experimentAssignment: normalizeNullableText(run.experimentAssignment),
+      mixedTreatmentConfig: run.mixedTreatmentConfig,
+      scored: run.scored,
+      satisfaction: outcome?.satisfaction ?? null,
+      resolution: outcome?.resolution ?? null,
+    };
+  });
+}
+
 export function prepareSourceAnalytics(source: SourceAnalyticsPayload): PreparedAnalyticsData {
   const outcomesByRunId = new Map<string, RunOutcome>();
   for (const outcome of source.outcomes) {
@@ -353,6 +457,7 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
   const toolFailures: PreparedToolFailureRow[] = [];
   const verificationUsage: PreparedVerificationUsageRow[] = [];
   const backendErrors: PreparedBackendErrorRow[] = [];
+  const fileExtensions: PreparedFileExtensionRow[] = [];
 
   for (const run of dedupedRuns) {
     const outcome = getRunOutcome(run, outcomesByRunId);
@@ -360,6 +465,7 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
     toolFailures.push(...prepareToolFailures(run, outcome));
     verificationUsage.push(...prepareVerificationUsage(run, outcome));
     backendErrors.push(...prepareBackendErrors(run, outcome));
+    fileExtensions.push(...prepareFileExtensions(run, outcome));
   }
 
   return {
@@ -371,5 +477,6 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
     toolFailures,
     verificationUsage,
     backendErrors,
+    fileExtensions,
   };
 }

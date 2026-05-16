@@ -75,6 +75,11 @@
       "truncatedAfterCount": 0,
       "backendErrorCodes": [],
       "contextTokens": 18200,
+      "inputTokens": 15200,
+      "outputTokens": 3200,
+      "cacheReadTokens": 4800,
+      "cacheWriteTokens": 0,
+      "tokenReportedTurnCount": 2,
       "contextLimit": 200000,
       "filesystemPathRefCount": 2,
       "imageInputCount": 0,
@@ -94,7 +99,46 @@
         "failureCountsByName": {},
         "subagentCallCount": 0,
         "subagentTaskCount": 0,
-        "subagentAgentNames": []
+        "subagentAgentNames": [],
+        "failureCountsByKind": {
+          "unavailable_tool": 0,
+          "invalid_tool_arguments": 0,
+          "missing_file_or_path": 0,
+          "shell_command_error": 0,
+          "probe_no_match": 0,
+          "verification_project_failure": 0,
+          "timeout": 0,
+          "nonzero_exit": 0,
+          "unknown": 0
+        },
+        "failureCountsByNameAndKind": {},
+        "failureSamples": [],
+        "executionFailureCount": 0,
+        "verificationProjectFailureCount": 0,
+        "probeFailureCount": 0,
+        "subagentScoredTaskCount": 0,
+        "subagentTaskScores": {
+          "precision": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "creativity": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "reasoning": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "thoroughness": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          }
+        }
       },
       "fileMutation": {
         "writeCount": 0,
@@ -105,6 +149,18 @@
         "lineAdditions": 24,
         "lineDeletions": 6,
         "lineModifications": 3
+      },
+      "fileExtensions": {
+        "readCountsByExtension": {
+          ".ts": 2,
+          ".md": 1
+        },
+        "writeCountsByExtension": {
+          ".ts": 1
+        },
+        "editCountsByExtension": {
+          ".ts": 1
+        }
       },
       "verification": {
         "totalCount": 2,
@@ -206,6 +262,9 @@
       "toolUsage": {
         "totalCount": 7,
         "failureCount": 1,
+        "executionFailureCount": 0,
+        "verificationProjectFailureCount": 1,
+        "probeFailureCount": 0,
         "countsByName": {
           "read": 2,
           "bash": 3,
@@ -214,9 +273,68 @@
         "failureCountsByName": {
           "bash": 1
         },
+        "failureCountsByKind": {
+          "unavailable_tool": 0,
+          "invalid_tool_arguments": 0,
+          "missing_file_or_path": 0,
+          "shell_command_error": 0,
+          "probe_no_match": 0,
+          "verification_project_failure": 1,
+          "timeout": 0,
+          "nonzero_exit": 0,
+          "unknown": 0
+        },
+        "failureCountsByNameAndKind": {
+          "bash": {
+            "unavailable_tool": 0,
+            "invalid_tool_arguments": 0,
+            "missing_file_or_path": 0,
+            "shell_command_error": 0,
+            "probe_no_match": 0,
+            "verification_project_failure": 1,
+            "timeout": 0,
+            "nonzero_exit": 0,
+            "unknown": 0
+          }
+        },
+        "failureSamples": [
+          {
+            "toolName": "bash",
+            "failureKind": "verification_project_failure",
+            "exitCode": 1,
+            "errorExcerpt": "2 tests failed",
+            "verificationKinds": [
+              "test"
+            ],
+            "occurredAt": "2026-05-10T17:00:00.000Z"
+          }
+        ],
         "subagentCallCount": 0,
         "subagentTaskCount": 0,
-        "subagentAgentNames": []
+        "subagentAgentNames": [],
+        "subagentScoredTaskCount": 0,
+        "subagentTaskScores": {
+          "precision": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "creativity": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "reasoning": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "thoroughness": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          }
+        }
       },
       "fileMutation": {
         "writeCount": 1,
@@ -239,7 +357,17 @@
           "format": 0,
           "other": 0
         }
-      }
+      },
+      "fileExtensions": {
+        "readCountsByExtension": {},
+        "writeCountsByExtension": {},
+        "editCountsByExtension": {}
+      },
+      "inputTokens": 18400,
+      "outputTokens": 5600,
+      "cacheReadTokens": 12000,
+      "cacheWriteTokens": 200,
+      "tokenReportedTurnCount": 2
     },
     {
       "sessionPath": "/Users/analyst/SENTINEL_SESSION_PATH_CHARLIE/run-003.jsonl",
@@ -336,7 +464,46 @@
         "subagentAgentNames": [
           "reviewer",
           "verifier"
-        ]
+        ],
+        "subagentScoredTaskCount": 2,
+        "subagentTaskScores": {
+          "precision": {
+            "sum": 8,
+            "count": 2,
+            "max": 5
+          },
+          "creativity": {
+            "sum": 7,
+            "count": 2,
+            "max": 4
+          },
+          "reasoning": {
+            "sum": 9,
+            "count": 2,
+            "max": 5
+          },
+          "thoroughness": {
+            "sum": 8,
+            "count": 2,
+            "max": 4
+          }
+        },
+        "failureCountsByKind": {
+          "unavailable_tool": 0,
+          "invalid_tool_arguments": 0,
+          "missing_file_or_path": 0,
+          "shell_command_error": 0,
+          "probe_no_match": 0,
+          "verification_project_failure": 0,
+          "timeout": 0,
+          "nonzero_exit": 0,
+          "unknown": 0
+        },
+        "failureCountsByNameAndKind": {},
+        "failureSamples": [],
+        "executionFailureCount": 0,
+        "verificationProjectFailureCount": 0,
+        "probeFailureCount": 0
       },
       "fileMutation": {
         "writeCount": 0,
@@ -359,7 +526,17 @@
           "format": 0,
           "other": 0
         }
-      }
+      },
+      "fileExtensions": {
+        "readCountsByExtension": {},
+        "writeCountsByExtension": {},
+        "editCountsByExtension": {}
+      },
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "tokenReportedTurnCount": 0
     },
     {
       "sessionPath": "/Users/analyst/SENTINEL_SESSION_PATH_DELTA/run-004.jsonl",
@@ -418,7 +595,46 @@
         "failureCountsByName": {},
         "subagentCallCount": 0,
         "subagentTaskCount": 0,
-        "subagentAgentNames": []
+        "subagentAgentNames": [],
+        "failureCountsByKind": {
+          "unavailable_tool": 0,
+          "invalid_tool_arguments": 0,
+          "missing_file_or_path": 0,
+          "shell_command_error": 0,
+          "probe_no_match": 0,
+          "verification_project_failure": 0,
+          "timeout": 0,
+          "nonzero_exit": 0,
+          "unknown": 0
+        },
+        "failureCountsByNameAndKind": {},
+        "failureSamples": [],
+        "executionFailureCount": 0,
+        "verificationProjectFailureCount": 0,
+        "probeFailureCount": 0,
+        "subagentScoredTaskCount": 0,
+        "subagentTaskScores": {
+          "precision": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "creativity": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "reasoning": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "thoroughness": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          }
+        }
       },
       "fileMutation": {
         "writeCount": 0,
@@ -441,7 +657,17 @@
           "format": 0,
           "other": 0
         }
-      }
+      },
+      "fileExtensions": {
+        "readCountsByExtension": {},
+        "writeCountsByExtension": {},
+        "editCountsByExtension": {}
+      },
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "tokenReportedTurnCount": 0
     },
     {
       "sessionPath": "D:\\Sessions\\SENTINEL_SESSION_PATH_ECHO\\run-005.jsonl",
@@ -521,6 +747,9 @@
       "toolUsage": {
         "totalCount": 8,
         "failureCount": 2,
+        "executionFailureCount": 1,
+        "verificationProjectFailureCount": 0,
+        "probeFailureCount": 1,
         "countsByName": {
           "read": 2,
           "bash": 3,
@@ -531,9 +760,85 @@
           "bash": 1,
           "write": 1
         },
+        "failureCountsByKind": {
+          "unavailable_tool": 0,
+          "invalid_tool_arguments": 0,
+          "missing_file_or_path": 0,
+          "shell_command_error": 0,
+          "probe_no_match": 1,
+          "verification_project_failure": 0,
+          "timeout": 0,
+          "nonzero_exit": 1,
+          "unknown": 0
+        },
+        "failureCountsByNameAndKind": {
+          "bash": {
+            "unavailable_tool": 0,
+            "invalid_tool_arguments": 0,
+            "missing_file_or_path": 0,
+            "shell_command_error": 0,
+            "probe_no_match": 1,
+            "verification_project_failure": 0,
+            "timeout": 0,
+            "nonzero_exit": 0,
+            "unknown": 0
+          },
+          "write": {
+            "unavailable_tool": 0,
+            "invalid_tool_arguments": 0,
+            "missing_file_or_path": 0,
+            "shell_command_error": 0,
+            "probe_no_match": 0,
+            "verification_project_failure": 0,
+            "timeout": 0,
+            "nonzero_exit": 1,
+            "unknown": 0
+          }
+        },
+        "failureSamples": [
+          {
+            "toolName": "bash",
+            "failureKind": "probe_no_match",
+            "exitCode": 1,
+            "errorExcerpt": "",
+            "verificationKinds": [],
+            "occurredAt": "2026-05-12T10:15:00.000Z"
+          },
+          {
+            "toolName": "write",
+            "failureKind": "nonzero_exit",
+            "exitCode": 1,
+            "errorExcerpt": "EACCES: permission denied",
+            "verificationKinds": [],
+            "occurredAt": "2026-05-12T10:18:00.000Z"
+          }
+        ],
         "subagentCallCount": 0,
         "subagentTaskCount": 0,
-        "subagentAgentNames": []
+        "subagentAgentNames": [],
+        "subagentScoredTaskCount": 0,
+        "subagentTaskScores": {
+          "precision": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "creativity": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "reasoning": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "thoroughness": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          }
+        }
       },
       "fileMutation": {
         "writeCount": 1,
@@ -556,7 +861,17 @@
           "format": 0,
           "other": 1
         }
-      }
+      },
+      "fileExtensions": {
+        "readCountsByExtension": {},
+        "writeCountsByExtension": {},
+        "editCountsByExtension": {}
+      },
+      "inputTokens": 24500,
+      "outputTokens": 8900,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 1500,
+      "tokenReportedTurnCount": 3
     },
     {
       "sessionPath": "/srv/local/SENTINEL_SESSION_PATH_FOXTROT/run-006.jsonl",
@@ -608,7 +923,46 @@
         "failureCountsByName": {},
         "subagentCallCount": 0,
         "subagentTaskCount": 0,
-        "subagentAgentNames": []
+        "subagentAgentNames": [],
+        "failureCountsByKind": {
+          "unavailable_tool": 0,
+          "invalid_tool_arguments": 0,
+          "missing_file_or_path": 0,
+          "shell_command_error": 0,
+          "probe_no_match": 0,
+          "verification_project_failure": 0,
+          "timeout": 0,
+          "nonzero_exit": 0,
+          "unknown": 0
+        },
+        "failureCountsByNameAndKind": {},
+        "failureSamples": [],
+        "executionFailureCount": 0,
+        "verificationProjectFailureCount": 0,
+        "probeFailureCount": 0,
+        "subagentScoredTaskCount": 0,
+        "subagentTaskScores": {
+          "precision": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "creativity": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "reasoning": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "thoroughness": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          }
+        }
       },
       "fileMutation": {
         "writeCount": 2,
@@ -626,6 +980,133 @@
         "countsByKind": {
           "test": 0,
           "build": 1,
+          "lint": 0,
+          "typecheck": 0,
+          "format": 0,
+          "other": 0
+        }
+      },
+      "fileExtensions": {
+        "readCountsByExtension": {},
+        "writeCountsByExtension": {},
+        "editCountsByExtension": {}
+      },
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "tokenReportedTurnCount": 0
+    },
+    {
+      "sessionPath": "/srv/local/SENTINEL_SESSION_PATH_HOTEL/run-008.jsonl",
+      "runId": "run-008",
+      "taskGroupId": "task-008",
+      "status": "closed_unscored",
+      "scored": false,
+      "startedAt": "2026-05-13T11:30:00.000Z",
+      "updatedAt": "2026-05-13T11:48:00.000Z",
+      "finalizedAt": "2026-05-13T11:48:30.000Z",
+      "finalizationReason": "closed_unscored",
+      "modelId": "gpt-4.1-mini",
+      "thinkingLevel": "medium",
+      "mixedModelConfig": false,
+      "mixedTreatmentConfig": false,
+      "treatmentChangeKinds": [],
+      "experimentAssignment": null,
+      "analyticsFactors": null,
+      "sendCount": 2,
+      "assistantTurnCount": 2,
+      "assistantTurnDurationMs": 45000,
+      "busyDurationMs": 52000,
+      "busyPeriodCount": 2,
+      "interruptedCount": 0,
+      "messageEditCount": 0,
+      "truncatedAfterCount": 0,
+      "backendErrorCodes": [],
+      "contextTokens": 8900,
+      "contextLimit": 200000,
+      "inputTokens": 6200,
+      "outputTokens": 1800,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "tokenReportedTurnCount": 1,
+      "filesystemPathRefCount": 1,
+      "imageInputCount": 0,
+      "imageInputBytes": 0,
+      "unsupportedInputCount": 0,
+      "inputKindsUsed": [
+        "filesystemPathRef"
+      ],
+      "toolUsage": {
+        "totalCount": 5,
+        "failureCount": 2,
+        "countsByName": {
+          "read": 1,
+          "bash": 3,
+          "edit": 1
+        },
+        "failureCountsByName": {
+          "bash": 2
+        },
+        "failureCountsByKind": {
+          "unavailable_tool": 0,
+          "invalid_tool_arguments": 0,
+          "missing_file_or_path": 1,
+          "shell_command_error": 0,
+          "probe_no_match": 0,
+          "verification_project_failure": 0,
+          "timeout": 0,
+          "nonzero_exit": 1,
+          "unknown": 0
+        },
+        "failureSamples": [],
+        "subagentCallCount": 0,
+        "subagentTaskCount": 0,
+        "subagentAgentNames": [],
+        "subagentScoredTaskCount": 0,
+        "subagentTaskScores": {
+          "precision": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "creativity": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "reasoning": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "thoroughness": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          }
+        },
+        "failureCountsByNameAndKind": {},
+        "executionFailureCount": 0,
+        "verificationProjectFailureCount": 0,
+        "probeFailureCount": 0
+      },
+      "fileMutation": {
+        "writeCount": 0,
+        "editCount": 1,
+        "deleteCount": 0,
+        "renameCount": 0,
+        "touchedFileCount": 1,
+        "lineAdditions": 5,
+        "lineDeletions": 2,
+        "lineModifications": 0
+      },
+      "verification": {
+        "totalCount": 1,
+        "failureCount": 0,
+        "countsByKind": {
+          "test": 1,
+          "build": 0,
           "lint": 0,
           "typecheck": 0,
           "format": 0,
@@ -701,7 +1182,46 @@
         "failureCountsByName": {},
         "subagentCallCount": 0,
         "subagentTaskCount": 0,
-        "subagentAgentNames": []
+        "subagentAgentNames": [],
+        "failureCountsByKind": {
+          "unavailable_tool": 0,
+          "invalid_tool_arguments": 0,
+          "missing_file_or_path": 0,
+          "shell_command_error": 0,
+          "probe_no_match": 0,
+          "verification_project_failure": 0,
+          "timeout": 0,
+          "nonzero_exit": 0,
+          "unknown": 0
+        },
+        "failureCountsByNameAndKind": {},
+        "failureSamples": [],
+        "executionFailureCount": 0,
+        "verificationProjectFailureCount": 0,
+        "probeFailureCount": 0,
+        "subagentScoredTaskCount": 0,
+        "subagentTaskScores": {
+          "precision": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "creativity": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "reasoning": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "thoroughness": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          }
+        }
       },
       "fileMutation": {
         "writeCount": 0,
@@ -712,6 +1232,127 @@
         "lineAdditions": 8,
         "lineDeletions": 2,
         "lineModifications": 1
+      },
+      "verification": {
+        "totalCount": 0,
+        "failureCount": 0,
+        "countsByKind": {
+          "test": 0,
+          "build": 0,
+          "lint": 0,
+          "typecheck": 0,
+          "format": 0,
+          "other": 0
+        }
+      },
+      "fileExtensions": {
+        "readCountsByExtension": {},
+        "writeCountsByExtension": {},
+        "editCountsByExtension": {}
+      },
+      "inputTokens": 0,
+      "outputTokens": 0,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "tokenReportedTurnCount": 0
+    },
+    {
+      "sessionPath": "C:UsersanalystSENTINEL_SESSION_PATH_ALPHA\run-001.jsonl",
+      "runId": "run-001",
+      "taskGroupId": "task-001",
+      "status": "open",
+      "scored": false,
+      "startedAt": "2026-05-10T14:05:00.000Z",
+      "updatedAt": "2026-05-10T14:10:00.000Z",
+      "modelId": "gpt-4.1",
+      "thinkingLevel": "low",
+      "mixedModelConfig": false,
+      "mixedTreatmentConfig": false,
+      "treatmentChangeKinds": [],
+      "experimentAssignment": "control",
+      "analyticsFactors": null,
+      "sendCount": 1,
+      "assistantTurnCount": 1,
+      "assistantTurnDurationMs": 30000,
+      "busyDurationMs": 35000,
+      "busyPeriodCount": 1,
+      "interruptedCount": 0,
+      "messageEditCount": 0,
+      "truncatedAfterCount": 0,
+      "backendErrorCodes": [],
+      "contextTokens": 12000,
+      "contextLimit": 200000,
+      "inputTokens": 10000,
+      "outputTokens": 1500,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
+      "tokenReportedTurnCount": 1,
+      "filesystemPathRefCount": 1,
+      "imageInputCount": 0,
+      "imageInputBytes": 0,
+      "unsupportedInputCount": 0,
+      "inputKindsUsed": [
+        "filesystemPathRef"
+      ],
+      "toolUsage": {
+        "totalCount": 2,
+        "failureCount": 0,
+        "countsByName": {
+          "read": 2
+        },
+        "failureCountsByName": {},
+        "failureCountsByKind": {
+          "unavailable_tool": 0,
+          "invalid_tool_arguments": 0,
+          "missing_file_or_path": 0,
+          "shell_command_error": 0,
+          "probe_no_match": 0,
+          "verification_project_failure": 0,
+          "timeout": 0,
+          "nonzero_exit": 0,
+          "unknown": 0
+        },
+        "failureSamples": [],
+        "subagentCallCount": 0,
+        "subagentTaskCount": 0,
+        "subagentAgentNames": [],
+        "subagentScoredTaskCount": 0,
+        "subagentTaskScores": {
+          "precision": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "creativity": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "reasoning": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          },
+          "thoroughness": {
+            "sum": 0,
+            "count": 0,
+            "max": 0
+          }
+        },
+        "failureCountsByNameAndKind": {},
+        "executionFailureCount": 0,
+        "verificationProjectFailureCount": 0,
+        "probeFailureCount": 0
+      },
+      "fileMutation": {
+        "writeCount": 0,
+        "editCount": 0,
+        "deleteCount": 0,
+        "renameCount": 0,
+        "touchedFileCount": 0,
+        "lineAdditions": 0,
+        "lineDeletions": 0,
+        "lineModifications": 0
       },
       "verification": {
         "totalCount": 0,

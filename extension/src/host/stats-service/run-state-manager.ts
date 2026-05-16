@@ -12,6 +12,7 @@ import {
 } from '../stats-service-helpers';
 import {
   RUN_ANALYTICS_SCHEMA_VERSION,
+  createEmptyFileExtensionRollup,
   createEmptyFileMutationRollup,
   createEmptyToolUsageRollup,
   createEmptyVerificationRollup,
@@ -21,7 +22,7 @@ import {
   type RunFinalizationReason,
   type RunSnapshot,
   type TreatmentChangeKind,
-} from '../run-analytics-types';
+} from '../run-analytics';
 import {
   getSessionByPath,
   sessionStateActions,
@@ -144,6 +145,7 @@ export class SessionRunStateManager {
       inputKindsUsed: [],
       toolUsage: createEmptyToolUsageRollup(),
       fileMutation: createEmptyFileMutationRollup(),
+      fileExtensions: createEmptyFileExtensionRollup(),
       verification: createEmptyVerificationRollup(),
     };
   }
@@ -223,6 +225,12 @@ export class SessionRunStateManager {
       || JSON.stringify(current.skills) !== JSON.stringify(next.skills);
     if (skillsChanged) {
       changedKinds.push('skills');
+    }
+
+    const extensionsChanged =
+      !areStringArraysEqual(current.activeExtensions, next.activeExtensions);
+    if (extensionsChanged) {
+      changedKinds.push('extensions');
     }
 
     return changedKinds;

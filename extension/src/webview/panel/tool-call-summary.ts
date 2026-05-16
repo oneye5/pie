@@ -5,6 +5,7 @@ import {
   normalizeToolCallName,
   summarizeSubagentToolCallInput as summarizeSharedSubagentToolCallInput,
 } from '../../shared/tool-call-analysis';
+import { DIRECT_FILE_PATH_KEYS, GENERIC_PATH_KEYS } from '../../shared/tool-call-analysis/mutation-tools';
 
 const TOOL_CALL_SUMMARY_MAX_LENGTH = 80;
 const TOOL_CALL_PATH_SUMMARY_MAX_LENGTH = 240;
@@ -20,28 +21,6 @@ export interface ToolCallPresentation {
 export interface ToolCallPresentationOptions {
   workingDirectory?: string | null;
 }
-
-const DIRECT_FILE_PATH_KEYS = [
-  'filePath',
-  'fileUri',
-  'sessionPath',
-  'oldPath',
-  'newPath',
-  'requestedPath',
-  'targetPath',
-  'sourcePath',
-  'destinationPath',
-  'old_path',
-  'new_path',
-  'requested_path',
-  'target_path',
-  'source_path',
-  'destination_path',
-] as const;
-
-const GENERIC_PATH_KEYS = [
-  'path',
-] as const;
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();

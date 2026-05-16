@@ -10,7 +10,7 @@ import {
   createEmptyToolUsageRollup,
   createEmptyVerificationRollup,
   type RunSnapshot,
-} from '../src/host/run-analytics-types';
+} from '../src/host/run-analytics';
 import { StatsService } from '../src/host/stats-service';
 import { workspaceHash } from '../src/host/stats-service-helpers';
 import { createAppStore, sessionStateActions, sessionsActions, settingsActions } from '../src/host/store';

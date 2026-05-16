@@ -67,6 +67,13 @@ export interface SdkPromptOptions {
   preflightResult?: (success: boolean) => void;
 }
 
+export interface SdkToolInfo {
+  name: string;
+  description: string;
+  parameters?: unknown;
+  sourceInfo?: unknown;
+}
+
 export interface SdkSession {
   model?: { id: string; contextWindow?: number; maxTokens?: number };
   thinkingLevel?: string;
@@ -81,6 +88,7 @@ export interface SdkSession {
   setModel?: (model: unknown) => Promise<void>;
   setThinkingLevel?: (level: string) => void;
   getContextUsage?: () => { tokens: number | null; contextWindow: number; percent: number | null } | undefined;
+  getAllTools?: () => SdkToolInfo[];
 }
 
 export interface SdkContextFile {
@@ -106,6 +114,8 @@ export interface SdkBuildSystemPromptOptions {
   appendSystemPrompt?: string;
   contextFiles?: SdkContextFile[];
   skills?: SdkSkill[];
+  /** Names of extensions that are currently active/enabled. */
+  activeExtensions?: string[];
 }
 
 export interface SdkSystemPromptModule {

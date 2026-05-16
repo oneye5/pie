@@ -11,8 +11,8 @@ import {
   formatDuration,
   formatTimestamp,
   roleLabel,
-} from '../transcript-header';
-import { shouldOpenUserMessageEditor } from '../transcript-interactions';
+} from './header';
+import { shouldOpenUserMessageEditor } from './interactions';
 
 import {
   assistantPartsFromMessage,

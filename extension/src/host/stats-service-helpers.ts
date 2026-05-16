@@ -8,7 +8,7 @@ import {
   type RunCheckpoint,
   type RunSnapshot,
   type TaskBoundaryIntent,
-} from './run-analytics-types';
+} from './run-analytics';
 
 export function defaultNow(): Date {
   return new Date();
@@ -142,10 +142,12 @@ export function appendUnique<TValue>(values: TValue[], nextValues: TValue[]): TV
   return [...new Set([...values, ...nextValues])];
 }
 
-export function areStringArraysEqual(left: string[], right: string[]): boolean {
-  if (left.length !== right.length) {
+export function areStringArraysEqual(left: string[] | undefined, right: string[] | undefined): boolean {
+  const lhs = left ?? [];
+  const rhs = right ?? [];
+  if (lhs.length !== rhs.length) {
     return false;
   }
 
-  return left.every((value, index) => value === right[index]);
+  return lhs.every((value, index) => value === rhs[index]);
 }

@@ -4,6 +4,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import {
   RUN_ANALYTICS_SCHEMA_VERSION,
+  type FileExtensionRollup,
   type FileMutationRollup,
   type InputKind,
   type LoadedSourceAnalytics,
@@ -40,6 +41,7 @@ const TREATMENT_CHANGE_KINDS = new Set<TreatmentChangeKind>([
   'toolSelection',
   'skills',
   'experimentAssignment',
+  'extensions',
 ]);
 const VERIFICATION_COMMAND_KINDS: VerificationCommandKind[] = [
   'test',
@@ -168,6 +170,37 @@ function createEmptyFileMutationRollup(): FileMutationRollup {
     lineAdditions: 0,
     lineDeletions: 0,
     lineModifications: 0,
+  };
+}
+
+function createEmptyFileExtensionRollup(): FileExtensionRollup {
+  return {
+    readCountsByExtension: {},
+    writeCountsByExtension: {},
+    editCountsByExtension: {},
+  };
+}
+
+function coerceExtensionCountRecord(value: unknown): Record<string, number> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, count]) => typeof count === 'number' && Number.isFinite(count) && count >= 0)
+      .map(([ext, count]) => [ext, Math.trunc(count as number)]),
+  );
+}
+
+function coerceFileExtensionRollup(value: unknown): FileExtensionRollup {
+  if (!isRecord(value)) {
+    return createEmptyFileExtensionRollup();
+  }
+
+  return {
+    readCountsByExtension: coerceExtensionCountRecord(value.readCountsByExtension),
+    writeCountsByExtension: coerceExtensionCountRecord(value.writeCountsByExtension),
+    editCountsByExtension: coerceExtensionCountRecord(value.editCountsByExtension),
   };
 }
 
@@ -341,6 +374,7 @@ function coerceSessionAnalyticsFactors(value: unknown): SessionAnalyticsFactors 
     toolSetHash: coerceNullableString(value.toolSetHash),
     skills,
     skillSetHash: coerceNullableString(value.skillSetHash),
+    activeExtensions: coerceStringArray(value.activeExtensions),
   };
 }
 
@@ -459,6 +493,11 @@ export function coerceRunSnapshot(value: unknown): RunSnapshot | null {
     contextLimit: typeof value.contextLimit === 'number' && Number.isFinite(value.contextLimit)
       ? Math.trunc(value.contextLimit)
       : null,
+    inputTokens: toNonNegativeInteger(value.inputTokens),
+    outputTokens: toNonNegativeInteger(value.outputTokens),
+    cacheReadTokens: toNonNegativeInteger(value.cacheReadTokens),
+    cacheWriteTokens: toNonNegativeInteger(value.cacheWriteTokens),
+    tokenReportedTurnCount: toNonNegativeInteger(value.tokenReportedTurnCount),
     filesystemPathRefCount: toNonNegativeInteger(value.filesystemPathRefCount),
     imageInputCount: toNonNegativeInteger(value.imageInputCount),
     imageInputBytes: toNonNegativeInteger(value.imageInputBytes),
@@ -466,6 +505,7 @@ export function coerceRunSnapshot(value: unknown): RunSnapshot | null {
     inputKindsUsed: coerceInputKinds(value.inputKindsUsed),
     toolUsage: coerceToolUsageRollup(value.toolUsage),
     fileMutation: coerceFileMutationRollup(value.fileMutation),
+    fileExtensions: coerceFileExtensionRollup(value.fileExtensions),
     verification: coerceVerificationRollup(value.verification),
   };
 }

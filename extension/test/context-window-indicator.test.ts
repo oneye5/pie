@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { buildContextWindowIndicatorState } from '../src/webview/panel/context-window-indicator';
-import type { ContextWindowSummary } from '../src/webview/panel/context-window-breakdown';
+import { buildContextWindowIndicatorState } from '../src/webview/panel/context-window/indicator';
+import type { ContextWindowSummary } from '../src/webview/panel/context-window/breakdown';
 
 function makeSummary(overrides: Partial<ContextWindowSummary> = {}): ContextWindowSummary {
   return {

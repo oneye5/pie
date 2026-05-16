@@ -1,111 +1,146 @@
-import { useCallback, useEffect, useLayoutEffect, useRef } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
+import type { TranscriptWindow } from '../../../shared/protocol';
 import type { Overlay } from '../overlay';
+import { advanceSmoothScrollTop, isNearBottom, resolveAutoFollowState } from '../auto-scroll';
 import {
-  advanceSmoothScrollTop,
-  captureScrollAnchor,
-  isNearBottom,
-  resolveAutoFollowState,
-  resolveScrollAnchorDelta,
-  type ScrollAnchorCandidate,
-  type ScrollAnchorSnapshot,
-} from '../auto-scroll';
-
-const MANUAL_SCROLL_INTENT_GRACE_MS = 280;
-
-function getScrollAnchorCandidates(container: HTMLDivElement): ScrollAnchorCandidate[] {
-  return Array.from(container.children)
-    .map((child, index) => {
-      if (!(child instanceof HTMLElement)) {
-        return null;
-      }
-
-      const key = child.dataset.messageId ?? child.dataset.scrollAnchorId ?? `scroll-anchor-${index}`;
-      const rect = child.getBoundingClientRect();
-      return {
-        key,
-        top: rect.top,
-        bottom: rect.bottom,
-      };
-    })
-    .filter((candidate): candidate is ScrollAnchorCandidate => candidate !== null);
-}
-
-function captureDomScrollAnchor(container: HTMLDivElement): ScrollAnchorSnapshot | null {
-  const containerTop = container.getBoundingClientRect().top;
-  return captureScrollAnchor(getScrollAnchorCandidates(container), containerTop);
-}
-
-function restoreDomScrollAnchor(container: HTMLDivElement, anchor: ScrollAnchorSnapshot | null): boolean {
-  const containerTop = container.getBoundingClientRect().top;
-  const delta = resolveScrollAnchorDelta(anchor, getScrollAnchorCandidates(container), containerTop);
-  if (delta === null || Math.abs(delta) < 1) {
-    return false;
-  }
-
-  container.scrollTop += delta;
-  return true;
-}
+  captureMessageScrollAnchor,
+  restoreMessageScrollAnchor,
+  type MessageScrollAnchor,
+} from './scroll-anchor';
 
 interface UseTranscriptScrollOptions {
   sessionKey: string | null;
+  transcriptWindow: TranscriptWindow;
   transcriptLength: number;
   busy: boolean;
   overlay: Overlay;
-  systemPromptCount: number;
-  hasScrollableTranscript: boolean;
+  onLoadOlder: () => void;
+  onLoadNewer: () => void;
+  onJumpToLatest: () => void;
 }
+
+interface UseTranscriptScrollResult {
+  scrollRef: { current: HTMLDivElement | null };
+  isAtBottom: boolean;
+  isInitialPositioning: boolean;
+  isLoadingOlder: boolean;
+  isLoadingNewer: boolean;
+  requestOlderPage: () => void;
+  requestNewerPage: () => void;
+  jumpToLatest: () => void;
+}
+
+const MANUAL_SCROLL_INTENT_GRACE_MS = 280;
+const INITIAL_BOTTOM_SNAP_FRAMES = 3;
+const PAGE_REQUEST_TIMEOUT_MS = 1500;
 
 export function useTranscriptScroll({
   sessionKey,
+  transcriptWindow,
   transcriptLength,
   busy,
   overlay,
-  systemPromptCount,
-  hasScrollableTranscript,
-}: UseTranscriptScrollOptions) {
+  onLoadOlder,
+  onLoadNewer,
+  onJumpToLatest,
+}: UseTranscriptScrollOptions): UseTranscriptScrollResult {
+  const [isAtBottom, setIsAtBottom] = useState(true);
+  const [isInitialPositioning, setIsInitialPositioning] = useState(true);
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [isLoadingNewer, setIsLoadingNewer] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const autoFollowRef = useRef(true);
+  const followFrameRef = useRef<number | null>(null);
+  const initialBottomFrameRef = useRef<number | null>(null);
+  const smoothFollowTargetRef = useRef<number | null>(null);
+  const initialBottomFramesRemainingRef = useRef(0);
   const lastScrollTopRef = useRef(0);
   const manualScrollIntentUntilRef = useRef(0);
   const pointerScrollIntentRef = useRef(false);
-  const hasPositionedForSessionRef = useRef(false);
-  const scrollAnchorRef = useRef<ScrollAnchorSnapshot | null>(null);
-  const followAnimationFrameRef = useRef<number | null>(null);
-  const targetScrollTopRef = useRef<number | null>(null);
-  const previousSessionKeyRef = useRef<string | null | undefined>(undefined);
+  const pendingJumpToLatestSnapRef = useRef(false);
+  const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null);
+  const loadingOlderRef = useRef(false);
+  const loadingNewerRef = useRef(false);
+  const loadingOlderTimeoutRef = useRef<number | null>(null);
+  const loadingNewerTimeoutRef = useRef<number | null>(null);
+  const previousLoadedStartRef = useRef(transcriptWindow.loadedStart);
+  const previousLoadedEndRef = useRef(transcriptWindow.loadedEnd);
 
-  if (previousSessionKeyRef.current !== sessionKey) {
-    previousSessionKeyRef.current = sessionKey;
-    autoFollowRef.current = true;
-    lastScrollTopRef.current = 0;
-    manualScrollIntentUntilRef.current = 0;
-    pointerScrollIntentRef.current = false;
-    hasPositionedForSessionRef.current = false;
-    scrollAnchorRef.current = null;
-    targetScrollTopRef.current = null;
-    if (followAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(followAnimationFrameRef.current);
-      followAnimationFrameRef.current = null;
-    }
-  }
-
-  const stopFollowAnimation = useCallback(() => {
-    targetScrollTopRef.current = null;
-    if (followAnimationFrameRef.current !== null) {
-      window.cancelAnimationFrame(followAnimationFrameRef.current);
-      followAnimationFrameRef.current = null;
+  const stopSmoothFollow = useCallback(() => {
+    smoothFollowTargetRef.current = null;
+    if (followFrameRef.current !== null) {
+      window.cancelAnimationFrame(followFrameRef.current);
+      followFrameRef.current = null;
     }
   }, []);
 
-  const runFollowAnimation = useCallback(() => {
-    followAnimationFrameRef.current = null;
+  const scrollToBottom = useCallback(() => {
+    stopSmoothFollow();
 
     const element = scrollRef.current;
-    const targetScrollTop = targetScrollTopRef.current;
-    if (!element || targetScrollTop === null || !autoFollowRef.current) {
+    if (!element) {
       return;
     }
+
+    element.scrollTop = element.scrollHeight;
+    lastScrollTopRef.current = element.scrollTop;
+    setIsAtBottom(true);
+  }, [stopSmoothFollow]);
+
+  const stopInitialBottomSnap = useCallback(() => {
+    initialBottomFramesRemainingRef.current = 0;
+    if (initialBottomFrameRef.current !== null) {
+      window.cancelAnimationFrame(initialBottomFrameRef.current);
+      initialBottomFrameRef.current = null;
+    }
+  }, []);
+
+  const runInitialBottomSnap = useCallback(() => {
+    initialBottomFrameRef.current = null;
+
+    const element = scrollRef.current;
+    if (!element || !autoFollowRef.current || initialBottomFramesRemainingRef.current <= 0) {
+      initialBottomFramesRemainingRef.current = 0;
+      setIsInitialPositioning(false);
+      return;
+    }
+
+    element.scrollTop = element.scrollHeight;
+    lastScrollTopRef.current = element.scrollTop;
+    setIsAtBottom(true);
+
+    initialBottomFramesRemainingRef.current -= 1;
+    if (initialBottomFramesRemainingRef.current > 0) {
+      initialBottomFrameRef.current = window.requestAnimationFrame(runInitialBottomSnap);
+      return;
+    }
+
+    setIsInitialPositioning(false);
+  }, []);
+
+  const startInitialBottomSnap = useCallback((hideUntilStable = false) => {
+    stopInitialBottomSnap();
+    stopSmoothFollow();
+    if (hideUntilStable) {
+      setIsInitialPositioning(true);
+    }
+    initialBottomFramesRemainingRef.current = INITIAL_BOTTOM_SNAP_FRAMES;
+    initialBottomFrameRef.current = window.requestAnimationFrame(runInitialBottomSnap);
+  }, [runInitialBottomSnap, stopInitialBottomSnap, stopSmoothFollow]);
+
+  const runSmoothFollow = useCallback(() => {
+    followFrameRef.current = null;
+
+    const element = scrollRef.current;
+    const requestedTargetScrollTop = smoothFollowTargetRef.current;
+    if (!element || requestedTargetScrollTop === null || !autoFollowRef.current) {
+      return;
+    }
+
+    const targetScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    smoothFollowTargetRef.current = targetScrollTop;
 
     const nextScrollTop = advanceSmoothScrollTop(element.scrollTop, targetScrollTop);
     if (Math.abs(nextScrollTop - element.scrollTop) >= 0.5) {
@@ -114,26 +149,151 @@ export function useTranscriptScroll({
     }
 
     if (Math.abs(targetScrollTop - element.scrollTop) <= 1) {
-      targetScrollTopRef.current = null;
+      smoothFollowTargetRef.current = null;
+      setIsAtBottom(true);
       return;
     }
 
-    followAnimationFrameRef.current = window.requestAnimationFrame(runFollowAnimation);
+    followFrameRef.current = window.requestAnimationFrame(runSmoothFollow);
   }, []);
 
-  const ensureFollowAnimation = useCallback(() => {
-    if (followAnimationFrameRef.current === null) {
-      followAnimationFrameRef.current = window.requestAnimationFrame(runFollowAnimation);
+  const scheduleScrollToBottom = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element || !autoFollowRef.current) {
+      return;
     }
-  }, [runFollowAnimation]);
 
-  useEffect(() => () => {
-    stopFollowAnimation();
-  }, [stopFollowAnimation]);
+    const targetScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
+    if (initialBottomFramesRemainingRef.current > 0) {
+      element.scrollTop = element.scrollHeight;
+      lastScrollTopRef.current = element.scrollTop;
+      setIsAtBottom(true);
+      return;
+    }
+
+    if (Math.abs(targetScrollTop - element.scrollTop) <= 1) {
+      smoothFollowTargetRef.current = null;
+      setIsAtBottom(true);
+      return;
+    }
+
+    smoothFollowTargetRef.current = targetScrollTop;
+    if (followFrameRef.current === null) {
+      followFrameRef.current = window.requestAnimationFrame(runSmoothFollow);
+    }
+  }, [runSmoothFollow]);
+
+  const clearLoadingOlderTimeout = useCallback(() => {
+    if (loadingOlderTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(loadingOlderTimeoutRef.current);
+    loadingOlderTimeoutRef.current = null;
+  }, []);
+
+  const requestOlderPage = useCallback(() => {
+    if (loadingOlderRef.current) {
+      return;
+    }
+
+    const element = scrollRef.current;
+    if (element) {
+      pendingOlderAnchorRef.current = captureMessageScrollAnchor(element);
+    }
+
+    loadingOlderRef.current = true;
+    setIsLoadingOlder(true);
+    onLoadOlder();
+
+    clearLoadingOlderTimeout();
+    loadingOlderTimeoutRef.current = window.setTimeout(() => {
+      if (loadingOlderRef.current) {
+        loadingOlderRef.current = false;
+        setIsLoadingOlder(false);
+      }
+      loadingOlderTimeoutRef.current = null;
+    }, PAGE_REQUEST_TIMEOUT_MS);
+  }, [clearLoadingOlderTimeout, onLoadOlder]);
+
+  const clearLoadingNewerTimeout = useCallback(() => {
+    if (loadingNewerTimeoutRef.current === null) {
+      return;
+    }
+
+    window.clearTimeout(loadingNewerTimeoutRef.current);
+    loadingNewerTimeoutRef.current = null;
+  }, []);
+
+  const requestNewerPage = useCallback(() => {
+    if (loadingNewerRef.current) {
+      return;
+    }
+
+    loadingNewerRef.current = true;
+    setIsLoadingNewer(true);
+    onLoadNewer();
+
+    clearLoadingNewerTimeout();
+    loadingNewerTimeoutRef.current = window.setTimeout(() => {
+      if (loadingNewerRef.current) {
+        loadingNewerRef.current = false;
+        setIsLoadingNewer(false);
+      }
+      loadingNewerTimeoutRef.current = null;
+    }, PAGE_REQUEST_TIMEOUT_MS);
+  }, [clearLoadingNewerTimeout, onLoadNewer]);
+
+  const jumpToLatest = useCallback(() => {
+    autoFollowRef.current = true;
+    if (transcriptWindow.hasNewer) {
+      pendingJumpToLatestSnapRef.current = true;
+      onJumpToLatest();
+      return;
+    }
+
+    scrollToBottom();
+    startInitialBottomSnap(false);
+  }, [onJumpToLatest, scrollToBottom, startInitialBottomSnap, transcriptWindow.hasNewer]);
+
+  useLayoutEffect(() => {
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+
+    autoFollowRef.current = true;
+    lastScrollTopRef.current = 0;
+    manualScrollIntentUntilRef.current = 0;
+    pointerScrollIntentRef.current = false;
+    pendingJumpToLatestSnapRef.current = false;
+    stopInitialBottomSnap();
+    loadingOlderRef.current = false;
+    loadingNewerRef.current = false;
+    setIsLoadingOlder(false);
+    setIsLoadingNewer(false);
+    clearLoadingOlderTimeout();
+    clearLoadingNewerTimeout();
+    pendingOlderAnchorRef.current = null;
+    previousLoadedStartRef.current = transcriptWindow.loadedStart;
+    previousLoadedEndRef.current = transcriptWindow.loadedEnd;
+
+    scrollToBottom();
+    startInitialBottomSnap(true);
+  }, [
+    clearLoadingNewerTimeout,
+    clearLoadingOlderTimeout,
+    scrollToBottom,
+    sessionKey,
+    startInitialBottomSnap,
+    stopInitialBottomSnap,
+  ]);
 
   useEffect(() => {
     const element = scrollRef.current;
-    if (!element) return;
+    if (!element) {
+      return;
+    }
 
     const markManualScrollIntent = () => {
       manualScrollIntentUntilRef.current = Date.now() + MANUAL_SCROLL_INTENT_GRACE_MS;
@@ -143,13 +303,36 @@ export function useTranscriptScroll({
       pointerScrollIntentRef.current = false;
     };
 
-    autoFollowRef.current = isNearBottom({
-      scrollHeight: element.scrollHeight,
-      scrollTop: element.scrollTop,
-      clientHeight: element.clientHeight,
-    });
-    lastScrollTopRef.current = element.scrollTop;
-    scrollAnchorRef.current = autoFollowRef.current ? null : captureDomScrollAnchor(element);
+    const updateScrollState = () => {
+      const nextScrollTop = element.scrollTop;
+      const metrics = {
+        scrollHeight: element.scrollHeight,
+        scrollTop: nextScrollTop,
+        clientHeight: element.clientHeight,
+      };
+      const hasManualScrollIntent = pointerScrollIntentRef.current
+        || Date.now() <= manualScrollIntentUntilRef.current;
+      const nextAutoFollow = resolveAutoFollowState({
+        previousAutoFollow: autoFollowRef.current,
+        previousScrollTop: lastScrollTopRef.current,
+        nextScrollTop,
+        metrics,
+        hasManualScrollIntent,
+      });
+      const nearBottom = isNearBottom(metrics);
+      autoFollowRef.current = nextAutoFollow;
+      lastScrollTopRef.current = nextScrollTop;
+      setIsAtBottom(nextAutoFollow || nearBottom);
+      if (!nextAutoFollow) {
+        stopSmoothFollow();
+        stopInitialBottomSnap();
+        setIsInitialPositioning(false);
+      }
+
+      if (element.scrollTop <= 120 && transcriptWindow.hasOlder) {
+        requestOlderPage();
+      }
+    };
 
     const handleWheel = () => {
       markManualScrollIntent();
@@ -171,86 +354,113 @@ export function useTranscriptScroll({
       markManualScrollIntent();
     };
 
-    const handleScroll = () => {
-      const nextScrollTop = element.scrollTop;
-      const hasManualScrollIntent = pointerScrollIntentRef.current
-        || Date.now() <= manualScrollIntentUntilRef.current;
-      const nextAutoFollow = resolveAutoFollowState({
-        previousAutoFollow: autoFollowRef.current,
-        previousScrollTop: lastScrollTopRef.current,
-        nextScrollTop,
-        metrics: {
-          scrollHeight: element.scrollHeight,
-          scrollTop: nextScrollTop,
-          clientHeight: element.clientHeight,
-        },
-        hasManualScrollIntent,
-      });
-      autoFollowRef.current = nextAutoFollow;
-      lastScrollTopRef.current = nextScrollTop;
-      if (!nextAutoFollow) {
-        stopFollowAnimation();
-      }
-      scrollAnchorRef.current = nextAutoFollow ? null : captureDomScrollAnchor(element);
-    };
-
     element.addEventListener('wheel', handleWheel, { passive: true });
     element.addEventListener('touchstart', handleTouchStart, { passive: true });
     element.addEventListener('touchmove', handleTouchMove, { passive: true });
     element.addEventListener('pointerdown', handlePointerDown, { passive: true });
-    element.addEventListener('scroll', handleScroll, { passive: true });
+    element.addEventListener('scroll', updateScrollState, { passive: true });
     window.addEventListener('pointerup', clearPointerScrollIntent, { passive: true });
     window.addEventListener('pointercancel', clearPointerScrollIntent, { passive: true });
     window.addEventListener('blur', clearPointerScrollIntent);
+    updateScrollState();
 
     return () => {
       element.removeEventListener('wheel', handleWheel);
       element.removeEventListener('touchstart', handleTouchStart);
       element.removeEventListener('touchmove', handleTouchMove);
       element.removeEventListener('pointerdown', handlePointerDown);
-      element.removeEventListener('scroll', handleScroll);
+      element.removeEventListener('scroll', updateScrollState);
       window.removeEventListener('pointerup', clearPointerScrollIntent);
       window.removeEventListener('pointercancel', clearPointerScrollIntent);
       window.removeEventListener('blur', clearPointerScrollIntent);
       clearPointerScrollIntent();
     };
-  }, [sessionKey, hasScrollableTranscript, stopFollowAnimation]);
+  }, [requestOlderPage, sessionKey, stopInitialBottomSnap, stopSmoothFollow, transcriptWindow.hasOlder]);
+
+  useLayoutEffect(() => {
+    const previousLoadedStart = previousLoadedStartRef.current;
+    const previousLoadedEnd = previousLoadedEndRef.current;
+    previousLoadedStartRef.current = transcriptWindow.loadedStart;
+    previousLoadedEndRef.current = transcriptWindow.loadedEnd;
+
+    const element = scrollRef.current;
+    if (!element) {
+      return;
+    }
+
+    if (loadingOlderRef.current && transcriptWindow.loadedStart < previousLoadedStart) {
+      restoreMessageScrollAnchor(element, pendingOlderAnchorRef.current);
+      loadingOlderRef.current = false;
+      setIsLoadingOlder(false);
+      clearLoadingOlderTimeout();
+      pendingOlderAnchorRef.current = null;
+    }
+
+    if (loadingNewerRef.current && transcriptWindow.loadedEnd > previousLoadedEnd) {
+      loadingNewerRef.current = false;
+      setIsLoadingNewer(false);
+      clearLoadingNewerTimeout();
+    }
+
+    if (!transcriptWindow.hasOlder) {
+      loadingOlderRef.current = false;
+      setIsLoadingOlder(false);
+      clearLoadingOlderTimeout();
+      pendingOlderAnchorRef.current = null;
+    }
+
+    if (!transcriptWindow.hasNewer) {
+      loadingNewerRef.current = false;
+      setIsLoadingNewer(false);
+      clearLoadingNewerTimeout();
+    }
+
+    if (pendingJumpToLatestSnapRef.current && !transcriptWindow.hasNewer) {
+      pendingJumpToLatestSnapRef.current = false;
+      autoFollowRef.current = true;
+      scrollToBottom();
+      startInitialBottomSnap();
+    }
+  }, [
+    clearLoadingNewerTimeout,
+    clearLoadingOlderTimeout,
+    scrollToBottom,
+    startInitialBottomSnap,
+    transcriptLength,
+    transcriptWindow.hasNewer,
+    transcriptWindow.hasOlder,
+    transcriptWindow.loadedEnd,
+    transcriptWindow.loadedStart,
+  ]);
 
   useLayoutEffect(() => {
     const element = scrollRef.current;
-    if (!element) return;
-
-    if (!hasPositionedForSessionRef.current) {
-      hasPositionedForSessionRef.current = true;
-      if (autoFollowRef.current) {
-        stopFollowAnimation();
-        element.scrollTop = element.scrollHeight;
-        lastScrollTopRef.current = element.scrollTop;
-      } else {
-        scrollAnchorRef.current = captureDomScrollAnchor(element);
-      }
+    if (!element) {
       return;
     }
 
-    if (!autoFollowRef.current) {
-      stopFollowAnimation();
-      restoreDomScrollAnchor(element, scrollAnchorRef.current);
-      lastScrollTopRef.current = element.scrollTop;
-      scrollAnchorRef.current = captureDomScrollAnchor(element);
+    if (!autoFollowRef.current || transcriptWindow.hasNewer) {
       return;
     }
 
-    const targetScrollTop = Math.max(0, element.scrollHeight - element.clientHeight);
-    if (Math.abs(targetScrollTop - element.scrollTop) < 1) {
-      stopFollowAnimation();
-      scrollAnchorRef.current = null;
-      return;
-    }
+    scheduleScrollToBottom();
+  }, [busy, overlay, scheduleScrollToBottom, transcriptLength, transcriptWindow.hasNewer]);
 
-    targetScrollTopRef.current = targetScrollTop;
-    ensureFollowAnimation();
-    scrollAnchorRef.current = null;
-  }, [sessionKey, transcriptLength, busy, overlay, systemPromptCount, ensureFollowAnimation, stopFollowAnimation]);
+  useEffect(() => () => {
+    clearLoadingOlderTimeout();
+    clearLoadingNewerTimeout();
+    stopSmoothFollow();
+    stopInitialBottomSnap();
+  }, [clearLoadingNewerTimeout, clearLoadingOlderTimeout, stopInitialBottomSnap, stopSmoothFollow]);
 
-  return scrollRef;
+  return {
+    scrollRef,
+    isAtBottom,
+    isInitialPositioning,
+    isLoadingOlder,
+    isLoadingNewer,
+    requestOlderPage,
+    requestNewerPage,
+    jumpToLatest,
+  };
 }

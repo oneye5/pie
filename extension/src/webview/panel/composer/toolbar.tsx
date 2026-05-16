@@ -1,8 +1,9 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import type { ChatPrefs, ModelInfo, ThinkingLevel } from '../../../shared/protocol';
+import type { ChatPrefs, ExtensionInfo, ModelInfo, ThinkingLevel } from '../../../shared/protocol';
 
+import { orderModelsForPicker } from './model-list';
 import { ComposerSettingsMenu } from './settings-menu';
 
 const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
@@ -23,6 +24,7 @@ interface ComposerToolbarStatus {
 interface ComposerToolbarProps {
   prefs: ChatPrefs;
   onSetPrefs: (prefs: Partial<ChatPrefs>) => void;
+  availableExtensions: ExtensionInfo[];
   availableModels: ModelInfo[];
   selectedModel: string;
   selectedLevel: ThinkingLevel;
@@ -37,6 +39,7 @@ interface ComposerToolbarProps {
 export function ComposerToolbar({
   prefs,
   onSetPrefs,
+  availableExtensions,
   availableModels,
   selectedModel,
   selectedLevel,
@@ -48,27 +51,45 @@ export function ComposerToolbar({
   onModelChange,
 }: ComposerToolbarProps) {
   const contextIndicatorClass = contextIndicator?.severity ? ` ${contextIndicator.severity}` : '';
+  const filteredModels = availableModels.filter(
+    (m) => prefs.providerToggles[m.provider] !== false || m.id === selectedModel,
+  );
+  const modelEntries = orderModelsForPicker(filteredModels);
+  const selectedModelEntry = modelEntries.find((entry) => entry.model.id === selectedModel) ?? null;
+  const fallbackModelLabel = modelEntries[0]?.selectedLabel ?? '';
+  const selectedModelLabel = selectedModelEntry?.selectedLabel ?? (selectedModel || fallbackModelLabel);
 
   return (
     <div class="composer-toolbar">
       <div class="composer-toolbar-left">
-        <ComposerSettingsMenu prefs={prefs} onSetPrefs={onSetPrefs} />
+        <ComposerSettingsMenu prefs={prefs} availableExtensions={availableExtensions} availableModels={availableModels} onSetPrefs={onSetPrefs} />
 
-        {availableModels.length > 0 ? (
-          <select
-            class="model-select"
-            value={selectedModel}
-            onChange={(e) => {
-              const target = e.target as HTMLSelectElement;
-              onModelChange(target.value, selectedLevel);
-            }}
-            aria-label="Model"
-            title="Select model"
-          >
-            {availableModels.map((model) => (
-              <option key={model.id} value={model.id}>{model.name}</option>
-            ))}
-          </select>
+        {filteredModels.length > 0 ? (
+          <div class="model-picker-shell">
+            <span class="model-picker-sizer" aria-hidden="true">{selectedModelLabel}</span>
+            <select
+              class="model-select model-select-picker"
+              value={selectedModel}
+              onChange={(e) => {
+                const target = e.target as HTMLSelectElement;
+                onModelChange(target.value, selectedLevel);
+              }}
+              aria-label="Model"
+              title="Select model"
+            >
+              {modelEntries.map((entry) => (
+                <option
+                  key={entry.model.id}
+                  value={entry.model.id}
+                  class={entry.ineligible ? 'model-option-ineligible' : undefined}
+                  title={entry.title}
+                >
+                  {entry.label}
+                </option>
+              ))}
+            </select>
+            <span class="model-picker-value" aria-hidden="true">{selectedModelLabel}</span>
+          </div>
         ) : selectedModel ? (
           <span class="model-select-static" title={selectedModel}>{selectedModel}</span>
         ) : null}

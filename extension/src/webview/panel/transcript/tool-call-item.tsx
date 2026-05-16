@@ -2,7 +2,7 @@
 /** @jsxImportSource preact */
 
 import type { ChatPrefs, ToolCall } from '../../../shared/protocol';
-import { shouldOpenSubagentContextMenu } from '../transcript-interactions';
+import { shouldOpenSubagentContextMenu } from './interactions';
 import { summarizeToolCall } from '../tool-call-summary';
 import { getToolCallContextType } from '../chat-prefs';
 

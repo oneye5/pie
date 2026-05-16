@@ -24,7 +24,7 @@ import {
   type RunCheckpoint,
   type RunSnapshot,
   type RunSnapshotLogEntry,
-} from '../run-analytics-types';
+} from '../run-analytics';
 
 interface RunAnalyticsStorageOptions {
   dataOutcomesRootPath: string;

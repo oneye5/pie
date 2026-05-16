@@ -1,6 +1,6 @@
 import type { SystemPromptEntry } from '../shared/protocol';
 import { prepareContextFiles } from './context-files';
-import type { SdkBuildSystemPromptOptions, SdkSkill } from './sdk';
+import type { SdkBuildSystemPromptOptions, SdkSkill, SdkToolInfo } from './sdk';
 
 export function summarizePrompt(text: string): string {
   const stripped = text
@@ -77,6 +77,7 @@ export function buildSessionSystemPrompts(options: {
   harnessPrompt?: string;
   promptOptions?: SdkBuildSystemPromptOptions;
   formatSkillsForPrompt?: ((skills: SdkSkill[]) => string) | undefined;
+  tools?: SdkToolInfo[];
 }): SystemPromptEntry[] {
   const { harnessPrompt, promptOptions, formatSkillsForPrompt } = options;
   const entries: SystemPromptEntry[] = [PROVIDER_SYSTEM_PROMPT];
@@ -152,6 +153,27 @@ export function buildSessionSystemPrompts(options: {
         availability: 'available',
       });
     }
+  }
+
+  const tools = options.tools ?? [];
+  if (tools.length > 0) {
+    const toolSummary = tools.map((t) => t.name).join(', ');
+    const toolText = tools.map((t) => {
+      let entry = `## ${t.name}\n\n${t.description || '(no description)'}`;
+      if (t.parameters) {
+        try {
+          entry += '\n\n**Parameters:**\n```json\n' + JSON.stringify(t.parameters, null, 2) + '\n```';
+        } catch { /* ignore serialization errors */ }
+      }
+      return entry;
+    }).join('\n\n---\n\n');
+    entries.push({
+      source: 'harness',
+      title: 'Tools',
+      summary: toolSummary.length > 80 ? `${toolSummary.slice(0, 80)}...` : toolSummary,
+      text: toolText,
+      availability: 'available',
+    });
   }
 
   const shouldIncludeSkills = !promptOptions?.selectedTools || promptOptions.selectedTools.includes('read');

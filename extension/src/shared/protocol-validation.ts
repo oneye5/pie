@@ -103,6 +103,14 @@ function validateRunOutcome(value: unknown): value is RunOutcome {
   );
 }
 
+function isStringBooleanRecord(value: unknown): value is Record<string, boolean> {
+  if (!isObject(value)) return false;
+  for (const v of Object.values(value)) {
+    if (typeof v !== 'boolean') return false;
+  }
+  return true;
+}
+
 function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
   if (!isObject(value)) return false;
   const booleanKeys: Array<keyof ChatPrefs> = [
@@ -111,10 +119,19 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     'autoExpandSubagentCalls',
     'suppressCompletionNotifications',
   ];
+  const toggleKeys: Array<keyof ChatPrefs> = [
+    'extensionToggles',
+    'providerToggles',
+  ];
   for (const key of Object.keys(value)) {
-    if (!(booleanKeys as string[]).includes(key)) return false;
     const v = (value as Record<string, unknown>)[key];
-    if (v !== undefined && typeof v !== 'boolean') return false;
+    if ((booleanKeys as string[]).includes(key)) {
+      if (v !== undefined && typeof v !== 'boolean') return false;
+    } else if ((toggleKeys as string[]).includes(key)) {
+      if (v !== undefined && !isStringBooleanRecord(v)) return false;
+    } else {
+      return false;
+    }
   }
   return true;
 }
@@ -203,6 +220,12 @@ export function validateWebviewToHostMessage(
 
     case 'setPrefs':
       if (!validateChatPrefsPatch(value.prefs)) return fail('setPrefs: invalid `prefs` patch');
+      return { ok: true, value: value as WebviewToHostMessage };
+
+    case 'openFileDiff':
+    case 'revertFile':
+      if (!isString(value.sessionPath)) return fail(`${type}: missing string \`sessionPath\``);
+      if (!isString(value.filePath)) return fail(`${type}: missing string \`filePath\``);
       return { ok: true, value: value as WebviewToHostMessage };
 
     default:
