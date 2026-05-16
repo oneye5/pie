@@ -192,5 +192,10 @@ export class SessionService implements vscode.Disposable {
       store.dispatch(sessionsActions.clearUnreadFinishedSessions());
     }
     void this.context.globalState.update(PREFS_STORAGE_KEY, merged);
+    void this.backend.request('runtimePrefs.set', {
+      providerToggles: merged.providerToggles,
+    }).catch(() => {
+      // Non-fatal: the backend may be restarting or may not support runtime prefs yet.
+    });
   }
 }

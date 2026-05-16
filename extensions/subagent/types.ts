@@ -11,6 +11,7 @@ import type { TaskScores } from "./model-selection.js";
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
 export const COLLAPSED_ITEM_COUNT = 10;
+export const MAX_MODEL_RETRIES = 5;
 export const AGENT_SCOPE_VALUES = new Set<AgentScope>(["user", "project", "both"]);
 
 export interface UsageStats {
@@ -51,6 +52,12 @@ export interface SingleResult {
 	selectionPool?: string[];
 	/** Dot product scores for the pool (parallel arrays with selectionPool). */
 	selectionFitScores?: number[];
+	/** Model that failed before this result was retried with a different model. */
+	failedModel?: string;
+	/** How many fallback attempts were made before this result (0 = first try). */
+	retryCount?: number;
+	/** Diagnostic from model-profiles.json resolution when the override model wasn't found. */
+	modelResolutionDiagnostic?: string;
 }
 
 export interface SubagentDetails {

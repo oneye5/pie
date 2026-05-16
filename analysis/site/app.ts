@@ -332,24 +332,39 @@ function chartConfig() {
     config: {
       view: { stroke: 'transparent' },
       axis: {
-        labelColor: CHART_COLORS.text,
+        labelColor: CHART_COLORS.muted,
         titleColor: CHART_COLORS.text,
         domainColor: CHART_COLORS.grid,
         gridColor: CHART_COLORS.grid,
         tickColor: CHART_COLORS.grid,
+        labelFont: 'Atkinson Hyperlegible, Aptos, Segoe UI, sans-serif',
+        titleFont: 'Aptos Display, Aptos, Segoe UI, sans-serif',
         labelFontSize: 11,
         titleFontSize: 12,
+        titleFontWeight: 650,
+        labelPadding: 6,
+        titlePadding: 10,
+        labelOverlap: 'greedy',
       },
       legend: {
         labelColor: CHART_COLORS.text,
         titleColor: CHART_COLORS.text,
+        labelFont: 'Atkinson Hyperlegible, Aptos, Segoe UI, sans-serif',
+        titleFont: 'Aptos Display, Aptos, Segoe UI, sans-serif',
         labelFontSize: 11,
-        labelLimit: 280,
-        labelPadding: 4,
+        titleFontSize: 12,
+        labelLimit: 300,
+        labelPadding: 5,
         titlePadding: 10,
-        rowPadding: 6,
-        symbolSize: 100,
+        rowPadding: 7,
+        symbolSize: 110,
         layout: { top: { anchor: 'middle' }, bottom: { anchor: 'middle' } },
+      },
+      header: {
+        labelColor: CHART_COLORS.text,
+        titleColor: CHART_COLORS.text,
+        labelFont: 'Aptos Display, Aptos, Segoe UI, sans-serif',
+        titleFont: 'Aptos Display, Aptos, Segoe UI, sans-serif',
       },
     },
   };
@@ -1811,6 +1826,207 @@ function taskSizeTimeRows(runs: PreparedRunRow[]): OutcomeTimeBucketRow[] {
     .filter((row): row is OutcomeTimeBucketRow => Boolean(row));
 }
 
+// ─── Leaderboard data preparation ────────────────────────────────────────────
+
+const LEADERBOARD_WEIGHTS = { satisfaction: 0.35, resolutionRate: 0.30, firstAttemptSuccess: 0.15, toolReliability: 0.10, verificationAdoption: 0.05, tokenEfficiency: 0.05 } as const;
+const LEADERBOARD_MIN_SCORED = 3;
+const LEADERBOARD_TARGET_SAMPLE = 10;
+const LEADERBOARD_TOKEN_EFFICIENCY_MAX = 50;
+const DIMENSION_COLORS = ['#8de3ff', '#c0ff72', '#ffd479', '#ff8578', '#c084fc', '#f7b267'];
+const DIMENSION_NAMES = ['Satisfaction', 'Resolution', 'First attempt', 'Tool reliability', 'Verification', 'Token efficiency'];
+
+interface LeaderboardCompositeRow {
+  label: string;
+  axisLabel: string;
+  modelId: string;
+  thinkingLevel: string;
+  sortOrder: number;
+  compositeScore: number;
+  rank: number;
+  rankLabel: string;
+  scoreLabel: string;
+  barLabel: string;
+  reliabilityLabel: string;
+  runCount: number;
+  scoredRunCount: number;
+  nLabel: string;
+  avgSatisfaction: string;
+  resolutionRate: string;
+  firstAttemptRate: string;
+  toolReliabilityRate: string;
+  verificationRate: string;
+  tokenEfficiencyRate: string;
+  subagentRate: string;
+}
+
+interface LeaderboardDimensionRow {
+  label: string;
+  axisLabel: string;
+  sortOrder: number;
+  dimension: string;
+  lowerBound: number;
+  rawLabel: string;
+}
+
+function leaderboardRows(runs: PreparedRunRow[]): {
+  composite: LeaderboardCompositeRow[];
+  dimensions: LeaderboardDimensionRow[];
+  unrankedCount: number;
+} {
+  const completed = runs.filter((r) => r.status !== 'open');
+  const groups = new Map<string, PreparedRunRow[]>();
+  for (const run of completed) {
+    const mid = run.modelId?.trim() || '(unknown)';
+    const tl = normalizeThinkingLevel(run.thinkingLevel) ?? '(unspecified)';
+    const key = `${mid}::${tl}`;
+    const existing = groups.get(key) ?? [];
+    existing.push(run);
+    groups.set(key, existing);
+  }
+
+  const entries = [...groups.entries()].map(([key, groupRuns]) => {
+    const [modelId, thinkingLevel] = key.split('::');
+    const label = `${modelId} / ${formatThinkingLevelLabel(thinkingLevel!)}`;
+    const scored = groupRuns.filter((r) => r.scored && r.satisfaction !== null);
+
+    const satValues = scored.map((r) => r.satisfaction!);
+    const satCI = meanInterval(satValues, { min: 1, max: 5 });
+    const satLBNorm = satCI ? Math.max(0, Math.min(1, (satCI.lower - 1) / 4)) : null;
+
+    const resValues = scored.map((r) => r.resolution === 'resolved' ? 1 : r.resolution === 'partially_resolved' ? 0.5 : 0);
+    const resCI = meanInterval(resValues, { min: 0, max: 1 });
+
+    const fasCI = wilsonInterval(scored.filter((r) => r.firstAttemptSuccess).length, scored.length);
+    const toolCI = wilsonInterval(scored.filter((r) => r.toolFailureCount === 0).length, scored.length);
+    const verCI = wilsonInterval(scored.filter((r) => r.verificationTotalCount > 0).length, scored.length);
+
+    const tokenEffValues = scored.map((r) => r.tokenEfficiency).filter((v): v is number => v !== null);
+    const tokenEffCI = tokenEffValues.length >= 2 ? meanInterval(tokenEffValues, { min: 0, max: LEADERBOARD_TOKEN_EFFICIENCY_MAX }) : null;
+    const tokenEffLBNorm = tokenEffCI ? Math.max(0, Math.min(1, 1 - tokenEffCI.lower / LEADERBOARD_TOKEN_EFFICIENCY_MAX)) : null;
+
+    let compositeScore: number | null = null;
+    let reliabilityFactor: number | null = null;
+    if (scored.length >= LEADERBOARD_MIN_SCORED) {
+      let sum = 0;
+      if (satLBNorm !== null) sum += LEADERBOARD_WEIGHTS.satisfaction * satLBNorm;
+      if (resCI) sum += LEADERBOARD_WEIGHTS.resolutionRate * Math.max(0, Math.min(1, resCI.lower));
+      if (fasCI) sum += LEADERBOARD_WEIGHTS.firstAttemptSuccess * Math.max(0, Math.min(1, fasCI.lower));
+      if (toolCI) sum += LEADERBOARD_WEIGHTS.toolReliability * Math.max(0, Math.min(1, toolCI.lower));
+      if (verCI) sum += LEADERBOARD_WEIGHTS.verificationAdoption * Math.max(0, Math.min(1, verCI.lower));
+      if (tokenEffLBNorm !== null) sum += LEADERBOARD_WEIGHTS.tokenEfficiency * tokenEffLBNorm;
+      reliabilityFactor = Math.min(1, Math.max(0, scored.length / LEADERBOARD_TARGET_SAMPLE));
+      compositeScore = Math.round(sum * reliabilityFactor * 10000) / 10000;
+    }
+
+    const subagentRuns = groupRuns.filter((r) => r.subagentCallCount > 0).length;
+    return {
+      label, modelId: modelId!, thinkingLevel: formatThinkingLevelLabel(thinkingLevel!),
+      runCount: groupRuns.length, scoredRunCount: scored.length, compositeScore, reliabilityFactor,
+      satCI, satLBNorm, resCI, fasCI, toolCI, verCI, tokenEffCI, tokenEffLBNorm,
+      subagentUsageRate: groupRuns.length > 0 ? subagentRuns / groupRuns.length : 0,
+    };
+  });
+
+  const ranked = entries
+    .filter((e) => e.compositeScore !== null)
+    .sort((a, b) => (
+      b.compositeScore! - a.compositeScore!
+      || b.scoredRunCount - a.scoredRunCount
+      || b.runCount - a.runCount
+      || a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })
+    ));
+
+  const fmtPct = (v: number | null | undefined) => v != null ? `${(v * 100).toFixed(0)}%` : '—';
+  const rankedAxisLabel = (entry: (typeof ranked)[number], index: number) => `#${index + 1} · ${entry.label}`;
+
+  const composite: LeaderboardCompositeRow[] = ranked.map((e, idx) => {
+    const rankLabel = `#${idx + 1}`;
+    const scoreLabel = `${(e.compositeScore! * 100).toFixed(1)}%`;
+    return {
+      label: e.label, axisLabel: rankedAxisLabel(e, idx), modelId: e.modelId, thinkingLevel: e.thinkingLevel,
+      sortOrder: idx, compositeScore: e.compositeScore!,
+      rank: idx + 1, rankLabel, scoreLabel, barLabel: `${rankLabel} · ${scoreLabel}`,
+      reliabilityLabel: e.reliabilityFactor != null ? `${(e.reliabilityFactor * 100).toFixed(0)}%` : '—',
+      runCount: e.runCount, scoredRunCount: e.scoredRunCount,
+      nLabel: `${e.scoredRunCount} scored / ${e.runCount} total`,
+      avgSatisfaction: e.satCI ? e.satCI.mean.toFixed(2) : '—',
+      resolutionRate: fmtPct(e.resCI?.mean), firstAttemptRate: fmtPct(e.fasCI?.rate),
+      toolReliabilityRate: fmtPct(e.toolCI?.rate), verificationRate: fmtPct(e.verCI?.rate),
+      tokenEfficiencyRate: e.tokenEffCI ? `${e.tokenEffCI.lower.toFixed(1)} tok/line` : '—',
+      subagentRate: fmtPct(e.subagentUsageRate),
+    };
+  });
+
+  const dimensions: LeaderboardDimensionRow[] = [];
+  ranked.forEach((e, idx) => {
+    const axisLabel = rankedAxisLabel(e, idx);
+    const add = (dim: string, lb: number | null | undefined, raw: string) => {
+      if (lb != null) dimensions.push({ label: e.label, axisLabel, sortOrder: idx, dimension: dim, lowerBound: lb, rawLabel: raw });
+    };
+    add('Satisfaction', e.satLBNorm, `${e.satCI?.mean.toFixed(2) ?? '—'} avg`);
+    add('Resolution', e.resCI?.lower, `${fmtPct(e.resCI?.mean)} rate`);
+    add('First attempt', e.fasCI?.lower, `${fmtPct(e.fasCI?.rate)} rate`);
+    add('Tool reliability', e.toolCI?.lower, `${fmtPct(e.toolCI?.rate)} clean`);
+    add('Verification', e.verCI?.lower, `${fmtPct(e.verCI?.rate)} using`);
+    add('Token efficiency', e.tokenEffLBNorm, `${e.tokenEffCI?.lower.toFixed(1) ?? '—'} tok/line`);
+  });
+
+  return { composite, dimensions, unrankedCount: entries.length - ranked.length };
+}
+
+function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: number): void {
+  if (!isCurrentRender(renderToken)) {
+    return;
+  }
+
+  const target = byId('leaderboard-table');
+  if (rows.length === 0) {
+    target.innerHTML = '';
+    return;
+  }
+
+  target.innerHTML = `
+    <table class="data-table leaderboard-table">
+      <caption>Ranked first to last. Scores are conservative weighted confidence-bound composites.</caption>
+      <thead>
+        <tr>
+          <th scope="col">Rank</th>
+          <th scope="col">Model / thinking</th>
+          <th scope="col">Score</th>
+          <th scope="col">Runs</th>
+          <th scope="col">Sat.</th>
+          <th scope="col">Resolved</th>
+          <th scope="col">1st try</th>
+          <th scope="col">Tool clean</th>
+          <th scope="col">Verified</th>
+          <th scope="col">Tok/line</th>
+          <th scope="col">Subagents</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rows.map((row) => `
+          <tr>
+            <td class="rank-cell">${escapeHtml(row.rankLabel)}</td>
+            <th scope="row">
+              <span class="model-name">${escapeHtml(row.modelId)}</span>
+              <span class="model-detail">${escapeHtml(row.thinkingLevel)}</span>
+            </th>
+            <td class="numeric strong-cell">${escapeHtml(row.scoreLabel)}</td>
+            <td class="numeric">${escapeHtml(row.nLabel)}</td>
+            <td class="numeric">${escapeHtml(row.avgSatisfaction)}</td>
+            <td class="numeric">${escapeHtml(row.resolutionRate)}</td>
+            <td class="numeric">${escapeHtml(row.firstAttemptRate)}</td>
+            <td class="numeric">${escapeHtml(row.toolReliabilityRate)}</td>
+            <td class="numeric">${escapeHtml(row.verificationRate)}</td>
+            <td class="numeric">${escapeHtml(row.tokenEfficiencyRate)}</td>
+            <td class="numeric">${escapeHtml(row.subagentRate)}</td>
+          </tr>
+        `).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
 function outcomeTimeBucketSpec(
   rows: OutcomeTimeBucketRow[],
   options: { bucketTitle: string; timeTitle: string; rateTitle: string },
@@ -2094,6 +2310,94 @@ async function renderCharts(
     resolve: { scale: { y: 'independent' } },
   };
   await renderSpec('chart-timeline', timelineSpec, 'No runs match the current filters.', renderToken);
+
+  // ── 1b. Model leaderboard (composite ranking) ──────────────────────────────
+  const lb = leaderboardRows(runs);
+  setNote(
+    'leaderboard-note',
+    lb.composite.length === 0
+      ? `No models with ≥${LEADERBOARD_MIN_SCORED} scored runs.`
+      : `${lb.composite.length} ranked models ordered #1 → #${lb.composite.length}; ${lb.unrankedCount} unranked. Composite = weighted CI lower bounds × reliability factor.`,
+    renderToken,
+  );
+  renderLeaderboardTable(lb.composite, renderToken);
+
+  const leaderboardOrder = lb.composite.map((row) => row.axisLabel);
+  const leaderboardSpec: Record<string, unknown> | null = lb.composite.length === 0 ? null : {
+    width: 'container',
+    height: categoricalHeight(lb.composite.length, 30, 200, 600),
+    data: { values: lb.composite },
+    layer: [
+      {
+        mark: { type: 'bar', cornerRadiusEnd: 3, opacity: 0.82 },
+        encoding: {
+          y: { field: 'axisLabel', type: 'nominal', sort: leaderboardOrder, title: null, axis: { labelLimit: 320, labelPadding: 8 } },
+          x: { field: 'compositeScore', type: 'quantitative', title: 'Composite score (CI lower bounds)', scale: { domain: [0, 1] }, axis: { format: '.0%', tickCount: 6 } },
+          color: {
+            field: 'thinkingLevel', type: 'nominal', title: 'Reasoning',
+            scale: { domain: THINKING_LEVEL_DOMAIN, range: THINKING_LEVEL_RANGE },
+            legend: { orient: 'bottom', direction: 'horizontal', columns: 6, symbolLimit: 6, labelLimit: 160 },
+          },
+          tooltip: [
+            { field: 'rankLabel', type: 'nominal', title: 'Rank' },
+            { field: 'label', type: 'nominal', title: 'Model' },
+            { field: 'scoreLabel', type: 'nominal', title: 'Composite score' },
+            { field: 'reliabilityLabel', type: 'nominal', title: 'Reliability' },
+            { field: 'nLabel', type: 'nominal', title: 'Runs' },
+            { field: 'avgSatisfaction', type: 'nominal', title: 'Avg satisfaction' },
+            { field: 'resolutionRate', type: 'nominal', title: 'Resolution rate' },
+            { field: 'firstAttemptRate', type: 'nominal', title: 'First attempt' },
+            { field: 'toolReliabilityRate', type: 'nominal', title: 'Tool reliability' },
+            { field: 'verificationRate', type: 'nominal', title: 'Verification' },
+            { field: 'tokenEfficiencyRate', type: 'nominal', title: 'Token efficiency' },
+            { field: 'subagentRate', type: 'nominal', title: 'Subagent usage' },
+          ],
+        },
+      },
+      {
+        mark: { type: 'text', align: 'left', dx: 6, fontSize: 11, fontWeight: 700, opacity: 0.9, clip: false },
+        encoding: {
+          y: { field: 'axisLabel', type: 'nominal', sort: leaderboardOrder },
+          x: { field: 'compositeScore', type: 'quantitative' },
+          text: { field: 'barLabel', type: 'nominal' },
+          color: { value: CHART_COLORS.text },
+        },
+      },
+    ],
+  };
+  await renderSpec('chart-leaderboard', leaderboardSpec, `No models with ≥${LEADERBOARD_MIN_SCORED} scored runs match the current filters.`, renderToken);
+
+  // ── 1c. Leaderboard dimension profile ─────────────────────────────────────
+  setNote(
+    'leaderboard-dimension-note',
+    lb.dimensions.length === 0
+      ? 'No ranked models to show.'
+      : `6 dimensions per model; dot = 95% CI lower bound (conservative estimate). Weights: sat ${(LEADERBOARD_WEIGHTS.satisfaction * 100).toFixed(0)}%, res ${(LEADERBOARD_WEIGHTS.resolutionRate * 100).toFixed(0)}%, 1st ${(LEADERBOARD_WEIGHTS.firstAttemptSuccess * 100).toFixed(0)}%, tool ${(LEADERBOARD_WEIGHTS.toolReliability * 100).toFixed(0)}%, ver ${(LEADERBOARD_WEIGHTS.verificationAdoption * 100).toFixed(0)}%, tok ${(LEADERBOARD_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%. Scores × reliability (scored/${LEADERBOARD_TARGET_SAMPLE}).`,
+    renderToken,
+  );
+
+  const dimensionSpec: Record<string, unknown> | null = lb.dimensions.length === 0 ? null : {
+    width: 'container',
+    height: categoricalHeight(lb.composite.length, 30, 200, 600),
+    data: { values: lb.dimensions },
+    mark: { type: 'point', filled: true, size: 180, opacity: 0.88, strokeWidth: 0.6 },
+    encoding: {
+      y: { field: 'axisLabel', type: 'nominal', sort: leaderboardOrder, title: null, axis: { labelLimit: 320, labelPadding: 8 } },
+      x: { field: 'lowerBound', type: 'quantitative', title: 'CI lower bound (normalized 0–1)', scale: { domain: [0, 1] }, axis: { format: '.0%', tickCount: 6 } },
+      color: {
+        field: 'dimension', type: 'nominal', title: 'Dimension',
+        scale: { domain: DIMENSION_NAMES, range: DIMENSION_COLORS },
+        legend: { orient: 'bottom', direction: 'horizontal', columns: 6, symbolLimit: 6, labelLimit: 160 },
+      },
+      tooltip: [
+        { field: 'label', type: 'nominal', title: 'Model' },
+        { field: 'dimension', type: 'nominal', title: 'Dimension' },
+        { field: 'lowerBound', type: 'quantitative', title: 'CI lower bound', format: '.3f' },
+        { field: 'rawLabel', type: 'nominal', title: 'Raw value' },
+      ],
+    },
+  };
+  await renderSpec('chart-leaderboard-dimensions', dimensionSpec, 'No ranked models to show dimension profiles.', renderToken);
 
   // ── 2. Model efficiency — median busy time by model/thinking ──────────
   const efficiency = modelEfficiencyRows(runs);

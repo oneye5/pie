@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   validateLoadTranscriptPage,
   validateMessageSend,
+  validateRuntimePrefsSet,
   validateSessionCreate,
   validateSessionOpen,
   validateSettingsSet,
@@ -125,5 +126,33 @@ test('validateSettingsSet accepts an optional sessionPath', () => {
       defaultModel: 'claude-sonnet-4-5',
       defaultThinkingLevel: 'high',
     },
+  );
+});
+
+test('validateRuntimePrefsSet accepts provider toggles', () => {
+  assert.deepEqual(
+    validateRuntimePrefsSet({
+      providerToggles: {
+        ollama: false,
+        'github-copilot': true,
+      },
+    }),
+    {
+      providerToggles: {
+        ollama: false,
+        'github-copilot': true,
+      },
+    },
+  );
+});
+
+test('validateRuntimePrefsSet defaults missing provider toggles to empty', () => {
+  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {} });
+});
+
+test('validateRuntimePrefsSet rejects non-boolean provider toggle values', () => {
+  assert.throws(
+    () => validateRuntimePrefsSet({ providerToggles: { ollama: 'off' } }),
+    /providerToggles\.ollama must be a boolean/,
   );
 });

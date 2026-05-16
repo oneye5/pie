@@ -23,6 +23,7 @@ interface ToolCallHeaderProps {
   summary: string | null;
   summaryPath?: string;
   sizeHint?: string;
+  errorDetail?: string;
   onOpenFile: (path: string) => void;
 }
 
@@ -77,7 +78,7 @@ export function splitSummaryPath(summary: string): { pathSection: string | null;
   };
 }
 
-export function ToolCallHeader({ open, name, nameTitle, status, summary, summaryPath, sizeHint, onOpenFile }: ToolCallHeaderProps) {
+export function ToolCallHeader({ open, name, nameTitle, status, summary, summaryPath, sizeHint, errorDetail, onOpenFile }: ToolCallHeaderProps) {
   const statusLabel =
     status === 'running' ? 'Running'
     : status === 'failed' ? 'Failed'
@@ -85,6 +86,15 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
   const showSummary = !open && !!summary;
   const showSizeHint = !open && !!sizeHint;
   const pathSummary = summaryPath && summary ? splitSummaryPath(summary) : null;
+
+  const handleStatusClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!errorDetail) return;
+    const target = e.currentTarget as HTMLElement;
+    navigator.clipboard.writeText(errorDetail);
+    target.dataset.copied = '';
+    setTimeout(() => { delete target.dataset.copied; }, 1200);
+  };
 
   return (
     <div class="tool-call-header">
@@ -117,7 +127,12 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
         ) : null}
         {showSizeHint && <span class="tool-call-size-hint">{sizeHint}</span>}
       </div>
-      <span class={`tool-call-status${statusLabel ? ` ${status}` : ' is-empty'}`} aria-hidden={statusLabel ? undefined : 'true'}>{statusLabel ?? ''}</span>
+      <span
+        class={`tool-call-status${statusLabel ? ` ${status}` : ' is-empty'}${errorDetail ? ' has-error-detail' : ''}`}
+        aria-hidden={statusLabel ? undefined : 'true'}
+        title={errorDetail ?? undefined}
+        onClick={errorDetail ? handleStatusClick : undefined}
+      ><span class="tool-call-status-label">{statusLabel ?? ''}</span></span>
     </div>
   );
 }
@@ -134,6 +149,7 @@ export function ToolCallCard({
   const presentation = getToolCallPresentation(toolCall, { workingDirectory });
   const variantClass = presentation.variant ? ` tool-call-variant-${presentation.variant}` : '';
   const customClass = className ? ` ${className}` : '';
+  const errorDetail = toolCall.status === 'failed' ? formatToolCallResultForDisplay(toolCall) || undefined : undefined;
 
   return (
     <div
@@ -152,6 +168,7 @@ export function ToolCallCard({
         summary={presentation.summary}
         summaryPath={presentation.summaryPath}
         sizeHint={presentation.sizeHint}
+        errorDetail={errorDetail}
         onOpenFile={onOpenFile}
       />
       {open && (

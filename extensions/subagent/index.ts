@@ -28,6 +28,7 @@ import {
 	COLLAPSED_ITEM_COUNT,
 	type DisplayItem,
 	MAX_CONCURRENCY,
+	MAX_MODEL_RETRIES,
 	MAX_PARALLEL_TASKS,
 	type OnUpdateCallback,
 	type SingleResult,
@@ -35,7 +36,17 @@ import {
 } from "./types.js";
 import { createInvalidAgentResult, summarizeInvalidAgentResults } from "./validation.js";
 import * as path from "node:path";
-import { type TaskScores, type ThinkingLevel, type SelectionResult, loadSelectionConfig, selectModel, reasoningToThinking } from "./model-selection.js";
+import {
+	type TaskScores,
+	type ThinkingLevel,
+	type SelectionResult,
+	PROVIDER_TOGGLES_ENV,
+	getAllowedModelIdsForProviders,
+	getDisabledProviders,
+	loadSelectionConfig,
+	parseProviderToggles,
+	selectModel,
+} from "./model-selection.js";
 
 // All helper code lives in the modules listed above.
 
@@ -243,17 +254,23 @@ export default function (pi: ExtensionAPI) {
 				// Missing or invalid config — fall through to agent.model defaults
 			}
 
+			const disabledProviders = getDisabledProviders(parseProviderToggles(process.env[PROVIDER_TOGGLES_ENV]));
+			let allowedModelIds: Set<string> | undefined;
+			if (disabledProviders.size > 0) {
+				allowedModelIds = getAllowedModelIdsForProviders(ctx.modelRegistry.getAvailable(), disabledProviders);
+			}
+
 			const checkTrailLoop = (agentName: string): boolean => {
 				const occurrences = trail.filter((t) => t === agentName).length;
 				return occurrences >= 2;
 			};
 
-			const resolveModel = (agent: AgentConfig, perCallScores?: TaskScores): { modelOverride: string | undefined; thinkingLevel: ThinkingLevel | undefined; selection: SelectionResult | undefined; callerScores: TaskScores | undefined; agentDefaultScores: TaskScores | undefined; mergedScores: TaskScores } => {
+			const resolveModel = (agent: AgentConfig, perCallScores?: TaskScores, excludeModels?: Set<string>): { modelOverride: string | undefined; thinkingLevel: ThinkingLevel | undefined; selection: SelectionResult | undefined; callerScores: TaskScores | undefined; agentDefaultScores: TaskScores | undefined; mergedScores: TaskScores } => {
 				const callerScores = perCallScores && Object.keys(perCallScores).length > 0 ? perCallScores : undefined;
 				const agentDefaultScores = agent.defaultScores && Object.keys(agent.defaultScores).length > 0 ? agent.defaultScores : undefined;
 				const mergedScores: TaskScores = { ...agent.defaultScores, ...perCallScores };
 				if (!selectionConfig) return { modelOverride: undefined, thinkingLevel: undefined, selection: undefined, callerScores, agentDefaultScores, mergedScores };
-				const selection = selectModel(mergedScores, selectionConfig);
+				const selection = selectModel(mergedScores, selectionConfig, excludeModels, allowedModelIds);
 				return { modelOverride: selection?.modelId, thinkingLevel: selection?.thinkingLevel, selection, callerScores, agentDefaultScores, mergedScores };
 			};
 
@@ -269,9 +286,26 @@ export default function (pi: ExtensionAPI) {
 				result.agentDefaultScores = resolved.agentDefaultScores;
 			};
 
+			/**
+			 * Check if a subagent result represents a model-level failure that
+			 * qualifies for automatic retry with a different model.
+			 *
+			 * We retry when:
+			 * - The result errored (exitCode !== 0 or stopReason is "error")
+			 * - The model was selected via the scoring algorithm (modelOverride was set)
+			 * - The abort signal is not triggered (that's a user cancellation, not a model issue)
+			 */
+			const isModelFailure = (result: SingleResult, modelOverride: string | undefined): boolean =>
+				result.exitCode !== 0
+				&& result.stopReason !== "aborted"
+				&& modelOverride !== undefined
+				&& !!selectionConfig;
+
 			if (params.chain && params.chain.length > 0) {
 				const results: SingleResult[] = [];
 				let previousOutput = "";
+				// Shared exclusion set: if a model fails in one step, don't retry it in later steps
+				const chainExcludeModels = new Set<string>();
 
 				for (let i = 0; i < params.chain.length; i++) {
 					const step = params.chain[i];
@@ -302,7 +336,6 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					const chainAgent = agents.find((a) => a.name === step.agent)!;
-					const chainResolved = resolveModel(chainAgent, step.taskScores);
 
 					const sessionLimitError = checkSessionLimit();
 					if (sessionLimitError) {
@@ -314,40 +347,61 @@ export default function (pi: ExtensionAPI) {
 						};
 					}
 
-					const result = await subagentRuntime.run(
-						{ depth: currentDepth + 1, trail: [...trail, step.agent] },
-						() =>
-							runSingleAgent(
-								ctx.cwd,
-								agents,
-								step.agent,
-								taskWithContext,
-								step.cwd,
-								i + 1,
-								signal,
-								chainUpdate,
-								makeDetails("chain"),
-								ctx.modelRegistry,
-								ctx.model,
-								chainResolved.modelOverride,
-								chainResolved.thinkingLevel,
-							),
-					);
-					attachSelectionMetadata(result, chainResolved);
-					results.push(result);
+					// Retry loop: if model fails, exclude it and try the next-best model
+					let result: SingleResult;
+					let chainResolved: ReturnType<typeof resolveModel>;
+
+					for (let attempt = 0; attempt <= MAX_MODEL_RETRIES; attempt++) {
+						chainResolved = resolveModel(chainAgent, step.taskScores, chainExcludeModels);
+						result = await subagentRuntime.run(
+							{ depth: currentDepth + 1, trail: [...trail, step.agent] },
+							() =>
+								runSingleAgent(
+									ctx.cwd,
+									agents,
+									step.agent,
+									taskWithContext,
+									step.cwd,
+									i + 1,
+									signal,
+									chainUpdate,
+									makeDetails("chain"),
+									ctx.modelRegistry,
+									ctx.model,
+									chainResolved.modelOverride,
+									chainResolved.thinkingLevel,
+									disabledProviders,
+								),
+						);
+						attachSelectionMetadata(result, chainResolved);
+
+						// Check if this was a model-level failure that qualifies for retry
+						if (isModelFailure(result, chainResolved.modelOverride) && attempt < MAX_MODEL_RETRIES) {
+							chainExcludeModels.add(chainResolved.modelOverride!);
+							result.failedModel = chainResolved.modelOverride;
+							result.retryCount = attempt + 1;
+							// Check if we have another model to try
+							const nextResolved = resolveModel(chainAgent, step.taskScores, chainExcludeModels);
+							if (!nextResolved.modelOverride) break; // no more models available
+							continue; // retry with next model
+						}
+						break; // success or non-model failure
+					}
+
+					results.push(result!);
 
 					const isError =
-						result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+						result!.exitCode !== 0 || result!.stopReason === "error" || result!.stopReason === "aborted";
 					if (isError) {
 						const errorMsg =
-							result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
+							result!.errorMessage || result!.stderr || getFinalOutput(result!.messages) || "(no output)";
 						return {
 							content: [{ type: "text", text: `Chain stopped at step ${i + 1} (${step.agent}): ${errorMsg}` }],
 							details: makeDetails("chain")(results),
 							isError: true,
 						};
 					}
-					previousOutput = getFinalOutput(result.messages);
+					previousOutput = getFinalOutput(result!.messages);
 				}
 				return {
 					content: [{ type: "text", text: getFinalOutput(results[results.length - 1].messages) || "(no output)" }],
@@ -414,37 +468,55 @@ export default function (pi: ExtensionAPI) {
 					}
 
 					const parallelAgent = agents.find((a) => a.name === t.agent)!;
-					const parallelResolved = resolveModel(parallelAgent, t.taskScores);
+					// Retry loop: if model fails, exclude it and try the next-best model
+					const taskExcludeModels = new Set<string>();
+					let result: SingleResult | undefined;
+					let parallelResolved: ReturnType<typeof resolveModel>;
 
-					const result = await subagentRuntime.run(
-						{ depth: currentDepth + 1, trail: [...trail, t.agent] },
-						() =>
-							runSingleAgent(
-								ctx.cwd,
-								agents,
-								t.agent,
-								t.task,
-								t.cwd,
-								undefined,
-								signal,
-								// Per-task update callback
-								(partial) => {
-									if (partial.details?.results[0]) {
-										allResults[index] = partial.details.results[0];
-										emitParallelUpdate();
-									}
-								},
-								makeDetails("parallel"),
-								ctx.modelRegistry,
-								ctx.model,
-								parallelResolved.modelOverride,
-								parallelResolved.thinkingLevel,
-							),
-					);
-					attachSelectionMetadata(result, parallelResolved);
-					allResults[index] = result;
+					for (let attempt = 0; attempt <= MAX_MODEL_RETRIES; attempt++) {
+						parallelResolved = resolveModel(parallelAgent, t.taskScores, taskExcludeModels);
+						result = await subagentRuntime.run(
+							{ depth: currentDepth + 1, trail: [...trail, t.agent] },
+							() =>
+								runSingleAgent(
+									ctx.cwd,
+									agents,
+									t.agent,
+									t.task,
+									t.cwd,
+									undefined,
+									signal,
+									// Per-task update callback
+									(partial) => {
+										if (partial.details?.results[0]) {
+											allResults[index] = partial.details.results[0];
+											emitParallelUpdate();
+										}
+									},
+									makeDetails("parallel"),
+									ctx.modelRegistry,
+									ctx.model,
+									parallelResolved.modelOverride,
+									parallelResolved.thinkingLevel,
+									disabledProviders,
+								),
+						);
+						attachSelectionMetadata(result, parallelResolved);
+
+						if (isModelFailure(result, parallelResolved.modelOverride) && attempt < MAX_MODEL_RETRIES) {
+							taskExcludeModels.add(parallelResolved.modelOverride!);
+							result.failedModel = parallelResolved.modelOverride;
+							result.retryCount = attempt + 1;
+							const nextResolved = resolveModel(parallelAgent, t.taskScores, taskExcludeModels);
+							if (!nextResolved.modelOverride) break; // no more models available
+							continue; // retry with next model
+						}
+						break; // success or non-model failure
+					}
+
+					allResults[index] = result!;
 					emitParallelUpdate();
-					return result;
+					return result!;
 				});
 
 				const successCount = results.filter((r) => r.exitCode === 0).length;
@@ -479,41 +551,60 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				const singleAgent = agents.find((a) => a.name === params.agent)!;
-				const singleResolved = resolveModel(singleAgent, params.taskScores);
 
-				const result = await subagentRuntime.run(
-					{ depth: currentDepth + 1, trail: [...trail, params.agent] },
-					() =>
-						runSingleAgent(
-							ctx.cwd,
-							agents,
-							params.agent!,
-							params.task!,
-							params.cwd,
-							undefined,
-							signal,
-							onUpdate,
-							makeDetails("single"),
-							ctx.modelRegistry,
-							ctx.model,
-							singleResolved.modelOverride,
-							singleResolved.thinkingLevel,
-						),
-				);
-				attachSelectionMetadata(result, singleResolved);
-				const isError = result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+				// Retry loop: if model fails, exclude it and try the next-best model
+				const singleExcludeModels = new Set<string>();
+				let result: SingleResult | undefined;
+				let singleResolved: ReturnType<typeof resolveModel>;
+
+				for (let attempt = 0; attempt <= MAX_MODEL_RETRIES; attempt++) {
+					singleResolved = resolveModel(singleAgent, params.taskScores, singleExcludeModels);
+					result = await subagentRuntime.run(
+						{ depth: currentDepth + 1, trail: [...trail, params.agent] },
+						() =>
+							runSingleAgent(
+								ctx.cwd,
+								agents,
+								params.agent!,
+								params.task!,
+								params.cwd,
+								undefined,
+								signal,
+								onUpdate,
+								makeDetails("single"),
+								ctx.modelRegistry,
+								ctx.model,
+								singleResolved.modelOverride,
+								singleResolved.thinkingLevel,
+								disabledProviders,
+							),
+					);
+					attachSelectionMetadata(result, singleResolved);
+
+					if (isModelFailure(result, singleResolved.modelOverride) && attempt < MAX_MODEL_RETRIES) {
+						singleExcludeModels.add(singleResolved.modelOverride!);
+						result.failedModel = singleResolved.modelOverride;
+						result.retryCount = attempt + 1;
+						const nextResolved = resolveModel(singleAgent, params.taskScores, singleExcludeModels);
+						if (!nextResolved.modelOverride) break; // no more models available
+						continue; // retry with next model
+					}
+					break; // success or non-model failure
+				}
+
+				const isError = result!.exitCode !== 0 || result!.stopReason === "error" || result!.stopReason === "aborted";
 				if (isError) {
 					const errorMsg =
-						result.errorMessage || result.stderr || getFinalOutput(result.messages) || "(no output)";
+						result!.errorMessage || result!.stderr || getFinalOutput(result!.messages) || "(no output)";
 					return {
-						content: [{ type: "text", text: `Agent ${result.stopReason || "failed"}: ${errorMsg}` }],
-						details: makeDetails("single")([result]),
+						content: [{ type: "text", text: `Agent ${result!.stopReason || "failed"}: ${errorMsg}` }],
+						details: makeDetails("single")([result!]),
 						isError: true,
 					};
 				}
 				return {
-					content: [{ type: "text", text: getFinalOutput(result.messages) || "(no output)" }],
-					details: makeDetails("single")([result]),
+					content: [{ type: "text", text: getFinalOutput(result!.messages) || "(no output)" }],
+					details: makeDetails("single")([result!]),
 				};
 			}
 

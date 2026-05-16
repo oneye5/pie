@@ -12,6 +12,7 @@ export const SITE_DATA_FILE_NAMES = [
   'tool-usage.json',
   'treatment-comparison.json',
   'timeline.json',
+  'model-leaderboard.json',
 ] as const;
 
 export type SiteDataFileName = (typeof SITE_DATA_FILE_NAMES)[number];
@@ -544,6 +545,50 @@ export interface TimelineData {
   rows: TimelineRow[];
 }
 
+export interface LeaderboardDimension {
+  value: number | null;
+  lowerBound: number | null;
+  n: number;
+}
+
+export interface ModelLeaderboardRow {
+  modelId: string;
+  thinkingLevel: string;
+  runCount: number;
+  scoredRunCount: number;
+  compositeScore: number | null;
+  rank: number | null;
+  reliabilityFactor: number | null;
+  dimensions: {
+    satisfaction: LeaderboardDimension;
+    resolutionRate: LeaderboardDimension;
+    firstAttemptSuccess: LeaderboardDimension;
+    toolReliability: LeaderboardDimension;
+    verificationAdoption: LeaderboardDimension;
+    tokenEfficiency: LeaderboardDimension;
+  };
+  subagentRunCount: number;
+  subagentUsageRate: number | null;
+  avgSubagentTasksPerRun: number | null;
+  medianDurationMs: number | null;
+  medianTokenEfficiency: number | null;
+}
+
+export interface ModelLeaderboardData {
+  schemaVersion: number;
+  rows: ModelLeaderboardRow[];
+  weights: {
+    satisfaction: number;
+    resolutionRate: number;
+    firstAttemptSuccess: number;
+    toolReliability: number;
+    verificationAdoption: number;
+    tokenEfficiency: number;
+  };
+  minimumScoredRuns: number;
+  notes: string[];
+}
+
 export interface SiteDataBundle {
   manifest: SiteManifest;
   overview: OverviewData;
@@ -553,4 +598,5 @@ export interface SiteDataBundle {
   toolUsage: ToolUsageData;
   treatmentComparison: TreatmentComparisonData;
   timeline: TimelineData;
+  modelLeaderboard: ModelLeaderboardData;
 }

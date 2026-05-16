@@ -15,3 +15,5 @@ Automated self improvement backed by concrete useage data
 Tool caller intermediary small model, main agent calls a small agent using natural language, small model 'converts' natural language into a structured call. Potential use case for NLP / classification
 
 LSP
+
+Model rating rebalance based off of data

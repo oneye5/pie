@@ -1,15 +1,15 @@
 ---
 name: code-review-and-quality
-description: Conducts multi-axis code review. Use before merging any change. Use when reviewing code written by yourself, another agent, or a human. Use when you need to assess code quality across multiple dimensions before it enters the main branch.
+description: Conducts multi-axis code review. Use before merging any change. Use when reviewing code written by yourself, another agent, or a human. Do not use for initial implementation or design — this is for evaluating existing code.
 ---
 
 # Code Review and Quality
 
 ## Overview
 
-Multi-dimensional code review with quality gates. Every change gets reviewed before merge — no exceptions. Review covers five axes: correctness, readability, architecture, security, and performance.
+Code review covering correctness, readability, architecture, security, and performance.
 
-**The approval standard:** Approve a change when it definitely improves overall code health, even if it isn't perfect. Perfect code doesn't exist — the goal is continuous improvement. Don't block a change because it isn't exactly how you would have written it. If it improves the codebase and follows the project's conventions, approve it.
+**The approval standard:** Approve a change when it improves code health. Perfect code doesn't exist — the goal is continuous improvement. Don't block a change because it isn't exactly how you would have written it. If it improves the codebase and follows the project's conventions, approve it.
 
 ## When to Use
 
@@ -21,64 +21,49 @@ Multi-dimensional code review with quality gates. Every change gets reviewed bef
 
 ## The Five-Axis Review
 
-Every review evaluates code across these dimensions:
+Evaluate code across these dimensions. Use the **Review Checklist** at the end for a final pass.
 
 ### 1. Correctness
-
 Does the code do what it claims to do?
-
-- Does it match the spec or task requirements?
-- Are edge cases handled (null, empty, boundary values)?
-- Are error paths handled (not just the happy path)?
-- Does it pass all tests? Are the tests actually testing the right things?
-- Are there off-by-one errors, race conditions, or state inconsistencies?
+- Matches spec/requirements?
+- Edge cases handled (null, empty, boundaries)?
+- Error paths handled (not just happy path)?
+- Tests pass and target the right behaviors?
+- No off-by-one errors or race conditions?
 
 ### 2. Readability & Simplicity
-
-Can another engineer (or agent) understand this code without the author explaining it?
-
-- Are names descriptive and consistent with project conventions? (No `temp`, `data`, `result` without context)
-- Is the control flow straightforward (avoid nested ternaries, deep callbacks)?
-- Is the code organized logically (related code grouped, clear module boundaries)?
-- Are there any "clever" tricks that should be simplified?
-- **Could this be done in fewer lines?** (1000 lines where 100 suffice is a failure)
-- **Are abstractions earning their complexity?** (Don't generalize until the third use case)
-- Would comments help clarify non-obvious intent? (But don't comment obvious code.)
-- Are there dead code artifacts: no-op variables (`_unused`), backwards-compat shims, or `// removed` comments?
+Can another engineer understand this without an explanation?
+- Descriptive names? (Avoid generic `temp`, `data`, `result`)
+- Simple control flow? (Avoid nested ternaries, deep callbacks)
+- Logical organization and clear module boundaries?
+- No "clever" tricks; abstractions earn their complexity?
+- Minimized line count? (Avoid bloated implementations)
+- Comments explain *why* (intent), not *what* (obvious code)?
+- No dead code artifacts (`_unused`, obsolete shims)?
 
 ### 3. Architecture
-
 Does the change fit the system's design?
-
-- Does it follow existing patterns or introduce a new one? If new, is it justified?
-- Does it maintain clean module boundaries?
-- Is there code duplication that should be shared?
-- Are dependencies flowing in the right direction (no circular dependencies)?
-- Is the abstraction level appropriate (not over-engineered, not too coupled)?
+- Follows existing patterns or provides a justified new one?
+- Maintains clean boundaries; no circular dependencies?
+- No unjustified code duplication?
+- Appropriate abstraction level (not over-engineered or too coupled)?
 
 ### 4. Security
-
-For detailed security guidance, see `security-and-hardening`. Does the change introduce vulnerabilities?
-
-- Is user input validated and sanitized?
-- Are secrets kept out of code, logs, and version control?
-- Is authentication/authorization checked where needed?
-- Are SQL queries parameterized (no string concatenation)?
-- Are outputs encoded to prevent XSS?
-- Are dependencies from trusted sources with no known vulnerabilities?
-- Is data from external sources (APIs, logs, user content, config files) treated as untrusted?
-- Are external data flows validated at system boundaries before use in logic or rendering?
+Does the change introduce vulnerabilities?
+- User input validated and sanitized at boundaries?
+- Secrets kept out of code, logs, and VCS?
+- Auth/Authz checked where needed?
+- Parameterized queries; no string concatenation for SQL?
+- Outputs encoded to prevent XSS?
+- External data treated as untrusted?
 
 ### 5. Performance
-
-For detailed profiling and optimization, see `performance-optimization`. Does the change introduce performance problems?
-
-- Any N+1 query patterns?
-- Any unbounded loops or unconstrained data fetching?
-- Any synchronous operations that should be async?
-- Any unnecessary re-renders in UI components?
-- Any missing pagination on list endpoints?
-- Any large objects created in hot paths?
+Does the change introduce bottlenecks?
+- No N+1 query patterns or unbounded loops?
+- Async operations used where appropriate?
+- UI components avoid unnecessary re-renders?
+- Pagination present on list endpoints?
+- Hot paths avoid large object creation?
 
 ## Change Sizing
 
@@ -113,7 +98,7 @@ Every change needs a description that stands alone in version control history.
 
 **Body:** What is changing and why. Include context, decisions, and reasoning not visible in the code itself. Link to bug numbers, benchmark results, or design docs where relevant. Acknowledge approach shortcomings when they exist.
 
-**Anti-patterns:** "Fix bug," "Fix build," "Add patch," "Moving code from A to B," "Phase 1," "Add convenience functions."
+**Anti-patterns:** Avoid generic terms like "Fix bug" or "Add patch"; be specific.
 
 ## Review Process
 
@@ -224,12 +209,12 @@ DEAD CODE IDENTIFIED:
 
 ## Review Speed
 
-Slow reviews block entire teams. The cost of context-switching to review is less than the waiting cost imposed on others.
+Slow reviews block progress. The cost of context-switching is lower than the cost of waiting.
 
-- **Respond within one business day** — this is the maximum, not the target
-- **Ideal cadence:** Respond shortly after a review request arrives, unless deep in focused coding. A typical change should complete multiple review rounds in a single day
-- **Prioritize fast individual responses** over quick final approval. Quick feedback reduces frustration even if multiple rounds are needed
-- **Large changes:** Ask the author to split them rather than reviewing one massive changeset
+- **Target:** Respond within one business day.
+- **Ideal Cadence:** Respond shortly after a request. A change should move through multiple rounds in a day.
+- **Priority:** Fast individual responses over a single "perfect" final approval.
+- **Large Changes:** Request splits rather than attempting to review a massive changeset.
 
 ## Handling Disagreements
 
@@ -310,31 +295,18 @@ Part of code review is dependency review:
 - [ ] **Approve** — Ready to merge
 - [ ] **Request changes** — Issues must be addressed
 ```
-## See Also
+## Common Red Flags
 
-- For detailed security review guidance, see `references/security-checklist.md`
-- For performance review checks, see `references/performance-checklist.md`
-
-## Common Rationalizations
-
-| Rationalization | Reality |
+| Pattern | Reality |
 |---|---|
-| "It works, that's good enough" | Working code that's unreadable, insecure, or architecturally wrong creates debt that compounds. |
-| "I wrote it, so I know it's correct" | Authors are blind to their own assumptions. Every change benefits from another set of eyes. |
-| "We'll clean it up later" | Later never comes. The review is the quality gate — use it. Require cleanup before merge, not after. |
-| "AI-generated code is probably fine" | AI code needs more scrutiny, not less. It's confident and plausible, even when wrong. |
-| "The tests pass, so it's good" | Tests are necessary but not sufficient. They don't catch architecture problems, security issues, or readability concerns. |
-
-## Red Flags
-
-- PRs merged without any review
-- Review that only checks if tests pass (ignoring other axes)
-- "LGTM" without evidence of actual review
-- Security-sensitive changes without security-focused review
-- Large PRs that are "too big to review properly" (split them)
-- No regression tests with bug fix PRs
-- Review comments without severity labels — makes it unclear what's required vs optional
-- Accepting "I'll fix it later" — it never happens
+| "It works, that's good enough" | Unreadable or insecure code creates compounding debt. |
+| "I wrote it, so it's correct" | Authors are blind to their own assumptions. |
+| "We'll clean it up later" | Later never comes. Require cleanup before merge. |
+| "AI code is probably fine" | AI is confidently plausible even when wrong; requires *more* scrutiny. |
+| "Tests pass, so it's good" | Tests don't catch architecture or security flaws. |
+| No regression tests for bug fixes | High risk of recurrence. |
+| "LGTM" without evidence of review | Rubber-stamping helps no one. |
+| Review comments without severity labels | Unclear what is required vs optional. |
 
 ## Verification
 

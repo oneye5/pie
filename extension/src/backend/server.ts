@@ -471,7 +471,7 @@ export class BackendServer {
       systemPrompts,
       analyticsFactors,
       modelSettings,
-      availableModels: listAvailableModels(context),
+      availableModels: listAvailableModels(context, this.agentDir),
       contextUsage: contextUsage ?? undefined,
     };
   }
@@ -539,7 +539,7 @@ export class BackendServer {
       emitBusyChanged: (context, busy) => this.emitBusyChanged(context, busy),
       emitSessionListChanged: () => this.emitSessionListChanged(),
       listSessions: () => listSessionSummaries(this.sdk),
-      listAvailableModels: (context) => listAvailableModels(context),
+      listAvailableModels: (context) => listAvailableModels(context, this.agentDir),
       readModelSettings: () => this.readModelSettings(),
       writeModelSettings: (updates) => this.writeModelSettings(updates),
     }, request);

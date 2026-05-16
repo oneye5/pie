@@ -2,22 +2,18 @@
 
 A personal stack built around the [`pi` coding agent](https://www.npmjs.com/package/@mariozechner/pi-coding-agent): a VS Code sidebar extension (*pie*), reusable pi plugins, local run-analytics tooling, and the maintainer's own agents/skills/config.
 
-> **Read this first if you are not the maintainer.** This repo contains *both* generally useful tooling (the pie extension, the pi plugins) and the maintainer's personal config (`agents/`, `skills/`, `settings.json`, `APPEND_SYSTEM.md`). Treat the personal layer as an example to fork, not a default to adopt.
->
-> The checked-in config is tuned for this repository. Review paths and defaults before reusing it elsewhere.
-
 ## What's in this repo
 
 | Path | What it is | Distribution |
 |---|---|---|
-| [`extension/`](extension) | *pie* — VS Code sidebar extension that surfaces a `pi` agent as chat | Source build today; CI-built VSIX planned (see [`docs/INSTALLATION_INFRA_PLAN.md`](docs/INSTALLATION_INFRA_PLAN.md)) |
+| [`extension/`](extension) | *pie* — VS Code sidebar extension that surfaces a `pi` agent as chat | Source build today; CI-built VSIX planned |
 | [`extensions/subagent/`](extensions/subagent), [`extensions/cwd-skills/`](extensions/cwd-skills) | Reusable pi plugins (subagent delegation, cwd-scoped skill discovery) | Loaded by `pi` via `settings.json` packages |
 | [`analysis/`](analysis) | Local DuckDB + static-site workspace for run analytics | Internal research tool |
 | [`agents/`](agents), [`skills/`](skills), [`APPEND_SYSTEM.md`](APPEND_SYSTEM.md), [`settings.json`](settings.json) | Maintainer's personal pi config | Reference / example only |
 | [`data/`](data), [`pie/`](pie), [`auth.json`](#) | Local runtime/auth data | Local-only; excluded from the portable config |
 | [`docs/`](docs) | Design contracts and plans; start at [`docs/INDEX.md`](docs/INDEX.md) | Internal |
 
-## Goals (maintainer)
+## Goals
 
 - Take effective workflows and refine them — the flow of writing docs, making tweaks, and reviewing changes in VS Code while agents work in the sidebar.
 - Collect local usage data to improve outcomes — which models, skills, tools, and treatments actually produce results.
@@ -48,7 +44,7 @@ chmod +x install.sh
 ./install.sh
 ```
 
-The macOS/Linux script currently does the essentials (env var, auth migration, `pi update`). Full feature parity with `install.ps1` (session migration, sessionDir repair, settings patching) is tracked in [`docs/INSTALLATION_INFRA_PLAN.md`](docs/INSTALLATION_INFRA_PLAN.md) Phase 1.
+The macOS/Linux script currently does the essentials (env var, auth migration, `pi update`). Full feature parity with `install.ps1` (session migration, sessionDir repair, settings patching) is planned for a future phase.
 
 Both installers are idempotent: re-running updates/repairs rather than duplicating state.
 
@@ -94,14 +90,6 @@ Other analytics helpers from the repo root: `analytics:build-db`, `analytics:que
 | Run analytics | `data/outcomes/<id>/` or `PIE_ANALYTICS_DIR` override | `PIE_ANALYTICS_DIR` |
 
 The backend logs resolved storage paths on startup via the `backend.ready` event.
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for which subtrees accept outside contributions and how to file PRs. By participating you agree to the [Code of Conduct](CODE_OF_CONDUCT.md).
-
-## License
-
-License pending. Until a `LICENSE` file is added, default copyright applies and no rights are granted beyond reading the source on the hosting platform.
 
 ## More docs
 

@@ -1,10 +1,11 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 
-import { PROTOCOL_VERSION, type ContextUsageChangedPayload, type ErrorPayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
+import { PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ContextUsageChangedPayload, type ErrorPayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
 import {
   validateLoadTranscriptPage,
   validateMessageSend,
+  validateRuntimePrefsSet,
   validateSessionCreate,
   validateSessionOpen,
   validateSessionPath,
@@ -58,6 +59,12 @@ export async function handleBackendRequest(
         sdkVersion: deps.sdk.VERSION,
         protocolVersion: PROTOCOL_VERSION,
       };
+
+    case 'runtimePrefs.set': {
+      const params = validateRuntimePrefsSet(request.params);
+      process.env[PROVIDER_TOGGLES_ENV] = JSON.stringify(params.providerToggles);
+      return params;
+    }
 
     case 'session.list':
       return await deps.listSessions();

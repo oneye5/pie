@@ -46,9 +46,7 @@ Treat user instructions as signals of intent, not exact specifications. Prioriti
 
 - Minimize bloat and technical debt. Bias to simplicity and clarity. Delete dead code.
 
-- Flag files over 500 lines for splitting into submodules.
-
-- Prefer low nesting depth.
+- Refactor files over 500 lines for splitting into submodules, files larger than this must have a concrete justification as to why they should be allowed to exist.
 
 - Gather context before acting. Uninformed decisions are dangerous.
 

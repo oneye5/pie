@@ -220,3 +220,34 @@ test("formatSelectionInfo shows thinking level alongside scores", () => {
 	assert.ok(result);
 	assert.match(result!, /high/);
 });
+
+test("formatSelectionInfo shows fallback info when model failed and was retried", () => {
+	const result = formatSelectionInfo(
+		{
+			taskScores: { precision: 3 },
+			selectedModel: "model-b",
+			selectionPool: ["model-b", "model-c"],
+			selectionFitScores: [8, 6],
+			failedModel: "model-a",
+			retryCount: 1,
+		},
+		fg,
+	);
+	assert.ok(result);
+	assert.match(result!, /fallback #1/);
+	assert.match(result!, /skipped model-a/);
+});
+
+test("formatSelectionInfo hides fallback info when no failed model", () => {
+	const result = formatSelectionInfo(
+		{
+			taskScores: { precision: 3 },
+			selectedModel: "model-b",
+			selectionPool: ["model-b"],
+			selectionFitScores: [8],
+		},
+		fg,
+	);
+	assert.ok(result);
+	assert.ok(!result!.includes("fallback"));
+});

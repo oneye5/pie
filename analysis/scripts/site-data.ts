@@ -25,6 +25,7 @@ import {
   type VerificationImpactRow,
 } from './contracts.ts';
 import { ensureDir, writeJsonFile } from './fs-utils.ts';
+import { createModelLeaderboard } from './leaderboard.ts';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -465,6 +466,7 @@ export function buildSiteDataBundle(prepared: PreparedAnalyticsData, generatedAt
     toolUsage: createToolUsage(prepared),
     treatmentComparison: createTreatmentComparison(prepared),
     timeline: createTimeline(prepared),
+    modelLeaderboard: createModelLeaderboard(prepared),
   };
 }
 
@@ -478,6 +480,7 @@ export function siteDataFileMap(bundle: SiteDataBundle): Record<SiteDataFileName
     'tool-usage.json': bundle.toolUsage,
     'treatment-comparison.json': bundle.treatmentComparison,
     'timeline.json': bundle.timeline,
+    'model-leaderboard.json': bundle.modelLeaderboard,
   };
 }
 
@@ -612,6 +615,38 @@ function validateTimeline(timeline: unknown): asserts timeline is TimelineData {
   }
 }
 
+function validateModelLeaderboard(leaderboard: unknown): void {
+  assert(isRecord(leaderboard), 'model-leaderboard.json must contain an object.');
+  assert(leaderboard.schemaVersion === SITE_DATA_SCHEMA_VERSION, 'model-leaderboard.json has an unexpected schemaVersion.');
+  assert(Array.isArray(leaderboard.rows), 'model-leaderboard.json is missing rows.');
+  let previousRank: number | null = null;
+  let seenUnranked = false;
+  for (const [index, row] of leaderboard.rows.entries()) {
+    assert(isRecord(row), `model-leaderboard.json row ${index} must be an object.`);
+    assert(typeof row.modelId === 'string', `model-leaderboard.json row ${index} is missing modelId.`);
+    assert(typeof row.thinkingLevel === 'string', `model-leaderboard.json row ${index} is missing thinkingLevel.`);
+    assert(typeof row.runCount === 'number' && row.runCount >= 0, `model-leaderboard.json row ${index} has an invalid runCount.`);
+    assert(typeof row.scoredRunCount === 'number' && row.scoredRunCount >= 0, `model-leaderboard.json row ${index} has an invalid scoredRunCount.`);
+    assert(isRecord(row.dimensions), `model-leaderboard.json row ${index} is missing dimensions.`);
+    assert(isRecord(row.dimensions.tokenEfficiency), `model-leaderboard.json row ${index} is missing tokenEfficiency dimension.`);
+    if (row.rank !== null) {
+      assert(!seenUnranked, `model-leaderboard.json row ${index} is ranked after unranked rows.`);
+      assert(row.compositeScore !== null, `model-leaderboard.json row ${index} has rank but null compositeScore.`);
+      assert(row.reliabilityFactor !== null && typeof row.reliabilityFactor === 'number', `model-leaderboard.json row ${index} has rank but invalid reliabilityFactor.`);
+      if (previousRank !== null) {
+        assert((row.rank as number) >= previousRank, `model-leaderboard.json row ${index} rank is not ascending.`);
+      }
+      previousRank = row.rank as number;
+    } else {
+      seenUnranked = true;
+      assert(row.compositeScore === null, `model-leaderboard.json row ${index} has compositeScore but null rank.`);
+    }
+  }
+  assert(isRecord(leaderboard.weights), 'model-leaderboard.json is missing weights.');
+  assert(typeof leaderboard.minimumScoredRuns === 'number', 'model-leaderboard.json is missing minimumScoredRuns.');
+  assert(Array.isArray(leaderboard.notes), 'model-leaderboard.json is missing notes.');
+}
+
 export function validateSiteDataBundle(bundle: SiteDataBundle): void {
   validateManifest(bundle.manifest);
   validateOverview(bundle.overview, bundle.manifest);
@@ -621,6 +656,7 @@ export function validateSiteDataBundle(bundle: SiteDataBundle): void {
   validateToolUsage(bundle.toolUsage);
   validateComparativeRows('treatment-comparison.json', bundle.treatmentComparison.rows);
   validateTimeline(bundle.timeline);
+  validateModelLeaderboard(bundle.modelLeaderboard);
 }
 
 export async function readSiteDataBundle(outputDir: string): Promise<SiteDataBundle> {
@@ -639,5 +675,6 @@ export async function readSiteDataBundle(outputDir: string): Promise<SiteDataBun
     toolUsage: files['tool-usage.json'] as SiteDataBundle['toolUsage'],
     treatmentComparison: files['treatment-comparison.json'] as SiteDataBundle['treatmentComparison'],
     timeline: files['timeline.json'] as SiteDataBundle['timeline'],
+    modelLeaderboard: files['model-leaderboard.json'] as SiteDataBundle['modelLeaderboard'],
   };
 }

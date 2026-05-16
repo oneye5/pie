@@ -143,6 +143,9 @@ export function formatSelectionInfo(
 		selectionPool?: string[];
 		selectionFitScores?: number[];
 		thinkingLevel?: string;
+		failedModel?: string;
+		retryCount?: number;
+		modelResolutionDiagnostic?: string;
 	},
 	themeFg: (color: any, text: string) => string,
 ): string | undefined {
@@ -172,7 +175,7 @@ export function formatSelectionInfo(
 		const idx = result.selectionPool.indexOf(result.selectedModel);
 		const score = idx >= 0 ? result.selectionFitScores[idx] : undefined;
 		const shortName = shortenModelId(result.selectedModel);
-		const modelStr = score != null ? `${shortName}(${score})` : shortName;
+		const modelStr = score != null ? `${shortName}(${score.toFixed(1)})` : shortName;
 		parts.push(themeFg("accent", "→ ") + themeFg("toolTitle", modelStr));
 
 		// Pool (other candidates)
@@ -182,9 +185,19 @@ export function formatSelectionInfo(
 				const otherIdx = result.selectionPool!.indexOf(m);
 				const otherScore = otherIdx >= 0 ? result.selectionFitScores![otherIdx] : undefined;
 				const short = shortenModelId(m);
-				return otherScore != null ? `${short}(${otherScore})` : short;
+				return otherScore != null ? `${short}(${otherScore.toFixed(1)})` : short;
 			});
 		if (others.length > 0) parts.push(themeFg("muted", `| ${others.join(", ")}`));
+	}
+
+	// Fallback info: show which model failed and retry count
+	if (result.failedModel && result.retryCount) {
+		parts.push(themeFg("warning", `fallback #${result.retryCount}`) + themeFg("dim", ` (skipped ${shortenModelId(result.failedModel)})`));
+	}
+
+	// Model resolution diagnostic: model-profiles.json override not found in registry
+	if (result.modelResolutionDiagnostic) {
+		parts.push(themeFg("warning", "⚠ ") + themeFg("dim", result.modelResolutionDiagnostic));
 	}
 
 	return parts.length > 0 ? `🎯 ${parts.join(" ")}` : undefined;

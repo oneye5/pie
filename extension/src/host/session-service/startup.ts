@@ -138,6 +138,14 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
     return;
   }
 
+  try {
+    await options.backend.request('runtimePrefs.set', {
+      providerToggles: store.getState().ui.prefs.providerToggles,
+    });
+  } catch {
+    // Non-fatal: older/failed backends simply won't expose provider toggles to pi extensions.
+  }
+
   const { startupPath: restoredStartupPath, preloadPaths } = restoredSessionPlan;
 
   if (restoredStartupPath) {

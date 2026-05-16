@@ -40,3 +40,32 @@ test('collapsed tool-call headers keep titles ahead of summary text', async () =
   assert.ok(emptyHintRule, 'expected empty size-hint rule in panel.css');
   assert.match(emptyHintRule[0], /display:\s*none;/);
 });
+
+test('subagent headers prioritize task scores and model over lower-priority metadata', async () => {
+  const css = await readPanelCss();
+  const subagentSummaryRule = css.match(/\.subagent-header-summary\s*\{[\s\S]*?\n\}/);
+  const sharedMetaRule = css.match(/\.subagent-primary-meta,\s*\.subagent-secondary-meta,\s*\.subagent-multi-models\s*\{[\s\S]*?\n\}/);
+  const primaryMetaFlexRule = css.match(/\.subagent-primary-meta,\s*\.subagent-multi-models\s*\{[\s\S]*?\n\}/);
+  const secondaryMetaRule = css.match(/\.subagent-secondary-meta\s*\{[\s\S]*?\n\}/);
+  const scoresRule = css.match(/\.subagent-scores\s*\{[\s\S]*?\n\}/);
+  const modelRule = css.match(/\.subagent-model-tag\s*\{[\s\S]*?\n\}/);
+
+  assert.ok(subagentSummaryRule, 'expected subagent summary rule in panel.css');
+  assert.match(subagentSummaryRule[0], /flex:\s*1 1 auto;/);
+
+  assert.ok(sharedMetaRule, 'expected shared subagent metadata rule in panel.css');
+  assert.match(sharedMetaRule[0], /display:\s*inline-flex;/);
+  assert.match(sharedMetaRule[0], /align-items:\s*center;/);
+
+  assert.ok(primaryMetaFlexRule, 'expected primary subagent metadata flex rule in panel.css');
+  assert.match(primaryMetaFlexRule[0], /flex:\s*0 0 auto;/);
+
+  assert.ok(secondaryMetaRule, 'expected secondary subagent metadata rule in panel.css');
+  assert.match(secondaryMetaRule[0], /flex:\s*0 1 auto;/);
+
+  assert.ok(scoresRule, 'expected score bar rule in panel.css');
+  assert.match(scoresRule[0], /flex-shrink:\s*0;/);
+
+  assert.ok(modelRule, 'expected model tag rule in panel.css');
+  assert.match(modelRule[0], /flex-shrink:\s*0;/);
+});

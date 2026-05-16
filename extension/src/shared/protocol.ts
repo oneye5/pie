@@ -3,7 +3,7 @@
  * extension host and the backend process. The host refuses to start the backend
  * unless the values match.
  */
-export const PROTOCOL_VERSION = 9;
+export const PROTOCOL_VERSION = 10;
 
 export function assertProtocolVersion(peerLabel: string, protocolVersion: unknown): void {
   if (!Number.isInteger(protocolVersion)) {
@@ -460,6 +460,9 @@ export interface ChatPrefs {
   /** Per-provider enabled/disabled toggles. Keys are provider names. */
   providerToggles: Record<string, boolean>;
 }
+
+/** Environment key used to expose pie provider toggles to in-process pi extensions. */
+export const PROVIDER_TOGGLES_ENV = 'PIE_PROVIDER_TOGGLES_JSON';
 
 export type ActiveRunStatus = 'open' | 'scored' | 'closed_unscored';
 

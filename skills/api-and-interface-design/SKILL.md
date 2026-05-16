@@ -1,6 +1,6 @@
 ---
 name: api-and-interface-design
-description: Guides stable API and interface design. Use when designing APIs, module boundaries, or any public interface. Use when creating REST or GraphQL endpoints, defining type contracts between modules, or establishing boundaries between frontend and backend.
+description: Guides stable API and interface design. Use when designing APIs, module boundaries, or any public interface. Do not use for implementation of business logic or UI components — this is for contract and boundary design.
 ---
 
 # API and Interface Design
@@ -27,16 +27,16 @@ This means: every public behavior — including undocumented quirks, error messa
 
 - **Be intentional about what you expose.** Every observable behavior is a potential commitment.
 - **Don't leak implementation details.** If users can observe it, they will depend on it.
-- **Plan for deprecation at design time.** See `deprecation-and-migration` for how to safely remove things users depend on.
+- **Plan for deprecation at design time.** Design version-tolerant interfaces that can evolve without breaking existing consumers.
 - **Tests are not enough.** Even with perfect contract tests, Hyrum's Law means "safe" changes can break real users who depend on undocumented behavior.
 
 ### The One-Version Rule
 
-Avoid forcing consumers to choose between multiple versions of the same dependency or API. Diamond dependency problems arise when different consumers need different versions of the same thing. Design for a world where only one version exists at a time — extend rather than fork.
+Avoid forcing consumers to choose between multiple versions of the same dependency or API. Diamond dependency problems occur when two different dependencies require different, incompatible versions of the same library, leading to runtime crashes or unexpected behavior. Design for a world where only one version exists at a time — extend rather than fork.
 
-### 1. Contract First
+### 1. Contract First & Input/Output Separation
 
-Define the interface before implementing it. The contract is the spec — implementation follows.
+Define the interface before implementing it. The contract is the spec — implementation follows. Separate what the caller provides from what the system returns.
 
 ```typescript
 // Define the contract first
@@ -90,7 +90,7 @@ interface APIError {
 Trust internal code. Validate at system edges where external input enters:
 
 ```typescript
-// Validate at the API boundary
+// Validate at the API boundary (e.g., using Zod)
 app.post('/api/tasks', async (req, res) => {
   const result = CreateTaskSchema.safeParse(req.body);
   if (!result.success) {

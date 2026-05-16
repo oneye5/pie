@@ -13,6 +13,10 @@ import {
   type SubagentResult,
   type SubagentSingleResult,
 } from './subagent';
+import {
+  DISPLAY_SCORE_DIMS,
+  normalizeTaskScoresForDisplay,
+} from './subagent-score-display';
 import { ToolCallCard } from './tool-call-card';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import { useDisclosureOpen } from './use-disclosure-open';
@@ -37,25 +41,8 @@ interface SubagentBlockProps {
   renderToolCall: RenderToolCall;
 }
 
-const SCORE_DIMS = [
-  { key: 'precision', label: 'P', full: 'Precision' },
-  { key: 'creativity', label: 'C', full: 'Creativity' },
-  { key: 'reasoning', label: 'R', full: 'Reasoning' },
-  { key: 'thoroughness', label: 'T', full: 'Thoroughness' },
-] as const;
-
 function shortenModelId(id: string): string {
   return id.replace(/:cloud$/, '').replace(/:local$/, '');
-}
-
-/** Count how many score dimensions have values. */
-function countScoreDims(scores: Record<string, number> | undefined): number {
-  if (!scores) return 0;
-  let n = 0;
-  for (const { key } of SCORE_DIMS) {
-    if (scores[key] != null) n++;
-  }
-  return n;
 }
 
 function isRunning(result: SubagentSingleResult): boolean {
@@ -65,6 +52,27 @@ function isRunning(result: SubagentSingleResult): boolean {
 function isFailed(result: SubagentSingleResult): boolean {
   if (isRunning(result)) return false;
   return result.exitCode !== 0 || result.stopReason === 'error' || result.stopReason === 'aborted';
+}
+
+/** Extract a human-readable error summary from a single result. */
+function subagentErrorDetail(result: SubagentSingleResult): string | undefined {
+  if (!isFailed(result)) return undefined;
+  const parts: string[] = [];
+  const label =
+    result.stopReason === 'aborted' ? 'Aborted'
+    : result.stopReason === 'error' ? 'Error'
+    : result.exitCode > 0 ? `Exit code ${result.exitCode}`
+    : 'Failed';
+  parts.push(label);
+  if (result.errorMessage) parts.push(result.errorMessage);
+  if (result.stderr) parts.push(result.stderr);
+  return parts.join(': ');
+}
+
+/** Aggregate error details across all failed results. */
+function aggregateErrorDetail(results: SubagentSingleResult[]): string | undefined {
+  const details = results.filter(isFailed).map(subagentErrorDetail).filter(Boolean);
+  return details.length > 0 ? details.join('\n') : undefined;
 }
 
 /** Aggregate status across all results in a subagent call. */
@@ -78,20 +86,22 @@ function aggregateStatus(results: SubagentSingleResult[], toolCallStatus: ToolCa
   return 'completed';
 }
 
-/** Compact score bar: colored number badges for each dimension that has a value. */
+/** Compact score bar: always shows the full effective requirement vector. */
 function ScoreBar({ scores }: { scores: Record<string, number> | undefined }) {
-  if (!scores || countScoreDims(scores) === 0) return null;
+  const normalized = normalizeTaskScoresForDisplay(scores);
+  if (!normalized) return null;
+
   return (
     <span class="subagent-scores">
-      {SCORE_DIMS.map(({ key, label, full }) => {
-        const val = scores[key];
-        if (val == null) return null;
+      {DISPLAY_SCORE_DIMS.map(({ key, label, full }) => {
+        const val = normalized[key];
+        const isDefaulted = scores?.[key] == null;
         return (
           <span
             key={key}
             class="subagent-score-dim"
             data-score={val}
-            title={`${full}: ${val}/5`}
+            title={`${full}: ${val}/5${isDefaulted ? ' (default)' : ''}`}
           >{label}{val}</span>
         );
       })}
@@ -107,10 +117,34 @@ function ModelTag({ result }: { result: SubagentSingleResult }) {
   return <span class="subagent-model-tag" title={model}>{short}</span>;
 }
 
+/** High-priority metadata that should remain visible before summary text. */
+function PrimaryMeta({ result }: { result: SubagentSingleResult }) {
+  const scores = normalizeTaskScoresForDisplay(result.taskScores);
+  const model = result.selectedModel ?? result.model;
+  if (!scores && !model) return null;
+
+  return (
+    <span class="subagent-primary-meta">
+      {scores && <ScoreBar scores={result.taskScores} />}
+      {model && <ModelTag result={result} />}
+    </span>
+  );
+}
+
 /** Thinking pill, if present. */
 function ThinkingTag({ result }: { result: SubagentSingleResult }) {
   if (!result.thinkingLevel) return null;
   return <span class="subagent-thinking-tag">{result.thinkingLevel}</span>;
+}
+
+/** Lower-priority metadata that can yield space before scores/model. */
+function SecondaryMeta({ result }: { result: SubagentSingleResult }) {
+  if (!result.thinkingLevel) return null;
+  return (
+    <span class="subagent-secondary-meta">
+      <ThinkingTag result={result} />
+    </span>
+  );
 }
 
 /** Build a tooltip showing model-selection pool details. */
@@ -130,13 +164,13 @@ function modelPoolTooltip(result: SubagentSingleResult): string | undefined {
 
 /** Compact badge for inline use in multi-agent labels when expanded. */
 function InlineBadge({ result }: { result: SubagentSingleResult }) {
-  const hasScores = countScoreDims(result.taskScores) > 0;
+  const scores = normalizeTaskScoresForDisplay(result.taskScores);
   const model = result.selectedModel ?? result.model;
-  if (!hasScores && !model) return null;
+  if (!scores && !model) return null;
 
   return (
     <span class="subagent-inline-badge" title={modelPoolTooltip(result)}>
-      {hasScores && <ScoreBar scores={result.taskScores} />}
+      {scores && <ScoreBar scores={result.taskScores} />}
       {model && <span class="subagent-model-tag">{shortenModelId(model)}</span>}
       {result.thinkingLevel && <span class="subagent-thinking-tag">{result.thinkingLevel}</span>}
     </span>
@@ -144,12 +178,28 @@ function InlineBadge({ result }: { result: SubagentSingleResult }) {
 }
 
 /** Status indicator: small dot or label at the right side of the header. */
-function StatusIndicator({ status }: { status: 'running' | 'failed' | 'completed' }) {
+function StatusIndicator({ status, errorDetail }: { status: 'running' | 'failed' | 'completed'; errorDetail?: string }) {
   if (status === 'completed') return null;
   if (status === 'running') {
     return <span class="subagent-status subagent-status-running" aria-label="Running" />;
   }
-  return <span class="subagent-status subagent-status-failed">Failed</span>;
+
+  const handleClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (!errorDetail) return;
+    const target = e.currentTarget as HTMLElement;
+    navigator.clipboard.writeText(errorDetail);
+    target.dataset.copied = '';
+    setTimeout(() => { delete target.dataset.copied; }, 1200);
+  };
+
+  return (
+    <span
+      class={`subagent-status subagent-status-failed${errorDetail ? ' has-error-detail' : ''}`}
+      title={errorDetail ?? undefined}
+      onClick={errorDetail ? handleClick : undefined}
+    ><span class="subagent-status-label">Failed</span></span>
+  );
 }
 
 function SubagentBlock({
@@ -184,6 +234,7 @@ function SubagentBlock({
   const singleResult = result.results.length === 1 ? result.results[0] : undefined;
   const summary = summarizeToolCall(toolCall);
   const status = aggregateStatus(result.results, toolCall.status);
+  const errorDetail = status === 'failed' ? aggregateErrorDetail(result.results) : undefined;
   const nestedDisclosureDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
 
   // Name display: for single agent show the name; for multi show "N agents"
@@ -208,15 +259,17 @@ function SubagentBlock({
         <span class="subagent-agent-name">{nameDisplay}</span>
         {singleResult ? (
           <>
-            <ScoreBar scores={singleResult.taskScores} />
-            <ModelTag result={singleResult} />
-            <ThinkingTag result={singleResult} />
+            <PrimaryMeta result={singleResult} />
+            {!open && summary && <span class="subagent-header-summary">{summary}</span>}
+            <SecondaryMeta result={singleResult} />
           </>
         ) : (
-          <MultiAgentSummary results={result.results} />
+          <>
+            <MultiAgentSummary results={result.results} />
+            {!open && summary && <span class="subagent-header-summary">{summary}</span>}
+          </>
         )}
-        {!open && summary && <span class="subagent-header-summary">{summary}</span>}
-        <StatusIndicator status={status} />
+        <StatusIndicator status={status} errorDetail={errorDetail} />
       </div>
       {open && (
         <div

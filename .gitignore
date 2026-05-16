@@ -65,6 +65,8 @@ Thumbs.db
 .DS_Store
 desktop.ini
 ehthumbs.db
+# Windows null device (created when redirecting to uninitialized variable in batch/PowerShell)
+nul
 
 # Editor / IDE artifacts
 *.swp

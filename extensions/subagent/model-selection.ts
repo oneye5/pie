@@ -33,7 +33,14 @@ export interface SelectionResult {
 	fitScores: number[];
 }
 
+export interface ModelProviderRef {
+	id: string;
+	provider: string;
+}
+
 // --- Constants ---
+
+export const PROVIDER_TOGGLES_ENV = "PIE_PROVIDER_TOGGLES_JSON";
 
 const DIMENSIONS = ["precision", "creativity", "thoroughness", "reasoning"] as const;
 const DEFAULT_SCORE = 2;
@@ -43,25 +50,29 @@ const DEFAULT_SCORE = 2;
  *
  * The scoring function replaces a simple dot product with:
  *
- *   fitness = Σ [ min(model[d], task[d]) * task[d]              // capped base reward
- *                 + SURPLUS_WEIGHT * max(0, model[d] - task[d])   // small bonus for exceeding
- *                 - DEFICIT_WEIGHT * max(0, task[d] - model[d])² ] // heavy penalty for falling short
+ *   fitness = Σ [ min(model[d], task[d]) * task[d]                  // capped base reward
+ *                 - OVERKILL_WEIGHT * max(0, model[d] - task[d])     // penalty for exceeding
+ *                 - DEFICIT_WEIGHT * max(0, task[d] - model[d])² ]   // penalty for falling short
  *
- *   final_score = fitness - COST_WEIGHT * Σ model[d]             // prefer cheaper models
+ *   final_score = fitness - COST_WEIGHT * Σ model[d]               // prefer cheaper models
  *
  * This avoids the "always pick the strongest model" problem of a plain dot product,
  * where overshooting requirements is purely rewarded. Instead:
  * - Meeting a requirement gives the bulk of the score (capped at task level)
- * - Exceeding a requirement adds a small linear bonus (diminishing incentive)
- * - Falling short incurs a steep quadratic penalty (unsuitable models are strongly avoided)
+ * - Exceeding a requirement is penalized (overkill costs resources without proportional benefit)
+ * - Falling short incurs a quadratic penalty (unsuitable models are strongly avoided)
  * - Cheaper models (lower aggregate) are preferred when fitness is comparable
+ *
+ * The overkill penalty means models that just barely meet requirements are preferred
+ * over more powerful ones, while the reduced deficit penalty makes slightly-underpowered
+ * models more acceptable relative to overkill.
  *
  * The aggregate (sum of model dimensions) serves as a cost proxy: more capable models
  * tend to be more expensive and slower, so preferring a lower aggregate when
  * requirements are met saves resources.
  */
-const SURPLUS_WEIGHT = 0.3;
-const DEFICIT_WEIGHT = 3.0;
+const OVERKILL_WEIGHT = 1.5;
+const DEFICIT_WEIGHT = 2.0;
 const COST_WEIGHT = 0.5;
 
 const REASONING_TO_THINKING: ThinkingLevel[] = [
@@ -88,8 +99,8 @@ export function reasoningToThinking(reasoningScore: number | undefined): Thinkin
  * Compute fitness score for a model against a task using asymmetric scoring.
  *
  * - Capped base reward: min(model, task) × task — only counts what the task needs
- * - Small surplus bonus: linear bonus for exceeding requirements (SURPLUS_WEIGHT)
- * - Heavy deficit penalty: quadratic penalty for falling short (DEFICIT_WEIGHT)
+ * - Overkill penalty: linear penalty for exceeding requirements (OVERKILL_WEIGHT)
+ * - Deficit penalty: quadratic penalty for falling short (DEFICIT_WEIGHT)
  * - Cost subtraction: linear penalty proportional to model aggregate (COST_WEIGHT)
  */
 export function computeFitness(taskScores: TaskScores, profile: ModelProfile): number {
@@ -100,10 +111,10 @@ export function computeFitness(taskScores: TaskScores, profile: ModelProfile): n
 		const m = profile[dim];
 		const met = Math.min(m, t);
 		const deficit = Math.max(0, t - m);
-		const surplus = Math.max(0, m - t);
+		const overkill = Math.max(0, m - t);
 
 		fitness += met * t;                              // capped base reward
-		fitness += SURPLUS_WEIGHT * surplus;              // small bonus for exceeding
+		fitness -= OVERKILL_WEIGHT * overkill;             // penalty for exceeding (overkill)
 		fitness -= DEFICIT_WEIGHT * deficit * deficit;   // quadratic penalty for falling short
 	}
 
@@ -113,25 +124,69 @@ export function computeFitness(taskScores: TaskScores, profile: ModelProfile): n
 	return fitness;
 }
 
+export function parseProviderToggles(raw: string | undefined): Record<string, boolean> {
+	if (!raw) return {};
+
+	try {
+		const parsed = JSON.parse(raw) as unknown;
+		if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+
+		const toggles: Record<string, boolean> = {};
+		for (const [provider, enabled] of Object.entries(parsed)) {
+			if (typeof enabled === "boolean") toggles[provider] = enabled;
+		}
+		return toggles;
+	} catch {
+		return {};
+	}
+}
+
+export function getDisabledProviders(providerToggles: Record<string, boolean>): Set<string> {
+	return new Set(
+		Object.entries(providerToggles)
+			.filter(([, enabled]) => enabled === false)
+			.map(([provider]) => provider),
+	);
+}
+
+export function getAllowedModelIdsForProviders(
+	models: ModelProviderRef[],
+	disabledProviders: Set<string>,
+): Set<string> | undefined {
+	if (disabledProviders.size === 0) return undefined;
+
+	return new Set(
+		models
+			.filter((model) => !disabledProviders.has(model.provider))
+			.map((model) => model.id),
+	);
+}
+
 /**
  * Select a model from eligible profiles:
  * 1. Determine required thinking level from reasoning score
  * 2. Filter to models that support that thinking level
- * 3. Score remaining by asymmetric fitness function
- * 4. Pick from top-K randomly
+ * 3. Exclude any models not in the allowed-model set (e.g. provider toggled off)
+ * 4. Exclude any models in the exclusion set (e.g. previously failed models)
+ * 5. Score remaining by asymmetric fitness function
+ * 6. Pick from top-K randomly
  *
  * Returns `undefined` when no eligible models exist.
  */
 export function selectModel(
 	taskScores: TaskScores,
 	config: SelectionConfig,
+	excludeModels?: Set<string>,
+	allowedModelIds?: Set<string>,
 ): SelectionResult | undefined {
 	const thinkingLevel = reasoningToThinking(taskScores.reasoning);
 
-	// Filter: eligible + supports the required thinking level
+	// Filter: eligible + supports the required thinking level + provider-enabled + not excluded
 	const eligible = config.profiles.filter((p) => {
 		if (!p.eligible) return false;
 		if (p.thinking && !p.thinking.includes(thinkingLevel)) return false;
+		if (allowedModelIds && !allowedModelIds.has(p.id)) return false;
+		if (excludeModels && excludeModels.has(p.id)) return false;
 		return true;
 	});
 

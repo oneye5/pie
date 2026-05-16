@@ -519,6 +519,21 @@
       "_disabled_reason": "Too small for agentic work"
     },
     {
+      "_comment": "--- RNJ ---"
+    },
+    {
+      "id": "rnj-1:8b-cloud",
+      "precision": 2,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Too small for agentic work"
+    },
+    {
       "_comment": "--- Qwen (current gen) ---"
     },
     {
@@ -905,6 +920,48 @@
     },
     {
       "id": "ministral-3:3b-cloud",
+      "precision": 1,
+      "creativity": 1,
+      "thoroughness": 1,
+      "reasoning": 1,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Too small for agentic work"
+    },
+    {
+      "_comment": "=== OLLAMA LOCAL MODELS ==="
+    },
+    {
+      "_comment": "--- Pi local presets ---"
+    },
+    {
+      "id": "mistral-7b-pi:latest",
+      "precision": 2,
+      "creativity": 2,
+      "thoroughness": 2,
+      "reasoning": 2,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Too small for agentic work"
+    },
+    {
+      "id": "llama3.2-3b-pi:latest",
+      "precision": 1,
+      "creativity": 1,
+      "thoroughness": 1,
+      "reasoning": 1,
+      "thinking": [
+        "minimal"
+      ],
+      "eligible": false,
+      "_disabled_reason": "Too small for agentic work"
+    },
+    {
+      "id": "gemma4-e2b-pi:latest",
       "precision": 1,
       "creativity": 1,
       "thoroughness": 1,

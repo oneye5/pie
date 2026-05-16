@@ -311,8 +311,30 @@ export function validateMessageSend(params: unknown): MessageSendParams {
   return { text: text as string, sessionPath: sp as string, inputs };
 }
 
+export interface RuntimePrefsSetParams {
+  providerToggles: Record<string, boolean>;
+}
+
 export interface SettingsSetParams extends Partial<ModelSettings> {
   sessionPath?: string;
+}
+
+export function validateRuntimePrefsSet(params: unknown): RuntimePrefsSetParams {
+  if (!isObj(params)) fail('runtimePrefs.set', 'expected an object');
+  const rawToggles = (params as Record<string, unknown>)['providerToggles'];
+  if (rawToggles === undefined) return { providerToggles: {} };
+  if (!isObj(rawToggles) || Array.isArray(rawToggles)) {
+    fail('runtimePrefs.set', 'providerToggles must be an object when provided');
+  }
+
+  const providerToggles: Record<string, boolean> = {};
+  for (const [provider, enabled] of Object.entries(rawToggles)) {
+    if (typeof enabled !== 'boolean') {
+      fail('runtimePrefs.set', `providerToggles.${provider} must be a boolean`);
+    }
+    providerToggles[provider] = enabled;
+  }
+  return { providerToggles };
 }
 
 export function validateSettingsSet(params: unknown): SettingsSetParams {

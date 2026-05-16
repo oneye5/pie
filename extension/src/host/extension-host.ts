@@ -1,4 +1,6 @@
+import * as cp from 'node:child_process';
 import * as crypto from 'node:crypto';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import * as vscode from 'vscode';
@@ -23,7 +25,7 @@ import {
   type SessionCompletionEvent,
 } from './completion-notification';
 import { type RunAnalyticsExportPayload } from './run-analytics-query';
-import { selectActiveSessionPath, selectViewState, store } from './store';
+import { fileChangesActions, selectActiveSessionPath, selectViewState, store } from './store';
 import { SidebarViewProvider } from './sidebar-provider';
 import { SessionService } from './session-service';
 import { StatsService } from './stats-service';
@@ -356,23 +358,47 @@ export class PieExtension implements vscode.Disposable {
   }
 
   private async revertFile(sessionPath: string, filePath: string): Promise<void> {
+    const resolvedPath = this.resolveFileChangePath(sessionPath, filePath);
+
     try {
-      const uri = vscode.Uri.file(this.resolveFileChangePath(sessionPath, filePath));
-      // Try git revert first
-      await vscode.commands.executeCommand(
-        'git.revertChange',
-        uri,
-      );
-    } catch {
-      // Fallback: try the workbench revert command
-      try {
-        await vscode.commands.executeCommand('workbench.action.files.revert');
-      } catch {
+      // Check whether the file is known to git (tracked or staged).
+      const tracked = await new Promise<boolean>((resolve) => {
+        cp.execFile(
+          'git',
+          ['ls-files', '--error-unmatch', resolvedPath],
+          { cwd: path.dirname(resolvedPath) },
+          (err) => resolve(!err),
+        );
+      });
+
+      if (tracked) {
+        // Restore to last committed version.
+        await new Promise<void>((resolve, reject) => {
+          cp.execFile(
+            'git',
+            ['checkout', 'HEAD', '--', resolvedPath],
+            { cwd: path.dirname(resolvedPath) },
+            (err) => (err ? reject(err) : resolve()),
+          );
+        });
+      } else {
+        // Untracked file created by the agent – delete it.
+        await fs.unlink(resolvedPath);
+      }
+    } catch (err) {
+      // Last resort: if the file still exists, warn the user.
+      const exists = await fs.access(resolvedPath).then(() => true, () => false);
+      if (exists) {
         void vscode.window.showWarningMessage(
           `Could not revert ${filePath}. The file may not be under source control.`,
         );
+        return;
       }
+      // File is already gone – treat as success and remove the entry.
     }
+
+    store.dispatch(fileChangesActions.removeFileChange({ sessionPath, path: filePath }));
+    this.scheduleRender();
   }
   private async handleWebviewMessage(msg: WebviewToHostMessage): Promise<void> {
     switch (msg.type) {

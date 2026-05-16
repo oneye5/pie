@@ -22,6 +22,13 @@ import type { OnUpdateCallback, SingleResult, SubagentDetails } from "./types.js
 import { createInvalidAgentResult } from "./validation.js";
 
 /**
+ * Per-prompt timeout: if the model doesn't produce a complete response within
+ * this window, the prompt is aborted and the subagent reports a timeout error.
+ * Prevents subagents from hanging indefinitely on unresponsive providers.
+ */
+const SUBAGENT_PROMPT_TIMEOUT_MS = 600_000; // 10 minutes
+
+/**
  * Async-local context carried through nested subagent invocations.
  * Replaces the old PI_SUBAGENT_DEPTH / PI_SUBAGENT_TRAIL environment variables
  * (which only worked across subprocess boundaries).
@@ -67,18 +74,46 @@ export async function mapWithConcurrencyLimit<TIn, TOut>(
  * Profiles use bare model ids (e.g. "gpt-5.5") that may live under multiple providers
  * (azure-openai-responses, github-copilot). Prefer the caller's provider so subagents
  * route through the same OAuth token (Copilot) when the caller does.
+ *
+ * Returns diagnostics explaining why resolution failed when the model can't be found.
  */
 function resolveOverrideModel(
 	modelRegistry: ModelRegistry,
 	callerModel: Model<any> | undefined,
 	modelOverride: string,
-): Model<any> | undefined {
-	if (callerModel) {
+	disabledProviders?: Set<string>,
+): { model: Model<any> | undefined; diagnostic?: string } {
+	const isProviderEnabled = (provider: string): boolean => !disabledProviders?.has(provider);
+	const availableModels = modelRegistry.getAvailable();
+	const allModels = modelRegistry.getAll();
+
+	if (callerModel && isProviderEnabled(callerModel.provider)) {
 		const sameProvider = modelRegistry.find(callerModel.provider, modelOverride);
-		if (sameProvider) return sameProvider;
+		if (sameProvider && isProviderEnabled(sameProvider.provider)) return { model: sameProvider };
 	}
-	// Fall back to first model with matching id across all providers.
-	return modelRegistry.getAll().find((m) => m.id === modelOverride);
+	// Fall back to first available model with matching id across enabled providers.
+	const foundAvailable = availableModels.find((m) => m.id === modelOverride && isProviderEnabled(m.provider));
+	if (foundAvailable) return { model: foundAvailable };
+
+	// Preserve the historical fallback for custom providers that may not expose auth metadata.
+	const found = allModels.find((m) => m.id === modelOverride && isProviderEnabled(m.provider));
+	if (found) return { model: found };
+
+	const disabledMatches = allModels
+		.filter((m) => m.id === modelOverride && !isProviderEnabled(m.provider))
+		.map((m) => m.provider);
+	if (disabledMatches.length > 0) {
+		return {
+			model: undefined,
+			diagnostic: `Model "${modelOverride}" (from model-profiles.json) is only available from disabled provider(s): ${[...new Set(disabledMatches)].join(", ")}. Falling back to caller/default model.`,
+		};
+	}
+
+	const allIds = allModels.map((m) => `${m.provider}/${m.id}`).slice(0, 10).join(", ");
+	return {
+		model: undefined,
+		diagnostic: `Model "${modelOverride}" (from model-profiles.json) not found in registry. Available: ${allIds || "none"}. Falling back to caller/default model.`,
+	};
 }
 
 export async function runSingleAgent(
@@ -95,6 +130,7 @@ export async function runSingleAgent(
 	callerModel: Model<any> | undefined,
 	modelOverride: string | undefined,
 	thinkingLevel: ThinkingLevel | undefined,
+	disabledProviders?: Set<string>,
 ): Promise<SingleResult> {
 	const agent = agents.find((a) => a.name === agentName);
 	if (!agent) return createInvalidAgentResult(agentName, task, agents, step);
@@ -103,9 +139,13 @@ export async function runSingleAgent(
 	const effectiveModelString = modelOverride ?? agent.model;
 
 	// Resolve the actual Model<any> to pass to the SDK.
-	let resolvedModel: Model<any> | undefined = callerModel;
+	const callerProviderEnabled = !callerModel || !disabledProviders?.has(callerModel.provider);
+	let resolvedModel: Model<any> | undefined = callerProviderEnabled ? callerModel : undefined;
+	let modelResolutionDiagnostic: string | undefined;
 	if (modelOverride) {
-		resolvedModel = resolveOverrideModel(modelRegistry, callerModel, modelOverride) ?? callerModel;
+		const resolved = resolveOverrideModel(modelRegistry, callerModel, modelOverride, disabledProviders);
+		resolvedModel = resolved.model ?? (callerProviderEnabled ? callerModel : undefined);
+		modelResolutionDiagnostic = resolved.diagnostic;
 	}
 
 	const currentResult: SingleResult = {
@@ -119,6 +159,11 @@ export async function runSingleAgent(
 		model: effectiveModelString,
 		step,
 	};
+
+	// Stash model-resolution diagnostic for UI visibility.
+	if (modelResolutionDiagnostic) {
+		currentResult.modelResolutionDiagnostic = modelResolutionDiagnostic;
+	}
 
 	const emitUpdate = () => {
 		if (!onUpdate) return;
@@ -190,20 +235,46 @@ export async function runSingleAgent(
 		}
 	});
 
-	let abortListener: (() => void) | undefined;
-	if (signal) {
-		if (signal.aborted) {
-			void session.abort();
-		} else {
-			abortListener = () => {
-				void session.abort();
-			};
-			signal.addEventListener("abort", abortListener, { once: true });
-		}
-	}
-
 	try {
-		await session.prompt(`Task: ${task}`);
+		// If the parent signal is already aborted, run the prompt anyway (it'll
+		// abort quickly) and return an explicit abort result.
+		if (signal?.aborted) {
+			void session.abort();
+			await session.prompt(`Task: ${task}`);
+			currentResult.exitCode = 1;
+			if (!currentResult.errorMessage) currentResult.errorMessage = "Subagent was aborted";
+			return currentResult;
+		}
+
+		// Race the prompt against a timeout to prevent indefinite hangs.
+		// The parent's abort signal takes priority; the timeout is a safety net
+		// for cases where the provider never responds.
+		const promptTimeout = AbortSignal.timeout(SUBAGENT_PROMPT_TIMEOUT_MS);
+		const combinedSignal = signal
+			? AbortSignal.any([signal, promptTimeout])
+			: promptTimeout;
+
+		let timedOut = false;
+		const onCombinedAbort = () => {
+			// If the prompt timeout has fired (even if the parent signal also fired
+			// simultaneously), flag it as a timeout so callers can distinguish the cause.
+			if (promptTimeout.aborted) timedOut = true;
+			void session.abort();
+		};
+		combinedSignal.addEventListener("abort", onCombinedAbort, { once: true });
+
+		try {
+			await session.prompt(`Task: ${task}`);
+		} finally {
+			combinedSignal.removeEventListener("abort", onCombinedAbort);
+		}
+
+		if (timedOut) {
+			currentResult.exitCode = 1;
+			currentResult.stopReason = "timeout";
+			currentResult.errorMessage = `Subagent timed out after ${SUBAGENT_PROMPT_TIMEOUT_MS / 1000}s waiting for model response.`;
+			return currentResult;
+		}
 
 		const stop = currentResult.stopReason;
 		if (stop === "error" || stop === "aborted") {
@@ -223,7 +294,6 @@ export async function runSingleAgent(
 		currentResult.stderr = currentResult.stderr || message;
 		return currentResult;
 	} finally {
-		if (abortListener && signal) signal.removeEventListener("abort", abortListener);
 		try {
 			unsubscribe();
 		} catch {

@@ -81,7 +81,7 @@ export function ComposerSettingsMenu({ prefs, availableExtensions, availableMode
                       onClick={() => onSetPrefs(toggleChatPref(prefs, item.key))}
                     >
                       <span class="toolbar-settings-item-check" aria-hidden="true">
-                        <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
+                        <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
                           <polyline points="2.5,6.5 5,9 10.5,3.5" />
                         </svg>
                       </span>
@@ -110,7 +110,7 @@ export function ComposerSettingsMenu({ prefs, availableExtensions, availableMode
                       onClick={() => onSetPrefs(setExtensionEnabled(prefs, ext.id, !checked))}
                     >
                       <span class="toolbar-settings-item-check" aria-hidden="true">
-                        <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
+                        <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
                           <polyline points="2.5,6.5 5,9 10.5,3.5" />
                         </svg>
                       </span>
@@ -137,7 +137,7 @@ export function ComposerSettingsMenu({ prefs, availableExtensions, availableMode
                       onClick={() => onSetPrefs(setProviderEnabled(prefs, provider, !checked))}
                     >
                       <span class="toolbar-settings-item-check" aria-hidden="true">
-                        <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
+                        <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
                           <polyline points="2.5,6.5 5,9 10.5,3.5" />
                         </svg>
                       </span>

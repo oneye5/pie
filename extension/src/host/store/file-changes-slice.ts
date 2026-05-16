@@ -1,3 +1,5 @@
+import * as nodePath from 'node:path';
+
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
 import type { FileChangeEntry, ChatMessage } from '../../shared/protocol';
@@ -29,6 +31,17 @@ const fileChangesSlice = createSlice({
       } else {
         list.push(action.payload.change);
       }
+    },
+    removeFileChange(
+      state,
+      action: PayloadAction<{ sessionPath: string; path: string }>,
+    ) {
+      const list = state.bySession[action.payload.sessionPath];
+      if (!list) return;
+      const target = nodePath.normalize(action.payload.path);
+      state.bySession[action.payload.sessionPath] = list.filter(
+        (entry) => nodePath.normalize(entry.path) !== target,
+      );
     },
     clearFileChanges(state, action: PayloadAction<string>) {
       delete state.bySession[action.payload];

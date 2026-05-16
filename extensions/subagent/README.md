@@ -57,6 +57,8 @@ Scores: `reasoning`, `precision`, `creativity`, `thoroughness` (0–5 each).
 
 Model selection reads `<pi-config>/model-profiles.json` (the shared registry — also consumed by pie's model picker). If that file is absent the subagent inherits the calling agent's model and thinking level.
 
+When running under pie, provider toggles are mirrored into the pi backend. Models that are only available from providers toggled off in pie are removed from the subagent selection pool.
+
 ## Disabling Sub Agents
 
 When sub agents are disabled, the tool still registers in the tool list (preventing

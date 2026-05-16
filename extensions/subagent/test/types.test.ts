@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
 	AGENT_SCOPE_VALUES,
 	MAX_CONCURRENCY,
+	MAX_MODEL_RETRIES,
 	MAX_PARALLEL_TASKS,
 	COLLAPSED_ITEM_COUNT,
 } from "../types.js";
@@ -19,6 +20,10 @@ test("MAX_CONCURRENCY is 4", () => {
 
 test("COLLAPSED_ITEM_COUNT is 10", () => {
 	assert.equal(COLLAPSED_ITEM_COUNT, 10);
+});
+
+test("MAX_MODEL_RETRIES is 5", () => {
+	assert.equal(MAX_MODEL_RETRIES, 5);
 });
 
 test("AGENT_SCOPE_VALUES contains user, project, both", () => {

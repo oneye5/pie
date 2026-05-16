@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.73.0",
-  "defaultProvider": "ollama",
-  "defaultModel": "glm-5.1:cloud",
-  "defaultThinkingLevel": "high",
+  "defaultProvider": "github-copilot",
+  "defaultModel": "gpt-5.4",
+  "defaultThinkingLevel": "xhigh",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
     {
