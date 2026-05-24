@@ -230,6 +230,8 @@ test('rendered tool-call components cover collapsed summaries, expanded bodies, 
 
   assert.match(subagentHtml, /subagent-agent-name/);
   assert.match(subagentHtml, /subagent-scores/);
+  assert.match(subagentHtml, /subagent-model-label/);
+  assert.match(subagentHtml, /claude-sonnet-4-5/);
   assert.doesNotMatch(subagentHtml, /subagent-model-tag/);
   assert.doesNotMatch(subagentHtml, /subagent-thinking-tag/);
   assert.match(subagentHtml, /Looks good/);
@@ -340,8 +342,9 @@ test('rendered ToolCallItem hides subagent model-selection badges in collapsed h
   }));
 
   assert.match(html, /Inspect runtime model/);
-  assert.doesNotMatch(html, /gpt-5\.4/);
-  assert.doesNotMatch(html, /claude-opus-4\.6/);
+  assert.doesNotMatch(html, /gpt-5\.4/);  // actual execution model not shown when selectedModel present
+  assert.match(html, /claude-opus-4\.6/);  // selectedModel is now visible in header
+  assert.match(html, /subagent-model-label/);
   assert.doesNotMatch(html, /subagent-model-tag/);
 });
 
@@ -382,7 +385,8 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
   assert.doesNotMatch(collapsedHtml, /subagent-secondary-meta/);
   assert.doesNotMatch(collapsedHtml, /subagent-model-tag/);
   assert.doesNotMatch(collapsedHtml, /subagent-thinking-tag/);
-  assert.doesNotMatch(collapsedHtml, /claude-sonnet-4-5/);
+  assert.match(collapsedHtml, /claude-sonnet-4-5/);  // model now shown in header
+  assert.match(collapsedHtml, /subagent-model-label/);
   assert.doesNotMatch(collapsedHtml, /subagent-messages/);
 
   const inferredSubagentHtml = renderToString(h(ToolCallItem, {
@@ -471,7 +475,7 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
 
   assert.match(runningParentHtml, /aria-label="Running"/);
   assert.doesNotMatch(runningParentHtml, /subagent-model-tag/);
-  assert.doesNotMatch(runningParentHtml, /gpt-4\.1/);
+  assert.match(runningParentHtml, /gpt-4\.1/);  // model now shown in header
 
   const abortedHtml = renderToString(h(ToolCallItem, {
     toolCall: toolCall({

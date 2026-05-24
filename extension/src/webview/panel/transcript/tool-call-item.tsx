@@ -88,13 +88,32 @@ function ScoreBar({ scores }: { scores: Record<string, number> | undefined }) {
   );
 }
 
+/** Compact model label shown in the subagent header. */
+function ModelLabel({ result }: { result: SubagentSingleResult }) {
+  const model = result.selectedModel ?? result.model;
+  if (!model) return null;
+  // Show short name: last segment after '/' or full if no slash
+  const short = model.includes('/') ? model.split('/').pop()! : model;
+  const title = result.thinkingLevel
+    ? `${model} (thinking: ${result.thinkingLevel})`
+    : model;
+  return (
+    <span class="subagent-model-label" title={title}>
+      {short}{result.thinkingLevel && result.thinkingLevel !== 'off' ? ` · ${result.thinkingLevel}` : ''}
+    </span>
+  );
+}
+
 /** High-priority metadata that should remain visible before summary text. */
 function PrimaryMeta({ result }: { result: SubagentSingleResult }) {
-  if (!normalizeTaskScoresForDisplay(result.taskScores)) return null;
+  const hasScores = !!normalizeTaskScoresForDisplay(result.taskScores);
+  const hasModel = !!(result.selectedModel ?? result.model);
+  if (!hasScores && !hasModel) return null;
 
   return (
     <span class="subagent-primary-meta">
-      <ScoreBar scores={result.taskScores} />
+      <ModelLabel result={result} />
+      {hasScores && <ScoreBar scores={result.taskScores} />}
     </span>
   );
 }
@@ -209,6 +228,26 @@ function SubagentSingleBlock({
           }}
           onKeyDown={(e) => e.stopPropagation()}
         >
+          {singleResult.selectionPool && singleResult.selectionPool.length > 0 && (
+            <div class="subagent-model-selection">
+              <span class="subagent-model-selection-title">Model selection</span>
+              <div class="subagent-model-selection-pool">
+                {singleResult.selectionPool.map((candidate, idx) => {
+                  const fitScore = singleResult.selectionFitScores?.[idx];
+                  const isChosen = candidate === (singleResult.selectedModel ?? singleResult.model);
+                  return (
+                    <span key={idx} class={`subagent-pool-candidate${isChosen ? ' chosen' : ''}`}>
+                      <span class="subagent-pool-name">{candidate.includes('/') ? candidate.split('/').pop() : candidate}</span>
+                      {fitScore != null && <span class="subagent-pool-score">{fitScore.toFixed(1)}</span>}
+                    </span>
+                  );
+                })}
+              </div>
+              {singleResult.retryCount != null && singleResult.retryCount > 0 && (
+                <span class="subagent-model-retries">Retries: {singleResult.retryCount}</span>
+              )}
+            </div>
+          )}
           {singleResult.runningTools && singleResult.runningTools.length > 0 && (
             <div class="subagent-running-tools">
               {singleResult.runningTools.map((runningTool, runningIndex) => (

@@ -24,26 +24,53 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
     tokensSaved,
     hasSkillPruning,
     hasToolPruning,
+    error,
+    details,
   } = pruningResult;
+
+  // Error state
+  if (error) {
+    return (
+      <div
+        class={`pruning-banner pruning-banner-error${expanded ? ' pruning-banner-expanded' : ' pruning-banner-collapsed'}`}
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
+      >
+        <div class="pruning-banner-summary">
+          <span class="pruning-banner-icon" aria-hidden="true">⚠</span>
+          <span class="pruning-banner-text">Pruning failed</span>
+          <span class="pruning-banner-chevron" aria-hidden="true">
+            {expanded ? '▲' : '▼'}
+          </span>
+        </div>
+        {expanded && (
+          <div class="pruning-banner-detail">
+            <div class="pruning-banner-detail-row">
+              <span class="pruning-banner-detail-text pruning-banner-error-text">{error}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   const summaryParts: string[] = [];
   if (skillsTotal > 0) summaryParts.push(`${skillsKept}/${skillsTotal} skills kept`);
   if (toolsTotal > 0) summaryParts.push(`${toolsKept}/${toolsTotal} tools kept`);
+  if (skillsTotal === 0 && toolsTotal === 0) summaryParts.push('No skills or tools to prune');
   const summaryCore = summaryParts.join(' · ');
   const tokenSuffix = tokensSaved > 0
     ? `${summaryCore ? ' · ' : ''}~${tokensSaved} tokens saved`
     : '';
   const summaryText = `${summaryCore}${tokenSuffix}`;
-
-  const skillsDetail =
-    hasSkillPruning
-      ? 'Skills pruned by relevance score (low-scoring skills removed before injection)'
-      : 'No skills were pruned';
-
-  const toolsDetail =
-    hasToolPruning
-      ? 'Tools pruned by tier (only high-tier request_tools included)'
-      : 'No tools were pruned';
 
   return (
     <div
@@ -68,14 +95,47 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
       </div>
       {expanded && (
         <div class="pruning-banner-detail">
-          <div class="pruning-banner-detail-row">
-            <span class="pruning-banner-hint">Skill pruning</span>
-            <span class="pruning-banner-detail-text">{skillsDetail}</span>
-          </div>
-          <div class="pruning-banner-detail-row">
-            <span class="pruning-banner-hint">Tool pruning</span>
-            <span class="pruning-banner-detail-text">{toolsDetail}</span>
-          </div>
+          {details ? (
+            <>
+              {details.excludedSkills.length > 0 && (
+                <div class="pruning-banner-detail-row">
+                  <span class="pruning-banner-hint">Skills pruned</span>
+                  <span class="pruning-banner-detail-text">{details.excludedSkills.join(', ')}</span>
+                </div>
+              )}
+              {details.includedSkills.length > 0 && (
+                <div class="pruning-banner-detail-row">
+                  <span class="pruning-banner-hint">Skills kept</span>
+                  <span class="pruning-banner-detail-text">{details.includedSkills.join(', ')}</span>
+                </div>
+              )}
+              {details.excludedTools.length > 0 && (
+                <div class="pruning-banner-detail-row">
+                  <span class="pruning-banner-hint">Tools pruned</span>
+                  <span class="pruning-banner-detail-text">{details.excludedTools.join(', ')}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div class="pruning-banner-detail-row">
+                <span class="pruning-banner-hint">Skill pruning</span>
+                <span class="pruning-banner-detail-text">
+                  {hasSkillPruning
+                    ? 'Skills pruned by relevance score (low-scoring skills removed before injection)'
+                    : 'No skills were pruned'}
+                </span>
+              </div>
+              <div class="pruning-banner-detail-row">
+                <span class="pruning-banner-hint">Tool pruning</span>
+                <span class="pruning-banner-detail-text">
+                  {hasToolPruning
+                    ? 'Tools pruned by tier (only high-tier request_tools included)'
+                    : 'No tools were pruned'}
+                </span>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>

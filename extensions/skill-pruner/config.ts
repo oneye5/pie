@@ -1,51 +1,44 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import type { PruningConfig, PruningMode, ToolPruningConfig, ToolTier } from "./types.js";
+import type { PruningConfig, PruningMode, PruningStrategy, ToolPruningConfig } from "./types.js";
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
 const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 export const DEFAULT_TOOL_CONFIG: ToolPruningConfig = {
-	tiers: {
-		read: "core",
-		edit: "core",
-		write: "core",
-		bash: "core",
-		subagent: "contextual",
-		web_search: "contextual",
-		code_search: "contextual",
-		fetch_content: "contextual",
-		get_search_content: "contextual",
-	},
+	strategy: "discretion",
+	ceiling: 10,
 	dependencies: {
 		edit: ["read"],
 		subagent: ["bash"],
 	},
-	ceiling: 5,
 };
 
 export const DEFAULT_CONFIG: PruningConfig = {
 	mode: "auto",
+	model: "gpt-5.4-mini",
+	provider: "github-copilot",
+	thinkingLevel: "minimal",
 	skills: {
-		ceiling: 5,
-		floor: 2,
-		scoreThreshold: 0.4,
-		gapThreshold: 0.3,
+		strategy: "discretion",
+		ceiling: 8,
 		pinned: [],
 	},
 	tools: cloneDefaultToolConfig(),
 };
 
 const VALID_MODES = new Set<PruningMode>(["auto", "off", "shadow"]);
+const VALID_STRATEGIES = new Set<PruningStrategy>(["discretion", "topK"]);
 
 function cloneDefault(): PruningConfig {
 	return {
 		mode: DEFAULT_CONFIG.mode,
+		model: DEFAULT_CONFIG.model,
+		provider: DEFAULT_CONFIG.provider,
+		thinkingLevel: DEFAULT_CONFIG.thinkingLevel,
 		skills: {
+			strategy: DEFAULT_CONFIG.skills.strategy,
 			ceiling: DEFAULT_CONFIG.skills.ceiling,
-			floor: DEFAULT_CONFIG.skills.floor,
-			scoreThreshold: DEFAULT_CONFIG.skills.scoreThreshold,
-			gapThreshold: DEFAULT_CONFIG.skills.gapThreshold,
 			pinned: [...DEFAULT_CONFIG.skills.pinned],
 		},
 		tools: cloneDefaultToolConfig(),
@@ -54,11 +47,11 @@ function cloneDefault(): PruningConfig {
 
 function cloneDefaultToolConfig(): ToolPruningConfig {
 	return {
-		tiers: { ...DEFAULT_TOOL_CONFIG.tiers },
+		strategy: DEFAULT_TOOL_CONFIG.strategy,
+		ceiling: DEFAULT_TOOL_CONFIG.ceiling,
 		dependencies: Object.fromEntries(
 			Object.entries(DEFAULT_TOOL_CONFIG.dependencies).map(([k, v]) => [k, [...v]]),
 		),
-		ceiling: DEFAULT_TOOL_CONFIG.ceiling,
 	};
 }
 
@@ -93,9 +86,9 @@ export function loadConfig(
 	}
 
 	const raw = pruning as Record<string, unknown>;
-	const rawSkills = raw.skills && typeof raw.skills === "object" ? raw.skills as Record<string, unknown> : {};
 	const config = cloneDefault();
 
+	// Parse top-level fields
 	if (raw.mode !== undefined) {
 		if (typeof raw.mode === "string" && VALID_MODES.has(raw.mode as PruningMode)) {
 			config.mode = raw.mode as PruningMode;
@@ -104,39 +97,46 @@ export function loadConfig(
 		}
 	}
 
-	const ceiling = rawSkills.ceiling ?? config.skills.ceiling;
-	const floor = rawSkills.floor ?? config.skills.floor;
-	if (rawSkills.ceiling !== undefined || rawSkills.floor !== undefined) {
-		if (
-			typeof ceiling === "number" &&
-			Number.isFinite(ceiling) &&
-			Number.isInteger(ceiling) &&
-			typeof floor === "number" &&
-			Number.isFinite(floor) &&
-			Number.isInteger(floor) &&
-			ceiling >= floor &&
-			floor >= 1
-		) {
-			config.skills.ceiling = ceiling;
-			config.skills.floor = floor;
+	if (raw.model !== undefined) {
+		if (typeof raw.model === "string" && raw.model.length > 0) {
+			config.model = raw.model;
 		} else {
-			warn("invalid pruning.skills ceiling/floor; using default ceiling and floor");
+			warn("invalid pruning.model; using default");
 		}
 	}
 
-	if (rawSkills.scoreThreshold !== undefined) {
-		if (typeof rawSkills.scoreThreshold === "number" && rawSkills.scoreThreshold >= 0 && rawSkills.scoreThreshold <= 1) {
-			config.skills.scoreThreshold = rawSkills.scoreThreshold;
+	if (raw.provider !== undefined) {
+		if (typeof raw.provider === "string" && raw.provider.length > 0) {
+			config.provider = raw.provider;
 		} else {
-			warn("invalid pruning.skills.scoreThreshold; using default");
+			warn("invalid pruning.provider; using default");
 		}
 	}
 
-	if (rawSkills.gapThreshold !== undefined) {
-		if (typeof rawSkills.gapThreshold === "number" && rawSkills.gapThreshold >= 0 && rawSkills.gapThreshold <= 1) {
-			config.skills.gapThreshold = rawSkills.gapThreshold;
+	if (raw.thinkingLevel !== undefined) {
+		if (typeof raw.thinkingLevel === "string" && raw.thinkingLevel.length > 0) {
+			config.thinkingLevel = raw.thinkingLevel;
 		} else {
-			warn("invalid pruning.skills.gapThreshold; using default");
+			warn("invalid pruning.thinkingLevel; using default");
+		}
+	}
+
+	// Parse skills config
+	const rawSkills = raw.skills && typeof raw.skills === "object" ? raw.skills as Record<string, unknown> : {};
+
+	if (rawSkills.strategy !== undefined) {
+		if (typeof rawSkills.strategy === "string" && VALID_STRATEGIES.has(rawSkills.strategy as PruningStrategy)) {
+			config.skills.strategy = rawSkills.strategy as PruningStrategy;
+		} else {
+			warn("invalid pruning.skills.strategy; using default");
+		}
+	}
+
+	if (rawSkills.ceiling !== undefined) {
+		if (typeof rawSkills.ceiling === "number" && Number.isInteger(rawSkills.ceiling) && rawSkills.ceiling > 0) {
+			config.skills.ceiling = rawSkills.ceiling;
+		} else {
+			warn("invalid pruning.skills.ceiling; must be a positive integer; using default");
 		}
 	}
 
@@ -148,45 +148,37 @@ export function loadConfig(
 		}
 	}
 
-	// Load tools config
-	if (raw.tools != null && typeof raw.tools === 'object') {
+	// Parse tools config
+	if (raw.tools != null && typeof raw.tools === "object") {
 		const rawTools = raw.tools as Record<string, unknown>;
-		// Merge tiers
-		const newTiers = { ...DEFAULT_TOOL_CONFIG.tiers };
-		if (rawTools.tiers && typeof rawTools.tiers === 'object') {
-			const userTiers = rawTools.tiers as Record<string, unknown>;
-			for (const [tool, tier] of Object.entries(userTiers)) {
-				if (typeof tier === 'string' && (tier === 'core' || tier === 'contextual' || tier === 'rare')) {
-					newTiers[tool] = tier as ToolTier;
-				} else {
-					warn(`Invalid tier for tool '${tool}'; skipping`);
-				}
+
+		if (rawTools.strategy !== undefined) {
+			if (typeof rawTools.strategy === "string" && VALID_STRATEGIES.has(rawTools.strategy as PruningStrategy)) {
+				config.tools!.strategy = rawTools.strategy as PruningStrategy;
+			} else {
+				warn("invalid pruning.tools.strategy; using default");
 			}
 		}
-		config.tools.tiers = newTiers;
 
-		// Merge dependencies
-		const newDependencies = { ...DEFAULT_TOOL_CONFIG.dependencies };
-		if (rawTools.dependencies && typeof rawTools.dependencies === 'object') {
+		if (rawTools.ceiling !== undefined) {
+			if (typeof rawTools.ceiling === "number" && Number.isInteger(rawTools.ceiling) && rawTools.ceiling > 0) {
+				config.tools!.ceiling = rawTools.ceiling;
+			} else {
+				warn("invalid pruning.tools.ceiling; must be a positive integer; using default");
+			}
+		}
+
+		if (rawTools.dependencies && typeof rawTools.dependencies === "object") {
 			const userDeps = rawTools.dependencies as Record<string, unknown>;
+			const newDependencies: Record<string, string[]> = { ...DEFAULT_TOOL_CONFIG.dependencies };
 			for (const [tool, deps] of Object.entries(userDeps)) {
-				if (Array.isArray(deps) && deps.every(d => typeof d === 'string')) {
+				if (Array.isArray(deps) && deps.every((d) => typeof d === "string")) {
 					newDependencies[tool] = deps;
 				} else {
 					warn(`Invalid dependencies for tool '${tool}'; skipping`);
 				}
 			}
-		}
-		config.tools.dependencies = newDependencies;
-
-		// Ceiling
-		if (rawTools.ceiling !== undefined) {
-			const ceiling = rawTools.ceiling;
-			if (typeof ceiling === 'number' && Number.isInteger(ceiling) && ceiling > 0) {
-				config.tools.ceiling = ceiling;
-			} else {
-				warn("Invalid pruning.tools.ceiling; must be a positive integer; using default");
-			}
+			config.tools!.dependencies = newDependencies;
 		}
 	}
 

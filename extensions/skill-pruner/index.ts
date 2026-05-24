@@ -1,5 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import { formatSkillsForPrompt } from "@mariozechner/pi-coding-agent";
 import type {
 	Skill,
@@ -11,23 +12,28 @@ import type {
 } from "@mariozechner/pi-coding-agent";
 import { Box, Text } from "@mariozechner/pi-tui";
 import { DEFAULT_CONFIG, loadConfig } from "./config.js";
-import { applyThreshold, applyToolThreshold, scoreSkills, scoreTools } from "./scorer.js";
+import { runLlmPruning, type CompleteSimpleFn, type LlmPruningInput } from "./llm-scorer.js";
 import { appendDecision, estimateTokens, recordKnownSkills, recordSkillRead } from "./logger.js";
-import type { PruningConfig, PruningDecision, PruningResult, ScoredTool, SkillScoreCacheEntry } from "./types.js";
+import type { PruningConfig, PruningDecision, PruningResult } from "./types.js";
+
+/** Lazily-resolved reference to @mariozechner/pi-ai's completeSimple (available via jiti at runtime). */
+let _piCompleteSimple: ((model: unknown, context: unknown, options: unknown) => Promise<unknown>) | null | undefined;
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
 const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 const SKILLS_BLOCK_RE = /\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
 const PROCESS_SESSION_ID = randomUUID();
+const LLM_TIMEOUT_MS = 10_000;
 
 let config: PruningConfig | null = null;
-const skillCache = new Map<string, SkillScoreCacheEntry>();
 let formatSkillsForPromptImpl: (skills: Skill[]) => string = formatSkillsForPrompt;
 /** Test seam: overrides getAllTools / getActiveTools / setActiveTools. */
 let getAllToolsOverride: (() => ToolInfo[]) | null = null;
 let getActiveToolsOverride: (() => string[]) | null = null;
 let setActiveToolsOverride: ((names: string[]) => void) | null = null;
+/** Test seam: override the LLM completion function. Use `false` to simulate unavailable. */
+let completeFnOverride: CompleteSimpleFn | null | false = null;
 
 /** Facade for pi API methods used for tool introspection. Captured from pi in the factory closure. */
 let piApi: {
@@ -46,6 +52,11 @@ function getPiToolSeams(): { getAllTools: () => ToolInfo[]; getActiveTools: () =
 }
 
 export default function (pi: ExtensionAPI) {
+	// DIAGNOSTIC: prove extension loads
+	try {
+		writeFileSync(path.join(CONFIG_ROOT, "data", "skill-pruner-loaded.txt"), `loaded at ${new Date().toISOString()}\n`);
+	} catch { /* ignore */ }
+
 	// Capture pi API methods for tool introspection (available throughout the session).
 	piApi = {
 		getAllTools: () => pi.getAllTools(),
@@ -146,6 +157,11 @@ export default function (pi: ExtensionAPI) {
 
 	// --- before_agent_start: skill + tool pruning ---
 	pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx) => {
+		// DIAGNOSTIC: prove hook fires
+		try {
+			writeFileSync(path.join(CONFIG_ROOT, "data", "skill-pruner-hook-fired.txt"), `hook at ${new Date().toISOString()}\n`);
+		} catch { /* ignore */ }
+
 		const activeConfig = getConfig();
 		const sessionId = getSessionId(ctx);
 		const skills = event.systemPromptOptions.skills ?? [];
@@ -154,31 +170,20 @@ export default function (pi: ExtensionAPI) {
 		// --- Off mode: no pruning, but still log skill reads ---
 		if (activeConfig.mode === "off") {
 			recordKnownSkills(sessionId, "off", allSkillPaths, [], []);
-			// Still log tool state baseline even in off mode
-			if (activeConfig.tools) {
-				const allTools = getAllToolsOverride
-					? getAllToolsOverride()
-					: getPiToolSeams().getAllTools();
-				const toolDecision = buildToolDecision({
-					sessionId,
-					mode: "off",
-					allTools,
-					includedTools: allTools.map((t) => t.name),
-					excludedTools: [],
-					config: activeConfig,
-				});
-				appendDecision(toolDecision);
-			}
 			return undefined;
 		}
 
-		// --- Skill pruning ---
+		// --- Skill + Tool pruning via LLM ---
 		let modifiedSystemPrompt = event.systemPrompt;
 		let skillPruningRan = false;
 		let skillResult: SkillPruningResult | null = null;
+		let toolResult: ToolPruningResult | null = null;
+		let pruningError: string | null = null;
+		let rawResponse = "";
+		let latencyMs = 0;
 
 		if (skills.length > 0) {
-			// Exclude disabled skills from scoring/threshold — they never consume floor/ceiling slots.
+			// Exclude disabled skills from LLM consideration
 			const visibleSkills = skills.filter((s) => !s.disableModelInvocation);
 			const disabledNames = new Set(
 				skills.filter((s) => s.disableModelInvocation).map((s) => s.name),
@@ -194,114 +199,198 @@ export default function (pi: ExtensionAPI) {
 			});
 
 			const contextFile = event.systemPromptOptions.contextFiles?.[0];
-			const scored = scoreSkills(event.prompt, contextFile?.content ?? "", visibleSkills, activeConfig, skillCache);
-			const thresholded = applyThreshold(scored, effectivePinned, activeConfig);
-			const includedSkills = thresholded.included.map((scoredSkill) => scoredSkill.skill);
-			const newBlock = formatSkillsForPromptImpl(includedSkills);
-			const hint = buildHint(thresholded.excluded.map((skill) => skill.name));
-			const replacement = buildReplacement(newBlock, hint);
-			const match = event.systemPrompt.match(SKILLS_BLOCK_RE);
 
-			if (!match) {
-				console.warn("[skill-pruner] skills block not found in system prompt; skipping pruning");
+			// Build tool candidates
+			const allTools = getAllToolsOverride
+				? getAllToolsOverride()
+				: getPiToolSeams().getAllTools();
+
+			const llmInput: LlmPruningInput = {
+				userPrompt: event.prompt,
+				contextFile: contextFile?.path,
+				skills: visibleSkills.map((s) => ({ name: s.name, description: s.description })),
+				tools: allTools.map((t) => ({ name: t.name, description: t.description ?? "" })),
+				config: activeConfig,
+			};
+
+			// Resolve model and call LLM
+			let llmSelectedSkills: string[] | null = null;
+			let llmSelectedTools: string[] | null = null;
+
+			const completeFn = getCompleteFn(ctx);
+			if (!completeFn) {
+				pruningError = "No completion function available";
 				recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
-				skillResult = null;
+				// Fall through to emit status message
 			} else {
-				const skillModified = event.systemPrompt.replace(SKILLS_BLOCK_RE, replacement);
-				const decision = buildDecision({
-					sessionId,
-					mode: activeConfig.mode,
-					query: event.prompt,
-					contextFilePath: contextFile?.path,
-					scored,
-					included: thresholded.included,
-					excluded: thresholded.excluded,
-					newBlock: replacement,
-					originalBlock: match[0],
-					pinned: effectivePinned,
-				});
-				appendDecision(decision);
+				try {
+					const model = resolveModel(ctx, activeConfig);
+					if (!model) {
+						pruningError = `Model '${activeConfig.model}' (provider: ${activeConfig.provider}) not found in registry`;
+					} else {
+						// Fetch auth from model registry
+						const auth = await resolveAuth(ctx, model);
+						const options: Record<string, unknown> = {
+							reasoning: activeConfig.thinkingLevel,
+							signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
+							...auth,
+						};
+						const result = await runLlmPruning(llmInput, model, options, completeFn);
+						llmSelectedSkills = result.selectedSkills;
+						llmSelectedTools = result.selectedTools;
+						rawResponse = result.rawResponse;
+						latencyMs = result.latencyMs;
+					}
+				} catch (error) {
+					pruningError = `LLM pruning failed: ${error instanceof Error ? error.message : String(error)}`;
+					console.warn(`[skill-pruner] ${pruningError}`);
+				}
+			}
 
-				skillResult = {
-					included: thresholded.included.map((s) => s.name),
-					excluded: thresholded.excluded.map((s) => s.name),
-					tokensSaved: estimateTokens(match[0]) - estimateTokens(replacement),
-				};
+			if (!pruningError || pruningError.startsWith("Model") || pruningError.startsWith("LLM pruning failed")) {
+				// Apply skill selection (even on error — treat as all-included fallback)
+				let includedSkillNames: string[];
+				let excludedSkillNames: string[];
 
-				if (activeConfig.mode === "shadow") {
-					recordKnownSkills(sessionId, "shadow", allSkillPaths, [], thresholded.excluded.map((skill) => skill.skill.filePath));
-					modifiedSystemPrompt = event.systemPrompt; // shadow: don't modify
+				if (llmSelectedSkills !== null) {
+					// Union LLM selections with pinned
+					const selectedSet = new Set(llmSelectedSkills);
+					for (const name of effectivePinned) {
+						selectedSet.add(name);
+					}
+					// Apply ceiling
+					const allSelected = [...selectedSet].slice(0, activeConfig.skills.ceiling);
+					const finalSet = new Set(allSelected);
+
+					includedSkillNames = visibleSkills.filter((s) => finalSet.has(s.name)).map((s) => s.name);
+					excludedSkillNames = visibleSkills.filter((s) => !finalSet.has(s.name)).map((s) => s.name);
 				} else {
-					recordKnownSkills(sessionId, "auto", allSkillPaths, thresholded.excluded.map((skill) => skill.skill.filePath), []);
-					modifiedSystemPrompt = skillModified;
-					skillPruningRan = true;
+					// Fallback: all included
+					includedSkillNames = visibleSkills.map((s) => s.name);
+					excludedSkillNames = [];
+				}
+
+				// Build new system prompt skills block
+				const includedSkills = visibleSkills.filter((s) => includedSkillNames.includes(s.name));
+				const newBlock = formatSkillsForPromptImpl(includedSkills);
+				const hint = buildHint(excludedSkillNames);
+				const replacement = buildReplacement(newBlock, hint);
+				const match = event.systemPrompt.match(SKILLS_BLOCK_RE);
+
+				if (!match) {
+					console.warn("[skill-pruner] skills block not found in system prompt; skipping pruning");
+					recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
+					skillResult = null;
+				} else {
+					const skillModified = event.systemPrompt.replace(SKILLS_BLOCK_RE, replacement);
+					const decision = buildDecision({
+						sessionId,
+						mode: activeConfig.mode,
+						query: event.prompt,
+						contextFilePath: contextFile?.path,
+						llmModel: activeConfig.model,
+						llmThinkingLevel: activeConfig.thinkingLevel,
+						llmResponse: rawResponse,
+						llmLatencyMs: latencyMs,
+						included: includedSkillNames,
+						excluded: excludedSkillNames,
+						pinned: effectivePinned,
+						newBlock: replacement,
+						originalBlock: match[0],
+					});
+					appendDecision(decision);
+
+					skillResult = {
+						included: includedSkillNames,
+						excluded: excludedSkillNames,
+						tokensSaved: estimateTokens(match[0]) - estimateTokens(replacement),
+					};
+
+					if (activeConfig.mode === "shadow") {
+						recordKnownSkills(sessionId, "shadow", allSkillPaths, [], excludedSkillNames.map((name) => {
+							const s = visibleSkills.find((skill) => skill.name === name);
+							return s?.filePath ?? "";
+						}).filter(Boolean));
+						modifiedSystemPrompt = event.systemPrompt; // shadow: don't modify
+					} else {
+						recordKnownSkills(sessionId, "auto", allSkillPaths, excludedSkillNames.map((name) => {
+							const s = visibleSkills.find((skill) => skill.name === name);
+							return s?.filePath ?? "";
+						}).filter(Boolean), []);
+						modifiedSystemPrompt = skillModified;
+						skillPruningRan = true;
+					}
+				}
+
+				// Apply tool selection
+				if (activeConfig.tools && allTools.length > 0) {
+					let includedToolNames: string[];
+					let excludedToolNames: string[];
+
+					if (llmSelectedTools !== null) {
+						const selectedSet = new Set(llmSelectedTools);
+
+						// Expand dependencies
+						const dependencies = activeConfig.tools.dependencies;
+						const queue = [...selectedSet];
+						const expanded = new Set(selectedSet);
+						while (queue.length > 0) {
+							const tool = queue.shift()!;
+							const deps = dependencies[tool] ?? [];
+							for (const dep of deps) {
+								if (!expanded.has(dep)) {
+									expanded.add(dep);
+									queue.push(dep);
+								}
+							}
+						}
+
+						// Apply ceiling
+						includedToolNames = [...expanded].slice(0, activeConfig.tools.ceiling);
+						const includedSet = new Set(includedToolNames);
+						excludedToolNames = allTools.map((t) => t.name).filter((name) => !includedSet.has(name));
+					} else {
+						// Fallback: all included
+						includedToolNames = allTools.map((t) => t.name);
+						excludedToolNames = [];
+					}
+
+					if (activeConfig.mode === "auto" && excludedToolNames.length > 0) {
+						if (setActiveToolsOverride) {
+							setActiveToolsOverride(includedToolNames);
+						} else {
+							getPiToolSeams().setActiveTools(includedToolNames);
+						}
+					}
+
+					toolResult = {
+						included: includedToolNames,
+						excluded: excludedToolNames,
+						tokensSaved: estimateToolTokens(allTools, excludedToolNames),
+					};
 				}
 			}
 		} else {
 			recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
 		}
 
-		// --- Tool pruning ---
-		let toolResult: ToolPruningResult | null = null;
-
-		if (activeConfig.tools) {
-			const allTools = getAllToolsOverride
-				? getAllToolsOverride()
-				: getPiToolSeams().getAllTools();
-			const contextFile = event.systemPromptOptions.contextFiles?.[0];
-
-			if (allTools.length > 0) {
-				const scoredTools = scoreTools(event.prompt, contextFile?.content ?? "", allTools, activeConfig.tools);
-				const currentActive = getActiveToolsOverride
-					? getActiveToolsOverride()
-					: getPiToolSeams().getActiveTools();
-				const toolThreshold = applyToolThreshold(scoredTools, currentActive, activeConfig.tools);
-
-				const toolTokensSaved = estimateToolTokens(allTools, toolThreshold.excluded);
-
-				if (activeConfig.mode === "auto") {
-					if (setActiveToolsOverride) {
-						setActiveToolsOverride(toolThreshold.included);
-					} else {
-						getPiToolSeams().setActiveTools(toolThreshold.included);
-					}
-				}
-
-				toolResult = {
-					included: toolThreshold.included,
-					excluded: toolThreshold.excluded,
-					tokensSaved: toolTokensSaved,
-				};
-
-				const toolDecision = buildToolDecision({
-					sessionId,
-					mode: activeConfig.mode,
-					allTools,
-					includedTools: toolThreshold.included,
-					excludedTools: toolThreshold.excluded,
-					config: activeConfig,
-				});
-				appendDecision(toolDecision);
-			}
-		}
-
-		// --- Build and send UI feedback message ---
-		// Use pi.sendMessage() to inject the message into the TUI chat history,
-		// not the before_agent_start return 'message' field (which only adds to LLM context).
-		const feedbackMessage = buildFeedbackMessage(skillResult, toolResult, activeConfig.mode);
-		if (feedbackMessage) {
-			pi.sendMessage(feedbackMessage);
-		}
+		// --- Build pruning status (integrated into system prompts section) ---
+		const feedbackMessage = buildFeedbackMessage(skillResult, toolResult, activeConfig.mode, {
+			model: activeConfig.model,
+			thinkingLevel: activeConfig.thinkingLevel,
+			response: rawResponse,
+			latencyMs,
+			error: pruningError,
+		});
 
 		if (activeConfig.mode === "shadow") {
-			// Shadow mode: don't modify prompt or tools, but still log
-			return { systemPrompt: event.systemPrompt };
+			return { systemPrompt: event.systemPrompt, message: feedbackMessage ?? undefined };
 		}
 
 		if (skillPruningRan) {
-			return { systemPrompt: modifiedSystemPrompt };
+			return { systemPrompt: modifiedSystemPrompt, message: feedbackMessage ?? undefined };
 		}
-		return undefined;
+		return feedbackMessage ? { message: feedbackMessage } : undefined;
 	});
 
 	pi.on("tool_call", async (event: ToolCallEvent, ctx) => {
@@ -340,23 +429,93 @@ interface ToolPruningResult {
 // --- Helper functions ---
 
 function getConfig(): PruningConfig {
-	if (!config) {
-		config = loadConfig(path.join(CONFIG_ROOT, "settings.json"));
-	}
+	config = loadConfig(path.join(CONFIG_ROOT, "settings.json"));
 	return config;
 }
 
 function getSessionId(ctx: unknown): string {
-	// ExtensionContext has sessionManager.getSessionId(), not sessionId directly.
 	const ctxObj = ctx as Record<string, unknown>;
 	const sessionManager = ctxObj?.sessionManager as { getSessionId?: () => string } | undefined;
 	const sessionId = sessionManager?.getSessionId?.();
 	return typeof sessionId === "string" && sessionId.length > 0 ? sessionId : PROCESS_SESSION_ID;
 }
 
+/** Resolve the completion function — uses test seam or falls back to pi-ai's completeSimple. */
+function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
+	if (completeFnOverride === false) return null;
+	if (completeFnOverride) return completeFnOverride;
+	// Adapter: converts the flat-message format used by runLlmPruning into the
+	// { systemPrompt, messages } format expected by @mariozechner/pi-ai's completeSimple.
+	const adapter: CompleteSimpleFn = async (model, context, options) => {
+		// Lazy-load @mariozechner/pi-ai (only available at runtime via jiti virtualModules)
+		if (_piCompleteSimple === undefined) {
+			try {
+				const piAi = await import("@mariozechner/pi-ai");
+				_piCompleteSimple = piAi.completeSimple;
+			} catch {
+				_piCompleteSimple = null;
+			}
+		}
+		if (!_piCompleteSimple) {
+			throw new Error("@mariozechner/pi-ai not available");
+		}
+		const systemMsg = context.find((m) => m.role === "system");
+		const nonSystemMsgs = context.filter((m) => m.role !== "system");
+		const piContext = {
+			systemPrompt: systemMsg?.content ?? "",
+			messages: nonSystemMsgs.map((m) => ({
+				role: m.role,
+				content: [{ type: "text" as const, text: m.content }],
+				timestamp: Date.now(),
+			})),
+		};
+		const result = await _piCompleteSimple(model, piContext, options);
+		// Extract text from content blocks
+		const text = (result as { content?: Array<{ type: string; text?: string }> })
+			?.content?.filter((b: { type: string }) => b.type === "text")
+			.map((b: { text?: string }) => b.text ?? "")
+			.join("") ?? "";
+		return { text };
+	};
+	return adapter;
+}
+
+/** Resolve model from context using config's model/provider. */
+function resolveModel(ctx: unknown, _config: PruningConfig): unknown {
+	const ctxObj = ctx as Record<string, unknown>;
+	const modelRegistry = ctxObj?.modelRegistry as { find?: (provider: string, id: string) => unknown } | undefined;
+	if (modelRegistry?.find) {
+		return modelRegistry.find(_config.provider, _config.model);
+	}
+	// When no model registry available (e.g. test context or minimal SDK mode),
+	// construct a minimal model object that providers can use.
+	if (completeFnOverride) {
+		return { id: _config.model, provider: _config.provider, api: "unknown" };
+	}
+	return undefined;
+}
+
+/** Resolve API key and headers from the model registry for a given model. */
+async function resolveAuth(ctx: unknown, model: unknown): Promise<{ apiKey?: string; headers?: Record<string, string> }> {
+	const ctxObj = ctx as Record<string, unknown>;
+	const modelRegistry = ctxObj?.modelRegistry as { getApiKeyAndHeaders?: (model: unknown) => Promise<{ ok: boolean; apiKey?: string; headers?: Record<string, string> }> } | undefined;
+	if (modelRegistry?.getApiKeyAndHeaders) {
+		const result = await modelRegistry.getApiKeyAndHeaders(model);
+		if (result.ok) {
+			return { apiKey: result.apiKey, headers: result.headers };
+		}
+	}
+	return {};
+}
+
 /** internal: test seam — overrides the SKILLS block formatter. */
 export function __setFormatter(fn: ((skills: Skill[]) => string) | null): void {
 	formatSkillsForPromptImpl = fn ?? formatSkillsForPrompt;
+}
+
+/** internal: test seam — overrides the LLM completion function. */
+export function __setCompleteFn(fn: CompleteSimpleFn | null): void {
+	completeFnOverride = fn === null ? false : fn;
 }
 
 function buildHint(excludedNames: string[]): string {
@@ -379,73 +538,31 @@ function buildDecision(input: {
 	mode: PruningConfig["mode"];
 	query: string;
 	contextFilePath?: string;
-	scored: ReturnType<typeof scoreSkills>;
-	included: ReturnType<typeof applyThreshold>["included"];
-	excluded: ReturnType<typeof applyThreshold>["excluded"];
+	llmModel: string;
+	llmThinkingLevel: string;
+	llmResponse: string;
+	llmLatencyMs: number;
+	included: string[];
+	excluded: string[];
+	pinned: string[];
 	newBlock: string;
 	originalBlock: string;
-	pinned: string[];
 }): PruningDecision {
-	const includedNames = new Set(input.included.map((skill) => skill.name));
-	const pinnedNames = new Set(input.included.filter((skill) => skill.pinned).map((skill) => skill.name));
 	return {
 		timestamp: new Date().toISOString(),
 		sessionId: input.sessionId,
 		mode: input.mode,
 		query: input.query,
 		contextFile: input.contextFilePath,
-		candidates: input.scored.map((skill) => ({
-			name: skill.name,
-			triggerScore: skill.triggerScore,
-			keywordScore: skill.keywordScore,
-			nameScore: skill.nameScore,
-			compositeScore: skill.compositeScore,
-			included: includedNames.has(skill.name),
-			pinned: pinnedNames.has(skill.name) || undefined,
-		})),
+		llmModel: input.llmModel,
+		llmThinkingLevel: input.llmThinkingLevel,
+		llmResponse: input.llmResponse,
+		llmLatencyMs: input.llmLatencyMs,
 		pinned: input.pinned,
-		included: input.included.map((skill) => skill.name),
-		excluded: input.excluded.map((skill) => skill.name),
+		included: input.included,
+		excluded: input.excluded,
 		skillBlockTokens: estimateTokens(input.newBlock),
 		originalBlockTokens: estimateTokens(input.originalBlock),
-	};
-}
-
-function buildToolDecision(input: {
-	sessionId: string;
-	mode: PruningConfig["mode"];
-	allTools: ToolInfo[];
-	includedTools: string[];
-	excludedTools: string[];
-	config: PruningConfig;
-}): PruningDecision {
-	const includedSet = new Set(input.includedTools);
-	return {
-		timestamp: new Date().toISOString(),
-		sessionId: input.sessionId,
-		mode: input.mode,
-		query: "",
-		candidates: [],
-		pinned: [],
-		included: [],
-		excluded: [],
-		skillBlockTokens: 0,
-		originalBlockTokens: 0,
-		toolCandidates: input.allTools.map((t) => {
-			const tier = input.config.tools?.tiers[t.name] ?? "contextual";
-			return {
-				name: t.name,
-				tier: tier as "core" | "contextual" | "rare",
-				keywordScore: 0,
-				nameScore: 0,
-				compositeScore: 0,
-				included: includedSet.has(t.name),
-			};
-		}),
-		toolIncluded: input.includedTools,
-		toolExcluded: input.excludedTools,
-		toolBlockTokens: 0,
-		originalToolBlockTokens: 0,
 	};
 }
 
@@ -455,27 +572,57 @@ function estimateToolTokens(allTools: ToolInfo[], excludedToolNames: string[]): 
 	let chars = 0;
 	for (const tool of allTools) {
 		if (excludedSet.has(tool.name)) {
-			// Rough estimate: name + description + parameter schema
-			chars += tool.name.length + tool.description.length + 50;
+			chars += tool.name.length + (tool.description?.length ?? 0) + 50;
 		}
 	}
 	return Math.ceil(chars / 4);
+}
+
+interface PrepassDiagnostics {
+	model: string;
+	thinkingLevel: string;
+	response: string;
+	latencyMs: number;
+	error?: string | null;
 }
 
 function buildFeedbackMessage(
 	skillResult: SkillPruningResult | null,
 	toolResult: ToolPruningResult | null,
 	mode: PruningConfig["mode"],
+	prepass?: PrepassDiagnostics,
 ): Pick<PruningResult, "customType" | "content" | "display" | "details"> | null {
 	const hasSkillPruning = skillResult && skillResult.excluded.length > 0;
 	const hasToolPruning = toolResult && toolResult.excluded.length > 0;
 
-	if (!hasSkillPruning && !hasToolPruning) {
+	// Handle error case — always show error to user
+	if (prepass?.error) {
+		const details: PruningResult & { prepassModel?: string; prepassThinkingLevel?: string; prepassError?: string } = {
+			includedSkills: skillResult?.included ?? [],
+			excludedSkills: skillResult?.excluded ?? [],
+			includedTools: toolResult?.included ?? [],
+			excludedTools: toolResult?.excluded ?? [],
+			mode,
+			skillTokensSaved: 0,
+			toolTokensSaved: 0,
+			prepassModel: prepass.model,
+			prepassThinkingLevel: prepass.thinkingLevel,
+			prepassError: prepass.error,
+		};
+		return {
+			customType: "pruning-result",
+			content: `Pruning error: ${prepass.error}`,
+			display: true,
+			details,
+		};
+	}
+
+	if (!skillResult && !toolResult) {
 		return null;
 	}
 
 	const parts: string[] = [];
-	const details: PruningResult = {
+	const details: PruningResult & { prepassModel?: string; prepassThinkingLevel?: string; prepassResponse?: string; prepassLatencyMs?: number } = {
 		includedSkills: skillResult?.included ?? [],
 		excludedSkills: skillResult?.excluded ?? [],
 		includedTools: toolResult?.included ?? [],
@@ -485,17 +632,30 @@ function buildFeedbackMessage(
 		toolTokensSaved: toolResult?.tokensSaved ?? 0,
 	};
 
+	if (prepass && prepass.response) {
+		details.prepassModel = prepass.model;
+		details.prepassThinkingLevel = prepass.thinkingLevel;
+		details.prepassResponse = prepass.response;
+		details.prepassLatencyMs = prepass.latencyMs;
+	}
+
 	if (hasSkillPruning) {
 		parts.push(`Kept ${skillResult!.included.length}/${skillResult!.included.length + skillResult!.excluded.length} skills`);
+	} else if (skillResult) {
+		parts.push(`All ${skillResult.included.length} skills kept`);
 	}
 	if (hasToolPruning) {
 		parts.push(`Kept ${toolResult!.included.length}/${toolResult!.included.length + toolResult!.excluded.length} tools`);
+	} else if (toolResult) {
+		parts.push(`All ${toolResult.included.length} tools kept`);
 	}
 
 	const tokensSaved = details.skillTokensSaved + details.toolTokensSaved;
 	const tokenNote = tokensSaved > 0 ? ` · Saved ~${tokensSaved} tokens` : "";
 
-	const content = `Pruned: ${parts.join(", ")}${tokenNote}`;
+	const content = hasSkillPruning || hasToolPruning
+		? `Pruned: ${parts.join(", ")}${tokenNote}`
+		: `Pruning: ${parts.join(", ")} (nothing removed)`;
 
 	return {
 		customType: "pruning-result",
@@ -508,18 +668,20 @@ function buildFeedbackMessage(
 export function setConfigForTesting(nextConfig: PruningConfig | null): void {
 	config = nextConfig ? {
 		mode: nextConfig.mode,
+		model: nextConfig.model,
+		provider: nextConfig.provider,
+		thinkingLevel: nextConfig.thinkingLevel,
 		skills: { ...nextConfig.skills, pinned: [...nextConfig.skills.pinned] },
 		tools: nextConfig.tools ? {
-			tiers: { ...nextConfig.tools.tiers },
-			dependencies: Object.fromEntries(Object.entries(nextConfig.tools.dependencies).map(([k, v]) => [k, [...v]])),
+			strategy: nextConfig.tools.strategy,
 			ceiling: nextConfig.tools.ceiling,
+			dependencies: Object.fromEntries(Object.entries(nextConfig.tools.dependencies).map(([k, v]) => [k, [...v]])),
 		} : undefined,
 	} : null;
 }
 
 export function resetForTesting(): void {
-	config = { mode: DEFAULT_CONFIG.mode, skills: { ...DEFAULT_CONFIG.skills, pinned: [] }, tools: DEFAULT_CONFIG.tools };
-	skillCache.clear();
+	config = null;
 	formatSkillsForPromptImpl = formatSkillsForPrompt;
 	getAllToolsOverride = null;
 	getActiveToolsOverride = null;

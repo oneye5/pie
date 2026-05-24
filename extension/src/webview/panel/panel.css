@@ -2415,6 +2415,121 @@ button.composer-meta-chip.open:focus {
   overflow: hidden;
 }
 
+/* ─── Extension UI Prompt ─────────────────────────────────────────────────── */
+
+.extension-ui-prompt {
+  margin: 0 12px 8px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--vscode-focusBorder, var(--panel-accent));
+  background: var(--panel-subtle-surface);
+  animation: extension-ui-slide-in 0.15s ease-out;
+}
+
+@keyframes extension-ui-slide-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.extension-ui-prompt-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.extension-ui-prompt-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  font-size: 11px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.extension-ui-prompt-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.extension-ui-prompt-countdown {
+  font-size: 11px;
+  color: var(--panel-muted);
+  flex-shrink: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.extension-ui-prompt-body {
+  font-size: 12px;
+  color: var(--vscode-foreground);
+  margin-bottom: 10px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.extension-ui-prompt-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.extension-ui-prompt-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.extension-ui-prompt-option {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  background: var(--panel-subtle-surface);
+  color: var(--vscode-foreground);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.extension-ui-prompt-option:hover {
+  background: var(--panel-hover-surface);
+  border-color: var(--vscode-focusBorder, var(--panel-accent));
+}
+
+.extension-ui-prompt-input-row {
+  margin-bottom: 10px;
+}
+
+.extension-ui-prompt-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--panel-border);
+  background: var(--vscode-input-background, var(--panel-bg));
+  color: var(--vscode-input-foreground, var(--vscode-foreground));
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.12s ease;
+}
+
+.extension-ui-prompt-input:focus {
+  border-color: var(--vscode-focusBorder, var(--panel-accent));
+}
+
 .message-glow-indicator::before {
   content: '';
   position: absolute;

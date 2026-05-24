@@ -40,9 +40,10 @@ const baseViewState: ViewState = {
   availableExtensions: [],
   fileChanges: [],
   pruningResult: null,
-  pruningSettings: { mode: 'auto' as const, skillCeiling: 5, toolCeiling: 5 },
+  pruningSettings: { mode: 'auto' as const, skillCeiling: 5, toolCeiling: 5, model: 'gpt-5.4-mini', provider: 'github-copilot', thinkingLevel: 'minimal' as const },
   editingMessageId: null,
   showOutcomeDialog: false,
+  pendingExtensionUIRequest: null,
 };
 
 test('buildPatchEnvelope marks the stream dirty when the view cannot accept patches', () => {

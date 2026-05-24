@@ -1,78 +1,28 @@
-import type { Skill } from "@mariozechner/pi-coding-agent";
-
 export type PruningMode = "auto" | "off" | "shadow";
 
+export type PruningStrategy = "discretion" | "topK";
+
 export interface SkillPruningConfig {
+	strategy: PruningStrategy;
 	ceiling: number;
-	floor: number;
-	scoreThreshold: number;
-	gapThreshold: number;
 	pinned: string[];
 }
-
-export interface PruningConfig {
-	mode: PruningMode;
-	skills: SkillPruningConfig;
-	tools?: ToolPruningConfig;
-}
-
-export interface SkillTriggers {
-	positive: string[];
-	negative: string[];
-}
-
-export interface SkillScoreCacheEntry {
-	triggers: SkillTriggers;
-	nameTokens: string[];
-}
-
-export interface ScoredSkill {
-	skill: Skill;
-	name: string;
-	triggerScore: number;
-	keywordScore: number;
-	nameScore: number;
-	triggerNormalized: number;
-	keywordNormalized: number;
-	nameNormalized: number;
-	compositeScore: number;
-	pinned?: boolean;
-}
-
-export interface ThresholdResult {
-	included: ScoredSkill[];
-	excluded: ScoredSkill[];
-}
-
-export interface PruningDecisionCandidate {
-	name: string;
-	triggerScore: number;
-	keywordScore: number;
-	nameScore: number;
-	compositeScore: number;
-	included: boolean;
-	pinned?: boolean;
-}
-
-export type ToolTier = "core" | "contextual" | "rare";
-
-export type ToolTierConfig = Record<string, ToolTier>;
 
 export type ToolDependencies = Record<string, string[]>;
 
 export interface ToolPruningConfig {
-	tiers: ToolTierConfig;
-	dependencies: ToolDependencies;
+	strategy: PruningStrategy;
 	ceiling: number;
+	dependencies: ToolDependencies;
 }
 
-export interface ScoredTool {
-	name: string;
-	description: string;
-	tier: ToolTier;
-	keywordScore: number;
-	nameScore: number;
-	compositeScore: number;
+export interface PruningConfig {
+	mode: PruningMode;
+	model: string;
+	provider: string;
+	thinkingLevel: string;
+	skills: SkillPruningConfig;
+	tools?: ToolPruningConfig;
 }
 
 export interface PruningResult {
@@ -91,13 +41,15 @@ export interface PruningDecision {
 	mode: PruningMode;
 	query: string;
 	contextFile?: string;
-	candidates: PruningDecisionCandidate[];
+	llmModel: string;
+	llmThinkingLevel: string;
+	llmResponse: string;
+	llmLatencyMs: number;
 	pinned: string[];
 	included: string[];
 	excluded: string[];
 	skillBlockTokens: number;
 	originalBlockTokens: number;
-	toolCandidates?: Array<{ name: string; tier: ToolTier; keywordScore: number; nameScore: number; compositeScore: number; included: boolean }>;
 	toolIncluded?: string[];
 	toolExcluded?: string[];
 	toolBlockTokens?: number;

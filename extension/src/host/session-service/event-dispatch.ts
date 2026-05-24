@@ -3,6 +3,7 @@ import type {
   ContextUsageChangedPayload,
   ErrorPayload,
   EventEnvelope,
+  ExtensionUIRequestPayload,
   MessageAbortedPayload,
   MessageDeltaPayload,
   MessageFinishedPayload,
@@ -28,6 +29,7 @@ export interface SessionBackendEventHandlers {
   onMessageAborted(payload: MessageAbortedPayload): void;
   onBusyChanged(payload: BusyChangedPayload): void;
   onContextUsageChanged(payload: ContextUsageChangedPayload): void;
+  onExtensionUIRequest(payload: ExtensionUIRequestPayload): void;
   onError(payload: ErrorPayload): void;
 }
 
@@ -71,6 +73,9 @@ export function dispatchSessionBackendEvent(
       return;
     case 'contextUsage.changed':
       handlers.onContextUsageChanged(event.payload as ContextUsageChangedPayload);
+      return;
+    case 'extension_ui.request':
+      handlers.onExtensionUIRequest(event.payload as ExtensionUIRequestPayload);
       return;
     case 'error':
       handlers.onError(event.payload as ErrorPayload);

@@ -7,6 +7,7 @@ import {
   type ComposerInput,
   type ContextWindowUsage,
   type ExtensionInfo,
+  type ExtensionUIRequestPayload,
   type FileChangeEntry,
   type ModelInfo,
   type PruningDetails,
@@ -150,7 +151,24 @@ export function derivePruningResult(transcript: ChatMessage[]): PruningResult | 
     if (message.customType !== 'pruning-result') continue;
 
     const details = message.customDetails as PruningDetails | undefined;
-    if (!details || !Array.isArray(details.includedSkills)) continue;
+    if (!details) continue;
+
+    // Handle error case — details may lack includedSkills when there's an error
+    if (details.prepassError) {
+      return {
+        skillsKept: 0,
+        skillsTotal: 0,
+        toolsKept: 0,
+        toolsTotal: 0,
+        tokensSaved: 0,
+        hasSkillPruning: false,
+        hasToolPruning: false,
+        error: details.prepassError,
+        details,
+      };
+    }
+
+    if (!Array.isArray(details.includedSkills)) continue;
 
     const skillsKept = details.includedSkills.length;
     const skillsTotal = details.includedSkills.length + details.excludedSkills.length;
@@ -166,6 +184,7 @@ export function derivePruningResult(transcript: ChatMessage[]): PruningResult | 
       tokensSaved,
       hasSkillPruning: details.excludedSkills.length > 0,
       hasToolPruning: details.excludedTools.length > 0,
+      details,
     };
   }
   return null;
@@ -209,6 +228,7 @@ export const selectViewState = createSelector(
     (s: RootState) => s.settings.pruningSettings,
     (s: RootState) => s.ui.editingMessageId,
     (s: RootState) => s.ui.showOutcomeDialog,
+    (s: RootState) => s.ui.pendingExtensionUIRequest,
   ],
   (
     sessions,
@@ -236,6 +256,7 @@ export const selectViewState = createSelector(
     pruningSettings,
     editingMessageId,
     showOutcomeDialog,
+    pendingExtensionUIRequest,
   ): ViewState => {
     const busy = !!activeSessionPath && runningSessionPaths.includes(activeSessionPath);
     return {
@@ -264,6 +285,7 @@ export const selectViewState = createSelector(
       pruningSettings,
       editingMessageId,
       showOutcomeDialog,
+      pendingExtensionUIRequest,
     };
   },
 );

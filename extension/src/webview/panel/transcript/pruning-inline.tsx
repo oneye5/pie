@@ -40,6 +40,9 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
     : fallbackText;
 
   const modeBadge = details.mode === 'shadow' ? ' (shadow)' : details.mode === 'off' ? ' (off)' : '';
+  const prepassLabel = details.prepassModel
+    ? ` via ${details.prepassModel}${details.prepassLatencyMs != null ? ` ${details.prepassLatencyMs}ms` : ''}`
+    : '';
   const timeLabel = formatTime(createdAt);
 
   return (
@@ -48,7 +51,7 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
         <div class="message-head-main">
           <span class="message-role">PI</span>
           {timeLabel && <span class="message-time">{timeLabel}</span>}
-          <span class="message-duration">skill-pruner{modeBadge}</span>
+          <span class="message-duration">skill-pruner{modeBadge}{prepassLabel}</span>
         </div>
       </div>
       <div
@@ -71,6 +74,16 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
         </div>
         {expanded && (
           <div class="pruning-banner-detail">
+            {details.prepassModel && (
+              <div class="pruning-banner-detail-row">
+                <span class="pruning-banner-hint">Prepass</span>
+                <span class="pruning-banner-detail-text">
+                  {details.prepassModel}
+                  {details.prepassThinkingLevel && details.prepassThinkingLevel !== 'off' ? ` · ${details.prepassThinkingLevel}` : ''}
+                  {details.prepassLatencyMs != null ? ` · ${details.prepassLatencyMs}ms` : ''}
+                </span>
+              </div>
+            )}
             {details.excludedSkills.length > 0 && (
               <div class="pruning-banner-detail-row">
                 <span class="pruning-banner-hint">Skills pruned</span>
@@ -93,6 +106,12 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
               <div class="pruning-banner-detail-row">
                 <span class="pruning-banner-hint">Tools kept</span>
                 <span class="pruning-banner-detail-text">{details.includedTools.join(', ')}</span>
+              </div>
+            )}
+            {details.prepassResponse && (
+              <div class="pruning-banner-prepass-response">
+                <span class="pruning-banner-hint">LLM reasoning</span>
+                <pre class="pruning-banner-response-text">{details.prepassResponse}</pre>
               </div>
             )}
           </div>

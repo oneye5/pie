@@ -53,6 +53,8 @@ export interface SubagentSingleResult {
   selectionPool?: string[];
   /** Fit scores for each pool candidate. */
   selectionFitScores?: number[];
+  /** Number of model retries before success. */
+  retryCount?: number;
   /** Streaming text from the current in-progress assistant turn. */
   streamingText?: string;
 }

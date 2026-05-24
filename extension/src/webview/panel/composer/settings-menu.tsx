@@ -3,13 +3,22 @@
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 
-import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningMode, PruningSettings } from '../../../shared/protocol';
+import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningMode, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
 import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
+import { orderModelsForPicker } from './model-list';
 
 const PRUNING_MODE_OPTIONS: { value: PruningMode; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'shadow', label: 'Shadow' },
   { value: 'off', label: 'Off' },
+];
+
+const THINKING_LEVEL_OPTIONS: { value: ThinkingLevel; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
 ];
 
 interface ComposerSettingsMenuProps {
@@ -182,6 +191,49 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, availableExtensio
                   aria-label="Pruning mode"
                 >
                   {PRUNING_MODE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+              <div class="toolbar-settings-item toolbar-settings-mode-row">
+                <span class="toolbar-settings-item-label">Prepass model</span>
+                <select
+                  class="toolbar-settings-select"
+                  value={pruningSettings.model}
+                  onChange={(e) => {
+                    const selected = availableModels.find((m) => m.id === (e.target as HTMLSelectElement).value);
+                    if (selected) {
+                      onSetPruningSettings({ model: selected.id, provider: selected.provider });
+                    }
+                  }}
+                  aria-label="Pruning prepass model"
+                >
+                  {!availableModels.some((m) => m.id === pruningSettings.model) && pruningSettings.model && (
+                    <option key={pruningSettings.model} value={pruningSettings.model}>
+                      {pruningSettings.model} (unavailable)
+                    </option>
+                  )}
+                  {orderModelsForPicker(availableModels).map((entry) => (
+                    <option
+                      key={entry.model.id}
+                      value={entry.model.id}
+                      class={entry.ineligible ? 'model-option-ineligible' : undefined}
+                      title={entry.title}
+                    >
+                      {entry.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div class="toolbar-settings-item toolbar-settings-mode-row">
+                <span class="toolbar-settings-item-label">Thinking</span>
+                <select
+                  class="toolbar-settings-select"
+                  value={pruningSettings.thinkingLevel}
+                  onChange={(e) => onSetPruningSettings({ thinkingLevel: (e.target as HTMLSelectElement).value as ThinkingLevel })}
+                  aria-label="Pruning thinking level"
+                >
+                  {THINKING_LEVEL_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
                   ))}
                 </select>

@@ -39,6 +39,7 @@ const RPC_TIMEOUTS_MS: Record<string, number> = {
   'models.list': 15_000,
   'app.ping': 10_000,
   'message.interrupt': 15_000,
+  'extension_ui.response': 10_000,
 };
 
 const READY_TIMEOUT_MS = 30_000;

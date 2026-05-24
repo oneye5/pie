@@ -14,7 +14,6 @@ import {
 } from './header';
 import { InlineEditor } from './inline-editor';
 import { shouldOpenUserMessageEditor } from './interactions';
-import { PruningInlineCard, isPruningDetails } from './pruning-inline';
 
 import {
   assistantPartsFromMessage,
@@ -101,15 +100,9 @@ function MessageItemView({
   renderToolCall,
   isLastAssistantMessage,
 }: MessageItemProps) {
-  // Render dedicated inline card for pruning-result custom messages.
-  if (message.customType === 'pruning-result' && isPruningDetails(message.customDetails)) {
-    return (
-      <PruningInlineCard
-        details={message.customDetails}
-        fallbackText={message.markdown}
-        createdAt={message.createdAt}
-      />
-    );
+  // Pruning-result messages are rendered via PruningBanner in the system prompts section.
+  if (message.customType === 'pruning-result') {
+    return null;
   }
 
   const combinedParts = useMemo(() => (

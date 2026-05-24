@@ -479,6 +479,10 @@ export interface PruningResult {
   tokensSaved: number;
   hasSkillPruning: boolean;
   hasToolPruning: boolean;
+  /** Error message if the pruning prepass failed. */
+  error?: string;
+  /** Full pruning details for expanded view in the banner. */
+  details?: PruningDetails;
 }
 
 /** Rich details from skill-pruner's pruning-result custom message. */
@@ -490,6 +494,16 @@ export interface PruningDetails {
   mode: 'auto' | 'shadow' | 'off';
   skillTokensSaved: number;
   toolTokensSaved: number;
+  /** Model used for the prepass LLM call. */
+  prepassModel?: string;
+  /** Thinking level of the prepass call. */
+  prepassThinkingLevel?: string;
+  /** Raw LLM response text (the reasoning/JSON output). */
+  prepassResponse?: string;
+  /** Latency of the prepass LLM call in milliseconds. */
+  prepassLatencyMs?: number;
+  /** Error message if pruning prepass failed. */
+  prepassError?: string;
 }
 
 export type PruningMode = 'auto' | 'shadow' | 'off';
@@ -499,6 +513,12 @@ export interface PruningSettings {
   mode: PruningMode;
   skillCeiling: number;
   toolCeiling: number;
+  /** Model used for the pruning prepass LLM call. */
+  model: string;
+  /** Provider for the pruning prepass model. */
+  provider: string;
+  /** Thinking level for the pruning prepass. */
+  thinkingLevel: ThinkingLevel;
 }
 
 export interface ChatPrefs {
@@ -548,6 +568,9 @@ export const DEFAULT_PRUNING_SETTINGS: PruningSettings = {
   mode: 'auto',
   skillCeiling: 5,
   toolCeiling: 5,
+  model: 'gpt-5.4-mini',
+  provider: 'github-copilot',
+  thinkingLevel: 'minimal',
 };
 
 export const EMPTY_TRANSCRIPT_WINDOW: TranscriptWindow = {
@@ -577,6 +600,26 @@ export function resolveChatPrefs(prefs?: Partial<ChatPrefs> | null): ChatPrefs {
       ?? prefs?.autoExpandToolCalls
       ?? DEFAULT_CHAT_PREFS.autoExpandSubagentCalls,
   };
+}
+
+// ─── Extension UI types ──────────────────────────────────────────────────────
+
+/** Methods supported by the extension UI bridge. */
+export type ExtensionUIMethod = 'confirm' | 'select' | 'input' | 'notify';
+
+/** A pending extension UI request (backend → host → webview). */
+export type ExtensionUIRequestPayload =
+  | { id: string; method: 'confirm'; title: string; message: string; timeout?: number; extensionId?: string }
+  | { id: string; method: 'select'; title: string; options: string[]; timeout?: number; extensionId?: string }
+  | { id: string; method: 'input'; title: string; placeholder?: string; timeout?: number; extensionId?: string }
+  | { id: string; method: 'notify'; message: string; notifyType?: 'info' | 'warning' | 'error'; extensionId?: string };
+
+/** Response from the webview (webview → host → backend). */
+export interface ExtensionUIResponsePayload {
+  id: string;
+  value?: string;
+  confirmed?: boolean;
+  cancelled?: boolean;
 }
 
 /** The full view state sent from the extension host to the webview. */
@@ -616,6 +659,8 @@ export interface ViewState {
   editingMessageId: string | null;
   /** Whether the run-outcome dialog is open. */
   showOutcomeDialog: boolean;
+  /** Pending extension UI request awaiting user response, or null. */
+  pendingExtensionUIRequest: ExtensionUIRequestPayload | null;
 }
 
 // ─── Host ↔ webview envelopes ────────────────────────────────────────────────
@@ -702,4 +747,5 @@ export type WebviewToHostMessage =
   | { type: 'openOutcomeDialog' }
   | { type: 'closeOutcomeDialog' }
   | { type: 'openFileDiff'; sessionPath: string; filePath: string }
-  | { type: 'revertFile'; sessionPath: string; filePath: string };
+  | { type: 'revertFile'; sessionPath: string; filePath: string }
+  | { type: 'extensionUiResponse'; response: ExtensionUIResponsePayload };

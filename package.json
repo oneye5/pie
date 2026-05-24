@@ -18,5 +18,8 @@
     "extension:test": "node ./scripts/run-tests.mjs --package extension",
     "extension:typecheck": "npm --prefix extension run typecheck --",
     "extensions:test": "node ./scripts/run-tests.mjs --package cwd-skills --package safeguard --package skill-pruner --package subagent"
+  },
+  "devDependencies": {
+    "tsx": "^4.22.3"
   }
 }

@@ -790,6 +790,18 @@ export class PieExtension implements vscode.Disposable {
         this.scheduleRender();
         return;
 
+      case 'extensionUiResponse': {
+        const activeSessionPath = selectActiveSessionPath(store.getState());
+        if (!activeSessionPath) return;
+        store.dispatch(uiActions.setPendingExtensionUIRequest(null));
+        this.scheduleRender();
+        await this.backend.request('extension_ui.response', {
+          sessionPath: activeSessionPath,
+          response: msg.response,
+        });
+        return;
+      }
+
       default:
         return;
     }

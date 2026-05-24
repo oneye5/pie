@@ -1,6 +1,6 @@
 import { createSlice, type PayloadAction } from '@reduxjs/toolkit';
 
-import { DEFAULT_CHAT_PREFS, type ChatPrefs, type ExtensionInfo } from '../../shared/protocol';
+import { DEFAULT_CHAT_PREFS, type ChatPrefs, type ExtensionInfo, type ExtensionUIRequestPayload } from '../../shared/protocol';
 
 interface UiState {
   notice: string | null;
@@ -11,11 +11,13 @@ interface UiState {
   editingMessageId: string | null;
   /** Whether the run-outcome recording dialog is open. */
   showOutcomeDialog: boolean;
+  /** Pending extension UI request awaiting user response. */
+  pendingExtensionUIRequest: ExtensionUIRequestPayload | null;
 }
 
 const uiSlice = createSlice({
   name: 'ui',
-  initialState: { notice: null, backendReady: false, prefs: DEFAULT_CHAT_PREFS, availableExtensions: [], editingMessageId: null, showOutcomeDialog: false } as UiState,
+  initialState: { notice: null, backendReady: false, prefs: DEFAULT_CHAT_PREFS, availableExtensions: [], editingMessageId: null, showOutcomeDialog: false, pendingExtensionUIRequest: null } as UiState,
   reducers: {
     setNotice(state, action: PayloadAction<string | null>) {
       state.notice = action.payload;
@@ -48,6 +50,9 @@ const uiSlice = createSlice({
     },
     setShowOutcomeDialog(state, action: PayloadAction<boolean>) {
       state.showOutcomeDialog = action.payload;
+    },
+    setPendingExtensionUIRequest(state, action: PayloadAction<ExtensionUIRequestPayload | null>) {
+      state.pendingExtensionUIRequest = action.payload;
     },
   },
 });

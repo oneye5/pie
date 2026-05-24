@@ -1,5 +1,6 @@
 import type { ContextWindowUsage, ThinkingLevel } from '../shared/protocol';
 import type { DisplayTranscriptCache } from './transcript-window';
+import type { ExtensionUIBridge } from './extension-ui-bridge';
 import type { SdkBuildSystemPromptOptions, SdkRuntime, SdkSession } from './sdk';
 
 export interface ActiveRequest {
@@ -23,6 +24,8 @@ export interface SessionContext {
   busySeq: number;
   lastContextUsage?: ContextWindowUsage | null;
   displayTranscriptCache?: DisplayTranscriptCache;
+  /** UI bridge for extension UI requests within this session. */
+  uiBridge?: ExtensionUIBridge;
 }
 
 export interface SessionPromptState {

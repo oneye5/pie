@@ -95,7 +95,7 @@ export function SystemPromptMessage({ prompts, pruningResult }: SystemPromptMess
       data-role="assistant"
       data-scroll-anchor-id="system-prompts"
     >
-      {pruningResult && prompts.length === 0 && (
+      {pruningResult && (
         <div class="pruning-banner-wrapper">
           <PruningBanner pruningResult={pruningResult} />
         </div>
@@ -106,14 +106,6 @@ export function SystemPromptMessage({ prompts, pruningResult }: SystemPromptMess
             <div class="message-head-main">
               <span class="message-role">PI</span>
               <span class="message-time">System prompts</span>
-              {pruningResult && (
-                <span
-                  class="system-prompts-edited"
-                  title={`Pruned by skill-pruner: ${pruningResult.skillsTotal - pruningResult.skillsKept} skills, ${pruningResult.toolsTotal - pruningResult.toolsKept} tools removed${pruningResult.tokensSaved > 0 ? ` (~${pruningResult.tokensSaved} tokens saved)` : ''}`}
-                >
-                  ✂ edited
-                </span>
-              )}
               {tokenLabel && <span class="message-duration" title={tokenTitle}>{tokenLabel}</span>}
             </div>
           </div>

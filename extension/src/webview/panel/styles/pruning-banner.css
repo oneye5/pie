@@ -136,3 +136,27 @@
   line-height: 16px;
   cursor: help;
 }
+
+/* Prepass reasoning response block */
+.pruning-banner-prepass-response {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 4px;
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
+}
+
+.pruning-banner-response-text {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--vscode-foreground) 80%, var(--panel-muted) 20%);
+  background: color-mix(in srgb, var(--panel-subtle-surface) 50%, transparent);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+}

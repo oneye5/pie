@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { DEFAULT_PRUNING_SETTINGS, type PruningMode, type PruningSettings } from '../../shared/protocol';
+import { DEFAULT_PRUNING_SETTINGS, type PruningMode, type PruningSettings, type ThinkingLevel } from '../../shared/protocol';
 
 /**
  * Resolve the settings.json path from PI_CODING_AGENT_DIR.
@@ -16,6 +16,7 @@ function resolveSettingsPath(): string | null {
 }
 
 const VALID_MODES = new Set<PruningMode>(['auto', 'shadow', 'off']);
+const VALID_THINKING_LEVELS = new Set<ThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
 /**
  * Read the pruning settings from the on-disk settings.json.
@@ -50,7 +51,19 @@ export async function readPruningSettings(): Promise<PruningSettings> {
       ? tools.ceiling
       : DEFAULT_PRUNING_SETTINGS.toolCeiling;
 
-    return { mode, skillCeiling, toolCeiling };
+    const model = typeof pruning.model === 'string' && pruning.model.length > 0
+      ? pruning.model
+      : DEFAULT_PRUNING_SETTINGS.model;
+
+    const provider = typeof pruning.provider === 'string' && pruning.provider.length > 0
+      ? pruning.provider
+      : DEFAULT_PRUNING_SETTINGS.provider;
+
+    const thinkingLevel = typeof pruning.thinkingLevel === 'string' && VALID_THINKING_LEVELS.has(pruning.thinkingLevel as ThinkingLevel)
+      ? (pruning.thinkingLevel as ThinkingLevel)
+      : DEFAULT_PRUNING_SETTINGS.thinkingLevel;
+
+    return { mode, skillCeiling, toolCeiling, model, provider, thinkingLevel };
   } catch {
     return { ...DEFAULT_PRUNING_SETTINGS };
   }
@@ -98,6 +111,18 @@ export async function writePruningSettings(
       : {}) as Record<string, unknown>;
     tools.ceiling = updates.toolCeiling;
     pruning.tools = tools;
+  }
+
+  if (updates.model !== undefined) {
+    pruning.model = updates.model;
+  }
+
+  if (updates.provider !== undefined) {
+    pruning.provider = updates.provider;
+  }
+
+  if (updates.thinkingLevel !== undefined) {
+    pruning.thinkingLevel = updates.thinkingLevel;
   }
 
   existing.pruning = pruning;

@@ -139,6 +139,7 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
 }
 
 const VALID_PRUNING_MODES = new Set(['auto', 'shadow', 'off']);
+const VALID_THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
 function validatePruningSettingsPatch(value: unknown): value is Partial<PruningSettings> {
   if (!isObject(value)) return false;
@@ -148,6 +149,10 @@ function validatePruningSettingsPatch(value: unknown): value is Partial<PruningS
       if (v !== undefined && (typeof v !== 'string' || !VALID_PRUNING_MODES.has(v))) return false;
     } else if (key === 'skillCeiling' || key === 'toolCeiling') {
       if (v !== undefined && (!isFiniteNumber(v) || (v as number) < 1)) return false;
+    } else if (key === 'model' || key === 'provider') {
+      if (v !== undefined && (typeof v !== 'string' || v.length === 0)) return false;
+    } else if (key === 'thinkingLevel') {
+      if (v !== undefined && (typeof v !== 'string' || !VALID_THINKING_LEVELS.has(v))) return false;
     } else {
       return false;
     }

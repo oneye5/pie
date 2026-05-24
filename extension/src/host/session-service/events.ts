@@ -23,6 +23,7 @@ import type {
   ErrorPayload,
   EventEnvelope,
   ExtensionInfo,
+  ExtensionUIRequestPayload,
   MessageAbortedPayload,
   MessageDeltaPayload,
   MessageFinishedPayload,
@@ -218,6 +219,7 @@ export class SessionServiceEvents {
       onMessageAborted: (payload) => this.onMessageAborted(payload),
       onBusyChanged: (payload) => this.onBusyChanged(payload),
       onContextUsageChanged: (payload) => this.onContextUsageChanged(payload),
+      onExtensionUIRequest: (payload) => this.onExtensionUIRequest(payload),
       onError: (payload) => this.onError(payload),
     });
   }
@@ -526,6 +528,11 @@ export class SessionServiceEvents {
     );
     this.runObserver.onBusyChanged(sessionPath, payload.busy);
 
+    // Clear pending extension UI request when the session finishes.
+    if (!payload.busy && store.getState().ui.pendingExtensionUIRequest) {
+      store.dispatch(uiActions.setPendingExtensionUIRequest(null));
+    }
+
     if (wasRunning && !payload.busy && !this.state.consumeCompletionSuppression(sessionPath)) {
       if (
         state.sessions.openTabPaths.includes(sessionPath) &&
@@ -563,6 +570,11 @@ export class SessionServiceEvents {
         payload.contextUsage.contextWindow,
       );
     }
+    this.scheduleRender();
+  }
+
+  private onExtensionUIRequest(payload: ExtensionUIRequestPayload): void {
+    store.dispatch(uiActions.setPendingExtensionUIRequest(payload));
     this.scheduleRender();
   }
 

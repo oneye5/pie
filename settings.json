@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.73.0",
   "defaultProvider": "github-copilot",
-  "defaultModel": "claude-opus-4.6",
-  "defaultThinkingLevel": "medium",
+  "defaultModel": "gpt-4o",
+  "defaultThinkingLevel": "off",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
     {
@@ -13,27 +13,19 @@
   "steeringMode": "one-at-a-time",
   "pruning": {
     "mode": "auto",
+    "model": "gpt-5-mini",
+    "provider": "github-copilot",
+    "thinkingLevel": "medium",
     "skills": {
+      "strategy": "discretion",
       "ceiling": 8,
-      "floor": 2,
-      "scoreThreshold": 0.4,
-      "gapThreshold": 0.3,
       "pinned": [
         "debugging-and-error-recovery"
       ]
     },
     "tools": {
-      "tiers": {
-        "read": "core",
-        "edit": "core",
-        "write": "core",
-        "bash": "core",
-        "subagent": "contextual",
-        "web_search": "contextual",
-        "code_search": "contextual",
-        "fetch_content": "contextual",
-        "get_search_content": "contextual"
-      },
+      "strategy": "discretion",
+      "ceiling": 10,
       "dependencies": {
         "edit": [
           "read"
@@ -41,8 +33,7 @@
         "subagent": [
           "bash"
         ]
-      },
-      "ceiling": 10
+      }
     }
   }
 }

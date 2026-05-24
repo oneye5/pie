@@ -269,7 +269,8 @@ button.composer-meta-chip.open:focus {
   color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
 }
 
-.model-select option.model-option-ineligible {
+.model-select option.model-option-ineligible,
+.toolbar-settings-select option.model-option-ineligible {
   color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
   font-style: italic;
 }
@@ -478,6 +479,13 @@ button.composer-meta-chip.open:focus {
   align-items: center;
   justify-content: space-between;
   cursor: default;
+  gap: 8px;
+}
+
+.toolbar-settings-mode-row .toolbar-settings-item-label,
+.toolbar-settings-stepper-row .toolbar-settings-item-label {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .toolbar-settings-select {
@@ -488,6 +496,8 @@ button.composer-meta-chip.open:focus {
   padding: 1px 4px;
   font-size: 11px;
   outline: none;
+  min-width: 0;
+  max-width: 60%;
 }
 
 .toolbar-settings-stepper {

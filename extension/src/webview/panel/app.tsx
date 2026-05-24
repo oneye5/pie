@@ -13,6 +13,7 @@ import type {
   WebviewToHostMessage,
 } from '../../shared/protocol';
 import { FileChangesPanel } from './file-changes-panel';
+import { ExtensionUIPrompt } from './extension-ui-prompt';
 import { resolvePanelSurface } from './panel-state';
 import { TranscriptHost } from './transcript/transcript-host';
 import { type TranscriptContextMenuType } from './chat-prefs';
@@ -122,7 +123,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
     activeSession, transcript, transcriptWindow, pendingComposerInputs, activeRunSummary,
     busy, notice, backendReady, workspaceCwd, modelSettings, availableModels, contextUsage,
     prefs, systemPrompts, fileChanges, pruningResult, pruningSettings, availableExtensions,
-    editingMessageId, showOutcomeDialog } = viewState;
+    editingMessageId, showOutcomeDialog, pendingExtensionUIRequest } = viewState;
 
   const panelSurface = resolvePanelSurface({ backendReady, notice, openTabPaths });
   const hasActiveTabs = panelSurface === 'session';
@@ -213,6 +214,10 @@ export function App({ adapter }: { adapter: AppAdapter }) {
           />
         )}
       </div>
+
+      {hasActiveTabs && pendingExtensionUIRequest && (
+        <ExtensionUIPrompt request={pendingExtensionUIRequest} postMessage={postMessage} />
+      )}
 
       {hasActiveTabs && backendReady && (
         <Composer

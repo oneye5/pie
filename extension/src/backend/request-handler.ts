@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 
-import { PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ContextUsageChangedPayload, type ErrorPayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
+import { PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ContextUsageChangedPayload, type ErrorPayload, type ExtensionUIResponsePayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
 import {
   validateLoadTranscriptPage,
   validateMessageSend,
@@ -233,6 +233,7 @@ export async function handleBackendRequest(
       if (context.activeRequest) {
         context.activeRequest.aborted = true;
       }
+      context.uiBridge?.cancelAll();
       void context.session.abort().catch((error: unknown) => {
         deps.emit('error', {
           code: 'MESSAGE_INTERRUPT_FAILED',
@@ -241,6 +242,19 @@ export async function handleBackendRequest(
         } satisfies ErrorPayload);
       });
       return { interrupted: true };
+    }
+
+    case 'extension_ui.response': {
+      const params = request.params as { sessionPath: string; response: ExtensionUIResponsePayload } | undefined;
+      if (!params?.sessionPath || !params.response?.id) {
+        throw new Error('extension_ui.response requires sessionPath and response.id');
+      }
+      const context = deps.getSessionContext(params.sessionPath);
+      if (!context?.uiBridge) {
+        throw new Error(`No UI bridge for session: ${params.sessionPath}`);
+      }
+      context.uiBridge.resolveRequest(params.response);
+      return { ok: true };
     }
 
     case 'models.list': {

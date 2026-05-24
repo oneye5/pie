@@ -7,6 +7,7 @@ import {
   type BusyChangedPayload,
   type ContextUsageChangedPayload,
   type ContextWindowUsage,
+  type ExtensionUIResponsePayload,
   type ModelSettings,
   type RequestEnvelope,
   type SessionListChangedPayload,
@@ -17,6 +18,7 @@ import {
   type TranscriptPagePayload,
 } from '../shared/protocol';
 import { prepareContextFiles } from './context-files';
+import { ExtensionUIBridge } from './extension-ui-bridge';
 import { handleBackendRequest } from './request-handler';
 import { buildSessionAnalyticsFactors } from './session-analytics';
 import { handleSdkSessionEvent } from './session-event-handler';
@@ -270,6 +272,14 @@ export class BackendServer {
       busySeq: initialBusySeq,
       lastContextUsage: undefined,
     };
+
+    // Wire the ExtensionUI bridge so extensions can ask questions through the webview.
+    const uiBridge = new ExtensionUIBridge((event, payload) => this.emit(event, payload));
+    context.uiBridge = uiBridge;
+    const extensionRunner = (session as unknown as { extensionRunner?: { setUIContext?: (ctx: unknown) => void } }).extensionRunner;
+    if (extensionRunner?.setUIContext) {
+      extensionRunner.setUIContext(uiBridge);
+    }
 
     context.unsubscribe = session.subscribe((event: SdkSessionEvent) => {
       this.handleSessionEvent(context, event);

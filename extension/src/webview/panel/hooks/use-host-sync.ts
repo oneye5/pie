@@ -33,9 +33,10 @@ export const EMPTY_VIEW_STATE: ViewState = {
   availableExtensions: [],
   fileChanges: [],
   pruningResult: null,
-  pruningSettings: { mode: 'auto', skillCeiling: 5, toolCeiling: 5 },
+  pruningSettings: { mode: 'auto', skillCeiling: 5, toolCeiling: 5, model: 'gpt-5.4-mini', provider: 'github-copilot', thinkingLevel: 'minimal' },
   editingMessageId: null,
   showOutcomeDialog: false,
+  pendingExtensionUIRequest: null,
 };
 
 const RATE_WINDOW_SECONDS = 10;
