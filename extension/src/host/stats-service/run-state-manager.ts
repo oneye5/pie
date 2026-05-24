@@ -9,7 +9,7 @@ import {
   areStringArraysEqual,
   toActiveRunSummary,
   toPersistedSessionState,
-} from '../stats-service-helpers';
+} from './helpers';
 import {
   RUN_ANALYTICS_SCHEMA_VERSION,
   createEmptyFileExtensionRollup,

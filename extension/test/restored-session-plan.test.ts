@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildRestoredSessionPlan } from '../src/host/restored-session-plan';
+import { buildRestoredSessionPlan } from '../src/host/session-service/restored-session-plan';
 
 test('buildRestoredSessionPlan prefers the stored active session when it is still open', () => {
   const plan = buildRestoredSessionPlan(

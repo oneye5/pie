@@ -4,18 +4,17 @@ This folder mixes design contracts, implementation plans (some completed, some o
 
 ## Active design contracts (read first)
 
+- [ARCHITECTURE.md](ARCHITECTURE.md) — **primary architecture reference**. System overview, pattern explanation, data flow scenarios, extension-point recipes, and invariants. Start here.
 - [STATE_CONTRACT.md](STATE_CONTRACT.md) — authoritative rules for host ↔ webview state sync. Any change here requires matching tests in `extension/test/` (see `sync-contract.test.ts`).
+- [internal/ARCH-OVERVIEW.md](internal/ARCH-OVERVIEW.md) — concise developer-onboarding file map. Spine file locations, glossary table, and "where to make changes" quick-reference.
 
 ## Open plans (work outstanding)
 
-- [internal/ARCH-MIGRATION-PLAN.md](internal/ARCH-MIGRATION-PLAN.md) — multi-phase migration of the extension host + webview to a CQRS-shaped Elm/MVI architecture. Authoritative for all in-progress and upcoming architecture work; supersedes the prior `CHAT_UI_ARCHITECTURE.md` (now deleted).
+- None. All major architecture phases are implemented.
 
 ## Completed plans (kept for context, not action items)
 
-The following work was completed without a formal plan document being created. The code is the authoritative record:
-
-- Composer inputs and run analytics — closed 2026-05-13. See `extension/src/host/session-service/composer.ts` and `extension/src/host/stats-service/`.
-- Analytics site — original execution and plan are embodied in `analysis/`. See `analysis/README.md` for current state.
+- [internal/archive/ARCH-MIGRATION-PLAN.md](internal/archive/ARCH-MIGRATION-PLAN.md) — multi-phase migration of the extension host + webview to a CQRS-shaped Elm/MVI architecture. Phases 0–7 complete. Archived for retrospective reference.
 
 ## Reference / informational
 

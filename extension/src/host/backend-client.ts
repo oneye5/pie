@@ -52,9 +52,6 @@ export class BackendClient implements vscode.Disposable {
   private requestCounter = 0;
   private stderrBuffer = '';
   private detachReader?: () => void;
-  private bufferedEvents: EventEnvelope[] = [];
-  private bufferedEventDepth = 0;
-  private bufferedEventFlushTimer?: ReturnType<typeof setTimeout>;
 
   readonly onEvent = this.events.event;
   readonly onExit = this.exits.event;
@@ -69,12 +66,6 @@ export class BackendClient implements vscode.Disposable {
     }
 
     this.stderrBuffer = '';
-    this.bufferedEvents = [];
-    this.bufferedEventDepth = 0;
-    if (this.bufferedEventFlushTimer !== undefined) {
-      clearTimeout(this.bufferedEventFlushTimer);
-      this.bufferedEventFlushTimer = undefined;
-    }
     const proc = cp.spawn(
       options.nodePath,
       [options.backendPath, '--sdkPath', options.sdkPath, '--cwd', options.cwd],
@@ -193,27 +184,15 @@ export class BackendClient implements vscode.Disposable {
     const id = `req-${++this.requestCounter}`;
     const timeoutMs = RPC_TIMEOUTS_MS[method] ?? DEFAULT_RPC_TIMEOUT_MS;
     const responsePromise = this.requests.create(id, timeoutMs);
-    const shouldBufferEvents = method === 'message.send';
-
-    if (shouldBufferEvents) {
-      this.bufferedEventDepth += 1;
-    }
 
     this.proc.stdin.write(serializeJsonLine({ id, method, params }));
 
-    try {
-      const response = await responsePromise;
-      if (!response.ok) {
-        throw new Error(response.error.message);
-      }
-
-      return response.result as TResult;
-    } finally {
-      if (shouldBufferEvents) {
-        this.bufferedEventDepth = Math.max(0, this.bufferedEventDepth - 1);
-        this.flushBufferedEventsLater();
-      }
+    const response = await responsePromise;
+    if (!response.ok) {
+      throw new Error(response.error.message);
     }
+
+    return response.result as TResult;
   }
 
   /**
@@ -223,12 +202,6 @@ export class BackendClient implements vscode.Disposable {
   async stop(): Promise<void> {
     this.detachReader?.();
     this.detachReader = undefined;
-    if (this.bufferedEventFlushTimer !== undefined) {
-      clearTimeout(this.bufferedEventFlushTimer);
-      this.bufferedEventFlushTimer = undefined;
-    }
-    this.bufferedEvents = [];
-    this.bufferedEventDepth = 0;
     if (this.proc) {
       this.proc.kill();
       this.proc = undefined;
@@ -251,34 +224,8 @@ export class BackendClient implements vscode.Disposable {
     }
 
     if (isEventEnvelope(value)) {
-      if (this.bufferedEventDepth > 0) {
-        this.bufferedEvents.push(value);
-        return;
-      }
       this.events.fire(value);
     }
-  }
-
-  private flushBufferedEventsLater(): void {
-    if (this.bufferedEventDepth > 0 || this.bufferedEvents.length === 0) {
-      return;
-    }
-    if (this.bufferedEventFlushTimer !== undefined) {
-      return;
-    }
-
-    this.bufferedEventFlushTimer = setTimeout(() => {
-      this.bufferedEventFlushTimer = undefined;
-      if (this.bufferedEventDepth > 0 || this.bufferedEvents.length === 0) {
-        return;
-      }
-
-      const pending = [...this.bufferedEvents];
-      this.bufferedEvents = [];
-      for (const event of pending) {
-        this.events.fire(event);
-      }
-    }, 0);
   }
 
   private appendStderr(chunk: string): void {
@@ -292,12 +239,6 @@ export class BackendClient implements vscode.Disposable {
   dispose(): void {
     this.detachReader?.();
     this.detachReader = undefined;
-    if (this.bufferedEventFlushTimer !== undefined) {
-      clearTimeout(this.bufferedEventFlushTimer);
-      this.bufferedEventFlushTimer = undefined;
-    }
-    this.bufferedEvents = [];
-    this.bufferedEventDepth = 0;
 
     if (this.proc) {
       this.proc.kill();

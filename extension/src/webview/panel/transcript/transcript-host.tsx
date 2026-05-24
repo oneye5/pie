@@ -15,7 +15,6 @@ import type {
   TranscriptWindow,
   ChatMessage,
 } from '../../../shared/protocol';
-import type { Overlay } from '../overlay';
 import type { TranscriptContextMenuHandler } from './types';
 import { TranscriptView } from '.';
 
@@ -25,7 +24,6 @@ interface TranscriptSurfaceProps {
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
   busy: boolean;
-  overlay: Overlay;
   prefs: ChatPrefs;
   systemPrompts: SystemPromptEntry[];
   pruningResult: PruningResult | null;
@@ -47,7 +45,6 @@ function TranscriptSurface({
   transcript,
   transcriptWindow,
   busy,
-  overlay,
   prefs,
   systemPrompts,
   pruningResult,
@@ -78,7 +75,6 @@ function TranscriptSurface({
         transcript={transcript}
         transcriptWindow={transcriptWindow}
         busy={busy}
-        overlay={overlay}
         prefs={prefs}
         systemPrompts={systemPrompts}
         pruningResult={pruningResult}
@@ -105,7 +101,6 @@ export interface TranscriptHostProps {
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
   busy: boolean;
-  overlay: Overlay;
   prefs: ChatPrefs;
   systemPrompts: SystemPromptEntry[];
   pruningResult: PruningResult | null;
@@ -125,7 +120,6 @@ export function TranscriptHost({
   transcript,
   transcriptWindow,
   busy,
-  overlay,
   prefs,
   systemPrompts,
   pruningResult,
@@ -147,7 +141,6 @@ export function TranscriptHost({
           transcript={transcript}
           transcriptWindow={transcriptWindow}
           busy={busy}
-          overlay={overlay}
           prefs={prefs}
           systemPrompts={systemPrompts}
           pruningResult={pruningResult}

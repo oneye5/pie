@@ -1,6 +1,6 @@
 import * as crypto from 'node:crypto';
 
-import type { ActiveRunSummary, ComposerInput } from '../shared/protocol';
+import type { ActiveRunSummary, ComposerInput } from '../../shared/protocol';
 import {
   RUN_ANALYTICS_SCHEMA_VERSION,
   coerceRunSnapshot,
@@ -8,7 +8,7 @@ import {
   type RunCheckpoint,
   type RunSnapshot,
   type TaskBoundaryIntent,
-} from './run-analytics';
+} from '../run-analytics';
 
 export function defaultNow(): Date {
   return new Date();

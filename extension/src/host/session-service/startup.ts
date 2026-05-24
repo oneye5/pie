@@ -2,13 +2,13 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
-import { BackendClient } from '../backend-client';
-import { buildRestoredSessionPlan } from '../restored-session-plan';
+import { BackendClient } from '../backend/client';
+import { buildRestoredSessionPlan } from './restored-session-plan';
 import { sessionsActions, settingsActions, store, uiActions } from '../store';
 import { normalizeStoredOpenTabPaths, isPendingTabPath } from '../../shared/tab-behavior';
 import { createCommandExecutor } from '../../shared/exec-command';
 import { resolveChatPrefs } from '../../shared/protocol';
-import { readPruningSettings } from '../pruning-settings';
+import { readPruningSettings } from './pruning-settings';
 import { resolveNodePath, resolveSdkPath } from '../../shared/runtime-resolution';
 import type { ChatPrefs, SessionSummary } from '../../shared/protocol';
 import { SessionServiceEvents } from './events';

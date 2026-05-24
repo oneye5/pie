@@ -10,7 +10,7 @@
  * these types yet.
  */
 
-import type { ComposerInputDraft } from '../../shared/protocol';
+import type { ComposerInput, ComposerInputDraft, SessionSummary, UserContentPart } from '../../shared/protocol';
 
 /** Common fields on every command. */
 export interface CommandBase {
@@ -21,7 +21,18 @@ export interface CommandBase {
 export interface SendCommand extends CommandBase {
   kind: 'Send';
   sessionPath: string;
+  /** Raw user text (sent to backend). */
   text: string;
+  /** Materialized composer inputs to send with the message. */
+  inputs: ComposerInput[];
+  /** Composed text (text + input annotations) for the optimistic transcript entry. */
+  composedText: string;
+  /** Pre-generated local ID for the optimistic message. */
+  localId: string;
+  /** User content parts for rich rendering of the optimistic message. */
+  userParts?: UserContentPart[];
+  /** Snapshot of the session summary before optimistic name change (null if no change). */
+  previousSummary: SessionSummary | null;
 }
 
 /** Edit an existing message (truncates the transcript after it). */
@@ -30,6 +41,8 @@ export interface EditCommand extends CommandBase {
   sessionPath: string;
   messageId: string;
   text: string;
+  /** Pre-generated local ID for the optimistic replacement message. */
+  localId: string;
 }
 
 /** Interrupt the in-flight assistant turn for a session. */

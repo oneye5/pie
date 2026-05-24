@@ -1,5 +1,5 @@
-import type { HostToWebviewMessage, PatchOp, ViewState } from '../shared/protocol';
-import { WEBVIEW_PROTOCOL_VERSION } from '../shared/protocol';
+import type { HostToWebviewMessage, PatchOp, ViewState } from '../../shared/protocol';
+import { WEBVIEW_PROTOCOL_VERSION } from '../../shared/protocol';
 
 /**
  * Per-session sync bookkeeping. `revision` advances on each patch envelope for

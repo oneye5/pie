@@ -5,7 +5,6 @@ import type { ChatMessage, ChatMessagePart, ToolCall } from '../src/shared/proto
 import {
   appendAssistantTextPart,
   assistantToolCallsFromMessage,
-  clearSessionAliases,
   ensureAssistantParts,
   markdownFromUserParts,
   mergeAssistantToolCallsPreservingResolvedState,
@@ -33,8 +32,6 @@ function createState(overrides: Partial<TranscriptState> = {}): TranscriptState 
     bySession: {},
     systemPromptsBySession: {},
     windowBySession: {},
-    messageIdAlias: {},
-    currentTurnBySession: {},
     ...overrides,
   };
 }
@@ -42,30 +39,6 @@ function createState(overrides: Partial<TranscriptState> = {}): TranscriptState 
 test('resolveAlias returns canonical ids when present and falls back to the input id otherwise', () => {
   assert.equal(resolveAlias({ alias: 'canonical' }, 'alias'), 'canonical');
   assert.equal(resolveAlias({ alias: 'canonical' }, 'direct'), 'direct');
-});
-
-test('clearSessionAliases removes aliases tied to session transcript rows or the active turn and ignores unrelated sessions', () => {
-  const state = createState({
-    bySession: {
-      '/session/a': [assistantMessage({ id: 'assistant-1' }) as any],
-    },
-    messageIdAlias: {
-      aliasRow: 'assistant-1',
-      aliasTurn: 'turn-1',
-      aliasOther: 'other-1',
-    },
-    currentTurnBySession: {
-      '/session/a': { requestId: 'req-1', firstMessageId: 'turn-1' },
-    },
-  });
-
-  clearSessionAliases(state, '/session/a');
-
-  assert.deepEqual(state.messageIdAlias, { aliasOther: 'other-1' });
-
-  const untouched = createState({ messageIdAlias: { alias: 'canonical' } });
-  clearSessionAliases(untouched, '/session/missing');
-  assert.deepEqual(untouched.messageIdAlias, { alias: 'canonical' });
 });
 
 test('ensureAssistantParts reuses existing parts and synthesizes legacy assistant content otherwise', () => {

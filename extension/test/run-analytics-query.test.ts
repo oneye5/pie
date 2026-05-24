@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { StatsService } from '../src/host/stats-service';
-import { exportRunAnalyticsStore, queryRunAnalyticsStore } from '../src/host/run-analytics-query';
+import { exportRunAnalyticsStore, queryRunAnalyticsStore } from '../src/host/run-analytics/query';
 import { createAppStore, sessionStateActions, sessionsActions, settingsActions } from '../src/host/store';
 import type { SessionAnalyticsFactors } from '../src/shared/protocol';
 

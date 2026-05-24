@@ -47,6 +47,7 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown> } =
         calls.push({ kind: 'log', level, message });
       },
     },
+    sync: { execute() {} },
     dispatch: (e) => events.push(e),
   };
   return { deps, calls, events };
@@ -108,7 +109,7 @@ test('EffectRunner dispatches a failure result when an RPC rejects', async () =>
   });
   const runner = new EffectRunner(deps);
 
-  runner.run({ kind: 'SendRpc', corrId: 'c3', sessionPath: '/a', text: 'hi' });
+  runner.run({ kind: 'SendRpc', corrId: 'c3', sessionPath: '/a', text: 'hi', inputs: [] });
   await settle();
 
   assert.equal(events.length, 1);

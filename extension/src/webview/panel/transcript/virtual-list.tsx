@@ -5,8 +5,6 @@ import { Virtualizer, elementScroll, observeElementOffset, observeElementRect } 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { type ChatMessage, type ChatPrefs, type PruningResult, type SystemPromptEntry, type ToolCall, type TranscriptWindow } from '../../../shared/protocol';
-import type { Overlay } from '../overlay';
-// Phase 4: overlay kept in props for row rendering; hasStreamingContent replaces overlay in scroll hook.
 import { ToolCallItem } from './tool-call-item';
 import { useTranscriptScroll } from './use-transcript-scroll';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
@@ -18,7 +16,6 @@ interface TranscriptVirtualListProps {
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
   busy: boolean;
-  overlay: Overlay;
   prefs: ChatPrefs;
   systemPrompts: SystemPromptEntry[];
   pruningResult: PruningResult | null;
@@ -43,7 +40,6 @@ export function TranscriptVirtualList({
   transcript,
   transcriptWindow,
   busy,
-  overlay,
   prefs,
   systemPrompts,
   pruningResult,
@@ -82,7 +78,7 @@ export function TranscriptVirtualList({
     transcriptWindow,
     transcriptLength: transcript.length,
     busy,
-    hasStreamingContent: overlay.partsByMessage.size > 0,
+    hasStreamingContent: busy && transcript.some(m => m.status === 'streaming'),
     onLoadOlder,
     onLoadNewer,
     onJumpToLatest,
@@ -186,7 +182,6 @@ export function TranscriptVirtualList({
               <TranscriptVirtualRow
                 row={row}
                 busy={busy}
-                overlay={overlay}
                 prefs={prefs}
                 systemPrompts={systemPrompts}
                 pruningResult={pruningResult}

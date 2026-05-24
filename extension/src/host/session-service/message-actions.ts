@@ -2,10 +2,10 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
-import { BackendClient } from '../backend-client';
-import { resolveSessionOpenedTranscript } from '../session-opened-transcript';
+import { BackendClient } from '../backend/client';
+import { resolveSessionOpenedTranscript } from './session-opened-transcript';
 import { type RunObserver } from '../stats-service';
-import { auditLog } from '../state-audit';
+import { auditLog } from '../util/audit';
 import {
   getSessionByPath,
   selectActiveSessionPath,
@@ -35,7 +35,7 @@ import {
   upsertPendingComposerInput,
   validateAndMaterializeComposerInput,
 } from './composer';
-import { buildTranscriptPageRequest } from '../transcript-window';
+import { buildTranscriptPageRequest } from './transcript-window';
 import { SessionServiceState } from './state';
 import type { PostImperative, ScheduleRender } from './types';
 
@@ -149,6 +149,10 @@ export class SessionMessageActions {
     this.scheduleRender();
   }
 
+  /**
+   * @deprecated Phase 4 migration: send is now routed through the CQRS
+   * reducer + EffectRunner in extension-host.ts. See ARCH-MIGRATION-PLAN.md §Phase 4.
+   */
   async send(requestedSessionPath: string, text: string): Promise<void> {
     const attemptedSessionPath = requestedSessionPath;
     const sessionPath = this.requireOpenSessionPath('send', requestedSessionPath);
@@ -221,6 +225,10 @@ export class SessionMessageActions {
     }
   }
 
+  /**
+   * @deprecated Phase 4 migration: editMessage is now routed through the CQRS
+   * reducer + EffectRunner in extension-host.ts. See ARCH-MIGRATION-PLAN.md §Phase 4.
+   */
   async editMessage(requestedSessionPath: string, messageId: string, text: string): Promise<void> {
     const sessionPath = this.requireOpenSessionPath('edit', requestedSessionPath);
     if (!sessionPath) {

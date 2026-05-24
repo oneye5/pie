@@ -1,7 +1,7 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { DEFAULT_PRUNING_SETTINGS, type PruningMode, type PruningSettings } from '../shared/protocol';
+import { DEFAULT_PRUNING_SETTINGS, type PruningMode, type PruningSettings } from '../../shared/protocol';
 
 /**
  * Resolve the settings.json path from PI_CODING_AGENT_DIR.

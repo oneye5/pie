@@ -1,136 +1,27 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
+import { useState, useCallback } from 'preact/hooks';
 
 import type {
   ChatPrefs,
   ComposerInputDraft,
-  HostToWebviewMessage,
   PruningSettings,
   RunOutcome,
   ThinkingLevel,
   ViewState,
   WebviewToHostMessage,
 } from '../../shared/protocol';
-import { DEFAULT_CHAT_PREFS, EMPTY_TRANSCRIPT_WINDOW } from '../../shared/protocol';
-import { emptyOverlay, type Overlay } from './overlay';
 import { FileChangesPanel } from './file-changes-panel';
 import { resolvePanelSurface } from './panel-state';
-import { StreamSmoother } from './stream-smoother';
 import { TranscriptHost } from './transcript/transcript-host';
-import {
-  type ChatPrefContextType,
-  type TranscriptContextMenuType,
-  getChatPrefContextLabel,
-  getChatPrefContextValue,
-  toggleChatPrefForContext,
-} from './chat-prefs';
+import { type TranscriptContextMenuType } from './chat-prefs';
+import { ContextMenu, type ContextMenuState } from './components/context-menu';
 import { SessionTabs, Composer } from './ui';
 import { RunOutcomeDialog } from './run-outcome-dialog';
+import { useHostSync, EMPTY_VIEW_STATE } from './hooks/use-host-sync';
 
-// ─── Default state ───────────────────────────────────────────────────────────
-
-export const EMPTY_VIEW_STATE: ViewState = {
-  sessions: [],
-  openTabPaths: [],
-  runningSessionPaths: [],
-  unreadFinishedSessionPaths: [],
-  activeSession: null,
-  transcript: [],
-  transcriptWindow: { ...EMPTY_TRANSCRIPT_WINDOW },
-  pendingComposerInputs: [],
-  activeRunSummary: null,
-  runSummariesBySession: {},
-  busy: false,
-  notice: null,
-  backendReady: false,
-  workspaceCwd: null,
-  systemPrompts: [],
-  modelSettings: null,
-  availableModels: [],
-  contextUsage: null,
-  prefs: { ...DEFAULT_CHAT_PREFS },
-  availableExtensions: [],
-  fileChanges: [],
-  pruningResult: null,
-  pruningSettings: { mode: 'auto', skillCeiling: 5, toolCeiling: 5 },
-};
-
-// ─── ContextMenu ─────────────────────────────────────────────────────────────
-
-interface ContextMenuState {
-  type: TranscriptContextMenuType;
-  rawData: string;
-  x: number;
-  y: number;
-}
-
-function ContextMenu({
-  menu,
-  prefs,
-  onSetPrefs,
-  onClose,
-}: {
-  menu: ContextMenuState;
-  prefs: ChatPrefs;
-  onSetPrefs: (p: Partial<ChatPrefs>) => void;
-  onClose: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    document.addEventListener('mousedown', down);
-    document.addEventListener('keydown', key);
-    return () => {
-      document.removeEventListener('mousedown', down);
-      document.removeEventListener('keydown', key);
-    };
-  }, [onClose]);
-
-  // Keep menu inside viewport
-  const style = `position:fixed;top:${Math.min(menu.y, window.innerHeight - 120)}px;left:${Math.min(menu.x, window.innerWidth - 220)}px`;
-
-  const prefType: ChatPrefContextType | null = menu.type === 'message' ? null : menu.type;
-  const checked = prefType ? getChatPrefContextValue(prefs, prefType) : false;
-  const expandLabel = prefType ? getChatPrefContextLabel(prefType) : '';
-  const expandToggle = prefType ? (
-    <button
-      class="context-menu-item"
-      type="button"
-      onClick={() => {
-        onSetPrefs(toggleChatPrefForContext(prefs, prefType));
-        onClose();
-      }}
-    >
-      <svg class="context-menu-check" width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style={checked ? '' : 'opacity:0'}>
-        <polyline points="2.5,6.5 5,9 10.5,3.5" />
-      </svg>
-      {expandLabel}
-    </button>
-  ) : null;
-
-  return (
-    <div ref={ref} class="block-context-menu" style={style} onMouseDown={(e) => e.stopPropagation()}>
-      {expandToggle}
-      <button
-        class="context-menu-item"
-        type="button"
-        onClick={() => {
-          navigator.clipboard.writeText(menu.rawData);
-          onClose();
-        }}
-      >
-        <svg class="context-menu-check" width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" style="opacity:0" />
-        Copy raw
-      </button>
-    </div>
-  );
-}
+export { EMPTY_VIEW_STATE };
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
@@ -141,339 +32,104 @@ export interface AppAdapter {
 
 export function App({ adapter }: { adapter: AppAdapter }) {
   const { postMessage } = adapter;
+  const { viewState, draftRestore, tokenRateState, activeSessionPathRef, setDraftRestore } =
+    useHostSync(postMessage, adapter.initialState);
 
-  const [viewState, setViewState] = useState<ViewState>(adapter.initialState ?? EMPTY_VIEW_STATE);
-  const [overlay, setOverlay] = useState(emptyOverlay);
-  const [editingId, setEditingId] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
-  const [draftRestore, setDraftRestore] = useState<{ text: string; nonce: number } | null>(null);
-  const [showOutcomeDialog, setShowOutcomeDialog] = useState(false);
-
-  // Per-session stream smoothers for gradual character emission. The rendered
-  // `overlay` state is bound to the active session; background sessions update
-  // their own overlays in `overlaysRef` without re-rendering.
-  const overlaysRef = useRef<Map<string, Overlay>>(new Map());
-  const smoothersRef = useRef<Map<string, StreamSmoother>>(new Map());
-  // Per-session revision tracking. Replaces the old single `lastRevisionRef`.
-  const revisionMapRef = useRef<Map<string, number>>(new Map());
-
-  // Token rate tracking: rolling window of output token samples
-  const RATE_WINDOW_SECONDS = 10;
-  const tokenRateRef = useRef<{ tokens: number; timestamp: number }[]>([]);
-  const [tokenRateState, setTokenRateState] = useState<{ tokensPerSecond: number | null; windowSeconds: number }>({
-    tokensPerSecond: null,
-    windowSeconds: RATE_WINDOW_SECONDS,
-  });
-
-  const awaitingSnapshotRef = useRef(false);
-  const hostInstanceIdRef = useRef('');
-  const activeSessionPathRef = useRef<string | null>(null);
-  const committedSessionPathRef = useRef<string | null>(null);
-  const pendingDraftRestoreRef = useRef(new Map<string, { text: string }>());
-
-  const clearTransientUi = useCallback(() => {
-    setEditingId(null);
-    setContextMenu(null);
-    setDraftRestore(null);
-    setShowOutcomeDialog(false);
-  }, []);
-
-  // Per-session smoothers are created lazily. The smoother callback updates
-  // the session's overlay in `overlaysRef`; when the session is active we also
-  // mirror to React state so the transcript re-renders.
-  const getOrCreateSmoother = useCallback((sessionPath: string): StreamSmoother => {
-    const existing = smoothersRef.current.get(sessionPath);
-    if (existing) return existing;
-    const smoother = new StreamSmoother({}, (next) => {
-      overlaysRef.current.set(sessionPath, next);
-      if (sessionPath === activeSessionPathRef.current) {
-        setOverlay(next);
-      }
-    });
-    smoothersRef.current.set(sessionPath, smoother);
-    return smoother;
-  }, []);
-
-  const resetAllPerSessionState = useCallback(() => {
-    for (const smoother of smoothersRef.current.values()) {
-      smoother.flushAll();
-      smoother.reset();
-    }
-    smoothersRef.current.clear();
-    overlaysRef.current.clear();
-    revisionMapRef.current.clear();
-  }, []);
-
-  useEffect(() => {
-    return () => resetAllPerSessionState();
-  }, [resetAllPerSessionState]);
-
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      const msg = event.data as HostToWebviewMessage;
-
-      if (msg.type === 'state') {
-        // A state envelope is authoritative: drop all per-session bookkeeping
-        // and rebuild from the snapshot. Background overlays are dropped
-        // because the host store has already merged any streamed deltas into
-        // the committed transcript.
-        resetAllPerSessionState();
-        const hostChanged = hostInstanceIdRef.current && msg.hostInstanceId !== hostInstanceIdRef.current;
-        const nextActiveSessionPath = msg.state.activeSession?.path ?? null;
-        const sessionChanged = committedSessionPathRef.current !== null && committedSessionPathRef.current !== nextActiveSessionPath;
-        const queuedDraftRestore = nextActiveSessionPath
-          ? pendingDraftRestoreRef.current.get(nextActiveSessionPath) ?? null
-          : null;
-
-        awaitingSnapshotRef.current = false;
-        hostInstanceIdRef.current = msg.hostInstanceId;
-        activeSessionPathRef.current = nextActiveSessionPath;
-        committedSessionPathRef.current = nextActiveSessionPath;
-        if (hostChanged || sessionChanged) {
-          clearTransientUi();
-          tokenRateRef.current = [];
-          setTokenRateState({ tokensPerSecond: null, windowSeconds: RATE_WINDOW_SECONDS });
-        }
-        if (queuedDraftRestore && nextActiveSessionPath) {
-          pendingDraftRestoreRef.current.delete(nextActiveSessionPath);
-          setDraftRestore({ text: queuedDraftRestore.text, nonce: Date.now() });
-        }
-        setViewState(msg.state);
-        setOverlay(emptyOverlay());
-        return;
-      }
-
-      if (msg.type === 'patch') {
-        if (hostInstanceIdRef.current && msg.hostInstanceId !== hostInstanceIdRef.current) {
-          hostInstanceIdRef.current = msg.hostInstanceId;
-          resetAllPerSessionState();
-          awaitingSnapshotRef.current = true;
-          clearTransientUi();
-          setOverlay(emptyOverlay());
-          postMessage({ type: 'requestSnapshot' });
-          return;
-        }
-
-        const sessionPath = msg.sessionPath;
-        const prevRevision = revisionMapRef.current.get(sessionPath) ?? 0;
-
-        if (msg.revision <= prevRevision) {
-          return;
-        }
-        const expected = prevRevision + 1;
-        if (awaitingSnapshotRef.current || (prevRevision > 0 && msg.revision !== expected)) {
-          if (!awaitingSnapshotRef.current) {
-            postMessage({ type: 'requestSnapshot' });
-          }
-          awaitingSnapshotRef.current = true;
-          return;
-        }
-        revisionMapRef.current.set(sessionPath, msg.revision);
-
-        // Apply patch through the session's smoother. The smoother's onFlush
-        // callback updates `overlaysRef` and mirrors to React state when this
-        // session is the active one.
-        const smoother = getOrCreateSmoother(sessionPath);
-        const nextOverlay = smoother.processPatch(msg.op);
-        overlaysRef.current.set(sessionPath, nextOverlay);
-        if (sessionPath === activeSessionPathRef.current) {
-          setOverlay(nextOverlay);
-        }
-        // Track output token rate from streaming deltas (active session only).
-        if (msg.op.kind === 'messageDelta' && sessionPath === activeSessionPathRef.current) {
-          const now = Date.now();
-          const chars = msg.op.delta.length;
-          // Rough estimate: ~4 chars per token for typical English output
-          const estimatedTokens = chars / 4;
-          const samples = tokenRateRef.current;
-          samples.push({ tokens: estimatedTokens, timestamp: now });
-          // Evict samples outside the window
-          const cutoff = now - RATE_WINDOW_SECONDS * 1000;
-          let i = 0;
-          while (i < samples.length && samples[i].timestamp < cutoff) i++;
-          if (i > 0) samples.splice(0, i);
-          // Compute smoothed rate
-          if (samples.length >= 2) {
-            const first = samples[0];
-            const last = samples[samples.length - 1];
-            const elapsed = (last.timestamp - first.timestamp) / 1000;
-            if (elapsed > 0.5) {
-              const totalTokens = samples.reduce((s, p) => s + p.tokens, 0);
-              setTokenRateState({ tokensPerSecond: totalTokens / elapsed, windowSeconds: RATE_WINDOW_SECONDS });
-            }
-          }
-        }
-        return;
-      }
-
-      if (msg.type === 'sendRejected') {
-        if (msg.sessionPath === activeSessionPathRef.current) {
-          setDraftRestore({ text: msg.text, nonce: Date.now() });
-        } else {
-          pendingDraftRestoreRef.current.set(msg.sessionPath, { text: msg.text });
-        }
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    postMessage({ type: 'ready' });
-    return () => window.removeEventListener('message', handleMessage);
-  }, [clearTransientUi, getOrCreateSmoother, postMessage, resetAllPerSessionState]);
-
-  useEffect(() => {
-    const refreshState = () => postMessage({ type: 'refreshState' });
-    const handleVisibilityChange = () => {
-      if (!document.hidden) {
-        refreshState();
-      }
-    };
-
-    window.addEventListener('focus', refreshState);
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => {
-      window.removeEventListener('focus', refreshState);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
-    };
-  }, [postMessage]);
 
   const handleSend = useCallback((text: string) => {
     const sessionPath = activeSessionPathRef.current;
-    if (!sessionPath) {
-      return;
-    }
+    if (!sessionPath) return;
     setDraftRestore(null);
     postMessage({ type: 'send', sessionPath, text });
-  }, [postMessage]);
+  }, [postMessage, activeSessionPathRef, setDraftRestore]);
 
-  const handleEditSend = useCallback((messageId: string, text: string) => {
-    const sessionPath = activeSessionPathRef.current;
-    if (!sessionPath) {
-      return;
-    }
-    postMessage({ type: 'editMessage', sessionPath, messageId, text });
-    setEditingId(null);
-  }, [postMessage]);
-
-  const handleCancelEdit = useCallback(() => setEditingId(null), []);
   const handleInterrupt = useCallback(() => {
     const sessionPath = activeSessionPathRef.current;
-    if (!sessionPath) {
-      return;
-    }
+    if (!sessionPath) return;
     postMessage({ type: 'interrupt', sessionPath });
-  }, [postMessage]);
+  }, [postMessage, activeSessionPathRef]);
+
   const handleOpenFilePicker = useCallback(() => postMessage({ type: 'openFilePicker' }), [postMessage]);
-  const handleAddComposerInput = useCallback((input: ComposerInputDraft) => {
-    const sessionPath = activeSessionPathRef.current;
-    if (!sessionPath) {
-      return;
-    }
-    postMessage({ type: 'addComposerInput', sessionPath, input });
-  }, [postMessage]);
-  const handleRemoveComposerInput = useCallback((inputId: string) => {
-    const sessionPath = activeSessionPathRef.current;
-    if (!sessionPath) {
-      return;
-    }
-    postMessage({ type: 'removeComposerInput', sessionPath, inputId });
-  }, [postMessage]);
   const handleOpenFile = useCallback((path: string) => postMessage({ type: 'openFile', path }), [postMessage]);
   const handleNewSession = useCallback(() => postMessage({ type: 'newSession' }), [postMessage]);
+  const handleCloseTab = useCallback((path: string) => postMessage({ type: 'closeSession', sessionPath: path }), [postMessage]);
+  const handleMarkComplete = useCallback(() => postMessage({ type: 'openOutcomeDialog' }), [postMessage]);
+  const handleCancelOutcome = useCallback(() => postMessage({ type: 'closeOutcomeDialog' }), [postMessage]);
+  const handleCancelEdit = useCallback(() => postMessage({ type: 'cancelEdit' }), [postMessage]);
+  const handleSetPrefs = useCallback((partial: Partial<ChatPrefs>) => postMessage({ type: 'setPrefs', prefs: partial }), [postMessage]);
+  const handleSetPruningSettings = useCallback((partial: Partial<PruningSettings>) => postMessage({ type: 'setPruningSettings', settings: partial }), [postMessage]);
+  const handleEditRequest = useCallback((messageId: string) => postMessage({ type: 'startEdit', messageId }), [postMessage]);
+
+  const handleAddComposerInput = useCallback((input: ComposerInputDraft) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'addComposerInput', sessionPath, input });
+  }, [postMessage, activeSessionPathRef]);
+
+  const handleRemoveComposerInput = useCallback((inputId: string) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'removeComposerInput', sessionPath, inputId });
+  }, [postMessage, activeSessionPathRef]);
+
   const handleSelectTab = useCallback((path: string) => {
     activeSessionPathRef.current = path;
     postMessage({ type: 'openSession', sessionPath: path });
-  }, [postMessage]);
-  const handleCloseTab = useCallback((path: string) => postMessage({ type: 'closeSession', sessionPath: path }), [postMessage]);
+  }, [postMessage, activeSessionPathRef]);
+
   const handleMoveTab = useCallback((sessionPath: string | undefined, fromIndex: number, toIndex: number) => {
     postMessage({ type: 'moveSessionTab', sessionPath, fromIndex, toIndex });
   }, [postMessage]);
-
-  const handleMarkComplete = useCallback(() => setShowOutcomeDialog(true), []);
 
   const handleRecordOutcome = useCallback((outcome: RunOutcome) => {
     const sessionPath = activeSessionPathRef.current;
     if (!sessionPath) return;
     postMessage({ type: 'recordOutcome', sessionPath, outcome });
     postMessage({ type: 'closeSession', sessionPath });
-    setShowOutcomeDialog(false);
-  }, [postMessage]);
-
-  const handleCancelOutcome = useCallback(() => setShowOutcomeDialog(false), []);
+    postMessage({ type: 'closeOutcomeDialog' });
+  }, [postMessage, activeSessionPathRef]);
 
   const handleModelChange = useCallback((model: string, thinkingLevel: ThinkingLevel) => {
-    postMessage({
-      type: 'setModel',
-      sessionPath: viewState.activeSession?.path,
-      defaultModel: model,
-      defaultThinkingLevel: thinkingLevel,
-    });
+    postMessage({ type: 'setModel', sessionPath: viewState.activeSession?.path, defaultModel: model, defaultThinkingLevel: thinkingLevel });
   }, [viewState.activeSession?.path, postMessage]);
 
-  const handleEditRequest = useCallback((messageId: string) => {
-    setEditingId(messageId);
-  }, []);
+  const handleEditSend = useCallback((messageId: string, text: string) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'editMessage', sessionPath, messageId, text });
+  }, [postMessage, activeSessionPathRef]);
 
   const handleOpenFileDiff = useCallback((filePath: string) => {
     const sessionPath = activeSessionPathRef.current;
     if (!sessionPath) return;
     postMessage({ type: 'openFileDiff', sessionPath, filePath });
-  }, [postMessage]);
+  }, [postMessage, activeSessionPathRef]);
 
   const handleRevertFile = useCallback((filePath: string) => {
     const sessionPath = activeSessionPathRef.current;
     if (!sessionPath) return;
     postMessage({ type: 'revertFile', sessionPath, filePath });
-  }, [postMessage]);
-
-  const handleSetPrefs = useCallback((partial: Partial<ChatPrefs>) => {
-    postMessage({ type: 'setPrefs', prefs: partial });
-  }, [postMessage]);
-
-  const handleSetPruningSettings = useCallback((partial: Partial<PruningSettings>) => {
-    postMessage({ type: 'setPruningSettings', settings: partial });
-  }, [postMessage]);
+  }, [postMessage, activeSessionPathRef]);
 
   const handleOpenContextMenu = useCallback((type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => {
     setContextMenu({ type, rawData, x: e.clientX, y: e.clientY });
   }, []);
 
-  const {
-    sessions,
-    openTabPaths,
-    runningSessionPaths,
-    unreadFinishedSessionPaths,
-    activeSession,
-    transcript,
-    transcriptWindow,
-    pendingComposerInputs,
-    activeRunSummary,
-    busy,
-    notice,
-    backendReady,
-    workspaceCwd,
-    modelSettings,
-    availableModels,
-    contextUsage,
-    prefs,
-    systemPrompts,
-    fileChanges,
-    pruningResult,
-    pruningSettings,
-  } = viewState;
+  // ─── Derived state ───────────────────────────────────────────────────────
 
-  const availableExtensions = viewState.availableExtensions;
-
-  // Close outcome dialog if the active session changes.
-  useEffect(() => {
-    if (showOutcomeDialog) {
-      setShowOutcomeDialog(false);
-    }
-  }, [activeSession?.path]);
+  const { sessions, openTabPaths, runningSessionPaths, unreadFinishedSessionPaths,
+    activeSession, transcript, transcriptWindow, pendingComposerInputs, activeRunSummary,
+    busy, notice, backendReady, workspaceCwd, modelSettings, availableModels, contextUsage,
+    prefs, systemPrompts, fileChanges, pruningResult, pruningSettings, availableExtensions,
+    editingMessageId, showOutcomeDialog } = viewState;
 
   const panelSurface = resolvePanelSurface({ backendReady, notice, openTabPaths });
   const hasActiveTabs = panelSurface === 'session';
   const showSessionChrome = panelSurface !== 'loading';
   const activeSessionPath = activeSession?.path ?? null;
+
+  // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
     <div id="app">
@@ -543,12 +199,11 @@ export function App({ adapter }: { adapter: AppAdapter }) {
             transcript={transcript}
             transcriptWindow={transcriptWindow}
             busy={busy}
-            overlay={overlay}
             prefs={prefs}
             systemPrompts={systemPrompts}
             pruningResult={pruningResult}
             workingDirectory={activeSession?.cwd ?? workspaceCwd}
-            editingId={editingId}
+            editingId={editingMessageId}
             onEditRequest={handleEditRequest}
             onEditConfirm={handleEditSend}
             onEditCancel={handleCancelEdit}

@@ -21,7 +21,7 @@ import {
   toActiveRunSummary,
   toPersistedSessionState,
   workspaceHash,
-} from '../src/host/stats-service-helpers';
+} from '../src/host/stats-service/helpers';
 import type { ComposerInput } from '../src/shared/protocol';
 import type { RunSnapshot } from '../src/host/run-analytics';
 

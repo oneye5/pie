@@ -8,7 +8,7 @@ import {
   getWebviewAssetDir,
   isHotReloadAssetFileName,
   readWebviewAssetVersion,
-} from '../src/host/webview-hot-reload';
+} from '../src/host/webview/hot-reload';
 
 test('isHotReloadAssetFileName matches only the built panel assets', () => {
   assert.equal(isHotReloadAssetFileName('panel.js'), true);

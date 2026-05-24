@@ -6,7 +6,7 @@ import {
   buildStateEnvelope,
   createSidebarSyncState,
   flushDirtySnapshot,
-} from '../src/host/sidebar-sync';
+} from '../src/host/sidebar/sync';
 import { DEFAULT_CHAT_PREFS, type ViewState } from '../src/shared/protocol';
 
 const baseViewState: ViewState = {
@@ -41,6 +41,8 @@ const baseViewState: ViewState = {
   fileChanges: [],
   pruningResult: null,
   pruningSettings: { mode: 'auto' as const, skillCeiling: 5, toolCeiling: 5 },
+  editingMessageId: null,
+  showOutcomeDialog: false,
 };
 
 test('buildPatchEnvelope marks the stream dirty when the view cannot accept patches', () => {

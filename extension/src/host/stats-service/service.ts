@@ -1,6 +1,6 @@
-import { defaultCreateId, defaultNow } from '../stats-service-helpers';
+import { defaultCreateId, defaultNow } from './helpers';
 import { store } from '../store';
-import type { RunAnalyticsExportPayload, RunAnalyticsQueryResult } from '../run-analytics-query';
+import type { RunAnalyticsExportPayload, RunAnalyticsQueryResult } from '../run-analytics/query';
 import type {
   AssistantUsage,
   ComposerInput,

@@ -31,7 +31,7 @@ function assistantMessage(id: string, overrides: Record<string, unknown> = {}) {
   };
 }
 
-test('setTranscript can preserve current turns, aliases, and existing system prompts when requested', () => {
+test('setTranscript can preserve existing system prompts when requested', () => {
   const initial: TranscriptState = {
     bySession: {
       '/session/a': [assistantMessage('assistant-1') as any],
@@ -46,8 +46,6 @@ test('setTranscript can preserve current turns, aliases, and existing system pro
       }],
     },
     windowBySession: {},
-    messageIdAlias: { alias: 'assistant-1' },
-    currentTurnBySession: { '/session/a': { requestId: 'req-1', firstMessageId: 'assistant-1' } },
   };
 
   const preserved = reduce([
@@ -59,8 +57,6 @@ test('setTranscript can preserve current turns, aliases, and existing system pro
     }),
   ], initial);
 
-  assert.deepEqual(preserved.currentTurnBySession['/session/a'], { requestId: 'req-1', firstMessageId: 'assistant-1' });
-  assert.deepEqual(preserved.messageIdAlias, { alias: 'assistant-1' });
   assert.equal(preserved.systemPromptsBySession['/session/a']?.[0]?.text, 'Be helpful.');
 
   const reset = reduce([
@@ -70,8 +66,6 @@ test('setTranscript can preserve current turns, aliases, and existing system pro
     }),
   ], initial);
 
-  assert.equal(reset.currentTurnBySession['/session/a'], undefined);
-  assert.deepEqual(reset.messageIdAlias, {});
   assert.deepEqual(reset.systemPromptsBySession['/session/a'], []);
 });
 
@@ -134,7 +128,7 @@ test('trimTranscriptForInactivity trims transcript tails when dropAll is false',
   });
 });
 
-test('ensureAssistantMessage updates existing metadata, records orphan aliases, and enforces the loaded-window budget', () => {
+test('ensureAssistantMessage updates existing metadata and enforces the loaded-window budget', () => {
   const existingUpdated = reduce([
     transcriptActions.setTranscript({
       sessionPath: '/session/existing',
@@ -150,21 +144,22 @@ test('ensureAssistantMessage updates existing metadata, records orphan aliases, 
   assert.equal(existingUpdated.bySession['/session/existing']?.[0]?.modelId, 'new-model');
   assert.equal(existingUpdated.bySession['/session/existing']?.[0]?.thinkingLevel, 'high');
 
-  const orphanAlias = reduce([
-    transcriptActions.ensureAssistantMessage({
-      sessionPath: '/session/orphan',
-      messageId: 'alias-1',
-      requestId: 'req-1',
+  // isAlias=true updates canonical message's status to streaming
+  const aliasUpdated = reduce([
+    transcriptActions.setTranscript({
+      sessionPath: '/session/alias',
+      transcript: [assistantMessage('canonical-1', { status: 'completed', markdown: 'hello' }) as any],
     }),
-  ], {
-    bySession: { '/session/orphan': [] },
-    systemPromptsBySession: {},
-    windowBySession: {},
-    messageIdAlias: {},
-    currentTurnBySession: { '/session/orphan': { requestId: 'req-1', firstMessageId: 'missing-canonical' } },
-  });
-  assert.deepEqual(orphanAlias.bySession['/session/orphan'], []);
-  assert.equal(orphanAlias.messageIdAlias['alias-1'], 'missing-canonical');
+    transcriptActions.ensureAssistantMessage({
+      sessionPath: '/session/alias',
+      messageId: 'canonical-1',
+      isAlias: true,
+      modelId: 'new-model',
+    }),
+  ]);
+  assert.equal(aliasUpdated.bySession['/session/alias']?.[0]?.status, 'streaming');
+  assert.equal(aliasUpdated.bySession['/session/alias']?.[0]?.modelId, 'new-model');
+  assert.equal(aliasUpdated.bySession['/session/alias']?.[0]?.markdown, 'hello\n\n');
 
   const crowdedTranscript = Array.from({ length: TRANSCRIPT_WINDOW_BUDGETS.maxLoadedCount }, (_value, index) =>
     assistantMessage(`assistant-${index + 1}`) as any,
@@ -211,20 +206,24 @@ test('append and status mutations are no-ops when the target message does not ex
   assert.deepEqual(next, initial);
 });
 
-test('upsertMessage ignores unresolved aliases and marks inserted user messages in window metadata', () => {
-  const ignoredAlias = reduce([
+test('upsertMessage with canonicalMessageId merges into canonical and marks inserted user messages in window metadata', () => {
+  // canonicalMessageId causes a merge into the canonical message
+  const merged = reduce([
+    transcriptActions.setTranscript({
+      sessionPath: '/session/alias',
+      transcript: [assistantMessage('canonical-1', { status: 'streaming', durationMs: 100 }) as any],
+    }),
     transcriptActions.upsertMessage({
       sessionPath: '/session/alias',
-      message: assistantMessage('alias-1', { status: 'streaming' }) as any,
+      message: assistantMessage('alias-1', { status: 'completed', durationMs: 50, modelId: 'gpt-4' }) as any,
+      canonicalMessageId: 'canonical-1',
     }),
-  ], {
-    bySession: { '/session/alias': [] },
-    systemPromptsBySession: {},
-    windowBySession: {},
-    messageIdAlias: { 'alias-1': 'missing-canonical' },
-    currentTurnBySession: {},
-  });
-  assert.deepEqual(ignoredAlias.bySession['/session/alias'], []);
+  ]);
+  const canonical = merged.bySession['/session/alias']?.[0];
+  assert.equal(canonical?.status, 'completed');
+  assert.equal(canonical?.durationMs, 150);
+  assert.equal(canonical?.modelId, 'gpt-4');
+  assert.equal(merged.bySession['/session/alias']?.length, 1);
 
   const userInserted = reduce([
     transcriptActions.upsertMessage({
@@ -241,7 +240,7 @@ test('upsertMessage ignores unresolved aliases and marks inserted user messages 
   assert.equal(userInserted.windowBySession['/session/user']?.hasUserMessages, true);
 });
 
-test('clearTranscript removes session-scoped transcript state and aliases', () => {
+test('clearTranscript removes session-scoped transcript state', () => {
   const cleared = reduce([
     transcriptActions.ensureAssistantMessage({ sessionPath: '/session/clear', messageId: 'assistant-1', requestId: 'req-1' }),
     transcriptActions.ensureAssistantMessage({ sessionPath: '/session/clear', messageId: 'assistant-2', requestId: 'req-1' }),
@@ -250,8 +249,6 @@ test('clearTranscript removes session-scoped transcript state and aliases', () =
 
   assert.equal(cleared.bySession['/session/clear'], undefined);
   assert.equal(cleared.windowBySession['/session/clear'], undefined);
-  assert.equal(cleared.currentTurnBySession['/session/clear'], undefined);
-  assert.deepEqual(cleared.messageIdAlias, {});
 });
 
 test('removeMessage keeps missing sessions unchanged and clears hasUserMessages for fully loaded transcripts', () => {

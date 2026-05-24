@@ -15,37 +15,10 @@ export interface TranscriptState {
   systemPromptsBySession: Record<string, SystemPromptEntry[]>;
   /** Per-session transcript window metadata. */
   windowBySession: Record<string, TranscriptWindow>;
-  /** Maps aliased message IDs to canonical IDs (for multi-turn tool-use merging). */
-  messageIdAlias: Record<string, string>;
-  /** Tracks the first message ID of the active streaming turn per session. */
-  currentTurnBySession: Record<string, { requestId: string; firstMessageId: string }>;
 }
 
 export function resolveAlias(aliasMap: Record<string, string>, messageId: string): string {
   return aliasMap[messageId] ?? messageId;
-}
-
-export function clearSessionAliases(state: TranscriptState, sessionPath: string): void {
-  const sessionMessageIds = new Set<string>();
-
-  for (const message of state.bySession[sessionPath] ?? []) {
-    sessionMessageIds.add(message.id);
-  }
-
-  const currentTurn = state.currentTurnBySession[sessionPath];
-  if (currentTurn) {
-    sessionMessageIds.add(currentTurn.firstMessageId);
-  }
-
-  if (sessionMessageIds.size === 0) {
-    return;
-  }
-
-  for (const [aliasId, canonicalId] of Object.entries(state.messageIdAlias)) {
-    if (sessionMessageIds.has(aliasId) || sessionMessageIds.has(canonicalId)) {
-      delete state.messageIdAlias[aliasId];
-    }
-  }
 }
 
 export function ensureAssistantParts(message: ChatMessage): ChatMessagePart[] {

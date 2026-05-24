@@ -11,7 +11,6 @@ import type {
   SystemPromptEntry,
   TranscriptWindow,
 } from '../../../shared/protocol';
-import type { Overlay } from '../overlay';
 import { isTranscriptHydrating } from './state';
 
 import { MessageItem, ReasoningBlock } from './message-item';
@@ -44,7 +43,6 @@ interface TranscriptViewProps {
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
   busy: boolean;
-  overlay: Overlay;
   prefs: ChatPrefs;
   systemPrompts: SystemPromptEntry[];
   pruningResult: PruningResult | null;
@@ -65,7 +63,6 @@ export function TranscriptView({
   transcript,
   transcriptWindow,
   busy,
-  overlay,
   prefs,
   systemPrompts,
   pruningResult,
@@ -98,7 +95,6 @@ export function TranscriptView({
       transcript={transcript}
       transcriptWindow={transcriptWindow}
       busy={busy}
-      overlay={overlay}
       prefs={prefs}
       systemPrompts={systemPrompts}
       pruningResult={pruningResult}

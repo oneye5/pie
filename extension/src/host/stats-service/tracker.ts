@@ -13,7 +13,7 @@ import type {
   ThinkingLevel,
   ToolCall,
 } from '../../shared/protocol';
-import { appendUnique, summarizeInputs } from '../stats-service-helpers';
+import { appendUnique, summarizeInputs } from './helpers';
 import {
   normalizeExperimentAssignment,
   type OutcomeHistoryLogEntry,

@@ -8,7 +8,7 @@ import {
   DEFAULT_WEBVIEW_VIEW_NAME,
   getWebviewAssetDir,
   readWebviewAssetVersion,
-} from './webview-hot-reload';
+} from './hot-reload';
 
 export async function renderWebviewHtml(
   context: vscode.ExtensionContext,

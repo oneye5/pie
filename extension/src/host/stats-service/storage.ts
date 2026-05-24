@@ -5,18 +5,18 @@ import { serializeJsonLine } from '../../shared/jsonl';
 import {
   parseCheckpoint,
   workspaceHash,
-} from '../stats-service-helpers';
+} from './helpers';
 import {
   readCheckpointFromDisk,
   writeCheckpointToDisk,
   type CheckpointSlot,
-} from '../stats-service-persistence';
+} from './persistence';
 import {
   exportRunAnalyticsStore,
   queryRunAnalyticsStore,
   type RunAnalyticsExportPayload,
   type RunAnalyticsQueryResult,
-} from '../run-analytics-query';
+} from '../run-analytics/query';
 import {
   RUN_ANALYTICS_SCHEMA_VERSION,
   type OutcomeHistoryLogEntry,

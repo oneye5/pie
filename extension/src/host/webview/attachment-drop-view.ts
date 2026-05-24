@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { parseFileUriList } from '../shared/file-uri-list';
+import { parseFileUriList } from '../../shared/file-uri-list';
 
 export const ATTACHMENTS_VIEW_ID = 'pie.attachmentsView';
 

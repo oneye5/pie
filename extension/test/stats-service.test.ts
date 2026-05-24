@@ -12,7 +12,7 @@ import {
   type RunSnapshot,
 } from '../src/host/run-analytics';
 import { StatsService } from '../src/host/stats-service';
-import { workspaceHash } from '../src/host/stats-service-helpers';
+import { workspaceHash } from '../src/host/stats-service/helpers';
 import { createAppStore, sessionStateActions, sessionsActions, settingsActions } from '../src/host/store';
 import type { ComposerInput } from '../src/shared/protocol';
 

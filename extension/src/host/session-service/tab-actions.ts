@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 
-import { BackendClient } from '../backend-client';
+import { BackendClient } from '../backend/client';
 import { type RunObserver } from '../stats-service';
-import { auditLog } from '../state-audit';
+import { auditLog } from '../util/audit';
 import {
   getSessionByPath,
   sessionsActions,

@@ -2,9 +2,9 @@ import type {
   ChatMessage,
   TranscriptPageDirection,
   TranscriptWindow,
-} from '../shared/protocol';
-import { EMPTY_TRANSCRIPT_WINDOW } from '../shared/protocol';
-import { TRANSCRIPT_WINDOW_BUDGETS } from '../shared/transcript-window';
+} from '../../shared/protocol';
+import { EMPTY_TRANSCRIPT_WINDOW } from '../../shared/protocol';
+import { TRANSCRIPT_WINDOW_BUDGETS } from '../../shared/transcript-window';
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));

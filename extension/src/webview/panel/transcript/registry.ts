@@ -3,7 +3,6 @@
 
 import type { ComponentChildren } from 'preact';
 import type { ChatPrefs, PruningResult, SystemPromptEntry, ToolCall } from '../../../shared/protocol';
-import type { Overlay } from '../overlay';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import type { TranscriptRow } from './virtual-list-rows';
 
@@ -12,7 +11,6 @@ import type { TranscriptRow } from './virtual-list-rows';
 export interface RowRendererProps {
   row: TranscriptRow;
   busy: boolean;
-  overlay: Overlay;
   prefs: ChatPrefs;
   systemPrompts: SystemPromptEntry[];
   pruningResult: PruningResult | null;

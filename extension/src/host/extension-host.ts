@@ -17,23 +17,28 @@ import {
   buildWorkspaceAnalyticsId,
   getDataOutcomesRootPath,
   getDefaultRunAnalyticsExportPath,
-} from './analytics-storage';
-import { BackendClient } from './backend-client';
+} from './run-analytics/storage';
+import { BackendClient } from './backend/client';
 import {
   requestWindowAttention,
   shouldShowCompletionNotification,
   type SessionCompletionEvent,
-} from './completion-notification';
-import { type RunAnalyticsExportPayload } from './run-analytics-query';
-import { fileChangesActions, selectActiveSessionPath, selectViewState, store, uiActions } from './store';
-import { SidebarViewProvider } from './sidebar-provider';
+} from './sidebar/completion-notification';
+import { type RunAnalyticsExportPayload } from './run-analytics/query';
+import { fileChangesActions, selectActiveSessionPath, selectViewState, sessionsActions, sessionStateActions, store, transcriptActions, uiActions } from './store';
+import { SidebarViewProvider } from './sidebar/provider';
 import { SessionService } from './session-service';
 import { StatsService } from './stats-service';
 import type { WebviewToHostMessage } from '../shared/protocol';
 import { EffectRunner } from './core/effect-runner';
+import type { SyncEffect } from './core/effects';
 import { reducer, initialArchState, type ArchState } from './core/reducer';
 import type { Event } from './core/events';
-import { auditLog } from './state-audit';
+import { auditLog } from './util/audit';
+import { buildOptimisticUserParts, buildPromptText } from './session-service/composer';
+import { deriveSessionNameFromText } from '../shared/session-name';
+import { isPendingTabPath } from '../shared/tab-behavior';
+import { getSessionByPath } from './store';
 
 export const SIDEBAR_VIEW_TYPE = 'pie.sessionsView';
 
@@ -112,7 +117,6 @@ export class PieExtension implements vscode.Disposable {
       context,
       backend,
       () => this.scheduleRender(),
-      (sessionPath, op) => this.sidebarProvider.postPatch(sessionPath, op),
       (message) => this.sidebarProvider.postImperative(message),
       (event) => {
         this.handleSessionCompleted(event);
@@ -142,8 +146,12 @@ export class PieExtension implements vscode.Disposable {
           if (level === 'error') console.error('[arch]', message, data);
         },
       },
+      sync: { execute: (effect) => this.executeSyncEffect(effect) },
       dispatch: (event) => this.dispatchArchEvent(event),
     });
+
+    // Wire backend events through the arch-reducer dispatch path (Phase 5).
+    this.service.setArchDispatch((event) => this.dispatchArchEvent(event));
 
     this.statusBar.command = 'pie.openChat';
     this.statusBar.show();
@@ -165,10 +173,115 @@ export class PieExtension implements vscode.Disposable {
    * This is the single point where the new CQRS spine integrates with the extension.
    */
   private dispatchArchEvent(event: Event): void {
+    // Pre-reducer side effects for specific event types.
+    if (event.kind === 'SendResult' && event.ok && event.requestId) {
+      this.service.bindRequestSessionPath(event.requestId, event.sessionPath);
+    }
+
     const result = reducer(this.archState, event);
     this.archState = result.state;
     for (const effect of result.effects) {
       this.effectRunner.run(effect);
+    }
+  }
+
+  /**
+   * Phase 4: execute synchronous imperative effects. These bridge the new
+   * architecture to the legacy Redux store and webview imperative API while
+   * transcript state still lives outside the reducer.
+   */
+  private executeSyncEffect(effect: SyncEffect): void {
+    switch (effect.kind) {
+      case 'InsertOptimisticMessage':
+        store.dispatch(transcriptActions.appendLocalUserMessage({
+          sessionPath: effect.sessionPath,
+          id: effect.localId,
+          text: effect.text,
+          userParts: effect.userParts,
+        }));
+        this.scheduleRender();
+        break;
+      case 'RemoveOptimisticMessage':
+        store.dispatch(transcriptActions.removeMessage({
+          sessionPath: effect.sessionPath,
+          messageId: effect.localId,
+        }));
+        this.scheduleRender();
+        break;
+      case 'ClearComposerInputs':
+        store.dispatch(sessionStateActions.clearPendingComposerInputs(effect.sessionPath));
+        this.scheduleRender();
+        break;
+      case 'SetNotice':
+        store.dispatch(uiActions.setNotice(effect.message));
+        this.scheduleRender();
+        break;
+      case 'PostImperative':
+        this.sidebarProvider.postImperative(effect.imperativeMessage as import('../shared/protocol').HostToWebviewMessage);
+        break;
+      case 'SetSessionName': {
+        const current = getSessionByPath(store.getState(), effect.sessionPath);
+        if (current) {
+          store.dispatch(sessionsActions.upsertSession({
+            ...current,
+            name: effect.name,
+            isPlaceholder: effect.isPlaceholder,
+          }));
+          this.scheduleRender();
+        }
+        break;
+      }
+      case 'RestoreSessionSummary':
+        store.dispatch(sessionsActions.setSessionSummary(effect.summary));
+        this.scheduleRender();
+        break;
+      case 'AppendDelta':
+        store.dispatch(transcriptActions.appendDelta({
+          sessionPath: effect.sessionPath,
+          messageId: effect.messageId,
+          delta: effect.delta,
+        }));
+        break;
+      case 'AppendThinking':
+        store.dispatch(transcriptActions.appendThinking({
+          sessionPath: effect.sessionPath,
+          messageId: effect.messageId,
+          thinking: effect.thinking,
+        }));
+        break;
+      case 'UpsertToolCall':
+        store.dispatch(transcriptActions.upsertToolCall({
+          sessionPath: effect.sessionPath,
+          messageId: effect.messageId,
+          toolCall: effect.toolCall,
+        }));
+        break;
+      case 'UpsertMessage':
+        store.dispatch(transcriptActions.upsertMessage({
+          sessionPath: effect.sessionPath,
+          message: effect.message,
+          canonicalMessageId: effect.canonicalMessageId,
+        }));
+        break;
+      case 'EnsureAssistantMessage':
+        store.dispatch(transcriptActions.ensureAssistantMessage({
+          sessionPath: effect.sessionPath,
+          messageId: effect.canonicalMessageId,
+          isAlias: effect.isAlias,
+          modelId: effect.modelId,
+          thinkingLevel: effect.thinkingLevel,
+        }));
+        break;
+      case 'SetMessageStatus':
+        store.dispatch(transcriptActions.setMessageStatus({
+          sessionPath: effect.sessionPath,
+          messageId: effect.messageId,
+          status: effect.status,
+        }));
+        break;
+      case 'ScheduleRender':
+        this.scheduleRender();
+        break;
     }
   }
 
@@ -464,10 +577,48 @@ export class PieExtension implements vscode.Disposable {
           this.scheduleRender();
           return;
         }
-        const hasPendingInputs = (store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? []).length > 0;
-        if (text.trim() || hasPendingInputs) {
-          await this.service.send(sessionPath, text);
+
+        // Pre-flight validation (stays in host — reducer cannot read Redux state).
+        if (isPendingTabPath(sessionPath)) {
+          store.dispatch(uiActions.setNotice('Cannot send: the session is still opening.'));
+          this.scheduleRender();
+          return;
         }
+        if (!store.getState().sessions.openTabPaths.includes(sessionPath)) {
+          store.dispatch(uiActions.setNotice('Cannot send: the selected session is no longer open.'));
+          this.scheduleRender();
+          return;
+        }
+
+        const inputs = [
+          ...(store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? []),
+        ];
+        if (!text.trim() && inputs.length === 0) return;
+
+        // Pre-compute values the reducer needs.
+        this.service.bumpSessionDataEpoch(sessionPath);
+        const composedText = buildPromptText(text, inputs);
+        const userParts = buildOptimisticUserParts(text, inputs);
+        const localId = `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+
+        // Optimistic session name.
+        let previousSummary = null as import('../shared/protocol').SessionSummary | null;
+        const session = getSessionByPath(store.getState(), sessionPath);
+        if (session?.isPlaceholder) {
+          const derived = deriveSessionNameFromText(composedText);
+          if (!derived.isPlaceholder && derived.name !== session.name) {
+            previousSummary = session;
+            store.dispatch(sessionsActions.upsertSession({ ...session, name: derived.name, isPlaceholder: false }));
+            this.scheduleRender();
+          }
+        }
+
+        // Dispatch through CQRS spine.
+        const corrId = crypto.randomUUID();
+        this.dispatchArchEvent({
+          kind: 'Command',
+          cmd: { kind: 'Send', corrId, sessionPath, text, inputs, composedText, localId, userParts, previousSummary },
+        });
         return;
       }
 
@@ -480,7 +631,30 @@ export class PieExtension implements vscode.Disposable {
           this.scheduleRender();
           return;
         }
-        if (text.trim() && messageId) await this.service.editMessage(sessionPath, messageId, text);
+        if (!text.trim() || !messageId) return;
+
+        // Pre-flight validation.
+        if (isPendingTabPath(sessionPath)) {
+          store.dispatch(uiActions.setNotice('Cannot edit: the session is still opening.'));
+          this.scheduleRender();
+          return;
+        }
+        if (!store.getState().sessions.openTabPaths.includes(sessionPath)) {
+          store.dispatch(uiActions.setNotice('Cannot edit: the selected session is no longer open.'));
+          this.scheduleRender();
+          return;
+        }
+
+        this.service.bumpSessionDataEpoch(sessionPath);
+        const localId = `local:edit:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+
+        // Dispatch through CQRS spine.
+        const corrId = crypto.randomUUID();
+        store.dispatch(uiActions.setEditingMessageId(null));
+        this.dispatchArchEvent({
+          kind: 'Command',
+          cmd: { kind: 'Edit', corrId, sessionPath, messageId, text, localId },
+        });
         return;
       }
 
@@ -533,6 +707,8 @@ export class PieExtension implements vscode.Disposable {
         return;
 
       case 'openSession':
+        store.dispatch(uiActions.setEditingMessageId(null));
+        store.dispatch(uiActions.setShowOutcomeDialog(false));
         this.service.openSession(msg.sessionPath);
         this.sidebarProvider.reveal();
         this.sidebarProvider.postState();
@@ -591,6 +767,26 @@ export class PieExtension implements vscode.Disposable {
 
       case 'setPruningSettings':
         await this.service.setPruningSettings(msg.settings);
+        this.scheduleRender();
+        return;
+
+      case 'startEdit':
+        store.dispatch(uiActions.setEditingMessageId(msg.messageId));
+        this.scheduleRender();
+        return;
+
+      case 'cancelEdit':
+        store.dispatch(uiActions.setEditingMessageId(null));
+        this.scheduleRender();
+        return;
+
+      case 'openOutcomeDialog':
+        store.dispatch(uiActions.setShowOutcomeDialog(true));
+        this.scheduleRender();
+        return;
+
+      case 'closeOutcomeDialog':
+        store.dispatch(uiActions.setShowOutcomeDialog(false));
         this.scheduleRender();
         return;
 

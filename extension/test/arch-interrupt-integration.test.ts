@@ -64,6 +64,7 @@ function makeSerializingDeps(): {
     },
     tabs: { async persistTabs() {} },
     log: { log() {} },
+    sync: { execute() {} },
     dispatch: (e) => events.push(e),
   };
 
@@ -81,7 +82,7 @@ test('serialization: SendRpc queued before InterruptRpc executes send first (FIF
   const runner = new EffectRunner(deps);
 
   // Queue send, then immediately queue interrupt for the same session.
-  const sendEffect: Effect = { kind: 'SendRpc', corrId: 'c-send', sessionPath: '/a', text: 'hi' };
+  const sendEffect: Effect = { kind: 'SendRpc', corrId: 'c-send', sessionPath: '/a', text: 'hi', inputs: [] };
   const interruptEffect: Effect = { kind: 'InterruptRpc', corrId: 'c-int', sessionPath: '/a' };
 
   runner.run(sendEffect);
@@ -105,7 +106,7 @@ test('serialization: interrupt does not race ahead of a preceding send on the sa
 
   // Simulate the real scenario: reducer returns SendRpc from a Send command,
   // then InterruptRpc from an Interrupt command issued immediately after.
-  runner.run({ kind: 'SendRpc', corrId: 'c1', sessionPath: '/s', text: 'msg' });
+  runner.run({ kind: 'SendRpc', corrId: 'c1', sessionPath: '/s', text: 'msg', inputs: [] });
   runner.run({ kind: 'InterruptRpc', corrId: 'c2', sessionPath: '/s' });
 
   await settle();

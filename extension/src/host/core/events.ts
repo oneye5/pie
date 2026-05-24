@@ -26,6 +26,8 @@ export interface SendResultEvent {
   corrId: string;
   sessionPath: string;
   ok: boolean;
+  /** Backend-assigned request ID, used to bind events to sessions. */
+  requestId?: string;
   error?: string;
 }
 
@@ -86,4 +88,59 @@ export type EffectResultEvent =
   | CreateSessionResultEvent
   | PersistTabsResultEvent;
 
-export type Event = CommandEvent | EffectResultEvent;
+// ─── Backend streaming events ─────────────────────────────────────────────────
+// These wrap PI backend events so they flow through the reducer.
+
+export interface MessageDeltaEvent {
+  kind: 'MessageDelta';
+  sessionPath: string;
+  messageId: string;
+  delta: string;
+}
+
+export interface MessageThinkingEvent {
+  kind: 'MessageThinking';
+  sessionPath: string;
+  messageId: string;
+  thinking: string;
+}
+
+import type { ChatMessage, ToolCall } from '../../shared/protocol';
+
+export interface MessageStartedEvent {
+  kind: 'MessageStarted';
+  sessionPath: string;
+  messageId: string;
+  requestId?: string;
+  modelId?: string;
+  thinkingLevel?: ChatMessage['thinkingLevel'];
+}
+
+export interface MessageAbortedEvent {
+  kind: 'MessageAborted';
+  sessionPath: string;
+  messageId?: string;
+}
+
+export interface ToolCallEvent {
+  kind: 'ToolCall';
+  sessionPath: string;
+  messageId: string;
+  toolCall: ToolCall;
+}
+
+export interface MessageFinishedEvent {
+  kind: 'MessageFinished';
+  sessionPath: string;
+  message: ChatMessage;
+}
+
+export type BackendEvent =
+  | MessageStartedEvent
+  | MessageAbortedEvent
+  | MessageDeltaEvent
+  | MessageThinkingEvent
+  | ToolCallEvent
+  | MessageFinishedEvent;
+
+export type Event = CommandEvent | EffectResultEvent | BackendEvent;

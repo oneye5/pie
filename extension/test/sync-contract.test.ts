@@ -139,6 +139,8 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
       fileChanges: [],
       pruningResult: null,
       pruningSettings: { mode: 'auto' as const, skillCeiling: 5, toolCeiling: 5 },
+      editingMessageId: null,
+      showOutcomeDialog: false,
     },
   };
   assert.equal(msg.type, 'state');

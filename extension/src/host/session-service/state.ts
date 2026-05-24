@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
-import { BackendClient } from '../backend-client';
-import { assertInvariant, auditLog } from '../state-audit';
+import { BackendClient } from '../backend/client';
+import { assertInvariant, auditLog } from '../util/audit';
 import {
   fileChangesActions,
   sessionStateActions,

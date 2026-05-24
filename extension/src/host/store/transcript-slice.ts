@@ -15,14 +15,12 @@ import {
   trimTranscriptWindowTail,
   withDecrementedWindowCounts,
   withIncrementedWindowCounts,
-} from '../transcript-window';
+} from '../session-service/transcript-window';
 import {
   appendAssistantTextPart,
-  clearSessionAliases,
   markdownFromUserParts,
   mergeAssistantToolCallsPreservingResolvedState,
   mergeContinuationToolCalls,
-  resolveAlias,
   upsertAssistantToolCall,
   withAssistantParts,
   type TranscriptState,
@@ -46,7 +44,7 @@ function enforceLoadedWindowBudget(state: TranscriptState, sessionPath: string):
   }
 
   const transcriptWindow = ensureSessionWindow(state, sessionPath);
-  const activeTurnMessageId = state.currentTurnBySession[sessionPath]?.firstMessageId;
+  const activeTurnMessageId = transcript[transcript.length - 1]?.id;
   const culled = cullTranscriptWindowAroundActiveTurn({
     transcript,
     transcriptWindow,
@@ -64,8 +62,6 @@ const transcriptSlice = createSlice({
     bySession: {},
     systemPromptsBySession: {},
     windowBySession: {},
-    messageIdAlias: {},
-    currentTurnBySession: {},
   } as TranscriptState,
   reducers: {
     setTranscript(
@@ -85,22 +81,13 @@ const transcriptSlice = createSlice({
         transcriptWindow,
         systemPrompts,
         preserveCurrentTurn,
-        preserveAliases,
       } = action.payload;
-
-      if (!preserveAliases) {
-        clearSessionAliases(state, sessionPath);
-      }
 
       state.bySession[sessionPath] = transcript;
       state.windowBySession[sessionPath] = normalizeTranscriptWindow(transcript, transcriptWindow);
 
       if (systemPrompts !== undefined || !preserveCurrentTurn) {
         state.systemPromptsBySession[sessionPath] = systemPrompts ?? [];
-      }
-
-      if (!preserveCurrentTurn) {
-        delete state.currentTurnBySession[sessionPath];
       }
     },
     setTranscriptWindowMetadata(
@@ -120,7 +107,6 @@ const transcriptSlice = createSlice({
       const transcriptWindow = ensureSessionWindow(state, sessionPath);
 
       if (dropAll) {
-        clearSessionAliases(state, sessionPath);
         state.bySession[sessionPath] = [];
         state.windowBySession[sessionPath] = {
           ...transcriptWindow,
@@ -130,7 +116,6 @@ const transcriptSlice = createSlice({
           hasNewer: false,
           isPartial: transcriptWindow.totalCount > 0,
         };
-        delete state.currentTurnBySession[sessionPath];
         return;
       }
 
@@ -139,31 +124,53 @@ const transcriptSlice = createSlice({
       state.windowBySession[sessionPath] = trimmed.transcriptWindow;
     },
     clearTranscript(state, action: PayloadAction<string>) {
-      clearSessionAliases(state, action.payload);
       delete state.bySession[action.payload];
       delete state.systemPromptsBySession[action.payload];
       delete state.windowBySession[action.payload];
-      delete state.currentTurnBySession[action.payload];
     },
     clearSessionState(state, action: PayloadAction<string>) {
-      clearSessionAliases(state, action.payload);
       delete state.bySession[action.payload];
       delete state.systemPromptsBySession[action.payload];
       delete state.windowBySession[action.payload];
-      delete state.currentTurnBySession[action.payload];
     },
     ensureAssistantMessage(
       state,
       action: PayloadAction<{
         sessionPath: string;
         messageId: string;
+        /** Whether this message is a continuation alias (resolved by arch reducer). */
+        isAlias?: boolean;
         requestId?: string;
         modelId?: string;
         thinkingLevel?: ChatMessage['thinkingLevel'];
       }>,
     ) {
-      const { sessionPath, messageId, requestId, modelId, thinkingLevel } = action.payload;
+      const { sessionPath, messageId, isAlias, modelId, thinkingLevel } = action.payload;
       const list = (state.bySession[sessionPath] ??= []);
+
+      // Alias path: this is a continuation of an existing turn. The messageId
+      // passed here is the canonical (first) message ID, resolved by the arch reducer.
+      if (isAlias) {
+        const canonical = list.find((message) => message.id === messageId);
+        if (canonical) {
+          if (canonical.markdown) {
+            canonical.markdown += '\n\n';
+          }
+          if (canonical.thinking) {
+            canonical.thinking += '\n\n';
+          }
+          if (modelId) {
+            canonical.modelId = modelId;
+          }
+          if (thinkingLevel) {
+            canonical.thinkingLevel = thinkingLevel;
+          }
+          canonical.status = 'streaming';
+        }
+        return;
+      }
+
+      // Non-alias: check if message already exists (update metadata only).
       const existing = list.find((m) => m.id === messageId);
       if (existing) {
         if (modelId) {
@@ -175,30 +182,7 @@ const transcriptSlice = createSlice({
         return;
       }
 
-      if (requestId) {
-        const currentTurn = state.currentTurnBySession[sessionPath];
-        if (currentTurn?.requestId === requestId) {
-          state.messageIdAlias[messageId] = currentTurn.firstMessageId;
-          const canonical = list.find((message) => message.id === currentTurn.firstMessageId);
-          if (canonical) {
-            if (canonical.markdown) {
-              canonical.markdown += '\n\n';
-            }
-            if (canonical.thinking) {
-              canonical.thinking += '\n\n';
-            }
-            if (modelId) {
-              canonical.modelId = modelId;
-            }
-            if (thinkingLevel) {
-              canonical.thinkingLevel = thinkingLevel;
-            }
-          }
-          return;
-        }
-        state.currentTurnBySession[sessionPath] = { requestId, firstMessageId: messageId };
-      }
-
+      // New message: create it.
       list.push({
         id: messageId,
         role: 'assistant',
@@ -218,10 +202,9 @@ const transcriptSlice = createSlice({
       state,
       action: PayloadAction<{ sessionPath: string; messageId: string; delta: string }>,
     ) {
-      const { sessionPath, delta } = action.payload;
-      const messageId = resolveAlias(state.messageIdAlias, action.payload.messageId);
+      const { sessionPath, messageId, delta } = action.payload;
       const message = state.bySession[sessionPath]?.find((item) => item.id === messageId);
-      if (message) {
+      if (message && message.status !== 'completed' && message.status !== 'interrupted') {
         appendAssistantTextPart(message, 'text', delta);
         message.status = 'streaming';
       }
@@ -230,10 +213,9 @@ const transcriptSlice = createSlice({
       state,
       action: PayloadAction<{ sessionPath: string; messageId: string; thinking: string }>,
     ) {
-      const { sessionPath, thinking } = action.payload;
-      const messageId = resolveAlias(state.messageIdAlias, action.payload.messageId);
+      const { sessionPath, messageId, thinking } = action.payload;
       const message = state.bySession[sessionPath]?.find((item) => item.id === messageId);
-      if (message) {
+      if (message && message.status !== 'completed' && message.status !== 'interrupted') {
         appendAssistantTextPart(message, 'reasoning', thinking);
         message.status = 'streaming';
       }
@@ -242,8 +224,7 @@ const transcriptSlice = createSlice({
       state,
       action: PayloadAction<{ sessionPath: string; messageId: string; toolCall: ToolCall }>,
     ) {
-      const { sessionPath, toolCall } = action.payload;
-      const messageId = resolveAlias(state.messageIdAlias, action.payload.messageId);
+      const { sessionPath, messageId, toolCall } = action.payload;
       const message = state.bySession[sessionPath]?.find((item) => item.id === messageId);
       if (message) {
         upsertAssistantToolCall(message, toolCall);
@@ -251,15 +232,15 @@ const transcriptSlice = createSlice({
     },
     upsertMessage(
       state,
-      action: PayloadAction<{ sessionPath: string; message: ChatMessage }>,
+      action: PayloadAction<{ sessionPath: string; message: ChatMessage; canonicalMessageId?: string }>,
     ) {
-      const { sessionPath, message } = action.payload;
+      const { sessionPath, message, canonicalMessageId } = action.payload;
       const normalizedMessage = withAssistantParts(message);
       const list = (state.bySession[sessionPath] ??= []);
-      const canonicalId = resolveAlias(state.messageIdAlias, normalizedMessage.id);
 
-      if (canonicalId !== normalizedMessage.id) {
-        const canonical = list.find((item) => item.id === canonicalId);
+      // Alias merge: incoming message is a continuation — merge into canonical.
+      if (canonicalMessageId && canonicalMessageId !== normalizedMessage.id) {
+        const canonical = list.find((item) => item.id === canonicalMessageId);
         if (canonical) {
           canonical.status = normalizedMessage.status;
           if (normalizedMessage.modelId) {
@@ -297,8 +278,7 @@ const transcriptSlice = createSlice({
       state,
       action: PayloadAction<{ sessionPath: string; messageId: string; status: ChatMessage['status'] }>,
     ) {
-      const { sessionPath, status } = action.payload;
-      const messageId = resolveAlias(state.messageIdAlias, action.payload.messageId);
+      const { sessionPath, messageId, status } = action.payload;
       const message = state.bySession[sessionPath]?.find((item) => item.id === messageId);
       if (message) {
         message.status = status;

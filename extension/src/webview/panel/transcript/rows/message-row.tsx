@@ -7,7 +7,6 @@ import { registerRowRenderer, type RowRendererProps } from '../registry';
 function renderMessage({
   row,
   busy,
-  overlay,
   prefs,
   workingDirectory,
   editingId,
@@ -21,7 +20,6 @@ function renderMessage({
 }: RowRendererProps) {
   if (row.kind !== 'message') return null;
 
-  const overlayParts = overlay.partsByMessage.get(row.message.id);
   const isStreaming = busy && row.message.role === 'assistant' && row.message.status === 'streaming';
   const isLastAssistantMessage = busy && row.message.role === 'assistant' && isLastRow;
 
@@ -29,7 +27,6 @@ function renderMessage({
     <MessageItem
       key={row.message.id}
       message={row.message}
-      overlayParts={overlayParts}
       isStreaming={isStreaming}
       prefs={prefs}
       readonly={busy}

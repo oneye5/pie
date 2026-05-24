@@ -275,19 +275,16 @@ test('transcriptActions.appendLocalUserMessage adds a user message', () => {
   assert.equal(msg?.status, 'completed');
 });
 
-test('transcriptActions.clearSessionState removes aliases owned by the session', () => {
+test('transcriptActions.clearSessionState removes session data', () => {
   const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
   const store = createAppStore();
 
   store.dispatch(transcriptActions.ensureAssistantMessage({ sessionPath: '/ws/a', messageId: 'msg-1', requestId: 'req-1' }));
   store.dispatch(transcriptActions.ensureAssistantMessage({ sessionPath: '/ws/a', messageId: 'msg-2', requestId: 'req-1' }));
 
-  assert.equal(store.getState().transcript.messageIdAlias['msg-2'], 'msg-1');
-
   store.dispatch(transcriptActions.clearSessionState('/ws/a'));
 
   assert.deepEqual(store.getState().transcript.bySession['/ws/a'], undefined);
-  assert.deepEqual(store.getState().transcript.messageIdAlias, {});
 });
 
 test('transcript window metadata keeps hasUserMessages true after removing a loaded user from a partial window', () => {
@@ -801,15 +798,16 @@ test('sessionStateActions.clearSessionState clears pending composer inputs for a
 // Multi-turn tool-use merging (same requestId → single bubble)
 // ---------------------------------------------------------------------------
 
-test('multi-turn: second ensureAssistantMessage with same requestId aliases to first', () => {
+test('multi-turn: ensureAssistantMessage with isAlias reuses canonical message', () => {
   const { store } = require('../src/host/store') as typeof import('../src/host/store');
   store.dispatch(transcriptActions.clearTranscript('/ws/a'));
 
   store.dispatch(transcriptActions.ensureAssistantMessage({
     sessionPath: '/ws/a', messageId: 'req1:1', requestId: 'req1',
   }));
+  // Extension-host resolves the alias and passes canonical ID with isAlias
   store.dispatch(transcriptActions.ensureAssistantMessage({
-    sessionPath: '/ws/a', messageId: 'req1:2', requestId: 'req1',
+    sessionPath: '/ws/a', messageId: 'req1:1', isAlias: true,
   }));
 
   // Only one message should exist in the transcript
@@ -818,7 +816,7 @@ test('multi-turn: second ensureAssistantMessage with same requestId aliases to f
   assert.equal(list[0].id, 'req1:1');
 });
 
-test('multi-turn: deltas for aliased messageId accumulate on canonical', () => {
+test('multi-turn: deltas for aliased messageId accumulate on canonical (via pre-resolved IDs)', () => {
   const { store } = require('../src/host/store') as typeof import('../src/host/store');
   store.dispatch(transcriptActions.clearTranscript('/ws/a'));
 
@@ -833,11 +831,12 @@ test('multi-turn: deltas for aliased messageId accumulate on canonical', () => {
     message: { id: 'req1:1', role: 'assistant', createdAt: '', markdown: 'Turn1', status: 'completed' },
   }));
 
-  // Start turn 2 (same request)
+  // Start turn 2 — extension-host resolves alias and passes canonical ID with isAlias
   store.dispatch(transcriptActions.ensureAssistantMessage({
-    sessionPath: '/ws/a', messageId: 'req1:2', requestId: 'req1',
+    sessionPath: '/ws/a', messageId: 'req1:1', isAlias: true,
   }));
-  store.dispatch(transcriptActions.appendDelta({ sessionPath: '/ws/a', messageId: 'req1:2', delta: 'Turn2' }));
+  // Deltas arrive with pre-resolved canonical ID
+  store.dispatch(transcriptActions.appendDelta({ sessionPath: '/ws/a', messageId: 'req1:1', delta: 'Turn2' }));
 
   const msg = store.getState().transcript.bySession['/ws/a'].find((m) => m.id === 'req1:1');
   assert.ok(msg?.markdown.includes('Turn1'));
@@ -868,7 +867,7 @@ test('multi-turn: new requestId starts a fresh message bubble', () => {
   assert.ok(list.find((m) => m.id === 'req2:1'));
 });
 
-test('multi-turn: upsertMessage on alias merges metadata only', () => {
+test('multi-turn: upsertMessage on alias merges metadata only (via canonicalMessageId)', () => {
   const { store } = require('../src/host/store') as typeof import('../src/host/store');
   store.dispatch(transcriptActions.clearTranscript('/ws/a'));
 
@@ -884,16 +883,19 @@ test('multi-turn: upsertMessage on alias merges metadata only', () => {
     },
   }));
 
+  // Turn 2 — extension-host passes isAlias and pre-resolved canonical ID
   store.dispatch(transcriptActions.ensureAssistantMessage({
-    sessionPath: '/ws/a', messageId: 'req1:2', requestId: 'req1', modelId: 'gpt-5.4', thinkingLevel: 'high',
+    sessionPath: '/ws/a', messageId: 'req1:1', isAlias: true, modelId: 'gpt-5.4', thinkingLevel: 'high',
   }));
-  store.dispatch(transcriptActions.appendDelta({ sessionPath: '/ws/a', messageId: 'req1:2', delta: 'Turn2' }));
+  store.dispatch(transcriptActions.appendDelta({ sessionPath: '/ws/a', messageId: 'req1:1', delta: 'Turn2' }));
+  // upsertMessage with canonicalMessageId triggers merge
   store.dispatch(transcriptActions.upsertMessage({
     sessionPath: '/ws/a',
     message: {
       id: 'req1:2', role: 'assistant', createdAt: '', markdown: 'Turn2', status: 'completed', durationMs: 2000,
       modelId: 'gpt-5.4', thinkingLevel: 'high',
     },
+    canonicalMessageId: 'req1:1',
   }));
 
   const msg = store.getState().transcript.bySession['/ws/a'].find((m) => m.id === 'req1:1');

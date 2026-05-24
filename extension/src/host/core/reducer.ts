@@ -16,10 +16,27 @@
 
 import type { Event } from './events';
 import type { Effect } from './effects';
+import type { ChatMessage, SessionSummary, UserContentPart } from '../../shared/protocol';
 
 /** Per-session state tracked by the new architecture. */
 export interface SessionArchState {
   interruptInFlight: boolean;
+}
+
+/** Tracks the first message of the active streaming turn per session. */
+export interface CurrentTurn {
+  requestId: string;
+  firstMessageId: string;
+}
+
+/** Tracks an in-flight optimistic send or edit for rollback on failure. */
+export interface PendingOp {
+  kind: 'send' | 'edit';
+  sessionPath: string;
+  /** The local transcript entry ID inserted optimistically. */
+  localId: string;
+  /** Session summary snapshot before optimistic name change (null = no change). */
+  previousSummary: SessionSummary | null;
 }
 
 /**
@@ -27,15 +44,21 @@ export interface SessionArchState {
  * than `Map<...>` to remain compatible with RTK/Immer middleware.
  */
 export interface ArchState {
-  /** Optimistic pending operations keyed by `corrId` (Phase 4). */
-  pending: Record<string, never>;
+  /** Optimistic pending operations keyed by `corrId`. */
+  pending: Record<string, PendingOp>;
   /** Per-session arch state keyed by session path. */
   sessions: Record<string, SessionArchState>;
+  /** Maps aliased message IDs to canonical IDs (for multi-turn continuations). */
+  messageIdAlias: Record<string, string>;
+  /** Tracks the first message of the current streaming turn per session. */
+  currentTurnBySession: Record<string, CurrentTurn>;
 }
 
 export const initialArchState: ArchState = {
   pending: {},
   sessions: {},
+  messageIdAlias: {},
+  currentTurnBySession: {},
 };
 
 export interface ReducerResult {
@@ -47,10 +70,13 @@ function getSession(state: ArchState, sessionPath: string): SessionArchState {
   return state.sessions[sessionPath] ?? { interruptInFlight: false };
 }
 
+function resolveAlias(state: ArchState, messageId: string): string {
+  return state.messageIdAlias[messageId] ?? messageId;
+}
+
 /**
  * Reducer: routes events to per-kind handlers.
- * Currently handles: Interrupt command, InterruptResult event.
- * All other events pass through unchanged (no-op).
+ * Handles: Interrupt, Send, Edit commands and their result events.
  */
 export function reducer(state: ArchState, event: Event): ReducerResult {
   switch (event.kind) {
@@ -70,6 +96,76 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
             effects: [{ kind: 'InterruptRpc', corrId: cmd.corrId, sessionPath: cmd.sessionPath }],
           };
         }
+
+        case 'Send': {
+          const effects: Effect[] = [
+            {
+              kind: 'InsertOptimisticMessage',
+              corrId: cmd.corrId,
+              sessionPath: cmd.sessionPath,
+              localId: cmd.localId,
+              text: cmd.composedText,
+              userParts: cmd.userParts,
+            },
+            {
+              kind: 'SendRpc',
+              corrId: cmd.corrId,
+              sessionPath: cmd.sessionPath,
+              text: cmd.text,
+              inputs: cmd.inputs,
+            },
+          ];
+          return {
+            state: {
+              ...state,
+              pending: {
+                ...state.pending,
+                [cmd.corrId]: {
+                  kind: 'send',
+                  sessionPath: cmd.sessionPath,
+                  localId: cmd.localId,
+                  previousSummary: cmd.previousSummary,
+                },
+              },
+            },
+            effects,
+          };
+        }
+
+        case 'Edit': {
+          const effects: Effect[] = [
+            {
+              kind: 'InsertOptimisticMessage',
+              corrId: cmd.corrId,
+              sessionPath: cmd.sessionPath,
+              localId: cmd.localId,
+              text: cmd.text,
+            },
+            {
+              kind: 'EditRpc',
+              corrId: cmd.corrId,
+              sessionPath: cmd.sessionPath,
+              messageId: cmd.messageId,
+              text: cmd.text,
+            },
+          ];
+          return {
+            state: {
+              ...state,
+              pending: {
+                ...state.pending,
+                [cmd.corrId]: {
+                  kind: 'edit',
+                  sessionPath: cmd.sessionPath,
+                  localId: cmd.localId,
+                  previousSummary: null,
+                },
+              },
+            },
+            effects,
+          };
+        }
+
         default:
           return { state, effects: [] };
       }
@@ -96,6 +192,173 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
           },
         },
         effects,
+      };
+    }
+
+    case 'SendResult': {
+      const pending = state.pending[event.corrId];
+      if (!pending) return { state, effects: [] };
+
+      const { [event.corrId]: _removed, ...rest } = state.pending;
+      const nextState: ArchState = { ...state, pending: rest };
+
+      if (event.ok) {
+        return {
+          state: nextState,
+          effects: [{ kind: 'ClearComposerInputs', corrId: event.corrId, sessionPath: pending.sessionPath }],
+        };
+      }
+
+      // Failure: rollback optimistic message + session name + notify user.
+      const effects: Effect[] = [
+        { kind: 'RemoveOptimisticMessage', corrId: event.corrId, sessionPath: pending.sessionPath, localId: pending.localId },
+        { kind: 'PostImperative', corrId: event.corrId, imperativeMessage: { type: 'sendRejected', sessionPath: pending.sessionPath } },
+        { kind: 'SetNotice', corrId: event.corrId, message: `Failed to send message: ${event.error ?? 'unknown error'}` },
+      ];
+      if (pending.previousSummary) {
+        effects.push({ kind: 'RestoreSessionSummary', corrId: event.corrId, summary: pending.previousSummary });
+      }
+      return { state: nextState, effects };
+    }
+
+    case 'EditResult': {
+      const pending = state.pending[event.corrId];
+      if (!pending) return { state, effects: [] };
+
+      const { [event.corrId]: _removed, ...rest } = state.pending;
+      const nextState: ArchState = { ...state, pending: rest };
+
+      if (event.ok) {
+        return { state: nextState, effects: [] };
+      }
+
+      // Failure: rollback the optimistic edit message + notify user.
+      const effects: Effect[] = [
+        { kind: 'RemoveOptimisticMessage', corrId: event.corrId, sessionPath: pending.sessionPath, localId: pending.localId },
+        { kind: 'SetNotice', corrId: event.corrId, message: `Failed to edit message: ${event.error ?? 'unknown error'}` },
+      ];
+      return { state: nextState, effects };
+    }
+
+    // ─── Backend streaming events ─────────────────────────────────────────
+    // These produce sync effects that dispatch to the Redux transcript store.
+    // The reducer resolves message ID aliases before emitting effects so
+    // downstream consumers always receive canonical IDs.
+
+    case 'MessageStarted': {
+      const { sessionPath, messageId, requestId, modelId, thinkingLevel } = event;
+      const corrId = `started:${sessionPath}:${messageId}`;
+      const currentTurn = state.currentTurnBySession[sessionPath];
+
+      // If requestId matches the current turn, this is a continuation — alias it.
+      if (requestId && currentTurn && currentTurn.requestId === requestId) {
+        const nextState: ArchState = {
+          ...state,
+          messageIdAlias: { ...state.messageIdAlias, [messageId]: currentTurn.firstMessageId },
+        };
+        return {
+          state: nextState,
+          effects: [
+            {
+              kind: 'EnsureAssistantMessage', corrId, sessionPath, messageId,
+              canonicalMessageId: currentTurn.firstMessageId,
+              isAlias: true, requestId, modelId, thinkingLevel,
+            },
+            { kind: 'ScheduleRender', corrId },
+          ],
+        };
+      }
+
+      // New turn — update currentTurnBySession.
+      const nextState: ArchState = requestId
+        ? {
+          ...state,
+          currentTurnBySession: {
+            ...state.currentTurnBySession,
+            [sessionPath]: { requestId, firstMessageId: messageId },
+          },
+        }
+        : state;
+
+      return {
+        state: nextState,
+        effects: [
+          {
+            kind: 'EnsureAssistantMessage', corrId, sessionPath, messageId,
+            canonicalMessageId: messageId,
+            isAlias: false, requestId, modelId, thinkingLevel,
+          },
+          { kind: 'ScheduleRender', corrId },
+        ],
+      };
+    }
+
+    case 'MessageAborted': {
+      const { sessionPath, messageId } = event;
+      const corrId = `aborted:${sessionPath}:${messageId ?? 'unknown'}`;
+      if (!messageId) {
+        return { state, effects: [{ kind: 'ScheduleRender', corrId }] };
+      }
+      const canonicalId = resolveAlias(state, messageId);
+      return {
+        state,
+        effects: [
+          { kind: 'SetMessageStatus', corrId, sessionPath, messageId: canonicalId, status: 'interrupted' },
+          { kind: 'ScheduleRender', corrId },
+        ],
+      };
+    }
+
+    case 'MessageDelta': {
+      const messageId = resolveAlias(state, event.messageId);
+      const corrId = `delta:${event.sessionPath}:${messageId}`;
+      return {
+        state,
+        effects: [
+          { kind: 'AppendDelta', corrId, sessionPath: event.sessionPath, messageId, delta: event.delta },
+          { kind: 'ScheduleRender', corrId },
+        ],
+      };
+    }
+
+    case 'MessageThinking': {
+      const messageId = resolveAlias(state, event.messageId);
+      const corrId = `thinking:${event.sessionPath}:${messageId}`;
+      return {
+        state,
+        effects: [
+          { kind: 'AppendThinking', corrId, sessionPath: event.sessionPath, messageId, thinking: event.thinking },
+          { kind: 'ScheduleRender', corrId },
+        ],
+      };
+    }
+
+    case 'ToolCall': {
+      const messageId = resolveAlias(state, event.messageId);
+      const corrId = `tool:${event.sessionPath}:${event.toolCall.id}`;
+      return {
+        state,
+        effects: [
+          { kind: 'UpsertToolCall', corrId, sessionPath: event.sessionPath, messageId, toolCall: event.toolCall },
+          { kind: 'ScheduleRender', corrId },
+        ],
+      };
+    }
+
+    case 'MessageFinished': {
+      const messageId = resolveAlias(state, event.message.id);
+      const corrId = `finished:${event.sessionPath}:${messageId}`;
+      const isAlias = messageId !== event.message.id;
+      return {
+        state,
+        effects: [
+          {
+            kind: 'UpsertMessage', corrId, sessionPath: event.sessionPath,
+            message: event.message,
+            ...(isAlias ? { canonicalMessageId: messageId } : {}),
+          },
+          { kind: 'ScheduleRender', corrId },
+        ],
       };
     }
 

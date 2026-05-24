@@ -1,4 +1,4 @@
-import type { ChatMessage, TranscriptWindow } from '../shared/protocol';
+import type { ChatMessage, TranscriptWindow } from '../../shared/protocol';
 import { normalizeTranscriptWindow } from './transcript-window';
 
 export interface SessionOpenedTranscriptResolution {

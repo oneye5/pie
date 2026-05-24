@@ -5,7 +5,6 @@ import DOMPurify from 'dompurify';
 import { h } from 'preact';
 import renderToString from 'preact-render-to-string';
 
-import { emptyOverlay } from '../src/webview/panel/overlay';
 import {
   DEFAULT_CHAT_PREFS,
   EMPTY_TRANSCRIPT_WINDOW,
@@ -17,7 +16,6 @@ import {
 
 DOMPurify.sanitize = ((html: string) => html) as typeof DOMPurify.sanitize;
 
-const overlay = emptyOverlay();
 const noop = () => undefined;
 const noopContextMenu = () => undefined;
 
@@ -91,7 +89,6 @@ test('rendered MessageItem covers assistant, editable user, and image-user branc
       { kind: 'text', text: 'Hello **world**' },
       { kind: 'toolCall', toolCall: toolCall({ id: 'tool-inline', name: 'read', input: { path: '/repo/README.md' }, result: undefined, status: 'running' }) },
     ]),
-    overlayParts: [{ kind: 'text', text: ' plus overlay' }],
     isStreaming: true,
     prefs,
     readonly: true,
@@ -109,13 +106,11 @@ test('rendered MessageItem covers assistant, editable user, and image-user branc
   assert.match(assistantHtml, /Reasoning/);
   assert.match(assistantHtml, /rendered-tool/);
   assert.match(assistantHtml, /Hello <strong>world<\/strong>/);
-  assert.match(assistantHtml, /plus overlay/);
   assert.match(assistantHtml, /Agent is responding/);
   assert.match(assistantHtml, /claude-sonnet-4-5:cloud high/);
 
   const editingHtml = renderToString(h(MessageItem, {
     message: userMessage(),
-    overlayParts: undefined,
     isStreaming: false,
     prefs: DEFAULT_CHAT_PREFS,
     readonly: false,
@@ -142,7 +137,6 @@ test('rendered MessageItem covers assistant, editable user, and image-user branc
         { kind: 'image', mimeType: 'image/png', dataBase64: 'ZmFrZQ==', name: 'diagram.png', width: 100, height: 50 },
       ],
     }),
-    overlayParts: undefined,
     isStreaming: false,
     prefs: DEFAULT_CHAT_PREFS,
     readonly: true,
@@ -726,7 +720,6 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
   const topGapHtml = renderToString(h(TranscriptVirtualRow, {
     row: { kind: 'topGap', key: 'top-gap' },
     busy: false,
-    overlay,
     prefs: DEFAULT_CHAT_PREFS,
     systemPrompts: [prompt],
     pruningResult: null,
@@ -749,7 +742,6 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
   const bottomGapHtml = renderToString(h(TranscriptVirtualRow, {
     row: { kind: 'bottomGap', key: 'bottom-gap' },
     busy: false,
-    overlay,
     prefs: DEFAULT_CHAT_PREFS,
     systemPrompts: [prompt],
     pruningResult: null,
@@ -772,7 +764,6 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
   const messageRowHtml = renderToString(h(TranscriptVirtualRow, {
     row: { kind: 'message', key: 'message-row', message: assistantMessage([{ kind: 'text', text: 'Rendered row' }], { status: 'completed' }) },
     busy: true,
-    overlay,
     prefs: DEFAULT_CHAT_PREFS,
     systemPrompts: [prompt],
     pruningResult: null,

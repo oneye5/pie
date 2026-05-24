@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { BackendClient } from './host/backend-client';
+import { BackendClient } from './host/backend/client';
 import { PieExtension } from './host/extension-host';
 
 let extensionInstance: PieExtension | null = null;

@@ -220,7 +220,6 @@ function SubagentSingleBlock({
             <MessageItem
               key={`${message.id}-${nestedDisclosureDefaultsKey}`}
               message={message}
-              overlayParts={undefined}
               isStreaming={false}
               prefs={prefs}
               readonly

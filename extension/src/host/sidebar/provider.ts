@@ -2,29 +2,27 @@ import * as crypto from 'node:crypto';
 
 import * as vscode from 'vscode';
 
-import { assertInvariant, auditLog } from './state-audit';
+import { assertInvariant, auditLog } from '../util/audit';
 import {
-  buildPatchEnvelope,
   buildStateEnvelope,
   canPostToWebview,
   clearSessionSync,
   createSidebarSyncState,
   flushDirtySnapshot,
   type SidebarSyncState,
-} from './sidebar-sync';
+} from './sync';
 import {
   DEFAULT_WEBVIEW_VIEW_NAME,
   getWebviewAssetDir,
   isHotReloadAssetFileName,
-} from './webview-hot-reload';
-import { renderWebviewHtml, getWebviewRoots } from './webview-assets';
+} from '../webview/hot-reload';
+import { renderWebviewHtml, getWebviewRoots } from '../webview/assets';
 import type {
   HostToWebviewMessage,
-  PatchOp,
   ViewState,
   WebviewToHostMessage,
-} from '../shared/protocol';
-import { validateWebviewToHostMessage } from '../shared/protocol-validation';
+} from '../../shared/protocol';
+import { validateWebviewToHostMessage } from '../../shared/protocol-validation';
 
 /** Debounce window for batching rapid store changes into a single snapshot post. */
 const SCHEDULE_DEBOUNCE_MS = 50;
@@ -189,42 +187,6 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       this.scheduleTimer = undefined;
       this.postState();
     }, SCHEDULE_DEBOUNCE_MS);
-  }
-
-  /**
-   * Post an incremental patch for high-frequency streaming updates (deltas,
-   * thinking tokens, tool call state). Skipped when the view is not visible.
-   * The envelope carries `sessionPath` so the webview can route the patch to
-   * the correct per-session mirror.
-   */
-  postPatch(sessionPath: string, op: PatchOp): void {
-    const previousRevision = this.syncState.sessions[sessionPath]?.revision ?? 0;
-    const result = buildPatchEnvelope(this.syncState, sessionPath, op, this.canPostToView());
-    this.syncState = result.nextSyncState;
-
-    const nextRevision = this.syncState.sessions[sessionPath]?.revision ?? 0;
-    const sessionDirty = this.syncState.sessions[sessionPath]?.dirty ?? false;
-    auditLog(this.context, 'sidebar-provider', 'patch.post', {
-      dirty: sessionDirty,
-      kind: op.kind,
-      sessionPath,
-      posted: !!result.message,
-      ready: this.webviewReady,
-      revision: nextRevision,
-      visible: this.view?.visible ?? false,
-    });
-
-    assertInvariant(
-      this.context,
-      'sidebar-provider',
-      !result.message || nextRevision > previousRevision,
-      'Patches must advance revision monotonically.',
-      { previousRevision, nextRevision, kind: op.kind, sessionPath },
-    );
-
-    if (result.message && this.view) {
-      void this.view.webview.postMessage(result.message);
-    }
   }
 
   /** Drop sync bookkeeping for a session that was closed or invalidated. */

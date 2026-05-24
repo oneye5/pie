@@ -233,9 +233,15 @@ export interface ChatMessage {
   usage?: AssistantUsage;
   /** Custom message type from a pi extension (e.g. 'pruning-result'). Present on system messages mapped from custom_message entries. */
   customType?: string;
-  /** Structured details from a custom_message entry, when provided by the source extension. */
-  customDetails?: unknown;
+  /** Structured details from a custom_message entry, when provided by the source extension. Typed per customType. */
+  customDetails?: CustomMessageDetails;
 }
+
+/**
+ * Discriminated detail payloads keyed by `customType`.
+ * Fallback `unknown` covers future extension types that haven't been typed yet.
+ */
+export type CustomMessageDetails = PruningDetails | unknown;
 
 export type TranscriptPageDirection = 'older' | 'newer' | 'latest';
 
@@ -606,6 +612,10 @@ export interface ViewState {
   pruningResult: PruningResult | null;
   /** Current pruning configuration from settings.json. */
   pruningSettings: PruningSettings;
+  /** Message ID currently being edited, or null. */
+  editingMessageId: string | null;
+  /** Whether the run-outcome dialog is open. */
+  showOutcomeDialog: boolean;
 }
 
 // ─── Host ↔ webview envelopes ────────────────────────────────────────────────
@@ -687,5 +697,9 @@ export type WebviewToHostMessage =
     }
   | { type: 'setPrefs'; prefs: Partial<ChatPrefs> }
   | { type: 'setPruningSettings'; settings: Partial<PruningSettings> }
+  | { type: 'startEdit'; messageId: string }
+  | { type: 'cancelEdit' }
+  | { type: 'openOutcomeDialog' }
+  | { type: 'closeOutcomeDialog' }
   | { type: 'openFileDiff'; sessionPath: string; filePath: string }
   | { type: 'revertFile'; sessionPath: string; filePath: string };

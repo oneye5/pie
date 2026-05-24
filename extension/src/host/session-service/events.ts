@@ -1,13 +1,12 @@
 import * as vscode from 'vscode';
 
-import { BackendClient } from '../backend-client';
-import { shouldFlashFinishedTab } from '../completion-notification';
-import { resolveSessionOpenedTranscript } from '../session-opened-transcript';
+import { BackendClient } from '../backend/client';
+import { shouldFlashFinishedTab } from '../sidebar/completion-notification';
+import { resolveSessionOpenedTranscript } from './session-opened-transcript';
 import { type RunObserver } from '../stats-service';
-import { auditLog } from '../state-audit';
+import { auditLog } from '../util/audit';
 import {
   fileChangesActions,
-  getCanonicalMessageId,
   getSessionByPath,
   selectActiveSessionPath,
   sessionStateActions,
@@ -29,7 +28,6 @@ import type {
   MessageFinishedPayload,
   MessageStartedPayload,
   MessageThinkingPayload,
-  PatchOp,
   SessionListChangedPayload,
   SessionOpenedPayload,
   ToolFinishedPayload,
@@ -37,13 +35,12 @@ import type {
   ToolStartedPayload,
 } from '../../shared/protocol';
 import { dispatchSessionBackendEvent } from './event-dispatch';
-import type { OnSessionCompleted, ScheduleRender } from './types';
+import type { DispatchArchEvent, OnSessionCompleted, ScheduleRender } from './types';
 import { SessionServiceState } from './state';
 
 interface SessionServiceEventsOptions {
   context: vscode.ExtensionContext;
   scheduleRender: ScheduleRender;
-  postPatch: (sessionPath: string, op: PatchOp) => void;
   onSessionCompleted?: OnSessionCompleted;
   runObserver: RunObserver;
   state: SessionServiceState;
@@ -52,20 +49,23 @@ interface SessionServiceEventsOptions {
 export class SessionServiceEvents {
   private readonly context: vscode.ExtensionContext;
   private readonly scheduleRender: ScheduleRender;
-  private readonly postPatch: (sessionPath: string, op: PatchOp) => void;
   private readonly onSessionCompleted?: OnSessionCompleted;
   private readonly runObserver: RunObserver;
   private readonly state: SessionServiceState;
   private eventDisposable?: vscode.Disposable;
   private exitDisposable?: vscode.Disposable;
+  private dispatchArch?: DispatchArchEvent;
 
   constructor(options: SessionServiceEventsOptions) {
     this.context = options.context;
     this.scheduleRender = options.scheduleRender;
-    this.postPatch = options.postPatch;
     this.onSessionCompleted = options.onSessionCompleted;
     this.runObserver = options.runObserver;
     this.state = options.state;
+  }
+
+  setArchDispatch(dispatch: DispatchArchEvent): void {
+    this.dispatchArch = dispatch;
   }
 
   attach(backend: BackendClient): void {
@@ -233,15 +233,28 @@ export class SessionServiceEvents {
       return;
     }
 
-    store.dispatch(
-      transcriptActions.ensureAssistantMessage({
+    if (this.dispatchArch) {
+      this.dispatchArch({
+        kind: 'MessageStarted',
         sessionPath,
         messageId: payload.messageId,
         requestId: payload.requestId,
         modelId: payload.modelId,
         thinkingLevel: payload.thinkingLevel,
-      }),
-    );
+      });
+    } else {
+      store.dispatch(
+        transcriptActions.ensureAssistantMessage({
+          sessionPath,
+          messageId: payload.messageId,
+          requestId: payload.requestId,
+          modelId: payload.modelId,
+          thinkingLevel: payload.thinkingLevel,
+        }),
+      );
+      this.scheduleRender();
+    }
+
     this.state.bindRequestSessionPath(payload.requestId, sessionPath);
     this.runObserver.onAssistantTurnStarted(sessionPath, payload.messageId);
 
@@ -257,7 +270,6 @@ export class SessionServiceEvents {
     }
 
     this.state.touchSessionTranscript(sessionPath);
-    this.scheduleRender();
   }
 
   private onMessageDelta(payload: MessageDeltaPayload): void {
@@ -266,16 +278,23 @@ export class SessionServiceEvents {
       return;
     }
 
-    store.dispatch(
-      transcriptActions.appendDelta({
+    if (this.dispatchArch) {
+      this.dispatchArch({
+        kind: 'MessageDelta',
         sessionPath,
         messageId: payload.messageId,
         delta: payload.delta,
-      }),
-    );
-
-    const canonicalId = getCanonicalMessageId(payload.messageId, store.getState());
-    this.postPatch(sessionPath, { kind: 'messageDelta', messageId: canonicalId, delta: payload.delta });
+      });
+    } else {
+      store.dispatch(
+        transcriptActions.appendDelta({
+          sessionPath,
+          messageId: payload.messageId,
+          delta: payload.delta,
+        }),
+      );
+      this.scheduleRender();
+    }
   }
 
   private onMessageThinking(payload: MessageThinkingPayload): void {
@@ -284,20 +303,23 @@ export class SessionServiceEvents {
       return;
     }
 
-    store.dispatch(
-      transcriptActions.appendThinking({
+    if (this.dispatchArch) {
+      this.dispatchArch({
+        kind: 'MessageThinking',
         sessionPath,
         messageId: payload.messageId,
         thinking: payload.thinking,
-      }),
-    );
-
-    const canonicalId = getCanonicalMessageId(payload.messageId, store.getState());
-    this.postPatch(sessionPath, {
-      kind: 'messageThinking',
-      messageId: canonicalId,
-      thinking: payload.thinking,
-    });
+      });
+    } else {
+      store.dispatch(
+        transcriptActions.appendThinking({
+          sessionPath,
+          messageId: payload.messageId,
+          thinking: payload.thinking,
+        }),
+      );
+      this.scheduleRender();
+    }
   }
 
   private onToolStarted(payload: ToolStartedPayload): void {
@@ -306,7 +328,6 @@ export class SessionServiceEvents {
       return;
     }
 
-    const canonicalId = getCanonicalMessageId(payload.messageId, store.getState());
     const toolCall = {
       id: payload.toolCallId,
       name: payload.name,
@@ -314,9 +335,19 @@ export class SessionServiceEvents {
       status: 'running' as const,
     };
 
-    store.dispatch(
-      transcriptActions.upsertToolCall({ sessionPath, messageId: canonicalId, toolCall }),
-    );
+    if (this.dispatchArch) {
+      this.dispatchArch({
+        kind: 'ToolCall',
+        sessionPath,
+        messageId: payload.messageId,
+        toolCall,
+      });
+    } else {
+      store.dispatch(
+        transcriptActions.upsertToolCall({ sessionPath, messageId: payload.messageId, toolCall }),
+      );
+      this.scheduleRender();
+    }
     this.runObserver.onToolStarted(sessionPath, toolCall);
 
     // Track file changes from file-modifying tools
@@ -329,23 +360,21 @@ export class SessionServiceEvents {
       store.dispatch(fileChangesActions.addFileChange({ sessionPath, change: fileChange }));
     }
 
-    this.postPatch(sessionPath, { kind: 'toolCall', messageId: canonicalId, toolCall });
     this.state.touchSessionTranscript(sessionPath);
-    this.scheduleRender();
   }
 
-  private onToolFinished(payload: ToolFinishedPayload): void {
+  private onToolFinished(payload: ToolFinishedPayload): void{
     const sessionPath = this.requireEventSessionPath('tool.finished', payload.sessionPath);
     if (!sessionPath) {
       return;
     }
 
-    const canonicalId = getCanonicalMessageId(payload.messageId, store.getState());
+    // Look up existing tool call by toolCallId to carry forward name/input.
     const existing = store
       .getState()
       .transcript.bySession[sessionPath]
-      ?.find((message) => message.id === canonicalId)
-      ?.toolCalls?.find((toolCall) => toolCall.id === payload.toolCallId);
+      ?.flatMap((message) => message.toolCalls ?? [])
+      .find((toolCall) => toolCall.id === payload.toolCallId);
 
     const toolCall = {
       id: payload.toolCallId,
@@ -355,14 +384,22 @@ export class SessionServiceEvents {
       status: payload.status,
     };
 
-    store.dispatch(
-      transcriptActions.upsertToolCall({ sessionPath, messageId: canonicalId, toolCall }),
-    );
+    if (this.dispatchArch) {
+      this.dispatchArch({
+        kind: 'ToolCall',
+        sessionPath,
+        messageId: payload.messageId,
+        toolCall,
+      });
+    } else {
+      store.dispatch(
+        transcriptActions.upsertToolCall({ sessionPath, messageId: payload.messageId, toolCall }),
+      );
+      this.scheduleRender();
+    }
     this.runObserver.onToolFinished(sessionPath, toolCall);
 
-    this.postPatch(sessionPath, { kind: 'toolCall', messageId: canonicalId, toolCall });
     this.state.touchSessionTranscript(sessionPath);
-    this.scheduleRender();
   }
 
   private onToolProgress(payload: ToolProgressPayload): void {
@@ -371,12 +408,12 @@ export class SessionServiceEvents {
       return;
     }
 
-    const canonicalId = getCanonicalMessageId(payload.messageId, store.getState());
+    // Look up existing tool call by toolCallId to carry forward name/input.
     const existing = store
       .getState()
       .transcript.bySession[sessionPath]
-      ?.find((message) => message.id === canonicalId)
-      ?.toolCalls?.find((toolCall) => toolCall.id === payload.toolCallId);
+      ?.flatMap((message) => message.toolCalls ?? [])
+      .find((toolCall) => toolCall.id === payload.toolCallId);
 
     const toolCall = {
       id: payload.toolCallId,
@@ -386,13 +423,21 @@ export class SessionServiceEvents {
       status: 'running' as const,
     };
 
-    store.dispatch(
-      transcriptActions.upsertToolCall({ sessionPath, messageId: canonicalId, toolCall }),
-    );
+    if (this.dispatchArch) {
+      this.dispatchArch({
+        kind: 'ToolCall',
+        sessionPath,
+        messageId: payload.messageId,
+        toolCall,
+      });
+    } else {
+      store.dispatch(
+        transcriptActions.upsertToolCall({ sessionPath, messageId: payload.messageId, toolCall }),
+      );
+      this.scheduleRender();
+    }
 
-    this.postPatch(sessionPath, { kind: 'toolCall', messageId: canonicalId, toolCall });
     this.state.touchSessionTranscript(sessionPath);
-    this.scheduleRender();
   }
 
   private onMessageFinished(payload: MessageFinishedPayload): void {
@@ -401,9 +446,18 @@ export class SessionServiceEvents {
       return;
     }
 
-    store.dispatch(
-      transcriptActions.upsertMessage({ sessionPath, message: payload.message }),
-    );
+    if (this.dispatchArch) {
+      this.dispatchArch({
+        kind: 'MessageFinished',
+        sessionPath,
+        message: payload.message,
+      });
+    } else {
+      store.dispatch(
+        transcriptActions.upsertMessage({ sessionPath, message: payload.message }),
+      );
+      this.scheduleRender();
+    }
     this.runObserver.onAssistantTurnEnded(
       sessionPath,
       payload.message.id,
@@ -412,11 +466,9 @@ export class SessionServiceEvents {
     );
     this.state.unbindRequestSessionPath(payload.requestId);
 
-    const canonicalId = getCanonicalMessageId(payload.message.id, store.getState());
-    this.postPatch(sessionPath, { kind: 'clearOverlay', messageIds: [canonicalId] });
-
+    // MessageFinished replaces the streaming entry with its authoritative form.
+    // The next snapshot diff naturally produces the content replacement.
     this.state.touchSessionTranscript(sessionPath);
-    this.scheduleRender();
   }
 
   private onMessageAborted(payload: MessageAbortedPayload): void {
@@ -425,7 +477,13 @@ export class SessionServiceEvents {
       return;
     }
 
-    if (payload.messageId) {
+    if (this.dispatchArch) {
+      this.dispatchArch({
+        kind: 'MessageAborted',
+        sessionPath,
+        messageId: payload.messageId,
+      });
+    } else if (payload.messageId) {
       store.dispatch(
         transcriptActions.setMessageStatus({
           sessionPath,
@@ -433,10 +491,11 @@ export class SessionServiceEvents {
           status: 'interrupted',
         }),
       );
+      this.scheduleRender();
     }
+
     this.runObserver.onInterrupted(sessionPath);
     this.state.touchSessionTranscript(sessionPath);
-    this.scheduleRender();
   }
 
   private onBusyChanged(payload: BusyChangedPayload): void {

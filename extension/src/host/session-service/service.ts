@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 
-import { BackendClient } from '../backend-client';
+import { BackendClient } from '../backend/client';
 import { resolveChatPrefs } from '../../shared/protocol';
 import type { ChatPrefs, ComposerInputDraft, PruningSettings, ThinkingLevel } from '../../shared/protocol';
 import {
@@ -9,7 +9,7 @@ import {
   store,
   uiActions,
 } from '../store';
-import { readPruningSettings, writePruningSettings } from '../pruning-settings';
+import { readPruningSettings, writePruningSettings } from './pruning-settings';
 import { NOOP_RUN_OBSERVER, type RunObserver } from '../stats-service';
 import { SessionServiceEvents } from './events';
 import { SessionMessageActions } from './message-actions';
@@ -17,9 +17,9 @@ import { SessionServiceState } from './state';
 import { startSessionBackend } from './startup';
 import { SessionTabActions } from './tab-actions';
 import type {
+  DispatchArchEvent,
   OnSessionCompleted,
   PostImperative,
-  PostPatch,
   ScheduleRender,
 } from './types';
 
@@ -40,7 +40,6 @@ export class SessionService implements vscode.Disposable {
     private readonly context: vscode.ExtensionContext,
     private readonly backend: BackendClient,
     private readonly scheduleRender: ScheduleRender,
-    postPatch: PostPatch,
     postImperative: PostImperative,
     onSessionCompleted?: OnSessionCompleted,
     runObserver: RunObserver = NOOP_RUN_OBSERVER,
@@ -49,7 +48,6 @@ export class SessionService implements vscode.Disposable {
     this.events = new SessionServiceEvents({
       context,
       scheduleRender,
-      postPatch,
       onSessionCompleted,
       runObserver,
       state: this.state,
@@ -94,9 +92,24 @@ export class SessionService implements vscode.Disposable {
     };
   }
 
+  /** Wire the arch-reducer dispatch path for backend events (Phase 5). */
+  setArchDispatch(dispatch: DispatchArchEvent): void {
+    this.events.setArchDispatch(dispatch);
+  }
+
   /** Expose completion-notification suppression for interrupt (Phase 3). */
   suppressNextCompletionNotificationFor(sessionPath: string): void {
     this.state.suppressNextCompletionNotificationFor(sessionPath);
+  }
+
+  /** Bind a backend request ID to a session path (Phase 4). */
+  bindRequestSessionPath(requestId: string, sessionPath: string): void {
+    this.state.bindRequestSessionPath(requestId, sessionPath);
+  }
+
+  /** Bump the data epoch for a session (Phase 4, pre-send/edit). */
+  bumpSessionDataEpoch(sessionPath: string): void {
+    this.state.bumpSessionDataEpoch(sessionPath);
   }
 
   async restart(): Promise<void> {
@@ -149,10 +162,12 @@ export class SessionService implements vscode.Disposable {
     this.messages.removeComposerInput(requestedSessionPath, inputId);
   }
 
+  /** @deprecated Phase 4: send now routes through the CQRS spine. */
   async send(sessionPath: string, text: string): Promise<void> {
     await this.messages.send(sessionPath, text);
   }
 
+  /** @deprecated Phase 4: editMessage now routes through the CQRS spine. */
   async editMessage(sessionPath: string, messageId: string, text: string): Promise<void> {
     await this.messages.editMessage(sessionPath, messageId, text);
   }

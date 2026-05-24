@@ -7,11 +7,15 @@ interface UiState {
   backendReady: boolean;
   prefs: ChatPrefs;
   availableExtensions: ExtensionInfo[];
+  /** Message ID currently being edited (null = not editing). */
+  editingMessageId: string | null;
+  /** Whether the run-outcome recording dialog is open. */
+  showOutcomeDialog: boolean;
 }
 
 const uiSlice = createSlice({
   name: 'ui',
-  initialState: { notice: null, backendReady: false, prefs: DEFAULT_CHAT_PREFS, availableExtensions: [] } as UiState,
+  initialState: { notice: null, backendReady: false, prefs: DEFAULT_CHAT_PREFS, availableExtensions: [], editingMessageId: null, showOutcomeDialog: false } as UiState,
   reducers: {
     setNotice(state, action: PayloadAction<string | null>) {
       state.notice = action.payload;
@@ -38,6 +42,12 @@ const uiSlice = createSlice({
     },
     setAvailableExtensions(state, action: PayloadAction<ExtensionInfo[]>) {
       state.availableExtensions = action.payload;
+    },
+    setEditingMessageId(state, action: PayloadAction<string | null>) {
+      state.editingMessageId = action.payload;
+    },
+    setShowOutcomeDialog(state, action: PayloadAction<boolean>) {
+      state.showOutcomeDialog = action.payload;
     },
   },
 });

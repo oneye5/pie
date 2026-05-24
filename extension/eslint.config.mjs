@@ -50,4 +50,52 @@ export default tseslint.config(
       ],
     },
   },
+
+  // ─── Architectural boundary: core/ must stay pure ───────────────────────
+  // The arch reducer and its supporting types may only import from themselves
+  // (./events, ./effects, ./commands) and from ../../shared/. Never from
+  // store/, session-service/, sidebar/, or extension-host.
+  {
+    files: ['src/host/core/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['**/store/*', '**/store'], message: 'core/ must not import from store/ — reducer must remain pure and decoupled from Redux.' },
+          { group: ['**/session-service/*', '**/session-service'], message: 'core/ must not import from session-service/ — reducer must remain pure.' },
+          { group: ['**/sidebar/*', '**/sidebar'], message: 'core/ must not import from sidebar/.' },
+          { group: ['**/extension-host*'], message: 'core/ must not import from extension-host.' },
+        ],
+      }],
+    },
+  },
+
+  // ─── Architectural boundary: store/ must not reach into core/ ───────────
+  // The transcript-slice receives pre-resolved data from the effect executor.
+  // It must never import the arch reducer, events, or effects directly.
+  {
+    files: ['src/host/store/**/*.ts'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['**/core/*', '**/core'], message: 'store/ must not import from core/ — it receives pre-resolved data via effect execution.' },
+          { group: ['**/sidebar/*', '**/sidebar'], message: 'store/ must not import from sidebar/.' },
+          { group: ['**/extension-host*'], message: 'store/ must not import from extension-host.' },
+        ],
+      }],
+    },
+  },
+
+  // ─── Architectural boundary: webview/ is passive ────────────────────────
+  // The webview may only import from shared/ (protocol types). It must never
+  // reach into any host-side module.
+  {
+    files: ['src/webview/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-imports': ['error', {
+        patterns: [
+          { group: ['**/host/*', '**/host/**'], message: 'webview/ must not import host-side code — it is a passive renderer of projected state.' },
+        ],
+      }],
+    },
+  },
 );

@@ -4,7 +4,7 @@
 import { memo } from 'preact/compat';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
-import type { ChatMessage, ChatMessagePart, ChatPrefs } from '../../../shared/protocol';
+import type { ChatMessage, ChatPrefs } from '../../../shared/protocol';
 import { renderMarkdown, reasoningSummary } from '../markdown';
 import {
   assistantReplyMeta,
@@ -19,7 +19,6 @@ import { PruningInlineCard, isPruningDetails } from './pruning-inline';
 import {
   assistantPartsFromMessage,
   getRenderableUserParts,
-  mergeAssistantParts,
   messageHasUserImages,
   reasoningFromMessageParts,
   textFromMessageParts,
@@ -73,7 +72,6 @@ export function ReasoningBlock({ text, autoExpand, disclosureKey, onContextMenu 
 
 interface MessageItemProps {
   message: ChatMessage;
-  overlayParts?: ChatMessagePart[];
   isStreaming: boolean;
   prefs: ChatPrefs;
   readonly?: boolean;
@@ -90,7 +88,6 @@ interface MessageItemProps {
 
 function MessageItemView({
   message,
-  overlayParts,
   isStreaming,
   prefs,
   readonly,
@@ -117,9 +114,9 @@ function MessageItemView({
 
   const combinedParts = useMemo(() => (
     message.role === 'assistant'
-      ? mergeAssistantParts(assistantPartsFromMessage(message), overlayParts)
+      ? assistantPartsFromMessage(message)
       : undefined
-  ), [message, overlayParts]);
+  ), [message]);
   const combinedMarkdown = useMemo(() => (
     message.role === 'assistant'
       ? textFromMessageParts(combinedParts)
@@ -137,7 +134,7 @@ function MessageItemView({
       ? toolCallsFromMessageParts(combinedParts)
       : message.toolCalls
   ), [combinedParts, message.role, message.toolCalls]);
-  const isCurrentlyStreaming = isStreaming && ((overlayParts?.length ?? 0) > 0 || message.status === 'streaming');
+  const isCurrentlyStreaming = isStreaming && message.status === 'streaming';
   const isEditing = editingId === message.id;
 
   // Capture message body height for no-shift editing (Phase 5)

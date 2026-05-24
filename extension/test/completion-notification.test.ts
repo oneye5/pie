@@ -5,7 +5,7 @@ import {
   buildWindowsFlashScript,
   shouldFlashFinishedTab,
   shouldShowCompletionNotification,
-} from '../src/host/completion-notification';
+} from '../src/host/sidebar/completion-notification';
 
 test('window attention is suppressed when the user opts out', () => {
   assert.equal(

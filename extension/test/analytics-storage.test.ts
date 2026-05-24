@@ -6,7 +6,7 @@ import {
   buildWorkspaceAnalyticsId,
   getDataOutcomesRootPath,
   getDefaultRunAnalyticsExportPath,
-} from '../src/host/analytics-storage';
+} from '../src/host/run-analytics/storage';
 
 function createFileUri(fileSystemPath: string, raw = `file://${fileSystemPath}`) {
   return {

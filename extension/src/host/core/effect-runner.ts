@@ -23,8 +23,8 @@
  * once at extension activation and route `interrupt` through it.
  */
 
-import type { Effect } from './effects';
-import { isLifecycleEffect, isRpcEffect } from './effects';
+import type { Effect, SyncEffect } from './effects';
+import { isLifecycleEffect, isRpcEffect, isSyncEffect } from './effects';
 import type { EffectResultEvent } from './events';
 
 /** Minimal backend surface the runner needs. Matches `BackendClient.request`. */
@@ -55,11 +55,21 @@ export interface LogSink {
   log(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void;
 }
 
+/**
+ * Sink for synchronous imperative effects. These are transitional (Phase 4):
+ * they dispatch directly to the Redux store or webview while transcript state
+ * still lives outside the reducer.
+ */
+export interface SyncEffectSink {
+  execute(effect: SyncEffect): void;
+}
+
 export interface EffectRunnerDeps {
   backend: BackendLike;
   queues: QueueRouter;
   tabs: TabPersistenceSink;
   log: LogSink;
+  sync: SyncEffectSink;
   /** Called with each `*Result` event the runner produces. */
   dispatch: (event: EffectResultEvent) => void;
 }
@@ -90,6 +100,10 @@ export class EffectRunner {
       this.deps.log.log(effect.level, effect.message, effect.data);
       return;
     }
+    if (isSyncEffect(effect)) {
+      this.deps.sync.execute(effect);
+      return;
+    }
     // Exhaustiveness check — TS should reject unhandled kinds at compile time.
     const _exhaustive: never = effect;
     void _exhaustive;
@@ -101,6 +115,14 @@ export class EffectRunner {
    * still use the same lifecycle queue directly.
    */
   private runRpc(effect: Extract<Effect, { kind: `${string}Rpc` }>): void {
+    if (effect.kind === 'EditRpc') {
+      this.runEditRpc(effect);
+      return;
+    }
+    if (effect.kind === 'SendRpc') {
+      this.runSendRpc(effect);
+      return;
+    }
     const { queues, backend, dispatch } = this.deps;
     void queues.enqueueLifecycle(async () => {
       await queues.enqueueSessionOperation(effect.sessionPath, async () => {
@@ -109,6 +131,66 @@ export class EffectRunner {
           dispatch(rpcResultFor(effect, { ok: true }));
         } catch (err) {
           dispatch(rpcResultFor(effect, { ok: false, error: (err as Error).message }));
+        }
+      });
+    });
+  }
+
+  /**
+   * SendRpc needs to capture the `requestId` from the backend response
+   * so the host can bind events to sessions.
+   */
+  private runSendRpc(effect: Extract<Effect, { kind: 'SendRpc' }>): void {
+    const { queues, backend, dispatch } = this.deps;
+    void queues.enqueueLifecycle(async () => {
+      await queues.enqueueSessionOperation(effect.sessionPath, async () => {
+        try {
+          const response = await backend.request<{ requestId?: string }>('message.send', {
+            sessionPath: effect.sessionPath,
+            text: effect.text,
+            inputs: effect.inputs,
+          });
+          dispatch({
+            kind: 'SendResult',
+            corrId: effect.corrId,
+            sessionPath: effect.sessionPath,
+            ok: true,
+            requestId: response.requestId,
+          });
+        } catch (err) {
+          dispatch({
+            kind: 'SendResult',
+            corrId: effect.corrId,
+            sessionPath: effect.sessionPath,
+            ok: false,
+            error: (err as Error).message,
+          });
+        }
+      });
+    });
+  }
+
+  /**
+   * EditRpc is a composite operation: truncate-then-send in a single session
+   * operation. If truncate fails, the send is skipped and the whole operation
+   * fails atomically (matching the legacy behavior).
+   */
+  private runEditRpc(effect: Extract<Effect, { kind: 'EditRpc' }>): void {
+    const { queues, backend, dispatch } = this.deps;
+    void queues.enqueueLifecycle(async () => {
+      await queues.enqueueSessionOperation(effect.sessionPath, async () => {
+        try {
+          await backend.request('session.truncateAfter', {
+            sessionPath: effect.sessionPath,
+            entryId: effect.messageId,
+          });
+          await backend.request('message.send', {
+            sessionPath: effect.sessionPath,
+            text: effect.text,
+          });
+          dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
+        } catch (err) {
+          dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: (err as Error).message });
         }
       });
     });
@@ -201,7 +283,7 @@ function rpcMethodFor(effect: RpcEffect): string {
 function rpcParamsFor(effect: RpcEffect): unknown {
   switch (effect.kind) {
     case 'SendRpc':
-      return { sessionPath: effect.sessionPath, text: effect.text };
+      return { sessionPath: effect.sessionPath, text: effect.text, inputs: effect.inputs };
     case 'EditRpc':
       return { sessionPath: effect.sessionPath, text: effect.text };
     case 'InterruptRpc':

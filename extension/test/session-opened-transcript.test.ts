@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveSessionOpenedTranscript } from '../src/host/session-opened-transcript';
+import { resolveSessionOpenedTranscript } from '../src/host/session-service/session-opened-transcript';
 import type { ChatMessage, TranscriptWindow } from '../src/shared/protocol';
 
 function userMessage(id: string, markdown: string): ChatMessage {

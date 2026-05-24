@@ -9,19 +9,20 @@ import {
   type ExtensionInfo,
   type FileChangeEntry,
   type ModelInfo,
+  type PruningDetails,
   type PruningResult,
   type PruningSettings,
   type SessionSummary,
   type SystemPromptEntry,
   type TranscriptWindow,
   type ViewState,
-} from '../shared/protocol';
-import { sessionStateActions, sessionStateReducer } from './store/session-state-slice';
-import { fileChangesActions, fileChangesReducer } from './store/file-changes-slice';
-import { settingsActions, settingsReducer } from './store/settings-slice';
-import { sessionsActions, sessionsReducer } from './store/sessions-slice';
-import { transcriptActions, transcriptReducer } from './store/transcript-slice';
-import { uiActions, uiReducer } from './store/ui-slice';
+} from '../../shared/protocol';
+import { sessionStateActions, sessionStateReducer } from './session-state-slice';
+import { fileChangesActions, fileChangesReducer } from './file-changes-slice';
+import { settingsActions, settingsReducer } from './settings-slice';
+import { sessionsActions, sessionsReducer } from './sessions-slice';
+import { transcriptActions, transcriptReducer } from './transcript-slice';
+import { uiActions, uiReducer } from './ui-slice';
 
 // ─── Store ─────────────────────────────────────────────────────────────────────
 
@@ -53,11 +54,6 @@ export {
   uiActions,
   fileChangesActions,
 };
-
-/** Resolves a message ID through the alias map (for multi-turn tool-use merging). */
-export function getCanonicalMessageId(messageId: string, state: RootState): string {
-  return state.transcript.messageIdAlias[messageId] ?? messageId;
-}
 
 export function getSessionByPath(
   state: RootState,
@@ -144,43 +140,23 @@ const selectActiveRunSummary = (state: RootState): ActiveRunSummary | null => {
 };
 
 /**
- * Parse the most recent pruning result from transcript system messages.
- * Matches the variable format emitted by skill-pruner:
- *   "Pruned: Kept X/Y skills"
- *   "Pruned: Kept A/B tools"
- *   "Pruned: Kept X/Y skills, Kept A/B tools"
- *   Any of the above with " · Saved ~Z tokens" appended.
+ * Derive a PruningResult summary from the most recent pruning-result custom
+ * message in the transcript. Uses typed `customDetails` (PruningDetails)
+ * rather than regex-parsing the markdown.
  */
-export function parsePruningResult(transcript: ChatMessage[]): PruningResult | null {
-  const skillRe = /Kept\s+(\d+)\/(\d+)\s+skills/i;
-  const toolRe = /Kept\s+(\d+)\/(\d+)\s+tools/i;
-  const tokenRe = /Saved\s*~(\d+)\s+tokens/i;
-
-  // Scan from most recent to oldest for efficiency
+export function derivePruningResult(transcript: ChatMessage[]): PruningResult | null {
   for (let i = transcript.length - 1; i >= 0; i--) {
     const message = transcript[i];
-    if (message.role !== 'system') {
-      continue;
-    }
-    const text = message.markdown;
-    if (!text.startsWith('Pruned:')) {
-      continue;
-    }
+    if (message.customType !== 'pruning-result') continue;
 
-    const skillMatch = text.match(skillRe);
-    const toolMatch = text.match(toolRe);
+    const details = message.customDetails as PruningDetails | undefined;
+    if (!details || !Array.isArray(details.includedSkills)) continue;
 
-    // Must match at least one of skills or tools
-    if (!skillMatch && !toolMatch) {
-      continue;
-    }
-
-    const skillsKept = skillMatch ? parseInt(skillMatch[1], 10) : 0;
-    const skillsTotal = skillMatch ? parseInt(skillMatch[2], 10) : 0;
-    const toolsKept = toolMatch ? parseInt(toolMatch[1], 10) : 0;
-    const toolsTotal = toolMatch ? parseInt(toolMatch[2], 10) : 0;
-    const tokenMatch = text.match(tokenRe);
-    const tokensSaved = tokenMatch ? parseInt(tokenMatch[1], 10) : 0;
+    const skillsKept = details.includedSkills.length;
+    const skillsTotal = details.includedSkills.length + details.excludedSkills.length;
+    const toolsKept = details.includedTools.length;
+    const toolsTotal = details.includedTools.length + details.excludedTools.length;
+    const tokensSaved = (details.skillTokensSaved ?? 0) + (details.toolTokensSaved ?? 0);
 
     return {
       skillsKept,
@@ -188,8 +164,8 @@ export function parsePruningResult(transcript: ChatMessage[]): PruningResult | n
       toolsKept,
       toolsTotal,
       tokensSaved,
-      hasSkillPruning: skillsKept < skillsTotal,
-      hasToolPruning: toolsKept < toolsTotal,
+      hasSkillPruning: details.excludedSkills.length > 0,
+      hasToolPruning: details.excludedTools.length > 0,
     };
   }
   return null;
@@ -198,7 +174,7 @@ export function parsePruningResult(transcript: ChatMessage[]): PruningResult | n
 const selectActivePruningResult = (state: RootState): PruningResult | null => {
   if (!state.ui.prefs.showPruningMessages) return null;
   const transcript = selectActiveTranscript(state);
-  return parsePruningResult(transcript);
+  return derivePruningResult(transcript);
 };
 
 /**
@@ -231,6 +207,8 @@ export const selectViewState = createSelector(
     selectAvailableExtensions,
     selectActivePruningResult,
     (s: RootState) => s.settings.pruningSettings,
+    (s: RootState) => s.ui.editingMessageId,
+    (s: RootState) => s.ui.showOutcomeDialog,
   ],
   (
     sessions,
@@ -256,6 +234,8 @@ export const selectViewState = createSelector(
     availableExtensions,
     pruningResult,
     pruningSettings,
+    editingMessageId,
+    showOutcomeDialog,
   ): ViewState => {
     const busy = !!activeSessionPath && runningSessionPaths.includes(activeSessionPath);
     return {
@@ -282,6 +262,8 @@ export const selectViewState = createSelector(
       availableExtensions,
       pruningResult,
       pruningSettings,
+      editingMessageId,
+      showOutcomeDialog,
     };
   },
 );

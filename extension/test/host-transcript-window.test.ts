@@ -9,7 +9,7 @@ import {
   trimTranscriptWindowTail,
   withDecrementedWindowCounts,
   withIncrementedWindowCounts,
-} from '../src/host/transcript-window';
+} from '../src/host/session-service/transcript-window';
 import type { ChatMessage, TranscriptWindow } from '../src/shared/protocol';
 
 function message(id: string, role: 'user' | 'assistant' = 'assistant'): ChatMessage {

@@ -41,3 +41,35 @@
 - Lifecycle requests (`create`, `open`) are serialized through a host lifecycle queue.
 - Session mutations (`send`, `edit`, `truncateAfter`, `interrupt`) are serialized per session path.
 - Optimistic UI writes must be reversible when the authoritative operation fails.
+- The EffectRunner routes session-scoped RPC effects through `enqueueLifecycle → enqueueSessionOperation(sessionPath, ...)` to guarantee FIFO ordering with respect to other session operations.
+- Lifecycle effects (`OpenSession`, `CreateSession`) use `enqueueLifecycle(...)` directly (no inner session queue).
+- Non-session effects (`PersistTabs`, `Log`) execute directly without queueing.
+
+## Reducer Purity
+
+- The reducer is pure: `(State, Event) → { state, effects }`. No I/O, no `Date.now()`, no randomness.
+- Side effects only happen inside the EffectRunner.
+- An `EffectResult` handler in the reducer may return new effects, but those are queued asynchronously by the runner; the reducer never synchronously awaits another effect.
+
+## Optimistic Reconciliation
+
+- Optimistic mutations (send, edit) are tagged with a `corrId` that correlates the command, the pending state entry, and the eventual `EffectResult`.
+- `state.pending: Record<corrId, PendingOp>` tracks in-flight optimistic operations with rollback snapshots.
+- On RPC success: promote pending → authoritative (clear `corrId` tag, finalize backend-assigned id).
+- On RPC failure: revert via `state.pending[corrId].snapshot`, drop entry.
+- Backend events arriving before `SendRpcResult` are applied normally — the pending user message is already in the transcript, so assistant deltas append after it.
+
+## Webview-Local State
+
+The webview must not hold logic state in local `useState`/`useReducer`. Only the following ephemeral UI concerns are allowed as webview-local state:
+
+- **contextMenu** — position and type of the currently open context menu (dismissed on click-outside/Escape)
+- **scrollPosition / autoScroll** — viewport scroll tracking
+- **input focus / caret position** — DOM focus state
+- **drag state** — transient tab drag-and-drop position
+- **animation / transition state** — CSS transition tracking
+- **protocol-sync bookkeeping** — `lastRevisionRef` (per-session), `awaitingSnapshotRef`, `hostInstanceIdRef`, pending-draft-restore tracking, in-flight `corrId` set for UI gating
+- **derived UI telemetry** — token-rate measurement state, FPS counters, render-timing buffers
+- **per-keystroke draft buffer** inside an active input (the committed draft on blur/send/tab-switch is host state; the live keystroke buffer is not)
+
+All other state (editing, outcome dialogs, draft content, session selection, model settings, prefs) lives in the host store and reaches the webview via ViewState snapshots/patches.

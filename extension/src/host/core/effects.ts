@@ -18,6 +18,8 @@
  * so the reducer can reconcile optimistic state (Phase 4).
  */
 
+import type { ChatMessage, ComposerInput, UserContentPart, SessionSummary, ToolCall } from '../../shared/protocol';
+
 export interface EffectBase {
   corrId: string;
 }
@@ -26,6 +28,8 @@ export interface SendRpcEffect extends EffectBase {
   kind: 'SendRpc';
   sessionPath: string;
   text: string;
+  /** Composer inputs (file refs, images) sent alongside the text. */
+  inputs: ComposerInput[];
 }
 
 export interface EditRpcEffect extends EffectBase {
@@ -80,7 +84,168 @@ export type Effect =
   | OpenSessionEffect
   | CreateSessionEffect
   | PersistTabsEffect
-  | LogEffect;
+  | LogEffect
+  | InsertOptimisticMessageEffect
+  | RemoveOptimisticMessageEffect
+  | ClearComposerInputsEffect
+  | SetNoticeEffect
+  | PostImperativeEffect
+  | SetSessionNameEffect
+  | RestoreSessionSummaryEffect
+  | AppendDeltaEffect
+  | AppendThinkingEffect
+  | UpsertToolCallEffect
+  | UpsertMessageEffect
+  | ScheduleRenderEffect
+  | EnsureAssistantMessageEffect
+  | SetMessageStatusEffect;
+
+// ─── Synchronous imperative effects (Phase 4) ─────────────────────────────────
+// These dispatch to the Redux store or webview synchronously. They are
+// transitional: Phase 5+ will move transcript state into the reducer directly.
+
+/** Insert an optimistic user message into the Redux transcript store. */
+export interface InsertOptimisticMessageEffect extends EffectBase {
+  kind: 'InsertOptimisticMessage';
+  sessionPath: string;
+  localId: string;
+  text: string;
+  userParts?: UserContentPart[];
+}
+
+/** Remove an optimistic user message (rollback on failure). */
+export interface RemoveOptimisticMessageEffect extends EffectBase {
+  kind: 'RemoveOptimisticMessage';
+  sessionPath: string;
+  localId: string;
+}
+
+/** Clear pending composer inputs for a session (after successful send). */
+export interface ClearComposerInputsEffect extends EffectBase {
+  kind: 'ClearComposerInputs';
+  sessionPath: string;
+}
+
+/** Set or clear the UI notice banner. */
+export interface SetNoticeEffect extends EffectBase {
+  kind: 'SetNotice';
+  message: string | null;
+}
+
+/** Post an imperative message to the webview. */
+export interface PostImperativeEffect extends EffectBase {
+  kind: 'PostImperative';
+  imperativeMessage: { type: string; sessionPath?: string; text?: string };
+}
+
+/** Set a session's display name optimistically. */
+export interface SetSessionNameEffect extends EffectBase {
+  kind: 'SetSessionName';
+  sessionPath: string;
+  name: string;
+  isPlaceholder: boolean;
+}
+
+/** Restore a session summary that was optimistically changed (rollback). */
+export interface RestoreSessionSummaryEffect extends EffectBase {
+  kind: 'RestoreSessionSummary';
+  summary: SessionSummary;
+}
+
+// ─── Transcript mutation effects (Phase 5) ─────────────────────────────────────
+// Produced by the reducer when handling backend streaming events. The
+// effect-runner dispatches these to the Redux transcript store.
+
+export interface AppendDeltaEffect extends EffectBase {
+  kind: 'AppendDelta';
+  sessionPath: string;
+  messageId: string;
+  delta: string;
+}
+
+export interface AppendThinkingEffect extends EffectBase {
+  kind: 'AppendThinking';
+  sessionPath: string;
+  messageId: string;
+  thinking: string;
+}
+
+export interface UpsertToolCallEffect extends EffectBase {
+  kind: 'UpsertToolCall';
+  sessionPath: string;
+  messageId: string;
+  toolCall: ToolCall;
+}
+
+export interface UpsertMessageEffect extends EffectBase {
+  kind: 'UpsertMessage';
+  sessionPath: string;
+  message: ChatMessage;
+  /** When set, the message is a continuation — merge into the canonical message. */
+  canonicalMessageId?: string;
+}
+
+export interface ScheduleRenderEffect extends EffectBase {
+  kind: 'ScheduleRender';
+}
+
+/** Ensure an assistant message exists in the transcript (alias-aware). */
+export interface EnsureAssistantMessageEffect extends EffectBase {
+  kind: 'EnsureAssistantMessage';
+  sessionPath: string;
+  messageId: string;
+  /** Canonical message ID (resolved through alias map by the reducer). */
+  canonicalMessageId: string;
+  /** Whether this message is an alias (continuation of an existing turn). */
+  isAlias: boolean;
+  requestId?: string;
+  modelId?: string;
+  thinkingLevel?: ChatMessage['thinkingLevel'];
+}
+
+/** Set a message's status (e.g., on abort). */
+export interface SetMessageStatusEffect extends EffectBase {
+  kind: 'SetMessageStatus';
+  sessionPath: string;
+  messageId: string;
+  status: 'completed' | 'interrupted' | 'streaming';
+}
+
+export type SyncEffect =
+  | InsertOptimisticMessageEffect
+  | RemoveOptimisticMessageEffect
+  | ClearComposerInputsEffect
+  | SetNoticeEffect
+  | PostImperativeEffect
+  | SetSessionNameEffect
+  | RestoreSessionSummaryEffect
+  | AppendDeltaEffect
+  | AppendThinkingEffect
+  | UpsertToolCallEffect
+  | UpsertMessageEffect
+  | ScheduleRenderEffect
+  | EnsureAssistantMessageEffect
+  | SetMessageStatusEffect;
+
+/** True for synchronous imperative effects handled inline by the runner. */
+export function isSyncEffect(e: Effect): e is SyncEffect {
+  return (
+    e.kind === 'InsertOptimisticMessage' ||
+    e.kind === 'RemoveOptimisticMessage' ||
+    e.kind === 'ClearComposerInputs' ||
+    e.kind === 'SetNotice' ||
+    e.kind === 'PostImperative' ||
+    e.kind === 'SetSessionName' ||
+    e.kind === 'RestoreSessionSummary' ||
+    e.kind === 'AppendDelta' ||
+    e.kind === 'AppendThinking' ||
+    e.kind === 'UpsertToolCall' ||
+    e.kind === 'UpsertMessage' ||
+    e.kind === 'ScheduleRender' ||
+    e.kind === 'EnsureAssistantMessage' ||
+    e.kind === 'SetMessageStatus'
+  );
+}
 
 /** True for any effect whose `kind` ends in `Rpc` and routes through the double-wrap. */
 export function isRpcEffect(

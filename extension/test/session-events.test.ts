@@ -14,7 +14,6 @@ import {
   uiActions,
   selectViewState,
 } from '../src/host/store';
-import { applyPatch, emptyOverlay } from '../src/webview/panel/overlay';
 
 function useStore() {
   return (require('../src/host/store') as typeof import('../src/host/store')).store;
@@ -188,47 +187,6 @@ test('selectViewState includes prefs from ui slice', () => {
   assert.equal(viewState.prefs.autoExpandToolCalls, true);
   assert.equal(viewState.prefs.autoExpandSubagentCalls, true);
   assert.equal(viewState.prefs.suppressCompletionNotifications, true);
-});
-
-// ─── Overlay / gap-detection logic ──────────────────────────────────────────
-
-test('overlay preserves mixed assistant-part ordering', () => {
-  let overlay = emptyOverlay();
-
-  overlay = applyPatch(overlay, { kind: 'messageThinking', messageId: 'm1', thinking: 'plan' });
-  overlay = applyPatch(overlay, {
-    kind: 'toolCall',
-    messageId: 'm1',
-    toolCall: { id: 'tc-1', name: 'write', input: { path: 'a.txt' }, status: 'running' },
-  });
-  overlay = applyPatch(overlay, { kind: 'messageDelta', messageId: 'm1', delta: 'after tool' });
-  overlay = applyPatch(overlay, {
-    kind: 'toolCall',
-    messageId: 'm1',
-    toolCall: { id: 'tc-1', name: 'write', input: { path: 'a.txt' }, status: 'completed', result: 'ok' },
-  });
-
-  assert.deepEqual(
-    overlay.partsByMessage.get('m1')?.map((part) =>
-      part.kind === 'toolCall'
-        ? `${part.kind}:${part.toolCall.id}:${part.toolCall.status}`
-        : `${part.kind}:${part.text}`,
-    ),
-    ['reasoning:plan', 'toolCall:tc-1:completed', 'text:after tool'],
-  );
-});
-
-test('overlay clears targeted and untargeted entries', () => {
-  let overlay = emptyOverlay();
-  overlay = applyPatch(overlay, { kind: 'messageDelta', messageId: 'm1', delta: 'a' });
-  overlay = applyPatch(overlay, { kind: 'messageDelta', messageId: 'm2', delta: 'b' });
-
-  overlay = applyPatch(overlay, { kind: 'clearOverlay', messageIds: ['m1'] });
-  assert.equal(overlay.partsByMessage.has('m1'), false, 'm1 should be cleared');
-  assert.equal(overlay.partsByMessage.get('m2')?.[0]?.kind, 'text', 'm2 should remain');
-
-  overlay = applyPatch(overlay, { kind: 'clearOverlay' });
-  assert.equal(overlay.partsByMessage.size, 0);
 });
 
 test('edit rerun keeps an optimistic user row until the authoritative snapshot arrives', () => {
