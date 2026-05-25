@@ -19,6 +19,7 @@ import { SessionTabActions } from './tab-actions';
 import type {
   DispatchArchEvent,
   OnSessionCompleted,
+  OnSessionPathResolved,
   PostImperative,
   ScheduleRender,
 } from './types';
@@ -43,12 +44,14 @@ export class SessionService implements vscode.Disposable {
     postImperative: PostImperative,
     onSessionCompleted?: OnSessionCompleted,
     runObserver: RunObserver = NOOP_RUN_OBSERVER,
+    onSessionPathResolved?: OnSessionPathResolved,
   ) {
     this.state = new SessionServiceState(context, backend, scheduleRender);
     this.events = new SessionServiceEvents({
       context,
       scheduleRender,
       onSessionCompleted,
+      onSessionPathResolved,
       runObserver,
       state: this.state,
     });
@@ -137,6 +140,11 @@ export class SessionService implements vscode.Disposable {
 
   async closeSession(sessionPath: string): Promise<void> {
     await this.tabs.closeSession(sessionPath);
+  }
+
+  /** Drop per-session state held inside the service (called after closeSession). */
+  dropSessionLocalState(sessionPath: string): void {
+    this.messages.dropSessionLocalState(sessionPath);
   }
 
   moveSessionTab(sessionPath: string | undefined, fromIndex: number, toIndex: number): void {
@@ -228,6 +236,7 @@ export class SessionService implements vscode.Disposable {
     void this.context.globalState.update(PREFS_STORAGE_KEY, merged);
     void this.backend.request('runtimePrefs.set', {
       providerToggles: merged.providerToggles,
+      extensionToggles: merged.extensionToggles,
     }).catch(() => {
       // Non-fatal: the backend may be restarting or may not support runtime prefs yet.
     });
@@ -238,7 +247,12 @@ export class SessionService implements vscode.Disposable {
       const result = await writePruningSettings(updates);
       store.dispatch(settingsActions.setPruningSettings(result));
     } catch (error) {
-      console.warn(`[pie] failed to write pruning settings: ${(error as Error).message}`);
+      const message = `Failed to update pruning settings: ${(error as Error).message}`;
+      console.warn(`[pie] ${message}`);
+      // Surface the failure in the UI — a silent console.warn after a user
+      // action makes the GUI look broken ("I flipped the toggle and nothing
+      // happened"). The notice gives the user something to debug from.
+      store.dispatch(uiActions.setNotice(message));
     }
   }
 

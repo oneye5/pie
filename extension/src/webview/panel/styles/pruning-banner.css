@@ -160,3 +160,54 @@
   max-height: 200px;
   overflow-y: auto;
 }
+
+/* Nested raw LLM output dropdown */
+.pruning-banner-raw-toggle {
+  margin-top: 4px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.pruning-banner-raw-toggle:hover {
+  background: color-mix(in srgb, var(--panel-subtle-surface) 80%, transparent);
+}
+
+.pruning-banner-raw-toggle-text {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--panel-muted);
+}
+
+.pruning-banner-raw-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
+}
+
+.pruning-banner-raw-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.pruning-banner-raw-pre {
+  margin: 0;
+  padding: 6px 8px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: color-mix(in srgb, var(--vscode-foreground) 80%, var(--panel-muted) 20%);
+  background: color-mix(in srgb, var(--panel-subtle-surface) 50%, transparent);
+  border-radius: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 300px;
+  overflow-y: auto;
+}

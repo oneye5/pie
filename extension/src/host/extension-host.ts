@@ -91,6 +91,21 @@ export class PieExtension implements vscode.Disposable {
   private readonly service: SessionService;
   private shutdownPromise: Promise<void> | null = null;
 
+  // Queue sends that arrive while the session is still in pending (being created).
+  private readonly pendingSendQueue = new Map<string, { text: string; localId?: string }[]>();
+
+  // Queue sends that arrive before the backend is ready (restored sessions).
+  private readonly backendReadyQueue: { sessionPath: string; text: string; localId?: string; queuedAt: number }[] = [];
+
+  /**
+   * Watchdog: how long a queued send may sit in `backendReadyQueue` before we
+   * give up, drop it, and notify the user. Without this, a backend that never
+   * signals ready would leave the composer in a permanently disabled "Waiting
+   * for backend…" state with the user's message silently held captive (B3).
+   */
+  private static readonly BACKEND_READY_QUEUE_TIMEOUT_MS = 30_000;
+  private backendReadyQueueWatchdog: NodeJS.Timeout | null = null;
+
   // Phase 3: CQRS architecture spine
   private archState: ArchState = initialArchState;
   private readonly effectRunner: EffectRunner;
@@ -122,6 +137,9 @@ export class PieExtension implements vscode.Disposable {
         this.handleSessionCompleted(event);
       },
       this.statsService,
+      (pendingPath, resolvedPath) => {
+        this.drainPendingSendQueue(pendingPath, resolvedPath);
+      },
     );
 
     this.sidebarProvider = new SidebarViewProvider(
@@ -152,6 +170,16 @@ export class PieExtension implements vscode.Disposable {
 
     // Wire backend events through the arch-reducer dispatch path (Phase 5).
     this.service.setArchDispatch((event) => this.dispatchArchEvent(event));
+
+    // Drain queued sends once the backend becomes ready.
+    let wasReady = store.getState().ui.backendReady;
+    store.subscribe(() => {
+      const isReady = store.getState().ui.backendReady;
+      if (isReady && !wasReady) {
+        this.drainBackendReadyQueue();
+      }
+      wasReady = isReady;
+    });
 
     this.statusBar.command = 'pie.openChat';
     this.statusBar.show();
@@ -199,12 +227,27 @@ export class PieExtension implements vscode.Disposable {
           text: effect.text,
           userParts: effect.userParts,
         }));
-        this.scheduleRender();
+        // Optimistically mark the session as running so the composer immediately
+        // switches to a Stop button and the typing indicator appears, even before
+        // the backend emits its first `agent.busy` event. Cleared either by the
+        // backend's busy=false event on completion or by RemoveOptimisticMessage
+        // on send failure.
+        store.dispatch(sessionsActions.setSessionRunning({
+          sessionPath: effect.sessionPath,
+          running: true,
+        }));
+        this.flushRender();
         break;
       case 'RemoveOptimisticMessage':
         store.dispatch(transcriptActions.removeMessage({
           sessionPath: effect.sessionPath,
           messageId: effect.localId,
+        }));
+        // Clear the optimistic running state if the send was rejected before
+        // the backend started processing.
+        store.dispatch(sessionsActions.setSessionRunning({
+          sessionPath: effect.sessionPath,
+          running: false,
         }));
         this.scheduleRender();
         break;
@@ -271,12 +314,23 @@ export class PieExtension implements vscode.Disposable {
           modelId: effect.modelId,
           thinkingLevel: effect.thinkingLevel,
         }));
+        this.flushRender();
         break;
       case 'SetMessageStatus':
         store.dispatch(transcriptActions.setMessageStatus({
           sessionPath: effect.sessionPath,
           messageId: effect.messageId,
           status: effect.status,
+        }));
+        break;
+      case 'SetSessionRunning':
+        // Watchdog escape: clears a session's running flag without waiting for
+        // backend busy.changed. Used by the reducer after a successful interrupt
+        // so the composer doesn't stick on "Stop" if the backend never emits
+        // busy=false for the aborted stream.
+        store.dispatch(sessionsActions.setSessionRunning({
+          sessionPath: effect.sessionPath,
+          running: effect.running,
         }));
         break;
       case 'ScheduleRender':
@@ -411,6 +465,19 @@ export class PieExtension implements vscode.Disposable {
     });
   }
 
+  /**
+   * Immediately post state to the webview without debouncing.
+   * Use for user-initiated actions (optimistic inserts, message edits)
+   * and the first streaming event of a turn so feedback is instant.
+   */
+  private flushRender(): void {
+    this.sidebarProvider.postState();
+    const state = selectViewState(store.getState());
+    this.updateStatusBar(
+      state.notice ? 'Error' : state.runningSessionPaths.length > 0 ? 'Thinking' : 'Idle',
+    );
+  }
+
   private updateStatusBar(state: 'Starting' | 'Idle' | 'Thinking' | 'Error'): void {
     const runningCount = store.getState().sessions.runningSessionPaths.length;
     const notice = store.getState().ui.notice;
@@ -445,6 +512,86 @@ export class PieExtension implements vscode.Disposable {
       vscode.env.appName,
       vscode.workspace.name ?? vscode.workspace.workspaceFolders?.[0]?.name,
     );
+  }
+
+  /**
+   * Drain queued sends that arrived while the session was still pending.
+   * Called when a pending session path resolves to a real backend session path.
+   */
+  private drainPendingSendQueue(pendingPath: string, resolvedPath: string): void {
+    const queued = this.pendingSendQueue.get(pendingPath);
+    this.pendingSendQueue.delete(pendingPath);
+    if (!queued || queued.length === 0) return;
+
+    for (const entry of queued) {
+      // Re-dispatch through the normal send flow now that the session has a real path.
+      // Pass through the original localId so the CQRS spine reuses it and the
+      // webview's optimistic overlay de-duplicates correctly.
+      void this.handleWebviewMessage({ type: 'send', sessionPath: resolvedPath, text: entry.text, localId: entry.localId });
+    }
+  }
+
+  /**
+   * Drain queued sends that arrived before the backend was ready.
+   * Called when `backendReady` transitions from false to true.
+   */
+  private drainBackendReadyQueue(): void {
+    const queued = this.backendReadyQueue.splice(0);
+    this.clearBackendReadyQueueWatchdog();
+    if (queued.length === 0) return;
+
+    for (const entry of queued) {
+      // Pass through the original localId so the CQRS spine reuses it and the
+      // webview's optimistic overlay de-duplicates correctly.
+      void this.handleWebviewMessage({ type: 'send', sessionPath: entry.sessionPath, text: entry.text, localId: entry.localId });
+    }
+  }
+
+  /**
+   * Arm the watchdog (idempotent). If the queue is still non-empty when the
+   * timer fires, we treat the backend as wedged: roll back the optimistic
+   * messages, surface a notice, and let the user retry.
+   */
+  private ensureBackendReadyQueueWatchdog(): void {
+    if (this.backendReadyQueueWatchdog) return;
+    this.backendReadyQueueWatchdog = setTimeout(() => {
+      this.backendReadyQueueWatchdog = null;
+      const queued = this.backendReadyQueue.splice(0);
+      if (queued.length === 0) return;
+      for (const entry of queued) {
+        if (entry.localId) {
+          store.dispatch(transcriptActions.removeMessage({
+            sessionPath: entry.sessionPath,
+            messageId: entry.localId,
+          }));
+        }
+      }
+      store.dispatch(uiActions.setNotice(
+        `Backend did not become ready within ${PieExtension.BACKEND_READY_QUEUE_TIMEOUT_MS / 1000}s. ${queued.length} queued message${queued.length === 1 ? '' : 's'} dropped — please retry.`,
+      ));
+      this.scheduleRender();
+    }, PieExtension.BACKEND_READY_QUEUE_TIMEOUT_MS);
+  }
+
+  private clearBackendReadyQueueWatchdog(): void {
+    if (this.backendReadyQueueWatchdog) {
+      clearTimeout(this.backendReadyQueueWatchdog);
+      this.backendReadyQueueWatchdog = null;
+    }
+  }
+
+  /** Drop any per-session host state held outside the CQRS reducer (B4 cleanup). */
+  private purgeHostStateForSession(sessionPath: string): void {
+    this.pendingSendQueue.delete(sessionPath);
+    // Rebuild the backendReadyQueue without entries for the closing session.
+    for (let i = this.backendReadyQueue.length - 1; i >= 0; i--) {
+      if (this.backendReadyQueue[i]?.sessionPath === sessionPath) {
+        this.backendReadyQueue.splice(i, 1);
+      }
+    }
+    if (this.backendReadyQueue.length === 0) this.clearBackendReadyQueueWatchdog();
+    // Also clear per-session bookkeeping the session-service holds.
+    this.service.dropSessionLocalState(sessionPath);
   }
 
   private resolveFileChangePath(sessionPath: string, filePath: string): string {
@@ -572,18 +719,71 @@ export class PieExtension implements vscode.Disposable {
       case 'send': {
         const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath : null;
         const text = typeof msg.text === 'string' ? msg.text : '';
+        const webviewLocalId = msg.localId;
         if (!sessionPath) {
           store.dispatch(uiActions.setNotice('Protocol defect: send arrived without a sessionPath.'));
           this.scheduleRender();
           return;
         }
 
-        // Pre-flight validation (stays in host — reducer cannot read Redux state).
+        // If the session is still being created, queue the send and show optimistic UI.
         if (isPendingTabPath(sessionPath)) {
-          store.dispatch(uiActions.setNotice('Cannot send: the session is still opening.'));
-          this.scheduleRender();
+          if (!text.trim()) return;
+          const queue = this.pendingSendQueue.get(sessionPath) ?? [];
+          // Insert optimistic user message so the user sees instant feedback.
+          // Use the webview-provided localId when available so the webview can
+          // correlate its local overlay with the host-confirmed message.
+          const localId = webviewLocalId ?? `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+          queue.push({ text, localId });
+          this.pendingSendQueue.set(sessionPath, queue);
+
+          store.dispatch(transcriptActions.appendLocalUserMessage({
+            sessionPath,
+            id: localId,
+            text,
+          }));
+
+          // Derive optimistic session name from the first message.
+          const session = getSessionByPath(store.getState(), sessionPath);
+          if (session?.isPlaceholder) {
+            const derived = deriveSessionNameFromText(text);
+            if (!derived.isPlaceholder && derived.name !== session.name) {
+              store.dispatch(sessionsActions.upsertSession({ ...session, name: derived.name, isPlaceholder: false }));
+            }
+          }
+
+          this.flushRender();
           return;
         }
+        // If the backend is still starting, queue the send and show optimistic UI.
+        if (!store.getState().ui.backendReady) {
+          if (!text.trim()) return;
+          // Use the webview-provided localId when available so the drain can
+          // reuse it and the webview's overlay de-duplicates correctly.
+          const localId = webviewLocalId ?? `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+          this.backendReadyQueue.push({ sessionPath, text, localId, queuedAt: Date.now() });
+          this.ensureBackendReadyQueueWatchdog();
+
+          // Insert optimistic user message so the user sees instant feedback.
+          store.dispatch(transcriptActions.appendLocalUserMessage({
+            sessionPath,
+            id: localId,
+            text,
+          }));
+
+          // Derive optimistic session name.
+          const session = getSessionByPath(store.getState(), sessionPath);
+          if (session?.isPlaceholder) {
+            const derived = deriveSessionNameFromText(text);
+            if (!derived.isPlaceholder && derived.name !== session.name) {
+              store.dispatch(sessionsActions.upsertSession({ ...session, name: derived.name, isPlaceholder: false }));
+            }
+          }
+
+          this.flushRender();
+          return;
+        }
+
         if (!store.getState().sessions.openTabPaths.includes(sessionPath)) {
           store.dispatch(uiActions.setNotice('Cannot send: the selected session is no longer open.'));
           this.scheduleRender();
@@ -597,9 +797,10 @@ export class PieExtension implements vscode.Disposable {
 
         // Pre-compute values the reducer needs.
         this.service.bumpSessionDataEpoch(sessionPath);
+        this.statsService.prepareForSend(sessionPath, inputs);
         const composedText = buildPromptText(text, inputs);
         const userParts = buildOptimisticUserParts(text, inputs);
-        const localId = `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+        const localId = webviewLocalId ?? `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 
         // Optimistic session name.
         let previousSummary = null as import('../shared/protocol').SessionSummary | null;
@@ -646,6 +847,9 @@ export class PieExtension implements vscode.Disposable {
         }
 
         this.service.bumpSessionDataEpoch(sessionPath);
+        this.statsService.onTruncatedAfter(sessionPath, messageId);
+        this.statsService.onMessageEdited(sessionPath, messageId);
+        this.statsService.prepareForSend(sessionPath, []);
         const localId = `local:edit:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 
         // Dispatch through CQRS spine.
@@ -716,6 +920,29 @@ export class PieExtension implements vscode.Disposable {
 
       case 'closeSession':
         await this.service.closeSession(msg.sessionPath);
+        // Cleanup per-session bookkeeping that lives outside the SessionService.
+        // - Arch reducer state (pending RPCs, currentTurn map) via SessionClosed event.
+        // - UI singletons (editing/outcome/extensionUI) when they belonged to this session.
+        // - Host-owned queues + service-side per-session maps via purgeHostStateForSession.
+        // This is the central fix for B4 cross-session bleed.
+        this.dispatchArchEvent({ kind: 'SessionClosed', sessionPath: msg.sessionPath });
+        this.purgeHostStateForSession(msg.sessionPath);
+        {
+          const ui = store.getState().ui;
+          if (ui.editingMessageId !== null) {
+            store.dispatch(uiActions.setEditingMessageId(null));
+          }
+          if (ui.showOutcomeDialog) {
+            store.dispatch(uiActions.setShowOutcomeDialog(false));
+          }
+          if (ui.pendingExtensionUIRequest) {
+            // pendingExtensionUIRequest is a singleton (payload has no
+            // sessionPath today). Conservatively clear it when any tab closes
+            // so it can't be answered against a new session. The architectural
+            // fix is to attach sessionPath to the payload (TODO).
+            store.dispatch(uiActions.setPendingExtensionUIRequest(null));
+          }
+        }
         this.sidebarProvider.postState();
         return;
 
@@ -780,6 +1007,11 @@ export class PieExtension implements vscode.Disposable {
         this.scheduleRender();
         return;
 
+      case 'dismissNotice':
+        store.dispatch(uiActions.setNotice(null));
+        this.scheduleRender();
+        return;
+
       case 'openOutcomeDialog':
         store.dispatch(uiActions.setShowOutcomeDialog(true));
         this.scheduleRender();
@@ -791,12 +1023,19 @@ export class PieExtension implements vscode.Disposable {
         return;
 
       case 'extensionUiResponse': {
-        const activeSessionPath = selectActiveSessionPath(store.getState());
-        if (!activeSessionPath) return;
+        // STATE_CONTRACT: webview must address its response to a specific session.
+        // Falling back to the active session would let a prompt opened in tab A be
+        // resolved against tab B if the user switched tabs before clicking.
+        const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath : null;
+        if (!sessionPath) {
+          store.dispatch(uiActions.setNotice('Protocol defect: extensionUiResponse arrived without a sessionPath.'));
+          this.scheduleRender();
+          return;
+        }
         store.dispatch(uiActions.setPendingExtensionUIRequest(null));
         this.scheduleRender();
         await this.backend.request('extension_ui.response', {
-          sessionPath: activeSessionPath,
+          sessionPath,
           response: msg.response,
         });
         return;
@@ -814,6 +1053,9 @@ export class PieExtension implements vscode.Disposable {
     }
 
     this.shutdownPromise = (async () => {
+      // Clear any pending timers first so they cannot fire into a torn-down
+      // store / sidebar provider after dispose.
+      this.clearBackendReadyQueueWatchdog();
       await this.statsService.shutdown();
       this.service.dispose();
       this.sidebarProvider.dispose();

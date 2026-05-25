@@ -215,7 +215,16 @@ export class BackendClient implements vscode.Disposable {
 
     try {
       value = JSON.parse(line);
-    } catch {
+    } catch (error) {
+      // The backend should only emit valid JSON-RPC envelopes on stdout. A parse
+      // failure here typically means a stray log line or a corrupted stream,
+      // and silently dropping it has previously been a source of "random hangs"
+      // (an expected event never arrives, the UI stays busy forever, the RPC
+      // eventually times out with no clear cause). Surface it loudly so the
+      // failure mode is debuggable.
+      const preview = line.length > 200 ? `${line.slice(0, 200)}…` : line;
+      // eslint-disable-next-line no-console
+      console.warn(`[pie] dropped non-JSON backend line: ${(error as Error).message} :: ${preview}`);
       return;
     }
 

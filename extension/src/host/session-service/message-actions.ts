@@ -8,7 +8,6 @@ import { type RunObserver } from '../stats-service';
 import { auditLog } from '../util/audit';
 import {
   getSessionByPath,
-  selectActiveSessionPath,
   sessionStateActions,
   settingsActions,
   sessionsActions,
@@ -217,7 +216,7 @@ export class SessionMessageActions {
         store.dispatch(sessionsActions.setSessionSummary(previousSummary));
         this.state.saveOpenTabs();
       }
-      this.postImperative({ type: 'sendRejected', sessionPath, text });
+      this.postImperative({ type: 'sendRejected', sessionPath, text, localId });
       store.dispatch(
         uiActions.setNotice(`Failed to send message: ${(err as Error).message}`),
       );
@@ -514,13 +513,27 @@ export class SessionMessageActions {
     return (this.transcriptPageRequestSeqBySession.get(sessionPath) ?? 0) === requestSeq;
   }
 
+  /**
+   * Drop any per-session state owned by this actions instance. Called when a
+   * session tab is closed, to keep the maps bounded and ensure sequence
+   * numbers cannot collide with a later reopen of the same path.
+   */
+  dropSessionLocalState(sessionPath: string): void {
+    this.transcriptPageRequestSeqBySession.delete(sessionPath);
+  }
+
   private requireOpenSessionPath(actionName: string, sessionPath?: string): string | null {
-    const resolvedSessionPath = sessionPath ?? selectActiveSessionPath(store.getState());
-    if (!resolvedSessionPath) {
-      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: no active session.`));
+    // STATE_CONTRACT: callers must supply an explicit sessionPath. We no longer
+    // silently fall back to the active session, because that masked bugs where
+    // a webview message addressed to session A would land on session B after
+    // the user switched tabs mid-flight (R3 / B4). If sessionPath is missing,
+    // treat it as a malformed request and refuse.
+    if (!sessionPath) {
+      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: missing session reference.`));
       this.scheduleRender();
       return null;
     }
+    const resolvedSessionPath = sessionPath;
     if (isPendingTabPath(resolvedSessionPath)) {
       store.dispatch(uiActions.setNotice(`Cannot ${actionName}: the session is still opening.`));
       this.scheduleRender();
@@ -565,7 +578,11 @@ export class SessionMessageActions {
 
   private resolveExistingComposerTargetSessionPath(requestedSessionPath?: string): string | null {
     const state = store.getState();
-    const sessionPath = requestedSessionPath ?? selectActiveSessionPath(state);
+    // STATE_CONTRACT: composer-target resolution must come from the webview's
+    // explicit sessionPath. The previous `?? selectActiveSessionPath` fallback
+    // could land composer edits on a different tab if the webview's view of
+    // the active session lagged behind the host (R3).
+    const sessionPath = requestedSessionPath;
     if (!sessionPath) {
       return null;
     }

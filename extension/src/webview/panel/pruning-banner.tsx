@@ -15,6 +15,7 @@ interface PruningBannerProps {
  */
 export function PruningBanner({ pruningResult }: PruningBannerProps) {
   const [expanded, setExpanded] = useState(false);
+  const [rawExpanded, setRawExpanded] = useState(false);
 
   const {
     skillsKept,
@@ -113,6 +114,41 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
                 <div class="pruning-banner-detail-row">
                   <span class="pruning-banner-hint">Tools pruned</span>
                   <span class="pruning-banner-detail-text">{details.excludedTools.join(', ')}</span>
+                </div>
+              )}
+              {(details.prepassSystemPrompt || details.prepassResponse) && (
+                <div
+                  class={`pruning-banner-raw-toggle${rawExpanded ? ' pruning-banner-raw-expanded' : ''}`}
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => { e.stopPropagation(); setRawExpanded((v) => !v); }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setRawExpanded((v) => !v);
+                    }
+                  }}
+                >
+                  <span class="pruning-banner-raw-toggle-text">
+                    {rawExpanded ? '▲' : '▶'} Raw LLM output
+                  </span>
+                  {rawExpanded && (
+                    <div class="pruning-banner-raw-content">
+                      {details.prepassSystemPrompt && (
+                        <div class="pruning-banner-raw-section">
+                          <span class="pruning-banner-hint">System prompt</span>
+                          <pre class="pruning-banner-raw-pre">{details.prepassSystemPrompt}</pre>
+                        </div>
+                      )}
+                      {details.prepassResponse && (
+                        <div class="pruning-banner-raw-section">
+                          <span class="pruning-banner-hint">LLM reply</span>
+                          <pre class="pruning-banner-raw-pre">{details.prepassResponse}</pre>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </>

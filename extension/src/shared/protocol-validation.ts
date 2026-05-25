@@ -261,6 +261,27 @@ export function validateWebviewToHostMessage(
       if (!isString(value.filePath)) return fail(`${type}: missing string \`filePath\``);
       return { ok: true, value: value as WebviewToHostMessage };
 
+    case 'startEdit':
+      if (!isString(value.messageId)) return fail('startEdit: missing string `messageId`');
+      return { ok: true, value: value as WebviewToHostMessage };
+
+    case 'cancelEdit':
+    case 'dismissNotice':
+    case 'openOutcomeDialog':
+    case 'closeOutcomeDialog':
+      return { ok: true, value: value as WebviewToHostMessage };
+
+    case 'extensionUiResponse':
+      // Webview-supplied response to a backend-driven UI prompt. Must be
+      // session-addressed so the host can route it back to the right backend
+      // session without falling back to the active session (R3 / B4).
+      if (!isString(value.sessionPath)) return fail('extensionUiResponse: missing string `sessionPath`');
+      if (!isObject(value.response)) return fail('extensionUiResponse: missing `response` object');
+      if (!isString((value.response as { id?: unknown }).id)) {
+        return fail('extensionUiResponse: missing string `response.id`');
+      }
+      return { ok: true, value: value as WebviewToHostMessage };
+
     default:
       return fail(`unknown message type: ${type}`);
   }

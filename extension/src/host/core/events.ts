@@ -135,12 +135,24 @@ export interface MessageFinishedEvent {
   message: ChatMessage;
 }
 
+/**
+ * Emitted by the host when a session tab is closed. Drives reducer cleanup of
+ * any per-session bookkeeping (pending RPCs, current turn map, alias entries)
+ * so that closing a session does not leave dangling state that bleeds into
+ * other sessions (B4 cross-session bleed).
+ */
+export interface SessionClosedEvent {
+  kind: 'SessionClosed';
+  sessionPath: string;
+}
+
 export type BackendEvent =
   | MessageStartedEvent
   | MessageAbortedEvent
   | MessageDeltaEvent
   | MessageThinkingEvent
   | ToolCallEvent
-  | MessageFinishedEvent;
+  | MessageFinishedEvent
+  | SessionClosedEvent;
 
 export type Event = CommandEvent | EffectResultEvent | BackendEvent;

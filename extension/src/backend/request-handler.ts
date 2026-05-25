@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 
-import { PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ContextUsageChangedPayload, type ErrorPayload, type ExtensionUIResponsePayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
+import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ContextUsageChangedPayload, type ErrorPayload, type ExtensionUIResponsePayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
 import {
   validateLoadTranscriptPage,
   validateMessageSend,
@@ -63,6 +63,7 @@ export async function handleBackendRequest(
     case 'runtimePrefs.set': {
       const params = validateRuntimePrefsSet(request.params);
       process.env[PROVIDER_TOGGLES_ENV] = JSON.stringify(params.providerToggles);
+      process.env[EXTENSION_TOGGLES_ENV] = JSON.stringify(params.extensionToggles);
       return params;
     }
 

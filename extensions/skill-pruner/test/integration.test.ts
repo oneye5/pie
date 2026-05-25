@@ -211,16 +211,18 @@ test("discretion mode: LLM selects subset → only those skills included", async
 	}
 });
 
-test("discretion mode: LLM returns empty → zero skills included (except pinned)", async () => {
+test("discretion mode: LLM returns empty for both skills and tools → fails open (all included)", async () => {
 	__setCompleteFn(mockCompleteFn({ skills: [], tools: [] }));
 	try {
 		const { handlers } = register(config({ pinned: ["frontend-design"] }));
 		const result = await runBeforeAgentStart(handlers, "simple question", realisticSkills) as { systemPrompt?: string } | undefined;
 
+		// Fail-open: when LLM returns empty for both skills and tools,
+		// treat as a failed prepass and keep everything.
 		assert.ok(result?.systemPrompt);
 		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
-		assert.doesNotMatch(result.systemPrompt, /<name>code-simplification<\/name>/);
-		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
+		assert.match(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
 	} finally {
 		__setCompleteFn(null);
 	}

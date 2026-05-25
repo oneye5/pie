@@ -22,8 +22,8 @@ function makeConfig(overrides: Partial<PruningConfig> = {}): PruningConfig {
 test("buildPruningSystemPrompt includes discretion instruction for discretion strategy", () => {
 	const config = makeConfig();
 	const prompt = buildPruningSystemPrompt(config);
-	assert.ok(prompt.includes("genuinely needed"));
-	assert.ok(prompt.includes("acceptable to select zero"));
+	assert.ok(prompt.includes("plausibly useful"));
+	assert.ok(prompt.includes("lean toward keeping"));
 	assert.ok(!prompt.includes("Select up to"));
 });
 
@@ -39,7 +39,7 @@ test("buildPruningSystemPrompt includes topK instruction for topK strategy", () 
 
 test("buildPruningSystemPrompt always includes core rules", () => {
 	const prompt = buildPruningSystemPrompt(makeConfig());
-	assert.ok(prompt.includes("relevance filter"));
+	assert.ok(prompt.includes("relevance classifier"));
 	assert.ok(prompt.includes("JSON object"));
 	assert.ok(prompt.includes("Do not explain"));
 });

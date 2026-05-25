@@ -36,13 +36,14 @@ import type {
   ToolStartedPayload,
 } from '../../shared/protocol';
 import { dispatchSessionBackendEvent } from './event-dispatch';
-import type { DispatchArchEvent, OnSessionCompleted, ScheduleRender } from './types';
+import type { DispatchArchEvent, OnSessionCompleted, OnSessionPathResolved, ScheduleRender } from './types';
 import { SessionServiceState } from './state';
 
 interface SessionServiceEventsOptions {
   context: vscode.ExtensionContext;
   scheduleRender: ScheduleRender;
   onSessionCompleted?: OnSessionCompleted;
+  onSessionPathResolved?: OnSessionPathResolved;
   runObserver: RunObserver;
   state: SessionServiceState;
 }
@@ -51,6 +52,7 @@ export class SessionServiceEvents {
   private readonly context: vscode.ExtensionContext;
   private readonly scheduleRender: ScheduleRender;
   private readonly onSessionCompleted?: OnSessionCompleted;
+  private readonly onSessionPathResolved?: OnSessionPathResolved;
   private readonly runObserver: RunObserver;
   private readonly state: SessionServiceState;
   private eventDisposable?: vscode.Disposable;
@@ -61,6 +63,7 @@ export class SessionServiceEvents {
     this.context = options.context;
     this.scheduleRender = options.scheduleRender;
     this.onSessionCompleted = options.onSessionCompleted;
+    this.onSessionPathResolved = options.onSessionPathResolved;
     this.runObserver = options.runObserver;
     this.state = options.state;
   }
@@ -203,6 +206,11 @@ export class SessionServiceEvents {
 
     this.state.saveOpenTabs();
     this.scheduleRender();
+
+    // Drain any queued sends that arrived while the session was pending.
+    if (selectionRequest?.pendingPath && selectionRequest.pendingPath !== session.path) {
+      this.onSessionPathResolved?.(selectionRequest.pendingPath, session.path);
+    }
   }
 
   private handleBackendEvent(event: EventEnvelope): void {
@@ -448,23 +456,32 @@ export class SessionServiceEvents {
       return;
     }
 
+    // Stamp errorDetail on error messages so the webview can display the reason.
+    const message = payload.message;
+    if (message.status === 'error' && !message.errorDetail) {
+      const notice = store.getState().ui.notice;
+      if (notice) {
+        message.errorDetail = notice;
+      }
+    }
+
     if (this.dispatchArch) {
       this.dispatchArch({
         kind: 'MessageFinished',
         sessionPath,
-        message: payload.message,
+        message,
       });
     } else {
       store.dispatch(
-        transcriptActions.upsertMessage({ sessionPath, message: payload.message }),
+        transcriptActions.upsertMessage({ sessionPath, message }),
       );
       this.scheduleRender();
     }
     this.runObserver.onAssistantTurnEnded(
       sessionPath,
-      payload.message.id,
-      payload.message.durationMs ?? 0,
-      payload.message.usage,
+      message.id,
+      message.durationMs ?? 0,
+      message.usage,
     );
     this.state.unbindRequestSessionPath(payload.requestId);
 
@@ -579,11 +596,22 @@ export class SessionServiceEvents {
   }
 
   private onError(payload: ErrorPayload): void {
-    this.runObserver.onBackendError(
-      this.state.resolveRequestSessionPath(payload.requestId),
-      payload.code,
-    );
+    // STATE_CONTRACT: errors must be addressed by the requestId binding alone.
+    // We must NOT fall back to the active session, because the failing operation
+    // may belong to a backgrounded tab; stamping the error on whatever is active
+    // pollutes the wrong transcript and confuses the user.
+    const sessionPath = this.state.resolveRequestSessionPath(payload.requestId);
+    this.runObserver.onBackendError(sessionPath ?? undefined, payload.code);
     store.dispatch(uiActions.setNotice(payload.message));
+    if (sessionPath) {
+      store.dispatch(transcriptActions.setMessageError({ sessionPath, errorDetail: payload.message }));
+    } else {
+      auditLog(this.context, 'session-service', 'protocol.defect', {
+        eventName: 'error',
+        reason: 'missing or unresolved requestId',
+        code: payload.code ?? null,
+      });
+    }
     this.scheduleRender();
   }
 

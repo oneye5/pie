@@ -20,9 +20,15 @@ import { type TranscriptContextMenuType } from './chat-prefs';
 import { ContextMenu, type ContextMenuState } from './components/context-menu';
 import { SessionTabs, Composer } from './ui';
 import { RunOutcomeDialog } from './run-outcome-dialog';
+import { NoticeBanner } from './components/notice-banner';
+import { NoticeContext } from './hooks/notice-context';
 import { useHostSync, EMPTY_VIEW_STATE } from './hooks/use-host-sync';
 
 export { EMPTY_VIEW_STATE };
+
+function generateLocalId(): string {
+  return `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+}
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
@@ -33,7 +39,7 @@ export interface AppAdapter {
 
 export function App({ adapter }: { adapter: AppAdapter }) {
   const { postMessage } = adapter;
-  const { viewState, draftRestore, tokenRateState, activeSessionPathRef, setDraftRestore } =
+  const { viewState, mergedTranscript, draftRestore, tokenRateState, activeSessionPathRef, setDraftRestore, addOptimisticMessage } =
     useHostSync(postMessage, adapter.initialState);
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -42,8 +48,13 @@ export function App({ adapter }: { adapter: AppAdapter }) {
     const sessionPath = activeSessionPathRef.current;
     if (!sessionPath) return;
     setDraftRestore(null);
-    postMessage({ type: 'send', sessionPath, text });
-  }, [postMessage, activeSessionPathRef, setDraftRestore]);
+
+    // Show the user's message instantly in the transcript before the host confirms it.
+    const localId = generateLocalId();
+    addOptimisticMessage({ localId, text, sessionPath });
+
+    postMessage({ type: 'send', sessionPath, text, localId });
+  }, [postMessage, activeSessionPathRef, setDraftRestore, addOptimisticMessage]);
 
   const handleInterrupt = useCallback(() => {
     const sessionPath = activeSessionPathRef.current;
@@ -133,6 +144,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
   // ─── Render ──────────────────────────────────────────────────────────────
 
   return (
+    <NoticeContext.Provider value={notice}>
     <div id="app">
       {showOutcomeDialog && activeSession && (
         <RunOutcomeDialog
@@ -150,9 +162,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
         />
       )}
       {notice && (
-        <div class={`notice${notice.toLowerCase().includes('error') || notice.toLowerCase().includes('fail') ? ' error' : ''}`}>
-          {notice}
-        </div>
+        <NoticeBanner notice={notice} onDismiss={() => postMessage({ type: 'dismissNotice' })} />
       )}
 
       {showSessionChrome && (
@@ -162,11 +172,13 @@ export function App({ adapter }: { adapter: AppAdapter }) {
           runningSessionPaths={runningSessionPaths}
           unreadFinishedSessionPaths={unreadFinishedSessionPaths}
           activeSession={activeSession}
+          activeRunSummary={activeRunSummary}
           backendReady={backendReady}
           onSelect={handleSelectTab}
           onClose={handleCloseTab}
           onMove={handleMoveTab}
           onNew={handleNewSession}
+          onMarkComplete={handleMarkComplete}
         />
       )}
 
@@ -180,6 +192,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
         )}
         {panelSurface === 'loading' ? (
           <div class="empty-state">
+            <div class="loading-wheel" aria-hidden="true" />
             <div class="empty-state-title">Starting pie</div>
             <div class="empty-state-sub">Restoring sessions and starting the backend.</div>
           </div>
@@ -187,17 +200,15 @@ export function App({ adapter }: { adapter: AppAdapter }) {
           <div class="empty-state">
             <div class="empty-state-title">Start a session</div>
             <div class="empty-state-sub">
-              {backendReady
-                ? 'Sessions stay in tabs, and model settings remain visible while you work.'
-                : 'The backend is still starting. New sessions will unlock once it is ready.'}
+              Sessions stay in tabs, and model settings remain visible while you work.
             </div>
-            <button class="btn" onClick={handleNewSession} disabled={!backendReady}>New Session</button>
+            <button class="btn" onClick={handleNewSession}>New Session</button>
           </div>
         ) : (
           <TranscriptHost
             openTabPaths={openTabPaths}
             activeSessionPath={activeSessionPath}
-            transcript={transcript}
+            transcript={mergedTranscript}
             transcriptWindow={transcriptWindow}
             busy={busy}
             prefs={prefs}
@@ -215,11 +226,11 @@ export function App({ adapter }: { adapter: AppAdapter }) {
         )}
       </div>
 
-      {hasActiveTabs && pendingExtensionUIRequest && (
-        <ExtensionUIPrompt request={pendingExtensionUIRequest} postMessage={postMessage} />
+      {hasActiveTabs && pendingExtensionUIRequest && activeSessionPath && (
+        <ExtensionUIPrompt sessionPath={activeSessionPath} request={pendingExtensionUIRequest} postMessage={postMessage} />
       )}
 
-      {hasActiveTabs && backendReady && (
+      {hasActiveTabs && (
         <Composer
           busy={busy}
           activeModelId={activeSession?.modelId}
@@ -250,5 +261,6 @@ export function App({ adapter }: { adapter: AppAdapter }) {
         />
       )}
     </div>
+    </NoticeContext.Provider>
   );
 }

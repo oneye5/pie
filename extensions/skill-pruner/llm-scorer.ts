@@ -22,17 +22,19 @@ export interface LlmPruningOutput {
 	selectedSkills: string[];
 	selectedTools: string[];
 	rawResponse: string;
+	systemPrompt: string;
 	latencyMs: number;
 }
 
 /** Build the system prompt for the pruning LLM call. */
 export function buildPruningSystemPrompt(config: PruningConfig): string {
 	const lines = [
-		"You are a relevance filter. Given a user request and a list of available skills and tools, select ONLY those that are directly needed.",
+		"You are a relevance classifier. Given a user request and a list of available skills and tools, identify items that are relevant or plausibly useful for the task.",
 		"",
 		"Rules:",
-		"- For skills: select only skills whose specialized knowledge is required. If the request is simple/routine, select NONE.",
-		"- For tools: select only tools the agent will likely need to call. Always include core tools (read, edit, write, bash) unless the task clearly won't need them.",
+		"- For skills: include any skill that could plausibly help with the request. Only exclude skills that are clearly unrelated to the task domain.",
+		"- For tools: include all tools the agent might reasonably need. Always include core tools (read, edit, write, bash) unless the task clearly won't need them. Only exclude tools that are irrelevant to the task.",
+		"- When uncertain about a skill or tool, lean toward keeping it. Pruning is costly; keeping is cheap.",
 		"- Respond with ONLY a JSON object: {\"skills\": [\"name1\", ...], \"tools\": [\"name1\", ...]}",
 		"- Do not explain. Do not add commentary.",
 	];
@@ -40,7 +42,7 @@ export function buildPruningSystemPrompt(config: PruningConfig): string {
 	if (config.skills.strategy === "topK") {
 		lines.push("", `Select up to ${config.skills.ceiling} skills and ${config.tools?.ceiling ?? 10} tools, ranked by relevance.`);
 	} else {
-		lines.push("", "Select only what is genuinely needed. It is acceptable to select zero skills if the request is routine.");
+		lines.push("", "Include items that are relevant or plausibly useful. When uncertain, lean toward keeping a skill or tool rather than pruning it.");
 	}
 
 	return lines.join("\n");
@@ -144,6 +146,7 @@ export async function runLlmPruning(
 		selectedSkills: parsed.skills,
 		selectedTools: parsed.tools,
 		rawResponse: response.text,
+		systemPrompt,
 		latencyMs,
 	};
 }

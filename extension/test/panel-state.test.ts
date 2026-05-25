@@ -12,12 +12,12 @@ test('isPanelBooting stops once an error notice is present', () => {
   assert.equal(isPanelBooting({ backendReady: false, notice: 'Backend failed to start' }), false);
 });
 
-test('resolvePanelSurface hides restored tabs while the backend is still booting', () => {
+test('resolvePanelSurface shows session surface immediately when tabs exist, even during boot', () => {
   assert.equal(resolvePanelSurface({
     backendReady: false,
     notice: null,
     openTabPaths: ['/workspace/session-a.jsonl'],
-  }), 'loading');
+  }), 'session');
 });
 
 test('resolvePanelSurface shows the empty state once startup has completed without tabs', () => {

@@ -182,6 +182,18 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
           message: `Interrupt failed for session ${event.sessionPath}`,
           data: { error: event.error },
         });
+      } else {
+        // Watchdog: backend acked the interrupt. Clear `running` immediately so
+        // the composer returns to Send mode even if `busy.changed { busy: false }`
+        // never arrives (malformed line, dropped event, premature stream death,
+        // etc.). If the backend later emits busy=true again, the running flag
+        // will re-bump from the live event stream — this is purely escape-valve.
+        effects.push({
+          kind: 'SetSessionRunning',
+          corrId: event.corrId,
+          sessionPath: event.sessionPath,
+          running: false,
+        });
       }
       return {
         state: {
@@ -212,7 +224,7 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
       // Failure: rollback optimistic message + session name + notify user.
       const effects: Effect[] = [
         { kind: 'RemoveOptimisticMessage', corrId: event.corrId, sessionPath: pending.sessionPath, localId: pending.localId },
-        { kind: 'PostImperative', corrId: event.corrId, imperativeMessage: { type: 'sendRejected', sessionPath: pending.sessionPath } },
+        { kind: 'PostImperative', corrId: event.corrId, imperativeMessage: { type: 'sendRejected', sessionPath: pending.sessionPath, localId: pending.localId } },
         { kind: 'SetNotice', corrId: event.corrId, message: `Failed to send message: ${event.error ?? 'unknown error'}` },
       ];
       if (pending.previousSummary) {
@@ -359,6 +371,35 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
           },
           { kind: 'ScheduleRender', corrId },
         ],
+      };
+    }
+
+    case 'SessionClosed': {
+      // Drop all per-session bookkeeping so a re-opened session at the same
+      // path (or a different session that recycles a corrId) cannot pick up
+      // ghosts from the closed one (B4).
+      const { [event.sessionPath]: _droppedSession, ...remainingSessions } = state.sessions;
+      const { [event.sessionPath]: _droppedTurn, ...remainingTurns } = state.currentTurnBySession;
+
+      const remainingPending: Record<string, PendingOp> = {};
+      for (const [corrId, op] of Object.entries(state.pending)) {
+        if (op.sessionPath !== event.sessionPath) remainingPending[corrId] = op;
+      }
+
+      // Alias map is keyed by messageId, not sessionPath, so we can't filter
+      // it precisely here without tracking ownership. Leave it — alias entries
+      // are bounded by message IDs which won't collide across sessions in
+      // practice. If they do, the canonical lookup just resolves to an unused
+      // message ID. (Documented limitation; revisit if it surfaces.)
+
+      return {
+        state: {
+          ...state,
+          sessions: remainingSessions,
+          currentTurnBySession: remainingTurns,
+          pending: remainingPending,
+        },
+        effects: [],
       };
     }
 

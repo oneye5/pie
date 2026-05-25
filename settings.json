@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.73.0",
   "defaultProvider": "github-copilot",
-  "defaultModel": "gpt-4o",
-  "defaultThinkingLevel": "off",
+  "defaultModel": "claude-opus-4.6",
+  "defaultThinkingLevel": "high",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
     {
@@ -15,12 +15,12 @@
     "mode": "auto",
     "model": "gpt-5-mini",
     "provider": "github-copilot",
-    "thinkingLevel": "medium",
+    "thinkingLevel": "high",
     "skills": {
       "strategy": "discretion",
       "ceiling": 8,
       "pinned": [
-        "debugging-and-error-recovery"
+        "systematic-debugging"
       ]
     },
     "tools": {

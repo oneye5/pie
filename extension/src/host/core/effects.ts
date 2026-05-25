@@ -98,7 +98,8 @@ export type Effect =
   | UpsertMessageEffect
   | ScheduleRenderEffect
   | EnsureAssistantMessageEffect
-  | SetMessageStatusEffect;
+  | SetMessageStatusEffect
+  | SetSessionRunningEffect;
 
 // ─── Synchronous imperative effects (Phase 4) ─────────────────────────────────
 // These dispatch to the Redux store or webview synchronously. They are
@@ -135,7 +136,7 @@ export interface SetNoticeEffect extends EffectBase {
 /** Post an imperative message to the webview. */
 export interface PostImperativeEffect extends EffectBase {
   kind: 'PostImperative';
-  imperativeMessage: { type: string; sessionPath?: string; text?: string };
+  imperativeMessage: { type: string; sessionPath?: string; text?: string; localId?: string };
 }
 
 /** Set a session's display name optimistically. */
@@ -211,6 +212,19 @@ export interface SetMessageStatusEffect extends EffectBase {
   status: 'completed' | 'interrupted' | 'streaming';
 }
 
+/**
+ * Force a session's running flag to a value. This is a watchdog escape hatch:
+ * the authoritative source for `running` is the backend `busy.changed` event,
+ * but if the backend acks an interrupt and then fails to emit busy=false (or a
+ * stream dies mid-flight), the UI would be stuck on Stop forever. The reducer
+ * emits this on InterruptResult success so the composer returns to Send.
+ */
+export interface SetSessionRunningEffect extends EffectBase {
+  kind: 'SetSessionRunning';
+  sessionPath: string;
+  running: boolean;
+}
+
 export type SyncEffect =
   | InsertOptimisticMessageEffect
   | RemoveOptimisticMessageEffect
@@ -225,7 +239,8 @@ export type SyncEffect =
   | UpsertMessageEffect
   | ScheduleRenderEffect
   | EnsureAssistantMessageEffect
-  | SetMessageStatusEffect;
+  | SetMessageStatusEffect
+  | SetSessionRunningEffect;
 
 /** True for synchronous imperative effects handled inline by the runner. */
 export function isSyncEffect(e: Effect): e is SyncEffect {
@@ -243,7 +258,8 @@ export function isSyncEffect(e: Effect): e is SyncEffect {
     e.kind === 'UpsertMessage' ||
     e.kind === 'ScheduleRender' ||
     e.kind === 'EnsureAssistantMessage' ||
-    e.kind === 'SetMessageStatus'
+    e.kind === 'SetMessageStatus' ||
+    e.kind === 'SetSessionRunning'
   );
 }
 

@@ -118,13 +118,10 @@ export class SessionServiceState {
 
   clearSelectionRequestsForPath(sessionPath: string): void {
     for (const [token, request] of this.selectionRequests) {
-      if (request.pendingPath === sessionPath) {
-        if (this.currentSelectionToken === token) {
-          this.currentSelectionToken = null;
-        }
-        continue;
-      }
-      if (request.requestedPath === sessionPath) {
+      // Either side of the request can match the closing session — both must
+      // result in deleting the entry so it can't outlive the session and
+      // re-fire later (B4 cross-session bleed).
+      if (request.pendingPath === sessionPath || request.requestedPath === sessionPath) {
         this.selectionRequests.delete(token);
         if (this.currentSelectionToken === token) {
           this.currentSelectionToken = null;

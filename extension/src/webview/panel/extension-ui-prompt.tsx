@@ -6,14 +6,15 @@ import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
 import type { ExtensionUIRequestPayload, ExtensionUIResponsePayload, WebviewToHostMessage } from '../../shared/protocol';
 
 interface ExtensionUIPromptProps {
+  sessionPath: string;
   request: ExtensionUIRequestPayload;
   postMessage: (msg: WebviewToHostMessage) => void;
 }
 
-export function ExtensionUIPrompt({ request, postMessage }: ExtensionUIPromptProps) {
+export function ExtensionUIPrompt({ sessionPath, request, postMessage }: ExtensionUIPromptProps) {
   const respond = useCallback((response: ExtensionUIResponsePayload) => {
-    postMessage({ type: 'extensionUiResponse', response });
-  }, [postMessage]);
+    postMessage({ type: 'extensionUiResponse', sessionPath, response });
+  }, [postMessage, sessionPath]);
 
   switch (request.method) {
     case 'confirm':

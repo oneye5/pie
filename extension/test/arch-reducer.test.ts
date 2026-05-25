@@ -57,7 +57,7 @@ test('reducer: Interrupt does not affect other sessions', () => {
   assert.equal(result.state.sessions['/b']?.interruptInFlight, false);
 });
 
-test('reducer: InterruptResult{ok:true} clears interruptInFlight with no effects', () => {
+test('reducer: InterruptResult{ok:true} clears interruptInFlight and emits SetSessionRunning watchdog', () => {
   const state: ArchState = {
     ...initialArchState,
     sessions: { '/a': { interruptInFlight: true } },
@@ -73,7 +73,14 @@ test('reducer: InterruptResult{ok:true} clears interruptInFlight with no effects
   const result = reducer(state, event);
 
   assert.equal(result.state.sessions['/a']?.interruptInFlight, false);
-  assert.deepEqual(result.effects, []);
+  // Watchdog: when the backend acks the interrupt, the reducer forces
+  // running=false even before busy.changed arrives, to avoid a stuck UI.
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'SetSessionRunning');
+  if (result.effects[0]?.kind === 'SetSessionRunning') {
+    assert.equal(result.effects[0].sessionPath, '/a');
+    assert.equal(result.effects[0].running, false);
+  }
 });
 
 test('reducer: InterruptResult{ok:false} clears flag and produces Log effect', () => {

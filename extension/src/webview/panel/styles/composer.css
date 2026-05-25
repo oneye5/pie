@@ -472,6 +472,58 @@ button.composer-meta-chip.open:focus {
   min-width: 0;
 }
 
+/* Extension settings: row with toggle + chevron */
+.toolbar-settings-ext-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.toolbar-settings-ext-row {
+  display: flex;
+  align-items: center;
+}
+
+.toolbar-settings-ext-row > .toolbar-settings-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.toolbar-settings-ext-chevron {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--panel-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: transform 0.15s ease, color 0.12s ease;
+}
+
+.toolbar-settings-ext-chevron:hover {
+  color: var(--vscode-foreground);
+  background: var(--panel-hover-surface);
+}
+
+.toolbar-settings-ext-chevron.expanded {
+  transform: rotate(90deg);
+}
+
+.toolbar-settings-ext-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 22px;
+  padding-top: 2px;
+  padding-bottom: 4px;
+  border-left: 1px solid var(--panel-border);
+  margin-left: 15px;
+}
+
 /* Pruning settings: mode select and stepper rows */
 .toolbar-settings-mode-row,
 .toolbar-settings-stepper-row {

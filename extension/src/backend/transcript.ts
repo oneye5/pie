@@ -77,6 +77,7 @@ export function mapAssistantMessage(
     modelId: message.model ?? metadata?.modelId,
     thinkingLevel: metadata?.thinkingLevel,
     status: assistantStatus(message),
+    errorDetail: message.errorMessage,
     toolCalls: toolCallsFromMessageParts(messageParts),
     durationMs,
     usage: usageFromMessage(message),
@@ -155,6 +156,9 @@ export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
           appendAssistantParts(currentAssistant, messageParts, true);
           currentAssistant.toolCalls = toolCallsFromMessageParts(currentAssistant.parts);
           currentAssistant.status = assistantStatus(message);
+          if (message.errorMessage) {
+            currentAssistant.errorDetail = message.errorMessage;
+          }
           if (assistantModelId) {
             currentAssistant.modelId = assistantModelId;
           }
@@ -176,6 +180,7 @@ export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
             modelId: assistantModelId,
             thinkingLevel: assistantThinkingLevel,
             status: assistantStatus(message),
+            errorDetail: message.errorMessage,
             toolCalls: toolCallsFromMessageParts(messageParts),
             durationMs,
             usage: turnUsage,

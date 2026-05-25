@@ -3,8 +3,9 @@
 
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 
-import type { SessionSummary } from '../../../shared/protocol';
+import type { ActiveRunSummary, SessionSummary } from '../../../shared/protocol';
 import { getHorizontalDropIndex } from '../../../shared/tab-behavior';
+import { getSessionTabRunBadge } from './run-state';
 
 const TAB_DRAG_THRESHOLD_PX = 6;
 const TAB_DRAG_EDGE_SCROLL_PX = 40;
@@ -17,11 +18,13 @@ interface SessionTabsProps {
   runningSessionPaths: string[];
   unreadFinishedSessionPaths: string[];
   activeSession: SessionSummary | null;
-  backendReady: boolean;
+  activeRunSummary: ActiveRunSummary | null;
+  backendReady?: boolean;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
   onMove: (sessionPath: string | undefined, fromIndex: number, toIndex: number) => void;
   onNew: () => void;
+  onMarkComplete: () => void;
 }
 
 type TabDragCandidate = {
@@ -55,11 +58,13 @@ export function SessionTabs({
   runningSessionPaths,
   unreadFinishedSessionPaths,
   activeSession,
+  activeRunSummary,
   backendReady,
   onSelect,
   onClose,
   onMove,
   onNew,
+  onMarkComplete,
 }: SessionTabsProps) {
   const stripRef = useRef<HTMLDivElement>(null);
   const openTabPathsRef = useRef(openTabPaths);
@@ -460,6 +465,21 @@ export function SessionTabs({
                     : null}
                 <span class="session-tab-label">{label}</span>
               </button>
+              {isActive && (() => {
+                const badge = getSessionTabRunBadge(activeRunSummary);
+                if (!badge) return null;
+                return (
+                  <button
+                    class={`session-tab-run-badge ${badge.tone}`}
+                    type="button"
+                    title={badge.title}
+                    aria-label={badge.title}
+                    onClick={onMarkComplete}
+                  >
+                    {badge.text}
+                  </button>
+                );
+              })()}
               <button
                 class="session-tab-close"
                 type="button"
@@ -479,10 +499,14 @@ export function SessionTabs({
           title="New session"
           onClick={onNew}
           aria-label="New session"
-          disabled={!backendReady}
         >
           +
         </button>
+        {!backendReady && (
+          <span class="session-tabs-connecting" title="Connecting to backend…" aria-label="Connecting">
+            <span class="loading-wheel loading-wheel-sm" aria-hidden="true" />
+          </span>
+        )}
       </div>
       {dragState && draggedPath && (
         <div

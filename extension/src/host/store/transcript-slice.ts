@@ -133,6 +133,31 @@ const transcriptSlice = createSlice({
       delete state.systemPromptsBySession[action.payload];
       delete state.windowBySession[action.payload];
     },
+    replaceSessionPath(
+      state,
+      action: PayloadAction<{ oldPath: string; newPath: string }>,
+    ) {
+      const { oldPath, newPath } = action.payload;
+      if (oldPath === newPath) return;
+      const oldTranscript = state.bySession[oldPath];
+      if (oldTranscript) {
+        const existing = state.bySession[newPath] ?? [];
+        state.bySession[newPath] = [...existing, ...oldTranscript];
+        delete state.bySession[oldPath];
+      }
+      const oldWindow = state.windowBySession[oldPath];
+      if (oldWindow && !state.windowBySession[newPath]) {
+        state.windowBySession[newPath] = oldWindow;
+        delete state.windowBySession[oldPath];
+      } else {
+        delete state.windowBySession[oldPath];
+      }
+      const oldPrompts = state.systemPromptsBySession[oldPath];
+      if (oldPrompts && !state.systemPromptsBySession[newPath]) {
+        state.systemPromptsBySession[newPath] = oldPrompts;
+      }
+      delete state.systemPromptsBySession[oldPath];
+    },
     ensureAssistantMessage(
       state,
       action: PayloadAction<{
@@ -271,6 +296,10 @@ const transcriptSlice = createSlice({
       const previousMessage = list[index];
       if (previousMessage) {
         mergeAssistantToolCallsPreservingResolvedState(normalizedMessage, previousMessage);
+        // Preserve errorDetail set by onError if the replacement doesn't carry its own.
+        if (normalizedMessage.status === 'error' && !normalizedMessage.errorDetail && previousMessage.errorDetail) {
+          normalizedMessage.errorDetail = previousMessage.errorDetail;
+        }
       }
       list[index] = normalizedMessage;
     },
@@ -282,6 +311,22 @@ const transcriptSlice = createSlice({
       const message = state.bySession[sessionPath]?.find((item) => item.id === messageId);
       if (message) {
         message.status = status;
+      }
+    },
+    setMessageError(
+      state,
+      action: PayloadAction<{ sessionPath: string; errorDetail: string }>,
+    ) {
+      const { sessionPath, errorDetail } = action.payload;
+      const list = state.bySession[sessionPath];
+      if (!list) return;
+      // Find the last streaming or most recent assistant message and attach the error.
+      const msg = [...list].reverse().find(
+        (m) => m.role === 'assistant' && (m.status === 'streaming' || m.status === 'error'),
+      );
+      if (msg) {
+        msg.status = 'error';
+        msg.errorDetail = errorDetail;
       }
     },
     appendLocalUserMessage(

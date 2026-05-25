@@ -148,6 +148,7 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
   try {
     await options.backend.request('runtimePrefs.set', {
       providerToggles: store.getState().ui.prefs.providerToggles,
+      extensionToggles: store.getState().ui.prefs.extensionToggles,
     });
   } catch {
     // Non-fatal: older/failed backends simply won't expose provider toggles to pi extensions.

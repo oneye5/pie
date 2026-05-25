@@ -212,5 +212,24 @@ export function useTranscriptScroll({
     setIsAtBottom(true);
   }, [busy, hasStreamingContent, transcriptLength, transcriptWindow.hasNewer]);
 
+  // Auto-follow during buffered text streaming: ResizeObserver keeps scroll pinned
+  // to bottom as content height grows incrementally from the buffered reveal.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !hasStreamingContent) return;
+
+    const ro = new ResizeObserver(() => {
+      if (!autoFollowRef.current) return;
+      el.scrollTop = el.scrollHeight;
+      lastScrollTopRef.current = el.scrollTop;
+    });
+
+    // Observe the inner content wrapper (first child) or the container itself
+    const target = el.firstElementChild ?? el;
+    ro.observe(target);
+
+    return () => ro.disconnect();
+  }, [hasStreamingContent]);
+
   return { scrollRef, isAtBottom, isInitialPositioning, isLoadingOlder, isLoadingNewer, requestOlderPage, requestNewerPage, jumpToLatest };
 }

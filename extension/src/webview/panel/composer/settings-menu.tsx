@@ -7,6 +7,9 @@ import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningMode, PruningSettings,
 import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
 import { orderModelsForPicker } from './model-list';
 
+/** Extension IDs that have nested settings panels */
+const EXTENSIONS_WITH_SETTINGS = new Set(['skill-pruner']);
+
 const PRUNING_MODE_OPTIONS: { value: PruningMode; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'shadow', label: 'Shadow' },
@@ -32,6 +35,7 @@ interface ComposerSettingsMenuProps {
 
 export function ComposerSettingsMenu({ prefs, pruningSettings, availableExtensions, availableModels, onSetPrefs, onSetPruningSettings }: ComposerSettingsMenuProps) {
   const [open, setOpen] = useState(false);
+  const [expandedExt, setExpandedExt] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -116,23 +120,153 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, availableExtensio
                 {availableExtensions.map((ext) => {
                   // If the extension ID is not in the toggles map, it's enabled by default.
                   const checked = prefs.extensionToggles[ext.id] !== false;
+                  const hasSettings = EXTENSIONS_WITH_SETTINGS.has(ext.id);
+                  const isExpanded = expandedExt === ext.id;
                   return (
-                    <button
-                      key={ext.id}
-                      class={`toolbar-settings-item${checked ? ' checked' : ''}`}
-                      type="button"
-                      role="menuitemcheckbox"
-                      aria-checked={checked}
-                      title={ext.description}
-                      onClick={() => onSetPrefs(setExtensionEnabled(prefs, ext.id, !checked))}
-                    >
-                      <span class="toolbar-settings-item-check" aria-hidden="true">
-                        <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
-                          <polyline points="2.5,6.5 5,9 10.5,3.5" />
-                        </svg>
-                      </span>
-                      <span class="toolbar-settings-item-label">{ext.label}</span>
-                    </button>
+                    <div key={ext.id} class="toolbar-settings-ext-group">
+                      <div class="toolbar-settings-ext-row">
+                        <button
+                          class={`toolbar-settings-item${checked ? ' checked' : ''}`}
+                          type="button"
+                          role="menuitemcheckbox"
+                          aria-checked={checked}
+                          title={ext.description}
+                          onClick={() => onSetPrefs(setExtensionEnabled(prefs, ext.id, !checked))}
+                        >
+                          <span class="toolbar-settings-item-check" aria-hidden="true">
+                            <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={checked ? '' : 'opacity:0'}>
+                              <polyline points="2.5,6.5 5,9 10.5,3.5" />
+                            </svg>
+                          </span>
+                          <span class="toolbar-settings-item-label">{ext.label}</span>
+                        </button>
+                        {hasSettings && (
+                          <button
+                            class={`toolbar-settings-ext-chevron${isExpanded ? ' expanded' : ''}`}
+                            type="button"
+                            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${ext.label} settings`}
+                            aria-expanded={isExpanded}
+                            onClick={() => setExpandedExt(isExpanded ? null : ext.id)}
+                          >
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                              <polyline points="4,2 8,6 4,10" />
+                            </svg>
+                          </button>
+                        )}
+                      </div>
+                      {hasSettings && isExpanded && ext.id === 'skill-pruner' && (
+                        <div class="toolbar-settings-ext-settings">
+                          <button
+                            class={`toolbar-settings-item${prefs.showPruningMessages ? ' checked' : ''}`}
+                            type="button"
+                            role="menuitemcheckbox"
+                            aria-checked={prefs.showPruningMessages}
+                            onClick={() => onSetPrefs(toggleChatPref(prefs, 'showPruningMessages'))}
+                          >
+                            <span class="toolbar-settings-item-check" aria-hidden="true">
+                              <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={prefs.showPruningMessages ? '' : 'opacity:0'}>
+                                <polyline points="2.5,6.5 5,9 10.5,3.5" />
+                              </svg>
+                            </span>
+                            <span class="toolbar-settings-item-label">Show pruning summary</span>
+                          </button>
+                          <div class="toolbar-settings-item toolbar-settings-mode-row">
+                            <span class="toolbar-settings-item-label">Mode</span>
+                            <select
+                              class="toolbar-settings-select"
+                              value={pruningSettings.mode}
+                              onChange={(e) => onSetPruningSettings({ mode: (e.target as HTMLSelectElement).value as PruningMode })}
+                              aria-label="Pruning mode"
+                            >
+                              {PRUNING_MODE_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div class="toolbar-settings-item toolbar-settings-mode-row">
+                            <span class="toolbar-settings-item-label">Prepass model</span>
+                            <select
+                              class="toolbar-settings-select"
+                              value={pruningSettings.model}
+                              onChange={(e) => {
+                                const selected = availableModels.find((m) => m.id === (e.target as HTMLSelectElement).value);
+                                if (selected) {
+                                  onSetPruningSettings({ model: selected.id, provider: selected.provider });
+                                }
+                              }}
+                              aria-label="Pruning prepass model"
+                            >
+                              {!availableModels.some((m) => m.id === pruningSettings.model) && pruningSettings.model && (
+                                <option key={pruningSettings.model} value={pruningSettings.model}>
+                                  {pruningSettings.model} (unavailable)
+                                </option>
+                              )}
+                              {orderModelsForPicker(availableModels).map((entry) => (
+                                <option
+                                  key={entry.model.id}
+                                  value={entry.model.id}
+                                  class={entry.ineligible ? 'model-option-ineligible' : undefined}
+                                  title={entry.title}
+                                >
+                                  {entry.label}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                          <div class="toolbar-settings-item toolbar-settings-mode-row">
+                            <span class="toolbar-settings-item-label">Thinking</span>
+                            <select
+                              class="toolbar-settings-select"
+                              value={pruningSettings.thinkingLevel}
+                              onChange={(e) => onSetPruningSettings({ thinkingLevel: (e.target as HTMLSelectElement).value as ThinkingLevel })}
+                              aria-label="Pruning thinking level"
+                            >
+                              {THINKING_LEVEL_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>{opt.label}</option>
+                              ))}
+                            </select>
+                          </div>
+                          <div class="toolbar-settings-item toolbar-settings-stepper-row">
+                            <span class="toolbar-settings-item-label">Skill limit</span>
+                            <div class="toolbar-settings-stepper">
+                              <button
+                                type="button"
+                                class="toolbar-settings-stepper-btn"
+                                aria-label="Decrease skill limit"
+                                disabled={pruningSettings.skillCeiling <= 1}
+                                onClick={() => onSetPruningSettings({ skillCeiling: Math.max(1, pruningSettings.skillCeiling - 1) })}
+                              >−</button>
+                              <span class="toolbar-settings-stepper-value">{pruningSettings.skillCeiling}</span>
+                              <button
+                                type="button"
+                                class="toolbar-settings-stepper-btn"
+                                aria-label="Increase skill limit"
+                                onClick={() => onSetPruningSettings({ skillCeiling: pruningSettings.skillCeiling + 1 })}
+                              >+</button>
+                            </div>
+                          </div>
+                          <div class="toolbar-settings-item toolbar-settings-stepper-row">
+                            <span class="toolbar-settings-item-label">Tool limit</span>
+                            <div class="toolbar-settings-stepper">
+                              <button
+                                type="button"
+                                class="toolbar-settings-stepper-btn"
+                                aria-label="Decrease tool limit"
+                                disabled={pruningSettings.toolCeiling <= 1}
+                                onClick={() => onSetPruningSettings({ toolCeiling: Math.max(1, pruningSettings.toolCeiling - 1) })}
+                              >−</button>
+                              <span class="toolbar-settings-stepper-value">{pruningSettings.toolCeiling}</span>
+                              <button
+                                type="button"
+                                class="toolbar-settings-stepper-btn"
+                                aria-label="Increase tool limit"
+                                onClick={() => onSetPruningSettings({ toolCeiling: pruningSettings.toolCeiling + 1 })}
+                              >+</button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   );
                 })}
               </div>
@@ -165,119 +299,6 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, availableExtensio
               </div>
             </div>
           )}
-          <div key="pruning" class="toolbar-settings-section">
-            <div class="toolbar-settings-section-label">Pruning</div>
-            <div class="toolbar-settings-list">
-              <button
-                class={`toolbar-settings-item${prefs.showPruningMessages ? ' checked' : ''}`}
-                type="button"
-                role="menuitemcheckbox"
-                aria-checked={prefs.showPruningMessages}
-                onClick={() => onSetPrefs(toggleChatPref(prefs, 'showPruningMessages'))}
-              >
-                <span class="toolbar-settings-item-check" aria-hidden="true">
-                  <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={prefs.showPruningMessages ? '' : 'opacity:0'}>
-                    <polyline points="2.5,6.5 5,9 10.5,3.5" />
-                  </svg>
-                </span>
-                <span class="toolbar-settings-item-label">Show pruning summary</span>
-              </button>
-              <div class="toolbar-settings-item toolbar-settings-mode-row">
-                <span class="toolbar-settings-item-label">Mode</span>
-                <select
-                  class="toolbar-settings-select"
-                  value={pruningSettings.mode}
-                  onChange={(e) => onSetPruningSettings({ mode: (e.target as HTMLSelectElement).value as PruningMode })}
-                  aria-label="Pruning mode"
-                >
-                  {PRUNING_MODE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div class="toolbar-settings-item toolbar-settings-mode-row">
-                <span class="toolbar-settings-item-label">Prepass model</span>
-                <select
-                  class="toolbar-settings-select"
-                  value={pruningSettings.model}
-                  onChange={(e) => {
-                    const selected = availableModels.find((m) => m.id === (e.target as HTMLSelectElement).value);
-                    if (selected) {
-                      onSetPruningSettings({ model: selected.id, provider: selected.provider });
-                    }
-                  }}
-                  aria-label="Pruning prepass model"
-                >
-                  {!availableModels.some((m) => m.id === pruningSettings.model) && pruningSettings.model && (
-                    <option key={pruningSettings.model} value={pruningSettings.model}>
-                      {pruningSettings.model} (unavailable)
-                    </option>
-                  )}
-                  {orderModelsForPicker(availableModels).map((entry) => (
-                    <option
-                      key={entry.model.id}
-                      value={entry.model.id}
-                      class={entry.ineligible ? 'model-option-ineligible' : undefined}
-                      title={entry.title}
-                    >
-                      {entry.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div class="toolbar-settings-item toolbar-settings-mode-row">
-                <span class="toolbar-settings-item-label">Thinking</span>
-                <select
-                  class="toolbar-settings-select"
-                  value={pruningSettings.thinkingLevel}
-                  onChange={(e) => onSetPruningSettings({ thinkingLevel: (e.target as HTMLSelectElement).value as ThinkingLevel })}
-                  aria-label="Pruning thinking level"
-                >
-                  {THINKING_LEVEL_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </div>
-              <div class="toolbar-settings-item toolbar-settings-stepper-row">
-                <span class="toolbar-settings-item-label">Skill limit</span>
-                <div class="toolbar-settings-stepper">
-                  <button
-                    type="button"
-                    class="toolbar-settings-stepper-btn"
-                    aria-label="Decrease skill limit"
-                    disabled={pruningSettings.skillCeiling <= 1}
-                    onClick={() => onSetPruningSettings({ skillCeiling: Math.max(1, pruningSettings.skillCeiling - 1) })}
-                  >−</button>
-                  <span class="toolbar-settings-stepper-value">{pruningSettings.skillCeiling}</span>
-                  <button
-                    type="button"
-                    class="toolbar-settings-stepper-btn"
-                    aria-label="Increase skill limit"
-                    onClick={() => onSetPruningSettings({ skillCeiling: pruningSettings.skillCeiling + 1 })}
-                  >+</button>
-                </div>
-              </div>
-              <div class="toolbar-settings-item toolbar-settings-stepper-row">
-                <span class="toolbar-settings-item-label">Tool limit</span>
-                <div class="toolbar-settings-stepper">
-                  <button
-                    type="button"
-                    class="toolbar-settings-stepper-btn"
-                    aria-label="Decrease tool limit"
-                    disabled={pruningSettings.toolCeiling <= 1}
-                    onClick={() => onSetPruningSettings({ toolCeiling: Math.max(1, pruningSettings.toolCeiling - 1) })}
-                  >−</button>
-                  <span class="toolbar-settings-stepper-value">{pruningSettings.toolCeiling}</span>
-                  <button
-                    type="button"
-                    class="toolbar-settings-stepper-btn"
-                    aria-label="Increase tool limit"
-                    onClick={() => onSetPruningSettings({ toolCeiling: pruningSettings.toolCeiling + 1 })}
-                  >+</button>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
       )}
     </div>

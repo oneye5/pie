@@ -25,6 +25,8 @@ const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..");
 const SKILLS_BLOCK_RE = /\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
 const PROCESS_SESSION_ID = randomUUID();
 const LLM_TIMEOUT_MS = 10_000;
+/** Minimum prompt length (in characters) to justify running the LLM prepass. Shorter prompts skip pruning. */
+const MIN_PROMPT_LENGTH = 8;
 
 let config: PruningConfig | null = null;
 let formatSkillsForPromptImpl: (skills: Skill[]) => string = formatSkillsForPrompt;
@@ -162,6 +164,15 @@ export default function (pi: ExtensionAPI) {
 			writeFileSync(path.join(CONFIG_ROOT, "data", "skill-pruner-hook-fired.txt"), `hook at ${new Date().toISOString()}\n`);
 		} catch { /* ignore */ }
 
+		// Honor the per-extension toggle set in the pie GUI. When the user disables
+		// skill-pruner via the settings menu, the host writes PIE_EXTENSION_TOGGLES_JSON
+		// (see protocol.EXTENSION_TOGGLES_ENV / runtimePrefs.set RPC). A `false` value
+		// short-circuits the hook so no pruning runs and no pruning-result message is
+		// emitted to the transcript.
+		if (isExtensionDisabledByToggle("skill-pruner")) {
+			return undefined;
+		}
+
 		const activeConfig = getConfig();
 		const sessionId = getSessionId(ctx);
 		const skills = event.systemPromptOptions.skills ?? [];
@@ -173,6 +184,12 @@ export default function (pi: ExtensionAPI) {
 			return undefined;
 		}
 
+		// --- Skip pruning for trivial/short prompts (greetings, "continue", etc.) ---
+		if (event.prompt.trim().length < MIN_PROMPT_LENGTH) {
+			recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
+			return undefined;
+		}
+
 		// --- Skill + Tool pruning via LLM ---
 		let modifiedSystemPrompt = event.systemPrompt;
 		let skillPruningRan = false;
@@ -180,6 +197,7 @@ export default function (pi: ExtensionAPI) {
 		let toolResult: ToolPruningResult | null = null;
 		let pruningError: string | null = null;
 		let rawResponse = "";
+		let rawSystemPrompt = "";
 		let latencyMs = 0;
 
 		if (skills.length > 0) {
@@ -239,6 +257,7 @@ export default function (pi: ExtensionAPI) {
 						llmSelectedSkills = result.selectedSkills;
 						llmSelectedTools = result.selectedTools;
 						rawResponse = result.rawResponse;
+						rawSystemPrompt = result.systemPrompt;
 						latencyMs = result.latencyMs;
 					}
 				} catch (error) {
@@ -248,6 +267,20 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (!pruningError || pruningError.startsWith("Model") || pruningError.startsWith("LLM pruning failed")) {
+				// Fail-open guard: if LLM returned empty selections for both skills
+				// and tools, treat it as a failed prepass (keep everything).
+				// This is not an error — it's expected for ambiguous prompts. We
+				// silently keep everything and do NOT surface it in the transcript
+				// (emitting a message here would confuse the main model).
+				if (
+					llmSelectedSkills !== null && llmSelectedSkills.length === 0 &&
+					llmSelectedTools !== null && llmSelectedTools.length === 0
+				) {
+					console.warn("[skill-pruner] LLM returned empty selections for both skills and tools; failing open");
+					llmSelectedSkills = null;
+					llmSelectedTools = null;
+				}
+
 				// Apply skill selection (even on error — treat as all-included fallback)
 				let includedSkillNames: string[];
 				let excludedSkillNames: string[];
@@ -264,6 +297,12 @@ export default function (pi: ExtensionAPI) {
 
 					includedSkillNames = visibleSkills.filter((s) => finalSet.has(s.name)).map((s) => s.name);
 					excludedSkillNames = visibleSkills.filter((s) => !finalSet.has(s.name)).map((s) => s.name);
+
+					// Per-category fail-open: if no skills survived intersection, keep all
+					if (includedSkillNames.length === 0 && visibleSkills.length > 0) {
+						includedSkillNames = visibleSkills.map((s) => s.name);
+						excludedSkillNames = [];
+					}
 				} else {
 					// Fallback: all included
 					includedSkillNames = visibleSkills.map((s) => s.name);
@@ -349,6 +388,12 @@ export default function (pi: ExtensionAPI) {
 						includedToolNames = [...expanded].slice(0, activeConfig.tools.ceiling);
 						const includedSet = new Set(includedToolNames);
 						excludedToolNames = allTools.map((t) => t.name).filter((name) => !includedSet.has(name));
+
+						// Per-category fail-open: if no tools survived, keep all
+						if (includedToolNames.length === 0 && allTools.length > 0) {
+							includedToolNames = allTools.map((t) => t.name);
+							excludedToolNames = [];
+						}
 					} else {
 						// Fallback: all included
 						includedToolNames = allTools.map((t) => t.name);
@@ -379,6 +424,7 @@ export default function (pi: ExtensionAPI) {
 			model: activeConfig.model,
 			thinkingLevel: activeConfig.thinkingLevel,
 			response: rawResponse,
+			systemPrompt: rawSystemPrompt,
 			latencyMs,
 			error: pruningError,
 		});
@@ -427,6 +473,25 @@ interface ToolPruningResult {
 }
 
 // --- Helper functions ---
+
+/**
+ * Returns true when the pie host has disabled the named extension via its
+ * settings GUI. Pie publishes the toggle map as JSON in PIE_EXTENSION_TOGGLES_JSON
+ * on the in-process backend (see extension/src/shared/protocol.ts).
+ *
+ * A missing env var or missing entry is treated as enabled (default-on).
+ */
+function isExtensionDisabledByToggle(extensionId: string): boolean {
+	const raw = process.env["PIE_EXTENSION_TOGGLES_JSON"];
+	if (!raw) return false;
+	try {
+		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		if (!parsed || typeof parsed !== "object") return false;
+		return parsed[extensionId] === false;
+	} catch {
+		return false;
+	}
+}
 
 function getConfig(): PruningConfig {
 	config = loadConfig(path.join(CONFIG_ROOT, "settings.json"));
@@ -582,6 +647,7 @@ interface PrepassDiagnostics {
 	model: string;
 	thinkingLevel: string;
 	response: string;
+	systemPrompt: string;
 	latencyMs: number;
 	error?: string | null;
 }
@@ -622,7 +688,7 @@ function buildFeedbackMessage(
 	}
 
 	const parts: string[] = [];
-	const details: PruningResult & { prepassModel?: string; prepassThinkingLevel?: string; prepassResponse?: string; prepassLatencyMs?: number } = {
+	const details: PruningResult & { prepassModel?: string; prepassThinkingLevel?: string; prepassResponse?: string; prepassSystemPrompt?: string; prepassLatencyMs?: number } = {
 		includedSkills: skillResult?.included ?? [],
 		excludedSkills: skillResult?.excluded ?? [],
 		includedTools: toolResult?.included ?? [],
@@ -636,6 +702,7 @@ function buildFeedbackMessage(
 		details.prepassModel = prepass.model;
 		details.prepassThinkingLevel = prepass.thinkingLevel;
 		details.prepassResponse = prepass.response;
+		details.prepassSystemPrompt = prepass.systemPrompt;
 		details.prepassLatencyMs = prepass.latencyMs;
 	}
 
@@ -700,4 +767,4 @@ export function __setToolSeams(opts: {
 	setActiveToolsOverride = opts.setActiveTools ?? null;
 }
 
-export { SKILLS_BLOCK_RE };
+export { SKILLS_BLOCK_RE, MIN_PROMPT_LENGTH };

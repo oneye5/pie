@@ -309,28 +309,49 @@ export function validateMessageSend(params: unknown): MessageSendParams {
 
 export interface RuntimePrefsSetParams {
   providerToggles: Record<string, boolean>;
+  extensionToggles: Record<string, boolean>;
 }
 
 export interface SettingsSetParams extends Partial<ModelSettings> {
   sessionPath?: string;
 }
 
+function validateBooleanMap(
+  method: string,
+  fieldName: string,
+  raw: unknown,
+): Record<string, boolean> {
+  if (raw === undefined) return {};
+  if (!isObj(raw) || Array.isArray(raw)) {
+    fail(method, `${fieldName} must be an object when provided`);
+  }
+  const out: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value !== 'boolean') {
+      // Keys with non-identifier characters (e.g. "skill-pruner") render with
+      // bracket notation so the error message is parseable.
+      const isIdentLike = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key);
+      const path = isIdentLike ? `${fieldName}.${key}` : `${fieldName}['${key}']`;
+      fail(method, `${path} must be a boolean`);
+    }
+    out[key] = value;
+  }
+  return out;
+}
+
 export function validateRuntimePrefsSet(params: unknown): RuntimePrefsSetParams {
   if (!isObj(params)) fail('runtimePrefs.set', 'expected an object');
-  const rawToggles = (params as Record<string, unknown>)['providerToggles'];
-  if (rawToggles === undefined) return { providerToggles: {} };
-  if (!isObj(rawToggles) || Array.isArray(rawToggles)) {
-    fail('runtimePrefs.set', 'providerToggles must be an object when provided');
-  }
-
-  const providerToggles: Record<string, boolean> = {};
-  for (const [provider, enabled] of Object.entries(rawToggles)) {
-    if (typeof enabled !== 'boolean') {
-      fail('runtimePrefs.set', `providerToggles.${provider} must be a boolean`);
-    }
-    providerToggles[provider] = enabled;
-  }
-  return { providerToggles };
+  const providerToggles = validateBooleanMap(
+    'runtimePrefs.set',
+    'providerToggles',
+    (params as Record<string, unknown>)['providerToggles'],
+  );
+  const extensionToggles = validateBooleanMap(
+    'runtimePrefs.set',
+    'extensionToggles',
+    (params as Record<string, unknown>)['extensionToggles'],
+  );
+  return { providerToggles, extensionToggles };
 }
 
 export function validateSettingsSet(params: unknown): SettingsSetParams {

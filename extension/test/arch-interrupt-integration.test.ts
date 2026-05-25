@@ -145,5 +145,7 @@ test('end-to-end: interrupt command through reducer produces effect and result c
   state = r2.state;
 
   assert.equal(state.sessions['/x']?.interruptInFlight, false);
-  assert.deepEqual(r2.effects, []);
+  // Successful interrupt emits the SetSessionRunning watchdog effect.
+  assert.equal(r2.effects.length, 1);
+  assert.equal(r2.effects[0]?.kind, 'SetSessionRunning');
 });

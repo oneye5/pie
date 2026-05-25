@@ -129,12 +129,15 @@ test('validateSettingsSet accepts an optional sessionPath', () => {
   );
 });
 
-test('validateRuntimePrefsSet accepts provider toggles', () => {
+test('validateRuntimePrefsSet accepts provider and extension toggles', () => {
   assert.deepEqual(
     validateRuntimePrefsSet({
       providerToggles: {
         ollama: false,
         'github-copilot': true,
+      },
+      extensionToggles: {
+        'skill-pruner': false,
       },
     }),
     {
@@ -142,17 +145,27 @@ test('validateRuntimePrefsSet accepts provider toggles', () => {
         ollama: false,
         'github-copilot': true,
       },
+      extensionToggles: {
+        'skill-pruner': false,
+      },
     },
   );
 });
 
-test('validateRuntimePrefsSet defaults missing provider toggles to empty', () => {
-  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {} });
+test('validateRuntimePrefsSet defaults missing toggle maps to empty', () => {
+  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {}, extensionToggles: {} });
 });
 
 test('validateRuntimePrefsSet rejects non-boolean provider toggle values', () => {
   assert.throws(
     () => validateRuntimePrefsSet({ providerToggles: { ollama: 'off' } }),
     /providerToggles\.ollama must be a boolean/,
+  );
+});
+
+test('validateRuntimePrefsSet rejects non-boolean extension toggle values', () => {
+  assert.throws(
+    () => validateRuntimePrefsSet({ extensionToggles: { 'skill-pruner': 'off' } }),
+    /extensionToggles\['?skill-pruner'?\] must be a boolean/,
   );
 });

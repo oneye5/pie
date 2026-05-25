@@ -25,6 +25,7 @@ test('buildTranscriptRows keeps system prompts, paging gaps, and messages in dis
     systemPromptCount: 2,
     hasOlder: true,
     hasNewer: true,
+    busy: false,
   });
 
   assert.deepEqual(
@@ -42,6 +43,7 @@ test('buildTranscriptRows omits optional system and gap rows when not needed', (
     systemPromptCount: 0,
     hasOlder: false,
     hasNewer: false,
+    busy: false,
   });
 
   assert.deepEqual(rows.map((row) => row.kind), ['message']);

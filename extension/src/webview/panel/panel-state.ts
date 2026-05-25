@@ -11,9 +11,16 @@ export function isPanelBooting(state: PanelBootState): boolean {
 }
 
 export function resolvePanelSurface(state: PanelSurfaceState): PanelSurface {
+  // If there are open tabs, always show the session surface — even during boot.
+  // This lets users type immediately; their messages will be queued until the
+  // backend is ready.
+  if (state.openTabPaths.length > 0) {
+    return 'session';
+  }
+
   if (isPanelBooting(state)) {
     return 'loading';
   }
 
-  return state.openTabPaths.length > 0 ? 'session' : 'empty';
+  return 'empty';
 }
