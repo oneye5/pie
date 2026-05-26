@@ -35,6 +35,7 @@ test('buildTranscriptRows adds typingIndicator row when busy and last message is
     hasOlder: false,
     hasNewer: false,
     busy: true,
+    hasPruningResult: false,
   });
 
   const kinds = rows.map((r) => r.kind);
@@ -51,6 +52,7 @@ test('buildTranscriptRows omits typingIndicator when last message is already str
     hasOlder: false,
     hasNewer: false,
     busy: true,
+    hasPruningResult: false,
   });
 
   const kinds = rows.map((r) => r.kind);
@@ -64,6 +66,7 @@ test('buildTranscriptRows omits typingIndicator when not busy', () => {
     hasOlder: false,
     hasNewer: false,
     busy: false,
+    hasPruningResult: false,
   });
 
   const kinds = rows.map((r) => r.kind);
@@ -77,6 +80,7 @@ test('buildTranscriptRows places typingIndicator before bottomGap', () => {
     hasOlder: false,
     hasNewer: true,
     busy: true,
+    hasPruningResult: false,
   });
 
   const kinds = rows.map((r) => r.kind);
@@ -125,7 +129,7 @@ test('panel shows empty state with notice during boot (error display)', () => {
 
 // ─── Pruning result scoping ──────────────────────────────────────────────────
 
-test('derivePruningResult returns null when pruning result is from a previous turn', () => {
+test('derivePruningResult returns most recent pruning result even from a previous turn', () => {
   const transcript: ChatMessage[] = [
     makeMessage('user-1', 'user'),
     {
@@ -150,11 +154,12 @@ test('derivePruningResult returns null when pruning result is from a previous tu
     makeMessage('user-2', 'user'),
   ];
 
-  // The pruning result from the first turn should not be shown
-  // because user-2 is the last user message and the pruning result
-  // is at index 1 which is < lastUserIndex (3).
+  // The pruning result is from a previous turn, but it's the most recent
+  // available — it should still be returned so the banner stays visible.
   const result = derivePruningResult(transcript);
-  assert.equal(result, null);
+  assert.ok(result);
+  assert.equal(result!.skillsKept, 1);
+  assert.equal(result!.skillsTotal, 2);
 });
 
 test('derivePruningResult returns result from the current turn', () => {

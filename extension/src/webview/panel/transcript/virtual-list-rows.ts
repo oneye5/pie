@@ -13,6 +13,9 @@ interface BuildTranscriptRowsOptions {
   hasOlder: boolean;
   hasNewer: boolean;
   busy: boolean;
+  /** When true, a PruningBanner should be shown. The system-prompts row is
+   *  added even when systemPromptCount is 0 so the banner has a place to render. */
+  hasPruningResult: boolean;
 }
 
 export function buildTranscriptRows({
@@ -21,9 +24,10 @@ export function buildTranscriptRows({
   hasOlder,
   hasNewer,
   busy,
+  hasPruningResult,
 }: BuildTranscriptRowsOptions): TranscriptRow[] {
   const rows: TranscriptRow[] = [];
-  if (systemPromptCount > 0) {
+  if (systemPromptCount > 0 || hasPruningResult) {
     rows.push({ kind: 'systemPrompts', key: 'system-prompts' });
   }
   if (hasOlder) {
@@ -33,11 +37,12 @@ export function buildTranscriptRows({
     rows.push({ kind: 'message', key: `message:${message.id}`, message });
   }
   // Show a typing indicator when the backend is processing but hasn't started
-  // streaming a response yet (i.e. the last message is not already streaming).
+  // streaming a response yet (i.e. the last message is not an assistant message).
+  // When the last message IS assistant, the typing dots are rendered inline at
+  // the end of that message instead.
   if (busy) {
     const lastMessage = transcript[transcript.length - 1];
-    const alreadyStreaming = lastMessage?.role === 'assistant' && lastMessage.status === 'streaming';
-    if (!alreadyStreaming) {
+    if (!lastMessage || lastMessage.role !== 'assistant') {
       rows.push({ kind: 'typingIndicator', key: 'typing-indicator' });
     }
   }

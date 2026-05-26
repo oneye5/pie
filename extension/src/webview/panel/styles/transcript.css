@@ -137,6 +137,36 @@
   animation-delay: 0.3s;
 }
 
+/* Inline typing indicator inside a message (when tools are running) */
+.message-typing-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  border-radius: 8px;
+  background: var(--panel-subtle-surface, var(--panel-surface));
+  border: 1px solid var(--panel-border);
+  opacity: 0.8;
+}
+
+.message-typing-indicator .typing-indicator-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--panel-muted);
+  opacity: 0.5;
+  animation: typing-dot-bounce 1.2s ease-in-out infinite;
+}
+
+.message-typing-indicator .typing-indicator-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.message-typing-indicator .typing-indicator-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
+
 @keyframes typing-dot-bounce {
   0%, 60%, 100% {
     transform: translateY(0);

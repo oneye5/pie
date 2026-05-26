@@ -786,7 +786,7 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
     renderToolCall: () => null,
   }));
   assert.match(messageRowHtml, /Rendered row/);
-  assert.match(messageRowHtml, /message-glow-indicator/);
+  assert.match(messageRowHtml, /message-typing-indicator/);
 
   const emptyPromptHtml = renderToString(h(SystemPromptMessage, { prompts: [] }));
   assert.equal(emptyPromptHtml, '');

@@ -33,6 +33,20 @@ export interface PruningResult {
 	mode: PruningMode;
 	skillTokensSaved: number;
 	toolTokensSaved: number;
+	/** Model used for the LLM prepass call. */
+	prepassModel?: string;
+	/** Thinking level of the LLM prepass call. */
+	prepassThinkingLevel?: string;
+	/** Raw LLM response text. */
+	prepassResponse?: string;
+	/** Raw thinking/reasoning tokens from the prepass LLM call. */
+	prepassThinking?: string;
+	/** System prompt sent to the LLM prepass. */
+	prepassSystemPrompt?: string;
+	/** Latency of the LLM prepass call in milliseconds. */
+	prepassLatencyMs?: number;
+	/** Error message if the prepass failed. */
+	prepassError?: string;
 }
 
 export interface PruningDecision {

@@ -366,8 +366,14 @@ export class SessionServiceEvents {
       payload.messageId,
       new Date().toISOString(),
     );
+    console.log('[pie:fileChanges] onToolStarted', { name: payload.name, hasInput: !!payload.input, inputType: typeof payload.input, fileChange: fileChange ? fileChange.path : null });
     if (fileChange) {
       store.dispatch(fileChangesActions.addFileChange({ sessionPath, change: fileChange }));
+      // Ensure the webview receives the file-change update even when the arch
+      // dispatch path has already scheduled its own render (the debounce timer
+      // from that ScheduleRender effect may have already been set before this
+      // dispatch, leaving the store update invisible to the next snapshot).
+      this.scheduleRender();
     }
 
     this.state.touchSessionTranscript(sessionPath);

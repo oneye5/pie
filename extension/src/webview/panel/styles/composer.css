@@ -590,6 +590,39 @@ button.composer-meta-chip.open:focus {
   font-variant-numeric: tabular-nums;
 }
 
+.toolbar-settings-sound-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.toolbar-settings-slider {
+  width: 80px;
+  height: 4px;
+  cursor: pointer;
+  accent-color: var(--vscode-focusBorder);
+}
+
+.toolbar-settings-test-btn {
+  background: none;
+  border: 1px solid var(--vscode-input-border, rgba(255,255,255,0.1));
+  border-radius: 3px;
+  color: var(--vscode-foreground);
+  font-size: 10px;
+  padding: 2px 6px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.toolbar-settings-test-btn:hover:not(:disabled) {
+  background: var(--vscode-list-hoverBackground);
+}
+
+.toolbar-settings-test-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 .pref-toggle,
 .pref-toggle-icon,
 .pref-toggle-check { display: none; }

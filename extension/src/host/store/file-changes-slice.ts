@@ -27,7 +27,16 @@ const fileChangesSlice = createSlice({
         (entry) => entry.path === action.payload.change.path,
       );
       if (existingIdx !== -1) {
-        list[existingIdx] = action.payload.change;
+        const existing = list[existingIdx];
+        const change = action.payload.change;
+        // Accumulate line stats without mutating the action payload
+        const additions = (existing.additions ?? 0) + (change.additions ?? 0);
+        const deletions = (existing.deletions ?? 0) + (change.deletions ?? 0);
+        list[existingIdx] = {
+          ...change,
+          ...(additions > 0 && { additions }),
+          ...(deletions > 0 && { deletions }),
+        };
       } else {
         list.push(action.payload.change);
       }
@@ -62,6 +71,56 @@ interface ToolCallLikeInput {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** Count the number of lines in a string. Empty string → 0, no trailing-newline inflation. */
+function countLines(text: string): number {
+  if (text === '') return 0;
+  // A trailing newline doesn't add an extra logical line
+  const trimmed = text.endsWith('\n') ? text.slice(0, -1) : text;
+  return trimmed.split('\n').length;
+}
+
+function computeLineStats(input: unknown, toolName: string): { additions: number; deletions: number } | null {
+  if (!isRecord(input)) return null;
+
+  // write/create: all lines are additions
+  if (looksLikeWriteTool(toolName)) {
+    const content = input.content ?? input.text ?? input.data;
+    if (typeof content === 'string') {
+      const lines = countLines(content);
+      return lines > 0 ? { additions: lines, deletions: 0 } : null;
+    }
+    return null;
+  }
+
+  // edit with single oldText/newText
+  if (typeof input.oldText === 'string' && typeof input.newText === 'string') {
+    const oldLines = countLines(input.oldText);
+    const newLines = countLines(input.newText);
+    if (oldLines === 0 && newLines === 0) return null;
+    return { additions: newLines, deletions: oldLines };
+  }
+
+  // edit with edits[] array (each entry has oldText/newText)
+  if (Array.isArray(input.edits)) {
+    let additions = 0;
+    let deletions = 0;
+    for (const edit of input.edits) {
+      if (isRecord(edit)) {
+        if (typeof edit.oldText === 'string') {
+          deletions += countLines(edit.oldText);
+        }
+        if (typeof edit.newText === 'string') {
+          additions += countLines(edit.newText);
+        }
+      }
+    }
+    if (additions > 0 || deletions > 0) return { additions, deletions };
+    return null;
+  }
+
+  return null;
 }
 
 function extractFilePath(input: unknown): string | null {
@@ -120,6 +179,7 @@ export function deriveFileChangeFromToolCall(
   messageId: string,
   timestamp: string,
 ): FileChangeEntry | null {
+  console.log('[pie:fileChanges] deriveFileChangeFromToolCall', { name: tool.name, inputKeys: isRecord(tool.input) ? Object.keys(tool.input as Record<string, unknown>) : typeof tool.input, looksFileModifying: looksLikeFileModifyingTool(tool.name) });
   const name = (tool.name || '').toLowerCase().trim();
   if (!looksLikeFileModifyingTool(name)) return null;
 
@@ -143,6 +203,8 @@ export function deriveFileChangeFromToolCall(
     description = `${name}`;
   }
 
+  const stats = computeLineStats(tool.input, name);
+
   return {
     path: filePath,
     kind,
@@ -150,6 +212,7 @@ export function deriveFileChangeFromToolCall(
     messageId,
     description,
     timestamp,
+    ...(stats && { additions: stats.additions, deletions: stats.deletions }),
   };
 }
 
@@ -169,7 +232,16 @@ export function deriveFileChangesFromTranscript(
         message.createdAt,
       );
       if (entry) {
-        // Last write wins per file path
+        const existing = seen.get(entry.path);
+        if (existing) {
+          // Accumulate stats across edits to the same file
+          const additions = (existing.additions ?? 0) + (entry.additions ?? 0);
+          const deletions = (existing.deletions ?? 0) + (entry.deletions ?? 0);
+          if (additions > 0) entry.additions = additions;
+          else delete entry.additions;
+          if (deletions > 0) entry.deletions = deletions;
+          else delete entry.deletions;
+        }
         seen.set(entry.path, entry);
       }
     }

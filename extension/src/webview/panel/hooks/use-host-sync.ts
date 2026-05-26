@@ -3,6 +3,8 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks';
 
+import { playCompletionSound } from '../completion-sound';
+
 import type {
   ChatMessage,
   HostToWebviewMessage,
@@ -176,6 +178,11 @@ export function useHostSync(
           setDraftRestore({ text: queuedDraftRestore.text, nonce: Date.now() });
         }
         setViewState(msg.state);
+        return;
+      }
+
+      if (msg.type === 'playCompletionSound') {
+        playCompletionSound(msg.volume);
         return;
       }
 

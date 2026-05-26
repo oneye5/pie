@@ -88,6 +88,9 @@ export function handleSdkSessionEvent(
         return;
       }
 
+      // Diagnostic: log tool execution start to stderr for debugging file-changes tracking
+      process.stderr.write(`[pie:backend] tool_execution_start: ${event.toolName} args=${JSON.stringify(event.args)?.slice(0, 200)}\n`);
+
       deps.emit('tool.started', {
         requestId: context.activeRequest.id,
         sessionPath: context.sessionPath,

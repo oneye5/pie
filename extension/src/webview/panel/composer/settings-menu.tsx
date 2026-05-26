@@ -3,6 +3,8 @@
 
 import { useEffect, useRef, useState } from 'preact/hooks';
 
+import { playCompletionSound } from '../completion-sound';
+
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningMode, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
 import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
 import { orderModelsForPicker } from './model-list';
@@ -113,6 +115,35 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, availableExtensio
               </div>
             </div>
           ))}
+          <div key="sound" class="toolbar-settings-section">
+            <div class="toolbar-settings-section-label">Completion Sound</div>
+            <div class="toolbar-settings-list">
+              <div class="toolbar-settings-item toolbar-settings-mode-row">
+                <span class="toolbar-settings-item-label">
+                  {prefs.completionSoundVolume === 0 ? 'Off' : `${prefs.completionSoundVolume}%`}
+                </span>
+                <div class="toolbar-settings-sound-controls">
+                  <input
+                    type="range"
+                    class="toolbar-settings-slider"
+                    min="0"
+                    max="100"
+                    step="5"
+                    value={prefs.completionSoundVolume}
+                    onChange={(e) => onSetPrefs({ completionSoundVolume: Number((e.target as HTMLInputElement).value) })}
+                    aria-label="Completion sound volume"
+                  />
+                  <button
+                    type="button"
+                    class="toolbar-settings-test-btn"
+                    disabled={prefs.completionSoundVolume === 0}
+                    onClick={() => playCompletionSound(prefs.completionSoundVolume)}
+                    aria-label="Test completion sound"
+                  >▶</button>
+                </div>
+              </div>
+            </div>
+          </div>
           {availableExtensions.length > 0 && (
             <div key="extensions" class="toolbar-settings-section">
               <div class="toolbar-settings-section-label">Extensions</div>

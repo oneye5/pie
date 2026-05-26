@@ -1,116 +1,91 @@
 # skill-pruner
 
-Reduces prompt noise by showing only the skills and tools most relevant to the current user prompt. Purely programmatic—no LLM calls.
+Uses an LLM to score and prune skills/tools based on relevance to the current task. Reduces prompt noise and token usage by excluding irrelevant items.
 
-## Behavior
+## How it works
 
-### Skill Pruning (Phase 1)
+Before each agent turn, `skill-pruner` sends the user prompt + available skill/tool descriptions to an LLM (via `@mariozechner/pi-ai`). The LLM returns relevance scores; `skill-pruner` then:
 
-- Scores each available skill using trigger phrases, keyword overlap, and skill-name matching
-- Keeps a configurable floor/ceiling of visible skills
-- Always includes pinned skills
-- Adds a hidden recovery hint listing pruned skill names
-- Logs pruning decisions and skill reads to `data/pruning.jsonl`
+1. Includes the top-N skills (respecting `ceiling` + `pinned`)
+2. Includes the top-N tools, expanding dependency chains
+3. Modifies the system prompt to remove the pruned items
+4. Disables pruned tools via `pi.setActiveTools()`
+5. Logs the decision to `data/pruning.jsonl`
 
-### Tool Pruning (Phase 2)
-
-- Classifies tools into tiers: `core` (always active), `contextual` (scored and pruned), `rare` (off by default)
-- Scores contextual tools using keyword overlap and name matching against the user prompt
-- Expands dependency chains (e.g., if `edit` is active → force-include `read`)
-- Respects a configurable ceiling for contextual tools
-- Removes pruned tools from the active set for the current turn
-- Provides a `request_tool` recovery tool so the agent can re-enable a pruned tool mid-turn
-
-### UI Feedback
-
-- Injects a `pruning-result` custom message after each user prompt showing what was pruned
-- Compact view shows summary: "Pruned: Kept 3/8 skills, 4/6 tools · Saved ~310 tokens"
-- Expanded view shows detailed included/excluded lists with color-coded rendering
-- No message is injected when nothing is pruned (all skills included, no tool pruning)
+A `request_tool` recovery tool lets the agent re-enable a pruned tool mid-session.
 
 ## Configuration
 
-Add an optional `pruning` block to the root `settings.json`:
+Add a `pruning` block to `settings.json`:
 
 ```json
 {
   "pruning": {
     "mode": "auto",
+    "model": "gpt-4o-mini",
+    "provider": "github-copilot",
+    "thinkingLevel": "minimal",
     "skills": {
-      "ceiling": 5,
-      "floor": 2,
-      "scoreThreshold": 0.4,
-      "gapThreshold": 0.3,
-      "pinned": ["debugging-and-error-recovery"]
+      "strategy": "discretion",
+      "ceiling": 8,
+      "pinned": []
     },
     "tools": {
-      "tiers": {
-        "read": "core",
-        "edit": "core",
-        "write": "core",
-        "bash": "core",
-        "subagent": "contextual",
-        "web_search": "contextual",
-        "code_search": "contextual",
-        "fetch_content": "contextual",
-        "get_search_content": "contextual"
-      },
+      "strategy": "discretion",
+      "ceiling": 10,
       "dependencies": {
         "edit": ["read"],
         "subagent": ["bash"]
-      },
-      "ceiling": 5
+      }
     }
   }
 }
 ```
 
-If the `tools` block is missing, default tool tiers and dependencies are used. User-supplied tier values override defaults; unknown tool names are accepted (they default to `contextual` if not specified).
+### Top-level options
 
-### Tool Tiers
+| Option | Default | Description |
+|---|---|---|
+| `mode` | `"auto"` | `auto` = prune + apply; `shadow` = log only; `off` = disabled |
+| `model` | `"gpt-4o-mini"` | LLM model for relevance scoring |
+| `provider` | `"github-copilot"` | Provider for the scoring model |
+| `thinkingLevel` | `"minimal"` | Reasoning effort for the scorer (e.g., `"minimal"`, `"medium"`, `"high"`) |
 
-- **core** — Always active. These tools are never pruned (e.g., `read`, `edit`, `write`, `bash`).
-- **contextual** — Scored against the user prompt. Only the top-N contextual tools (up to `ceiling`) are kept active. The rest are pruned.
-- **rare** — Off by default. Only available via the `request_tool` recovery tool.
+### Skills options
 
-### Dependencies
+| Option | Default | Description |
+|---|---|---|
+| `strategy` | `"discretion"` | Scoring strategy (`discretion` = LLM discretion; `topK` = pick top N directly) |
+| `ceiling` | `8` | Maximum number of skills to keep |
+| `pinned` | `[]` | Always-include these skills regardless of score |
 
-If a tool is active, its declared dependencies are also force-included. For example:
-- If `edit` is active → `read` must also be active
-- If `subagent` is active → `bash` must also be active
+### Tools options
 
-This prevents the agent from having tools that require other tools to function correctly.
+| Option | Default | Description |
+|---|---|---|
+| `strategy` | `"discretion"` | Scoring strategy |
+| `ceiling` | `10` | Maximum number of tools to keep |
+| `dependencies` | `{ edit: [read], subagent: [bash] }` | Tool → dependency mapping; if tool is active, its deps are also included |
 
 ## Modes
 
-- **auto** — actively prunes skills and tools, modifies the system prompt, and adjusts the active tool set
-- **shadow** — computes and logs pruning decisions but leaves the prompt and tool set unchanged
-- **off** — disables pruning; skill reads are still logged as baseline data
+| Mode | Prune? | Apply to prompt? | Log decisions? |
+|---|---|---|---|
+| `auto` | Yes | Yes | Yes |
+| `shadow` | Yes | No | Yes |
+| `off` | No | No | No (baseline reads only) |
+
+## Integration
+
+`skill-pruner` is a pi extension (loaded via `settings.json` packages). It hooks into:
+
+- `before_agent_start` — main pruning logic
+- `tool_call(read)` — tracks skill file reads for analytics
+- `input` — auto-continues after pruning feedback
+
+A `pruning-result` custom message is rendered in the transcript showing what was kept/pruned and estimated tokens saved.
 
 ## Recovery
 
-### Skill Recovery
-
-- Use `/skill:name` to explicitly request a pruned skill on the next turn
-- Pin must-have skills in `settings.json`
-- Switch `pruning.mode` to `shadow` to audit decisions without changing prompts
-- Switch `pruning.mode` to `off` to disable the extension
-
-### Tool Recovery
-
-- The `request_tool` tool is always registered and available even when tools are pruned
-- Call `request_tool` with a `toolName` parameter to re-enable a pruned tool for the remainder of the session
-- Example: the agent may call `request_tool({ toolName: "web_search" })` when it needs web search capability
-
-## Analysis (deferred)
-
-A batch-analysis script is planned for Phase 1.5. It will read `data/pruning.jsonl`
-across sessions and produce:
-
-- Overall skill-miss rate (auto mode) and shadow-miss-candidate rate
-- Comparative skill usage: skills read in `off` mode but not `auto` mode → pruning impact
-- Per-skill miss frequency (often missed → description quality problem)
-- Per-skill inclusion rate (always included → pinning candidate; never included → removal candidate)
-- Score distribution histograms for threshold tuning
-- Rolling 200-query window for rate stability
-- Mode-comparison outcome analysis (auto vs off toggles)
+- **Skills**: Use `/skill:name` on the next turn to explicitly include a skill
+- **Tools**: Call `request_tool({ toolName: "web_search" })` to re-enable a pruned tool for the remainder of the session

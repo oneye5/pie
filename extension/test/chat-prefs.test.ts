@@ -18,6 +18,7 @@ const prefs: ChatPrefs = {
   autoExpandSubagentCalls: false,
   suppressCompletionNotifications: false,
   showPruningMessages: true,
+  completionSoundVolume: 50,
   extensionToggles: {},
   providerToggles: {},
 };
@@ -63,6 +64,7 @@ test('toggle helpers return partial pref patches without mutating source prefs',
     autoExpandSubagentCalls: false,
     suppressCompletionNotifications: false,
     showPruningMessages: true,
+    completionSoundVolume: 50,
     extensionToggles: {},
     providerToggles: {},
   });

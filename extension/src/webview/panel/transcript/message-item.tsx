@@ -137,10 +137,6 @@ function MessageItemView({
   renderToolCall,
   isLastAssistantMessage,
 }: MessageItemProps) {
-  // Pruning-result messages are rendered via PruningBanner in the system prompts section.
-  if (message.customType === 'pruning-result') {
-    return null;
-  }
 
   const combinedParts = useMemo(() => (
     message.role === 'assistant'
@@ -338,8 +334,15 @@ function MessageItemView({
             />
           )}
 
-          {isLastAssistantMessage && message.role === 'assistant' && (
+          {isLastAssistantMessage && message.role === 'assistant' && isCurrentlyStreaming && (
             <div class="message-glow-indicator" aria-label="Agent is responding" role="status" />
+          )}
+          {isLastAssistantMessage && message.role === 'assistant' && !isCurrentlyStreaming && (
+            <div class="message-typing-indicator" role="status" aria-label="Agent is working">
+              <span class="typing-indicator-dot" />
+              <span class="typing-indicator-dot" />
+              <span class="typing-indicator-dot" />
+            </div>
           )}
 
         </>

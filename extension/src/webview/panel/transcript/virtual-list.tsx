@@ -63,7 +63,8 @@ export function TranscriptVirtualList({
     hasOlder: transcriptWindow.hasOlder,
     hasNewer: transcriptWindow.hasNewer,
     busy,
-  }), [systemPrompts.length, transcript, transcriptWindow.hasOlder, transcriptWindow.hasNewer, busy]);
+    hasPruningResult: pruningResult !== null,
+  }), [systemPrompts.length, transcript, transcriptWindow.hasOlder, transcriptWindow.hasNewer, busy, pruningResult]);
 
   const {
     scrollRef,

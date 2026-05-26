@@ -12,9 +12,12 @@ This folder mixes design contracts, implementation plans (some completed, some o
 
 - None. All major architecture phases are implemented.
 
-## Completed plans (kept for context, not action items)
+## Archived plans (completed, kept for context)
 
-- [internal/archive/ARCH-MIGRATION-PLAN.md](internal/archive/ARCH-MIGRATION-PLAN.md) — multi-phase migration of the extension host + webview to a CQRS-shaped Elm/MVI architecture. Phases 0–7 complete. Archived for retrospective reference.
+- [internal/archive/ARCH-MIGRATION-PLAN.md](internal/archive/ARCH-MIGRATION-PLAN.md) — multi-phase migration of the extension host + webview to a CQRS-shaped Elm/MVI architecture. Phases 0–7 complete.
+- [internal/archive/PLAN-extension-ui-questions.md](internal/archive/PLAN-extension-ui-questions.md) — extension UI question resolution.
+- [internal/archive/PLAN-llm-pruner-rewrite.md](internal/archive/PLAN-llm-pruner-rewrite.md) — LLM-based skill pruning implementation.
+- [internal/archive/PLAN-skill-tool-pruning.md](internal/archive/PLAN-skill-tool-pruning.md) — skill/tool pruning design and implementation.
 
 ## Reference / informational
 

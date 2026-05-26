@@ -111,6 +111,49 @@ describe('fileChanges slice', () => {
     assert.equal(afterClear.bySession['/session/a'], undefined);
   });
 
+  it('addFileChange accumulates additions/deletions for the same file', () => {
+    const first: FileChangeEntry = {
+      path: 'src/foo.ts',
+      kind: 'modified',
+      toolCallId: 't1',
+      messageId: 'm1',
+      description: 'edited',
+      timestamp: '2024-01-01T00:00:00Z',
+      additions: 5,
+      deletions: 3,
+    };
+    const second: FileChangeEntry = {
+      path: 'src/foo.ts',
+      kind: 'modified',
+      toolCallId: 't2',
+      messageId: 'm2',
+      description: 'edited',
+      timestamp: '2024-01-01T00:00:01Z',
+      additions: 10,
+      deletions: 2,
+    };
+
+    const afterFirst = fileChangesReducer(
+      { bySession: {} },
+      fileChangesActions.addFileChange({ sessionPath: '/session/a', change: first }),
+    );
+    const afterSecond = fileChangesReducer(
+      afterFirst,
+      fileChangesActions.addFileChange({ sessionPath: '/session/a', change: second }),
+    );
+
+    assert.deepStrictEqual(afterSecond.bySession['/session/a'], [{
+      path: 'src/foo.ts',
+      kind: 'modified',
+      toolCallId: 't2',
+      messageId: 'm2',
+      description: 'edited',
+      timestamp: '2024-01-01T00:00:01Z',
+      additions: 15,
+      deletions: 5,
+    }]);
+  });
+
   it('deriveFileChangeFromToolCall classifies write/edit/delete and skips non-file tools', () => {
     assert.deepStrictEqual(
       deriveFileChangeFromToolCall({ id: '1', name: 'write', input: { path: 'src/new.ts' } }, 'm1', '2024-01-01T00:00:00Z'),
@@ -132,6 +175,8 @@ describe('fileChanges slice', () => {
         messageId: 'm2',
         description: '1 edits',
         timestamp: '2024-01-01T00:00:00Z',
+        additions: 1,
+        deletions: 1,
       },
     );
     assert.deepStrictEqual(
@@ -160,7 +205,7 @@ describe('fileChanges slice', () => {
     assert.equal(deriveFileChangeFromToolCall({ id: '6', name: 'edit', input: {} }, 'm6', '2024-01-01T00:00:00Z'), null);
   });
 
-  it('deriveFileChangesFromTranscript keeps the latest successful change per file', () => {
+  it('deriveFileChangesFromTranscript accumulates stats for repeated edits to the same file', () => {
     const transcript = [
       {
         id: 'assistant-1',
@@ -190,6 +235,8 @@ describe('fileChanges slice', () => {
       messageId: 'assistant-1',
       description: 'edited',
       timestamp: '2024-01-01T00:00:00Z',
+      additions: 1,
+      deletions: 1,
     }]);
   });
 });

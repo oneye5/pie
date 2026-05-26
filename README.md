@@ -19,7 +19,7 @@ A personal stack built around the [`pi` coding agent](https://www.npmjs.com/pack
 - Collect local usage data to improve outcomes — which models, skills, tools, and treatments actually produce results.
 - Keep one portable config across machines, with session history local and out of git.
 
-These are the *original* design drivers. The architecture is being adjusted so external users can adopt the publishable pieces (extension, pi plugins) without inheriting the personal layer; see [`docs/INDEX.md`](docs/INDEX.md) and the open plans under it.
+These are the *original* design drivers. The architecture is being adjusted so external users can adopt the publishable pieces (extension, pi plugins) without inheriting the personal layer. Design docs and archived plans are in [`docs/`](docs/INDEX.md).
 
 ## Prerequisites
 

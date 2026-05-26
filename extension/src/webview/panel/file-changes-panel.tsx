@@ -22,6 +22,16 @@ const CHANGE_LABELS: Record<FileChangeEntry['kind'], string> = {
   deleted: 'Deleted',
 };
 
+function LineStats({ additions, deletions }: { additions?: number; deletions?: number }) {
+  if (!additions && !deletions) return null;
+  return (
+    <span class="file-change-stats">
+      {additions ? <span class="stat-additions">+{additions}</span> : null}
+      {deletions ? <span class="stat-deletions">-{deletions}</span> : null}
+    </span>
+  );
+}
+
 export function FileChangesPanel({
   fileChanges,
   onOpenDiff,
@@ -32,6 +42,9 @@ export function FileChangesPanel({
   if (fileChanges.length === 0) return null;
 
   const toggle = () => setIsExpanded((v) => !v);
+
+  const totalAdditions = fileChanges.reduce((sum, f) => sum + (f.additions ?? 0), 0);
+  const totalDeletions = fileChanges.reduce((sum, f) => sum + (f.deletions ?? 0), 0);
 
   return (
     <div class={`file-changes-panel${isExpanded ? ' expanded' : ''}`}>
@@ -49,6 +62,12 @@ export function FileChangesPanel({
         </span>
         <span class="file-changes-title">Files Changed</span>
         <span class="file-changes-count">{fileChanges.length}</span>
+        {(totalAdditions > 0 || totalDeletions > 0) && (
+          <span class="file-changes-aggregate-stats">
+            {totalAdditions > 0 && <span class="stat-additions">+{totalAdditions}</span>}
+            {totalDeletions > 0 && <span class="stat-deletions">-{totalDeletions}</span>}
+          </span>
+        )}
       </button>
       {isExpanded && (
         <div class="file-changes-list">
@@ -73,6 +92,7 @@ export function FileChangesPanel({
                   {change.path.split(/[/\\]/).slice(0, -1).join('/') || '.'}
                 </span>
               </button>
+              <LineStats additions={change.additions} deletions={change.deletions} />
               <button
                 class="file-change-revert"
                 type="button"

@@ -18,6 +18,7 @@ import {
 } from '../session-service/transcript-window';
 import {
   appendAssistantTextPart,
+  appendContinuationSeparator,
   markdownFromUserParts,
   mergeAssistantToolCallsPreservingResolvedState,
   mergeContinuationToolCalls,
@@ -178,12 +179,7 @@ const transcriptSlice = createSlice({
       if (isAlias) {
         const canonical = list.find((message) => message.id === messageId);
         if (canonical) {
-          if (canonical.markdown) {
-            canonical.markdown += '\n\n';
-          }
-          if (canonical.thinking) {
-            canonical.thinking += '\n\n';
-          }
+          appendContinuationSeparator(canonical);
           if (modelId) {
             canonical.modelId = modelId;
           }

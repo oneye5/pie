@@ -213,5 +213,37 @@
   border-color: var(--panel-danger);
 }
 
+/* ── Line stats ──────────────────────────────────────────────────────────── */
+
+.file-changes-aggregate-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.file-change-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+
+.stat-additions {
+  color: var(--panel-success, #3fb950);
+}
+
+.stat-deletions {
+  color: var(--panel-danger, #f85149);
+}
+
 /* ── Pruning Banner ──────────────────────────────────────────────────────── */
-
+
+

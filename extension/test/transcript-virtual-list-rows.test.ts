@@ -26,6 +26,7 @@ test('buildTranscriptRows keeps system prompts, paging gaps, and messages in dis
     hasOlder: true,
     hasNewer: true,
     busy: false,
+    hasPruningResult: false,
   });
 
   assert.deepEqual(
@@ -44,9 +45,85 @@ test('buildTranscriptRows omits optional system and gap rows when not needed', (
     hasOlder: false,
     hasNewer: false,
     busy: false,
+    hasPruningResult: false,
   });
 
   assert.deepEqual(rows.map((row) => row.kind), ['message']);
+});
+
+test('buildTranscriptRows shows systemPrompts row when hasPruningResult is true even with zero system prompts', () => {
+  const rows = buildTranscriptRows({
+    transcript: [makeMessage('user-1', 'user')],
+    systemPromptCount: 0,
+    hasOlder: false,
+    hasNewer: false,
+    busy: false,
+    hasPruningResult: true,
+  });
+
+  assert.deepEqual(rows.map((row) => row.kind), ['systemPrompts', 'message']);
+});
+
+test('buildTranscriptRows shows standalone typingIndicator when busy and last message is user', () => {
+  const rows = buildTranscriptRows({
+    transcript: [
+      makeMessage('user-1', 'user'),
+    ],
+    systemPromptCount: 0,
+    hasOlder: false,
+    hasNewer: false,
+    busy: true,
+    hasPruningResult: false,
+  });
+
+  assert.deepEqual(rows.map((row) => row.kind), ['message', 'typingIndicator']);
+});
+
+test('buildTranscriptRows suppresses standalone typingIndicator when busy and last message is assistant', () => {
+  const rows = buildTranscriptRows({
+    transcript: [
+      makeMessage('user-1', 'user'),
+      makeMessage('assistant-1', 'assistant'),
+    ],
+    systemPromptCount: 0,
+    hasOlder: false,
+    hasNewer: false,
+    busy: true,
+    hasPruningResult: false,
+  });
+
+  // No typingIndicator row — dots are rendered inline in the message item
+  assert.deepEqual(rows.map((row) => row.kind), ['message', 'message']);
+});
+
+test('buildTranscriptRows suppresses standalone typingIndicator when assistant is streaming', () => {
+  const streamingMsg = { ...makeMessage('assistant-1', 'assistant'), status: 'streaming' as const };
+  const rows = buildTranscriptRows({
+    transcript: [
+      makeMessage('user-1', 'user'),
+      streamingMsg,
+    ],
+    systemPromptCount: 0,
+    hasOlder: false,
+    hasNewer: false,
+    busy: true,
+    hasPruningResult: false,
+  });
+
+  assert.deepEqual(rows.map((row) => row.kind), ['message', 'message']);
+});
+
+test('buildTranscriptRows shows standalone typingIndicator when busy with empty transcript', () => {
+  const rows = buildTranscriptRows({
+    transcript: [],
+    systemPromptCount: 0,
+    hasOlder: false,
+    hasNewer: false,
+    busy: true,
+    hasPruningResult: false,
+  });
+
+  assert.deepEqual(rows.map((row) => row.kind), ['typingIndicator']);
 });
 
 test('estimateTranscriptRowSize uses stable size buckets by row kind', () => {

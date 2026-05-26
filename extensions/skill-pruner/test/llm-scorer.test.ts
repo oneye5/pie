@@ -169,6 +169,7 @@ test("runLlmPruning calls completeFn and returns parsed result", async () => {
 
 	const completeFn = async () => ({
 		text: '{"skills": ["code-simplification"], "tools": ["read", "edit"]}',
+		thinking: 'Refactoring suggests code-simplification skill.',
 	});
 
 	const result = await runLlmPruning(input, undefined, {}, completeFn);

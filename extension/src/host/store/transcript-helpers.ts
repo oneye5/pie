@@ -99,6 +99,50 @@ export function appendAssistantTextPart(
   }
 }
 
+/**
+ * Append a paragraph separator ('\n\n') between continuation turns in an
+ * assistant message. Updates both the aggregate fields (markdown, thinking)
+ * and the parts array so they stay consistent.
+ *
+ * When the last part is a text or reasoning part, '\n\n' is appended to it.
+ * When the last part is a tool call (or there are no parts), a minimal
+ * separator is appended to the markdown/thinking aggregate only — the next
+ * delta will use `needsSeparator` in `appendAssistantTextPart` to inject the
+ * separator into the new part when the kind changes.
+ *
+ * Note: only the LAST text/reasoning part is updated. If a mixed turn has
+ * reasoning followed by text (e.g. "think → answer") and the continuation
+ * starts with more reasoning, the reasoning aggregate will carry the '\n\n'
+ * separator but the reasoning PART won't. This is a pre-existing limitation
+ * of the single-part patch strategy; `appendAssistantTextPart`'s
+ * `needsSeparator` logic does not currently handle kind-crossing separators.
+ */
+export function appendContinuationSeparator(message: ChatMessage): void {
+  if (message.markdown) {
+    message.markdown += '\n\n';
+  }
+  if (message.thinking) {
+    message.thinking += '\n\n';
+  }
+
+  // Keep parts in sync with the aggregate separator.
+  const parts = message.parts;
+  if (!parts || parts.length === 0) {
+    return;
+  }
+
+  // Find the last text or reasoning part and append the separator to it.
+  for (let i = parts.length - 1; i >= 0; i -= 1) {
+    const part = parts[i];
+    if (part.kind === 'text' || part.kind === 'reasoning') {
+      if (!part.text.endsWith('\n\n')) {
+        part.text += '\n\n';
+      }
+      return;
+    }
+  }
+}
+
 export function upsertAssistantToolCall(message: ChatMessage, toolCall: ToolCall): void {
   const parts = ensureAssistantParts(message);
   const nextToolCall = cloneToolCall(toolCall);

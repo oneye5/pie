@@ -19,6 +19,7 @@ function formatTime(iso: string): string {
 
 export function PruningInlineCard({ details, fallbackText, createdAt }: PruningInlineCardProps) {
   const [expanded, setExpanded] = useState(false);
+  const [rawExpanded, setRawExpanded] = useState(false);
 
   const skillsTotal = details.includedSkills.length + details.excludedSkills.length;
   const toolsTotal = details.includedTools.length + details.excludedTools.length;
@@ -108,10 +109,39 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
                 <span class="pruning-banner-detail-text">{details.includedTools.join(', ')}</span>
               </div>
             )}
-            {details.prepassResponse && (
-              <div class="pruning-banner-prepass-response">
-                <span class="pruning-banner-hint">LLM reasoning</span>
-                <pre class="pruning-banner-response-text">{details.prepassResponse}</pre>
+            {(details.prepassThinking || details.prepassResponse) && (
+              <div
+                class={`pruning-banner-raw-toggle${rawExpanded ? ' pruning-banner-raw-expanded' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={(e) => { e.stopPropagation(); setRawExpanded((v) => !v); }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setRawExpanded((v) => !v);
+                  }
+                }}
+              >
+                <span class="pruning-banner-raw-toggle-text">
+                  {rawExpanded ? '▲' : '▶'} Prepass LLM output
+                </span>
+                {rawExpanded && (
+                  <div class="pruning-banner-raw-content">
+                    {details.prepassThinking && (
+                      <div class="pruning-banner-raw-section">
+                        <span class="pruning-banner-hint">Reasoning</span>
+                        <pre class="pruning-banner-raw-pre">{details.prepassThinking}</pre>
+                      </div>
+                    )}
+                    {details.prepassResponse && (
+                      <div class="pruning-banner-raw-section">
+                        <span class="pruning-banner-hint">LLM reply</span>
+                        <pre class="pruning-banner-raw-pre">{details.prepassResponse}</pre>
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

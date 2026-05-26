@@ -127,7 +127,11 @@ const selectActivePendingComposerInputs = (state: RootState): ComposerInput[] =>
 const selectActiveFileChanges = (state: RootState): FileChangeEntry[] => {
   const path = selectActiveSessionPath(state);
   if (!path) return EMPTY_FILE_CHANGES;
-  return state.fileChanges.bySession[path] ?? EMPTY_FILE_CHANGES;
+  const changes = state.fileChanges.bySession[path] ?? EMPTY_FILE_CHANGES;
+  if (changes.length > 0) {
+    console.log('[pie:fileChanges] selectActiveFileChanges found', changes.length, 'changes for', path);
+  }
+  return changes;
 };
 
 const selectAvailableExtensions = (state: RootState): ExtensionInfo[] => {
@@ -142,27 +146,13 @@ const selectActiveRunSummary = (state: RootState): ActiveRunSummary | null => {
 
 /**
  * Derive a PruningResult summary from the most recent pruning-result custom
- * message in the transcript. Only returns a result if the pruning message
- * belongs to the current assistant turn (i.e., appears after the last user
- * message). This prevents stale results from previous turns lingering in the
- * banner after the user sends a new message.
+ * message in the transcript. Returns the latest pruning result regardless of
+ * which turn it belongs to, so the banner stays visible between turns.
  */
 export function derivePruningResult(transcript: ChatMessage[]): PruningResult | null {
-  // Find the index of the last user message to scope the search.
-  let lastUserIndex = -1;
-  for (let i = transcript.length - 1; i >= 0; i--) {
-    if (transcript[i].role === 'user') {
-      lastUserIndex = i;
-      break;
-    }
-  }
-
   for (let i = transcript.length - 1; i >= 0; i--) {
     const message = transcript[i];
     if (message.customType !== 'pruning-result') continue;
-
-    // Only show pruning results from the current turn (after last user msg).
-    if (i < lastUserIndex) return null;
 
     const details = message.customDetails as PruningDetails | undefined;
     if (!details) continue;
