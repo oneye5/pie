@@ -6,6 +6,7 @@ import type {
   PreparedAnalyticsData,
   PreparedBackendErrorRow,
   PreparedFileExtensionRow,
+  PreparedPruningEventRow,
   PreparedRunRow,
   PreparedToolFailureRow,
   PreparedToolUsageRow,
@@ -201,6 +202,32 @@ interface DuckDbFileExtensionRow {
   resolution: string | null;
 }
 
+interface DuckDbPruningEventRow {
+  run_id: string;
+  session_path_hash: string;
+  timestamp: string;
+  started_day: string;
+  pruning_mode: string;
+  query: string;
+  llm_model: string;
+  llm_thinking_level: string;
+  llm_latency_ms: number;
+  skill_count_kept: number;
+  skill_count_pruned: number;
+  skill_count_total: number;
+  skill_tokens_saved: number;
+  skill_tokens_original: number;
+  tool_count_kept: number;
+  tool_count_pruned: number;
+  tool_count_total: number;
+  tool_tokens_saved: number;
+  tool_tokens_original: number;
+  kept_skill_names: string[];
+  pruned_skill_names: string[];
+  kept_tool_names: string[];
+  pruned_tool_names: string[];
+}
+
 function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
   return {
     run_id: row.runId,
@@ -387,6 +414,34 @@ function toDuckDbFileExtensionRow(row: PreparedFileExtensionRow): DuckDbFileExte
   };
 }
 
+function toDuckDbPruningEventRow(row: PreparedPruningEventRow): DuckDbPruningEventRow {
+  return {
+    run_id: row.runId,
+    session_path_hash: row.sessionPathHash,
+    timestamp: row.timestamp,
+    started_day: row.startedDay,
+    pruning_mode: row.pruningMode,
+    query: row.query,
+    llm_model: row.llmModel,
+    llm_thinking_level: row.llmThinkingLevel,
+    llm_latency_ms: row.llmLatencyMs,
+    skill_count_kept: row.skillCountKept,
+    skill_count_pruned: row.skillCountPruned,
+    skill_count_total: row.skillCountTotal,
+    skill_tokens_saved: row.skillTokensSaved,
+    skill_tokens_original: row.skillTokensOriginal,
+    tool_count_kept: row.toolCountKept,
+    tool_count_pruned: row.toolCountPruned,
+    tool_count_total: row.toolCountTotal,
+    tool_tokens_saved: row.toolTokensSaved,
+    tool_tokens_original: row.toolTokensOriginal,
+    kept_skill_names: row.keptSkillNames,
+    pruned_skill_names: row.prunedSkillNames,
+    kept_tool_names: row.keptToolNames,
+    pruned_tool_names: row.prunedToolNames,
+  };
+}
+
 export async function writeDuckDbStagingExports(exportsDir: string, prepared: PreparedAnalyticsData): Promise<{
   runsPath: string;
   toolUsagePath: string;
@@ -394,6 +449,7 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
   toolFailuresPath: string;
   backendErrorsPath: string;
   fileExtensionsPath: string;
+  pruningEventsPath: string;
 }> {
   await ensureDir(exportsDir);
   const runsPath = path.join(exportsDir, 'runs.json');
@@ -402,6 +458,7 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
   const verificationUsagePath = path.join(exportsDir, 'verification-usage.json');
   const backendErrorsPath = path.join(exportsDir, 'backend-errors.json');
   const fileExtensionsPath = path.join(exportsDir, 'file-extensions.json');
+  const pruningEventsPath = path.join(exportsDir, 'pruning-events.json');
 
   await Promise.all([
     writeJsonFile(runsPath, prepared.runs.map(toDuckDbRunRow)),
@@ -410,9 +467,10 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
     writeJsonFile(verificationUsagePath, prepared.verificationUsage.map(toDuckDbVerificationUsageRow)),
     writeJsonFile(backendErrorsPath, prepared.backendErrors.map(toDuckDbBackendErrorRow)),
     writeJsonFile(fileExtensionsPath, prepared.fileExtensions.map(toDuckDbFileExtensionRow)),
+    writeJsonFile(pruningEventsPath, prepared.pruningEvents.map(toDuckDbPruningEventRow)),
   ]);
 
-  return { runsPath, toolUsagePath, toolFailuresPath, verificationUsagePath, backendErrorsPath, fileExtensionsPath };
+  return { runsPath, toolUsagePath, toolFailuresPath, verificationUsagePath, backendErrorsPath, fileExtensionsPath, pruningEventsPath };
 }
 
 async function openDuckDb(dbPath: string) {
@@ -633,6 +691,36 @@ CREATE TABLE file_extensions (
 `.trim();
 }
 
+function pruningEventsTableSchema(): string {
+  return `
+CREATE TABLE pruning_events (
+  run_id VARCHAR,
+  session_path_hash VARCHAR,
+  timestamp TIMESTAMP,
+  started_day DATE,
+  pruning_mode VARCHAR,
+  query VARCHAR,
+  llm_model VARCHAR,
+  llm_thinking_level VARCHAR,
+  llm_latency_ms INTEGER,
+  skill_count_kept INTEGER,
+  skill_count_pruned INTEGER,
+  skill_count_total INTEGER,
+  skill_tokens_saved INTEGER,
+  skill_tokens_original INTEGER,
+  tool_count_kept INTEGER,
+  tool_count_pruned INTEGER,
+  tool_count_total INTEGER,
+  tool_tokens_saved INTEGER,
+  tool_tokens_original INTEGER,
+  kept_skill_names VARCHAR[],
+  pruned_skill_names VARCHAR[],
+  kept_tool_names VARCHAR[],
+  pruned_tool_names VARCHAR[]
+);
+`.trim();
+}
+
 async function populateTableFromJson(connection: { run: (sql: string) => Promise<unknown> }, tableName: string, schemaSql: string, sourcePath: string): Promise<void> {
   await runStatements(connection, [
     `DROP TABLE IF EXISTS ${tableName};`,
@@ -722,6 +810,7 @@ export async function buildDuckDbDatabase(params: {
     await populateTableFromJson(connection, 'verification_usage', verificationUsageTableSchema(), stagingPaths.verificationUsagePath);
     await populateTableFromJson(connection, 'backend_errors', backendErrorsTableSchema(), stagingPaths.backendErrorsPath);
     await populateTableFromJson(connection, 'file_extensions', fileExtensionsTableSchema(), stagingPaths.fileExtensionsPath);
+    await populateTableFromJson(connection, 'pruning_events', pruningEventsTableSchema(), stagingPaths.pruningEventsPath);
     await createDerivedViews(connection);
   } finally {
     await closeDuckDb(instance, connection);

@@ -71,9 +71,11 @@ test("loadConfig parses a valid full config", () => {
 		strategy: "topK",
 		ceiling: 4,
 		pinned: ["debugging-and-error-recovery"],
+		alwaysKeep: [],
 	});
 	assert.ok(result.tools);
 	assert.equal(result.tools.ceiling, DEFAULT_TOOL_CONFIG.ceiling);
+	assert.deepEqual(result.tools.alwaysKeep, []);
 });
 
 test("loadConfig defaults only invalid mode and warns", () => {
@@ -101,6 +103,37 @@ test("loadConfig defaults invalid pinned values", () => {
 	assert.ok(warnings.some((warning) => warning.includes("pinned")));
 });
 
+test("loadConfig parses alwaysKeep arrays for skills and tools", () => {
+	const settingsPath = tempSettings(JSON.stringify({
+		pruning: {
+			skills: { alwaysKeep: ["foo"] },
+			tools: { alwaysKeep: ["bar"] },
+		},
+	}));
+	const result = loadConfig(settingsPath);
+	assert.deepEqual(result.skills.alwaysKeep, ["foo"]);
+	assert.deepEqual(result.tools?.alwaysKeep, ["bar"]);
+});
+
+test("loadConfig defaults invalid alwaysKeep arrays and warns", () => {
+	const { result, warnings } = captureWarns(() => loadConfig(tempSettings(JSON.stringify({
+		pruning: {
+			skills: { alwaysKeep: "foo" },
+			tools: { alwaysKeep: ["bar", 42] },
+		},
+	}))));
+	assert.deepEqual(result.skills.alwaysKeep, []);
+	assert.deepEqual(result.tools?.alwaysKeep, []);
+	assert.ok(warnings.some((warning) => warning.includes("pruning.skills.alwaysKeep")));
+	assert.ok(warnings.some((warning) => warning.includes("pruning.tools.alwaysKeep")));
+});
+
+test("loadConfig defaults alwaysKeep arrays to []", () => {
+	const result = loadConfig(tempSettings(JSON.stringify({ pruning: {} })));
+	assert.deepEqual(result.skills.alwaysKeep, []);
+	assert.deepEqual(result.tools?.alwaysKeep, []);
+});
+
 test("loadConfig parses model and provider fields", () => {
 	const settingsPath = tempSettings(JSON.stringify({
 		pruning: {
@@ -113,6 +146,15 @@ test("loadConfig parses model and provider fields", () => {
 	assert.equal(result.model, "gpt-5.4-mini");
 	assert.equal(result.provider, "github-copilot");
 	assert.equal(result.thinkingLevel, "minimal");
+});
+
+
+test("loadConfig defaults invalid thinkingLevel", () => {
+	const { result, warnings } = captureWarns(() => loadConfig(tempSettings(JSON.stringify({
+		pruning: { thinkingLevel: 123 },
+	}))));
+	assert.equal(result.thinkingLevel, DEFAULT_CONFIG.thinkingLevel);
+	assert.ok(warnings.some((w) => w.includes("thinkingLevel")));
 });
 
 test("loadConfig defaults invalid model/provider", () => {
@@ -162,11 +204,27 @@ test("loadConfig loads tools config with dependencies", () => {
 	assert.equal(result.tools.ceiling, 12);
 });
 
+
+test("loadConfig warns on invalid tool dependency entries", () => {
+	const { result, warnings } = captureWarns(() => loadConfig(tempSettings(JSON.stringify({
+		pruning: {
+			tools: {
+				dependencies: { edit: ["read"], web_search: "read" },
+			},
+		},
+	}))));
+	assert.ok(result.tools);
+	assert.deepEqual(result.tools.dependencies.edit, ["read"]);
+	assert.equal(result.tools.dependencies.web_search, undefined);
+	assert.ok(warnings.some((w) => w.includes("Invalid dependencies for tool 'web_search'")));
+});
+
 test("loadConfig defaults tools config when absent", () => {
 	const settingsPath = tempSettings(JSON.stringify({ pruning: { mode: "auto" } }));
 	const result = loadConfig(settingsPath);
 	assert.ok(result.tools);
 	assert.equal(result.tools.ceiling, DEFAULT_TOOL_CONFIG.ceiling);
+	assert.deepEqual(result.tools.alwaysKeep, []);
 });
 
 test("loadConfig warns on invalid tools ceiling", () => {

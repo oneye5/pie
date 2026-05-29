@@ -116,7 +116,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
                   <span class="pruning-banner-detail-text">{details.excludedTools.join(', ')}</span>
                 </div>
               )}
-              {(details.prepassThinking || details.prepassSystemPrompt || details.prepassResponse) && (
+              {(details.prepassSystemPrompt || details.prepassResponse) && (
                 <div
                   class={`pruning-banner-raw-toggle${rawExpanded ? ' pruning-banner-raw-expanded' : ''}`}
                   role="button"
@@ -135,12 +135,6 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
                   </span>
                   {rawExpanded && (
                     <div class="pruning-banner-raw-content">
-                      {details.prepassThinking && (
-                        <div class="pruning-banner-raw-section">
-                          <span class="pruning-banner-hint">Reasoning</span>
-                          <pre class="pruning-banner-raw-pre">{details.prepassThinking}</pre>
-                        </div>
-                      )}
                       {details.prepassSystemPrompt && (
                         <div class="pruning-banner-raw-section">
                           <span class="pruning-banner-hint">System prompt</span>

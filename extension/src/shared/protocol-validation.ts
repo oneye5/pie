@@ -149,6 +149,8 @@ function validatePruningSettingsPatch(value: unknown): value is Partial<PruningS
       if (v !== undefined && (typeof v !== 'string' || !VALID_PRUNING_MODES.has(v))) return false;
     } else if (key === 'skillCeiling' || key === 'toolCeiling') {
       if (v !== undefined && (!isFiniteNumber(v) || (v as number) < 1)) return false;
+    } else if (key === 'skillAlwaysKeep' || key === 'toolAlwaysKeep') {
+      if (v !== undefined && (!Array.isArray(v) || !v.every((entry) => typeof entry === 'string'))) return false;
     } else if (key === 'model' || key === 'provider') {
       if (v !== undefined && (typeof v !== 'string' || v.length === 0)) return false;
     } else if (key === 'thinkingLevel') {

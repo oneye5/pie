@@ -100,6 +100,23 @@ const sessionsSlice = createSlice({
     ) {
       state.openTabPaths = moveOpenTabPath(state.openTabPaths, action.payload);
     },
+    insertOpenTabAfter(
+      state,
+      action: PayloadAction<{ afterPath: string; newPath: string }>,
+    ) {
+      const { afterPath, newPath } = action.payload;
+      const index = state.openTabPaths.indexOf(afterPath);
+      if (index === -1) {
+        // Fallback: append at the end.
+        state.openTabPaths = [...state.openTabPaths, newPath];
+      } else {
+        state.openTabPaths = [
+          ...state.openTabPaths.slice(0, index + 1),
+          newPath,
+          ...state.openTabPaths.slice(index + 1),
+        ];
+      }
+    },
     upsertSession(state, action: PayloadAction<SessionSummary>) {
       const incoming = action.payload;
       const idx = state.sessions.findIndex((s) => s.path === incoming.path);
@@ -113,12 +130,10 @@ const sessionsSlice = createSlice({
     },
     setSessionSummary(state, action: PayloadAction<SessionSummary>) {
       const incoming = action.payload;
-      const idx = state.sessions.findIndex((s) => s.path === incoming.path);
-      if (idx === -1) {
-        state.sessions = [incoming, ...state.sessions];
-      } else {
-        state.sessions[idx] = incoming;
-      }
+      state.sessions = [
+        incoming,
+        ...state.sessions.filter((session) => session.path !== incoming.path),
+      ];
     },
     replaceSessionSummaries(state, action: PayloadAction<SessionSummary[]>) {
       const mergedByPath = new Map<string, SessionSummary>();

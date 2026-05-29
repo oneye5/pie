@@ -6,6 +6,7 @@ export interface SkillPruningConfig {
 	strategy: PruningStrategy;
 	ceiling: number;
 	pinned: string[];
+	alwaysKeep: string[];
 }
 
 export type ToolDependencies = Record<string, string[]>;
@@ -14,6 +15,7 @@ export interface ToolPruningConfig {
 	strategy: PruningStrategy;
 	ceiling: number;
 	dependencies: ToolDependencies;
+	alwaysKeep: string[];
 }
 
 export interface PruningConfig {
@@ -43,15 +45,20 @@ export interface PruningResult {
 	prepassThinking?: string;
 	/** System prompt sent to the LLM prepass. */
 	prepassSystemPrompt?: string;
+	/** User message (candidate list prompt) sent to the LLM prepass. */
+	prepassUserMessage?: string;
 	/** Latency of the LLM prepass call in milliseconds. */
 	prepassLatencyMs?: number;
 	/** Error message if the prepass failed. */
 	prepassError?: string;
+	/** Human-readable explanation of why the pruner kept a category instead of trusting the model. */
+	prepassFailOpenReason?: string;
 }
 
 export interface PruningDecision {
 	timestamp: string;
 	sessionId: string;
+	sessionPath: string;
 	mode: PruningMode;
 	query: string;
 	contextFile?: string;

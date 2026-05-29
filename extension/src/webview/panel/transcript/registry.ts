@@ -2,7 +2,7 @@
 /** @jsxImportSource preact */
 
 import type { ComponentChildren } from 'preact';
-import type { ChatPrefs, PruningResult, SystemPromptEntry, ToolCall } from '../../../shared/protocol';
+import type { ChatMessage, ChatPrefs, PruningResult, SystemPromptEntry, ToolCall } from '../../../shared/protocol';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import type { TranscriptRow } from './virtual-list-rows';
 
@@ -27,6 +27,12 @@ export interface RowRendererProps {
   onRequestOlder: () => void;
   onRequestNewer: () => void;
   renderToolCall: RenderToolCall;
+  /** For message rows: the full transcript array. */
+  transcript?: ChatMessage[];
+  /** For message rows: the index of the message in the transcript array. */
+  transcriptIndex?: number;
+  /** Whether there are older messages available to load. */
+  hasOlder?: boolean;
 }
 
 export type RowRenderer = (props: RowRendererProps) => ComponentChildren;

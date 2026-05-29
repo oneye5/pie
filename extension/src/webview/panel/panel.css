@@ -1,4 +1,4 @@
-﻿:root {
+:root {
   --panel-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.22));
   --panel-muted: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.86));
   --panel-surface: var(--vscode-editor-background, rgba(127, 127, 127, 0.04));
@@ -30,7 +30,20 @@
   --tool-call-summary-column-width: 36ch;
 
   --tool-call-size-column-width: 11ch;
-  --tool-call-status-column-width: 10ch;
+  --tool-call-status-column-width: 12ch;
+  --status-chip-height: 18px;
+  --status-chip-dot-size: 5px;
+  --status-chip-radius: 999px;
+  --status-chip-padding-inline: 6px;
+  --status-chip-border-muted: color-mix(in srgb, var(--panel-muted) 20%, transparent);
+  --status-chip-surface-muted: color-mix(in srgb, var(--panel-muted) 8%, transparent);
+  --message-glow-duration: 4s;
+  --message-assistant-width: 88%;
+  --message-assistant-width-narrow: 92%;
+  --turn-activity-min-height: 28px;
+  --activity-chip-max-width: 220px;
+  --status-chip-transition-duration: 150ms;
+  --turn-activity-transition-duration: 180ms;
   --panel-danger: var(--vscode-errorForeground, #c33);
   --panel-danger-surface: var(--vscode-inputValidation-errorBackground, rgba(255, 50, 50, 0.12));
   --panel-warning: var(--vscode-inputValidation-warningBorder, #d29922);

@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
+import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningCatalog, PruningResult, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
 
 import { orderModelsForPicker } from './model-list';
 import { ComposerSettingsMenu } from './settings-menu';
@@ -24,6 +24,8 @@ interface ComposerToolbarStatus {
 interface ComposerToolbarProps {
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;
+  pruningCatalog: PruningCatalog;
+  pruningResult: PruningResult | null;
   onSetPrefs: (prefs: Partial<ChatPrefs>) => void;
   onSetPruningSettings: (settings: Partial<PruningSettings>) => void;
   availableExtensions: ExtensionInfo[];
@@ -41,6 +43,8 @@ interface ComposerToolbarProps {
 export function ComposerToolbar({
   prefs,
   pruningSettings,
+  pruningCatalog,
+  pruningResult,
   onSetPrefs,
   onSetPruningSettings,
   availableExtensions,
@@ -66,7 +70,7 @@ export function ComposerToolbar({
   return (
     <div class="composer-toolbar">
       <div class="composer-toolbar-left">
-        <ComposerSettingsMenu prefs={prefs} pruningSettings={pruningSettings} availableExtensions={availableExtensions} availableModels={availableModels} onSetPrefs={onSetPrefs} onSetPruningSettings={onSetPruningSettings} />
+        <ComposerSettingsMenu prefs={prefs} pruningSettings={pruningSettings} pruningCatalog={pruningCatalog} pruningResult={pruningResult} availableExtensions={availableExtensions} availableModels={availableModels} onSetPrefs={onSetPrefs} onSetPruningSettings={onSetPruningSettings} />
 
         {filteredModels.length > 0 ? (
           <div class="model-picker-shell">

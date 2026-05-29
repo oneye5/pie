@@ -17,6 +17,10 @@ function formatTime(iso: string): string {
   return d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function diagnosticText(value: string | undefined, emptyLabel: string): string {
+  return value && value.trim().length > 0 ? value : emptyLabel;
+}
+
 export function PruningInlineCard({ details, fallbackText, createdAt }: PruningInlineCardProps) {
   const [expanded, setExpanded] = useState(false);
   const [rawExpanded, setRawExpanded] = useState(false);
@@ -52,27 +56,22 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
         <div class="message-head-main">
           <span class="message-role">PI</span>
           {timeLabel && <span class="message-time">{timeLabel}</span>}
-          <span class="message-duration">skill-pruner{modeBadge}{prepassLabel}</span>
+          <span class="message-duration">
+            skill-pruner{modeBadge}{prepassLabel}
+          </span>
         </div>
       </div>
-      <div
-        class={`pruning-banner${expanded ? ' pruning-banner-expanded' : ' pruning-banner-collapsed'}`}
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setExpanded((v) => !v);
-          }
-        }}
-      >
-        <div class="pruning-banner-summary">
+      <div class={`pruning-banner${expanded ? ' pruning-banner-expanded' : ' pruning-banner-collapsed'}`}>
+        <button
+          class="pruning-banner-summary"
+          type="button"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
           <span class="pruning-banner-icon" aria-hidden="true">✂</span>
           <span class="pruning-banner-text">{summary}</span>
           <span class="pruning-banner-chevron" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
-        </div>
+        </button>
         {expanded && (
           <div class="pruning-banner-detail">
             {details.prepassModel && (
@@ -85,65 +84,66 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
                 </span>
               </div>
             )}
-            {details.excludedSkills.length > 0 && (
+            <div class="pruning-banner-detail-row">
+              <span class="pruning-banner-hint">Skills pruned</span>
+              <span class="pruning-banner-detail-text">
+                {details.excludedSkills.length > 0 ? details.excludedSkills.join(', ') : 'None'}
+              </span>
+            </div>
+            <div class="pruning-banner-detail-row">
+              <span class="pruning-banner-hint">Skills kept</span>
+              <span class="pruning-banner-detail-text">
+                {details.includedSkills.length > 0 ? details.includedSkills.join(', ') : 'None'}
+              </span>
+            </div>
+            <div class="pruning-banner-detail-row">
+              <span class="pruning-banner-hint">Tools pruned</span>
+              <span class="pruning-banner-detail-text">
+                {details.excludedTools.length > 0 ? details.excludedTools.join(', ') : 'None'}
+              </span>
+            </div>
+            <div class="pruning-banner-detail-row">
+              <span class="pruning-banner-hint">Tools kept</span>
+              <span class="pruning-banner-detail-text">
+                {details.includedTools.length > 0 ? details.includedTools.join(', ') : 'None'}
+              </span>
+            </div>
+            {details.prepassFailOpenReason && (
               <div class="pruning-banner-detail-row">
-                <span class="pruning-banner-hint">Skills pruned</span>
-                <span class="pruning-banner-detail-text">{details.excludedSkills.join(', ')}</span>
+                <span class="pruning-banner-hint">Fail-open reason</span>
+                <span class="pruning-banner-detail-text">{details.prepassFailOpenReason}</span>
               </div>
             )}
-            {details.includedSkills.length > 0 && (
-              <div class="pruning-banner-detail-row">
-                <span class="pruning-banner-hint">Skills kept</span>
-                <span class="pruning-banner-detail-text">{details.includedSkills.join(', ')}</span>
-              </div>
-            )}
-            {details.excludedTools.length > 0 && (
-              <div class="pruning-banner-detail-row">
-                <span class="pruning-banner-hint">Tools pruned</span>
-                <span class="pruning-banner-detail-text">{details.excludedTools.join(', ')}</span>
-              </div>
-            )}
-            {details.includedTools.length > 0 && (
-              <div class="pruning-banner-detail-row">
-                <span class="pruning-banner-hint">Tools kept</span>
-                <span class="pruning-banner-detail-text">{details.includedTools.join(', ')}</span>
-              </div>
-            )}
-            {(details.prepassThinking || details.prepassResponse) && (
-              <div
-                class={`pruning-banner-raw-toggle${rawExpanded ? ' pruning-banner-raw-expanded' : ''}`}
-                role="button"
-                tabIndex={0}
+            <div class="pruning-banner-raw-toggle">
+              <button
+                class="pruning-banner-raw-toggle-text"
+                type="button"
+                aria-expanded={rawExpanded}
                 onClick={(e) => { e.stopPropagation(); setRawExpanded((v) => !v); }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setRawExpanded((v) => !v);
-                  }
-                }}
               >
-                <span class="pruning-banner-raw-toggle-text">
-                  {rawExpanded ? '▲' : '▶'} Prepass LLM output
-                </span>
-                {rawExpanded && (
-                  <div class="pruning-banner-raw-content">
-                    {details.prepassThinking && (
-                      <div class="pruning-banner-raw-section">
-                        <span class="pruning-banner-hint">Reasoning</span>
-                        <pre class="pruning-banner-raw-pre">{details.prepassThinking}</pre>
-                      </div>
-                    )}
-                    {details.prepassResponse && (
-                      <div class="pruning-banner-raw-section">
-                        <span class="pruning-banner-hint">LLM reply</span>
-                        <pre class="pruning-banner-raw-pre">{details.prepassResponse}</pre>
-                      </div>
-                    )}
+                {rawExpanded ? '▲' : '▶'} Prepass LLM output
+              </button>
+              {rawExpanded && (
+                <div class="pruning-banner-raw-content">
+                  <div class="pruning-banner-raw-section">
+                    <span class="pruning-banner-hint">System prompt</span>
+                    <pre class="pruning-banner-raw-pre">{diagnosticText(details.prepassSystemPrompt, '∅ No system prompt captured')}</pre>
                   </div>
-                )}
-              </div>
-            )}
+                  <div class="pruning-banner-raw-section">
+                    <span class="pruning-banner-hint">User prompt</span>
+                    <pre class="pruning-banner-raw-pre">{diagnosticText(details.prepassUserMessage, '∅ No user prompt captured')}</pre>
+                  </div>
+                  <div class="pruning-banner-raw-section">
+                    <span class="pruning-banner-hint">Classification reasoning</span>
+                    <pre class="pruning-banner-raw-pre">{diagnosticText(details.prepassThinking, '∅ No reasoning returned')}</pre>
+                  </div>
+                  <div class="pruning-banner-raw-section">
+                    <span class="pruning-banner-hint">Raw LLM output</span>
+                    <pre class="pruning-banner-raw-pre">{diagnosticText(details.prepassResponse, '∅ Empty response')}</pre>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>

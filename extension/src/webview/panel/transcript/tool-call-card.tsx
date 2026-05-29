@@ -87,13 +87,23 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
   const showSizeHint = !open && !!sizeHint;
   const pathSummary = summaryPath && summary ? splitSummaryPath(summary) : null;
 
-  const handleStatusClick = (e: MouseEvent) => {
-    e.stopPropagation();
+  const copyErrorDetail = (target: HTMLElement) => {
     if (!errorDetail) return;
-    const target = e.currentTarget as HTMLElement;
     navigator.clipboard.writeText(errorDetail);
     target.dataset.copied = '';
     setTimeout(() => { delete target.dataset.copied; }, 1200);
+  };
+
+  const handleStatusClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    copyErrorDetail(e.currentTarget as HTMLElement);
+  };
+
+  const handleStatusKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation();
+    copyErrorDetail(e.currentTarget as HTMLElement);
   };
 
   return (
@@ -131,7 +141,11 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
         class={`tool-call-status${statusLabel ? ` ${status}` : ' is-empty'}${errorDetail ? ' has-error-detail' : ''}`}
         aria-hidden={statusLabel ? undefined : 'true'}
         title={errorDetail ?? undefined}
+        role={errorDetail ? 'button' : undefined}
+        tabIndex={errorDetail ? 0 : undefined}
+        aria-label={errorDetail ? 'Copy tool-call error detail' : undefined}
         onClick={errorDetail ? handleStatusClick : undefined}
+        onKeyDown={errorDetail ? handleStatusKeyDown : undefined}
       ><span class="tool-call-status-label">{statusLabel ?? ''}</span></span>
     </div>
   );

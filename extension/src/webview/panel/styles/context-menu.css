@@ -18,6 +18,16 @@
   color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
 }
 
+.context-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.context-menu-item:disabled:hover {
+  background: transparent;
+  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+}
+
 .context-menu-check {
   flex-shrink: 0;
   color: var(--panel-accent);
@@ -263,42 +273,7 @@
   }
 }
 
-.transcript-typing-indicator {
-  display: none; /* Removed - replaced with glow indicator */
-}
 
-.message-glow-indicator {
-  position: relative;
-  height: 1px;
-  margin-top: 12px;
-  overflow: hidden;
-}
-
-.message-glow-indicator::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--panel-accent, var(--panel-muted)) 50%,
-    transparent 100%
-  );
-  animation: message-glow-pulse 4s ease-in-out infinite;
-}
-
-@keyframes message-glow-pulse {
-  0%, 100% {
-    opacity: 0.35;
-    transform: scaleX(0.5);
-  }
-  50% {
-    opacity: 0.65;
-    transform: scaleX(1);
-  }
-}
 
 @media (prefers-reduced-motion: reduce) {
   .transcript-typing-dot {
@@ -313,4 +288,5 @@
 }
 
 /* ── File Changes Panel ───────────────────────────────────────────────────── */
-
+
+

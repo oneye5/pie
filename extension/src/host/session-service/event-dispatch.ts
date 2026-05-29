@@ -1,6 +1,7 @@
 import type {
   BusyChangedPayload,
   ContextUsageChangedPayload,
+  CustomMessagePayload,
   ErrorPayload,
   EventEnvelope,
   ExtensionUIRequestPayload,
@@ -26,6 +27,7 @@ export interface SessionBackendEventHandlers {
   onToolFinished(payload: ToolFinishedPayload): void;
   onToolProgress(payload: ToolProgressPayload): void;
   onMessageFinished(payload: MessageFinishedPayload): void;
+  onCustomMessage(payload: CustomMessagePayload): void;
   onMessageAborted(payload: MessageAbortedPayload): void;
   onBusyChanged(payload: BusyChangedPayload): void;
   onContextUsageChanged(payload: ContextUsageChangedPayload): void;
@@ -64,6 +66,9 @@ export function dispatchSessionBackendEvent(
       return;
     case 'message.finished':
       handlers.onMessageFinished(event.payload as MessageFinishedPayload);
+      return;
+    case 'message.custom':
+      handlers.onCustomMessage(event.payload as CustomMessagePayload);
       return;
     case 'message.aborted':
       handlers.onMessageAborted(event.payload as MessageAbortedPayload);

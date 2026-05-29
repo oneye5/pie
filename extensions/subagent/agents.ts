@@ -3,8 +3,8 @@
  */
 
 import * as fs from "node:fs";
+import * as os from "node:os";
 import * as path from "node:path";
-import { getAgentDir, parseFrontmatter } from "@mariozechner/pi-coding-agent";
 import type { TaskScores } from "./model-selection.js";
 
 export type AgentScope = "user" | "project" | "both";
@@ -23,6 +23,38 @@ export interface AgentConfig {
 export interface AgentDiscoveryResult {
 	agents: AgentConfig[];
 	projectAgentsDir: string | null;
+}
+
+function getAgentDir(): string {
+	const configured = process.env.PI_CODING_AGENT_DIR?.trim();
+	if (configured) {
+		return path.resolve(configured);
+	}
+	return path.join(os.homedir(), ".pi", "agent");
+}
+
+function parseFrontmatter<T extends Record<string, string>>(content: string): { frontmatter: T; body: string } {
+	if (!content.startsWith("---")) {
+		return { frontmatter: {} as T, body: content };
+	}
+
+	const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+	if (!match) {
+		return { frontmatter: {} as T, body: content };
+	}
+
+	const [, rawFrontmatter, body] = match;
+	const frontmatter = {} as Record<string, string>;
+	for (const line of rawFrontmatter.split(/\r?\n/)) {
+		const separator = line.indexOf(":");
+		if (separator === -1) continue;
+		const key = line.slice(0, separator).trim();
+		if (!key) continue;
+		const rawValue = line.slice(separator + 1).trim();
+		frontmatter[key] = rawValue.replace(/^['"]|['"]$/g, "");
+	}
+
+	return { frontmatter: frontmatter as T, body };
 }
 
 function parseDefaultScores(raw: string | undefined): TaskScores | undefined {

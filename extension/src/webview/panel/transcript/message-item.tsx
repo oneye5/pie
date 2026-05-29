@@ -15,6 +15,14 @@ import {
 } from './header';
 import { InlineEditor } from './inline-editor';
 import { shouldOpenUserMessageEditor } from './interactions';
+import { PruningHeaderChip, PruningHeaderPanel } from './pruning-header';
+import type { PruningHeaderState } from './pruning';
+import type { TurnActivityState } from './activity';
+import {
+  TurnActivityStrip,
+  activityPhaseHasRunningDot,
+  activityToneToStripTone,
+} from './turn-activity-strip';
 
 import {
   assistantPartsFromMessage,
@@ -100,6 +108,14 @@ function ErrorDetail({ detail }: { detail: string }) {
             {expanded ? 'Less' : 'More'}
           </button>
         )}
+        <button
+          class="message-error-detail-btn"
+          onClick={() => { void navigator.clipboard?.writeText(detail); }}
+          title="Copy error detail"
+          aria-label="Copy error detail"
+        >
+          Copy
+        </button>
         <button class="message-error-detail-btn" onClick={() => setDismissed(true)} title="Dismiss">✕</button>
       </span>
     </div>
@@ -120,6 +136,16 @@ interface MessageItemProps {
   onContextMenu: TranscriptContextMenuHandler;
   renderToolCall: RenderToolCall;
   isLastAssistantMessage?: boolean;
+  /** Pruning diagnostics folded into this assistant turn's header, when present. */
+  pruningHeaderState?: PruningHeaderState;
+  /** Structured in-flight activity for the current turn (last assistant row only). */
+  activityState?: TurnActivityState | null;
+  /** Full transcript window, used to locate the previous user prompt for recovery. */
+  transcript?: ChatMessage[];
+  /** Index of this message within the transcript window. */
+  transcriptIndex?: number;
+  /** Whether older messages exist outside the loaded window. */
+  hasOlder?: boolean;
 }
 
 function MessageItemView({
@@ -136,6 +162,11 @@ function MessageItemView({
   onContextMenu,
   renderToolCall,
   isLastAssistantMessage,
+  pruningHeaderState,
+  activityState,
+  transcript,
+  transcriptIndex,
+  hasOlder,
 }: MessageItemProps) {
 
   const combinedParts = useMemo(() => (
@@ -162,6 +193,24 @@ function MessageItemView({
   ), [combinedParts, message.role, message.toolCalls]);
   const isCurrentlyStreaming = isStreaming && message.status === 'streaming';
   const isEditing = editingId === message.id;
+
+  const [pruningExpanded, setPruningExpanded] = useState(false);
+  const [pruningRawExpanded, setPruningRawExpanded] = useState(false);
+
+  // Locate the previous user prompt for failed/interrupted recovery actions.
+  const recovery = useMemo(() => {
+    if (message.role !== 'assistant') return null;
+    if (message.status !== 'error' && message.status !== 'interrupted') return null;
+    if (transcript && typeof transcriptIndex === 'number') {
+      for (let i = transcriptIndex - 1; i >= 0; i -= 1) {
+        if (transcript[i]?.role === 'user') {
+          return { kind: 'available' as const, userId: transcript[i]!.id };
+        }
+      }
+    }
+    // Previous prompt is not in the loaded window.
+    return hasOlder ? { kind: 'unloaded' as const } : null;
+  }, [message.role, message.status, transcript, transcriptIndex, hasOlder]);
 
   // Capture message body height for no-shift editing (Phase 5)
   const messageBodyRef = useRef<HTMLDivElement>(null);
@@ -245,9 +294,24 @@ function MessageItemView({
           {replyMeta && <span class="assistant-reply-hint">{replyMeta.compactText}</span>}
         </div>
         <div class="message-head-actions">
+          {pruningHeaderState && (
+            <PruningHeaderChip
+              state={pruningHeaderState}
+              expanded={pruningExpanded}
+              onToggle={() => setPruningExpanded((v) => !v)}
+            />
+          )}
           {statusLabel && <span class={`message-status ${statusTone}`}>{statusLabel}</span>}
         </div>
       </div>
+
+      {pruningHeaderState?.kind === 'result' && pruningExpanded && (
+        <PruningHeaderPanel
+          details={pruningHeaderState.details}
+          rawExpanded={pruningRawExpanded}
+          onRawToggle={() => setPruningRawExpanded((v) => !v)}
+        />
+      )}
 
       {message.status === 'error' && (
         <ErrorDetailWithFallback message={message} />
@@ -337,11 +401,30 @@ function MessageItemView({
           {isLastAssistantMessage && message.role === 'assistant' && isCurrentlyStreaming && (
             <div class="message-glow-indicator" aria-label="Agent is responding" role="status" />
           )}
-          {isLastAssistantMessage && message.role === 'assistant' && !isCurrentlyStreaming && (
-            <div class="message-typing-indicator" role="status" aria-label="Agent is working">
-              <span class="typing-indicator-dot" />
-              <span class="typing-indicator-dot" />
-              <span class="typing-indicator-dot" />
+          {isLastAssistantMessage && message.role === 'assistant' && !isCurrentlyStreaming && activityState && (
+            <TurnActivityStrip
+              label={activityState.label}
+              detail={activityState.detail}
+              tone={activityToneToStripTone(activityState.tone)}
+              runningDot={activityPhaseHasRunningDot(activityState.phase)}
+              ariaLabel={activityState.ariaLabel}
+            />
+          )}
+
+          {recovery && (
+            <div class="message-recovery">
+              {recovery.kind === 'available' ? (
+                <button
+                  class="message-retry-btn"
+                  type="button"
+                  onClick={() => onEditRequest(recovery.userId)}
+                  title="Edit the previous prompt and resend"
+                >
+                  ↻ Edit previous prompt
+                </button>
+              ) : (
+                <span class="message-retry-hint">Load older messages to retry</span>
+              )}
             </div>
           )}
 

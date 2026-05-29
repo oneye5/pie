@@ -8,7 +8,9 @@ import type {
   ChatMessage,
   ChatPrefs,
   PruningResult,
+  PruningSettings,
   SystemPromptEntry,
+  ThinkingLevel,
   TranscriptWindow,
 } from '../../../shared/protocol';
 import { isTranscriptHydrating } from './state';
@@ -44,8 +46,11 @@ interface TranscriptViewProps {
   transcriptWindow: TranscriptWindow;
   busy: boolean;
   prefs: ChatPrefs;
+  pruningSettings: PruningSettings;
   systemPrompts: SystemPromptEntry[];
   pruningResult: PruningResult | null;
+  pendingAssistantModelId?: string;
+  pendingAssistantThinkingLevel?: ThinkingLevel;
   workingDirectory: string | null;
   editingId: string | null;
   onEditRequest: (messageId: string) => void;
@@ -64,8 +69,11 @@ export function TranscriptView({
   transcriptWindow,
   busy,
   prefs,
+  pruningSettings,
   systemPrompts,
   pruningResult,
+  pendingAssistantModelId,
+  pendingAssistantThinkingLevel,
   workingDirectory,
   editingId,
   onEditRequest,
@@ -96,8 +104,11 @@ export function TranscriptView({
       transcriptWindow={transcriptWindow}
       busy={busy}
       prefs={prefs}
+      pruningSettings={pruningSettings}
       systemPrompts={systemPrompts}
       pruningResult={pruningResult}
+      pendingAssistantModelId={pendingAssistantModelId}
+      pendingAssistantThinkingLevel={pendingAssistantThinkingLevel}
       workingDirectory={workingDirectory}
       editingId={editingId}
       onEditRequest={onEditRequest}

@@ -7,7 +7,7 @@ test('all built-in row kinds have registered renderers', async () => {
   const { getRegisteredRowKinds } = await import('../src/webview/panel/transcript/registry');
 
   const kinds = getRegisteredRowKinds();
-  for (const expected of ['systemPrompts', 'topGap', 'bottomGap', 'message']) {
+  for (const expected of ['systemPrompts', 'topGap', 'bottomGap', 'message', 'typingIndicator']) {
     assert.ok(kinds.includes(expected), `Missing row renderer for '${expected}'`);
   }
 });

@@ -306,6 +306,9 @@ test('MessageItem renders streaming content from message.parts without overlay',
     onContextMenu: noopContextMenu,
     renderToolCall: () => null,
     isLastAssistantMessage: true,
+    transcript: [message],
+    transcriptIndex: 0,
+    hasOlder: false,
   }));
 
   assert.match(html, /Hello from streaming/, 'streaming content should render from parts');
@@ -341,6 +344,9 @@ test('MessageItem renders completed content after messageFinished', async () => 
     onContextMenu: noopContextMenu,
     renderToolCall: () => null,
     isLastAssistantMessage: false,
+    transcript: [message],
+    transcriptIndex: 0,
+    hasOlder: false,
   }));
 
   assert.match(html, /Final answer here/);

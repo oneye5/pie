@@ -4,7 +4,7 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
 
 import type { ActiveRunSummary, SessionSummary } from '../../../shared/protocol';
-import { getHorizontalDropIndex } from '../../../shared/tab-behavior';
+import { getHorizontalDropIndex, isPendingTabPath } from '../../../shared/tab-behavior';
 import { getSessionTabRunBadge } from './run-state';
 
 const TAB_DRAG_THRESHOLD_PX = 6;
@@ -25,6 +25,7 @@ interface SessionTabsProps {
   onMove: (sessionPath: string | undefined, fromIndex: number, toIndex: number) => void;
   onNew: () => void;
   onMarkComplete: () => void;
+  onDuplicate: (path: string) => void;
 }
 
 type TabDragCandidate = {
@@ -65,6 +66,7 @@ export function SessionTabs({
   onMove,
   onNew,
   onMarkComplete,
+  onDuplicate,
 }: SessionTabsProps) {
   const stripRef = useRef<HTMLDivElement>(null);
   const openTabPathsRef = useRef(openTabPaths);
@@ -80,6 +82,7 @@ export function SessionTabs({
   const windowBlurHandlerRef = useRef<() => void>(() => undefined);
   const autoScrollTickRef = useRef<() => void>(() => undefined);
   const [dragState, setDragState] = useState<SessionTabDragState | null>(null);
+  const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; tabPath: string } | null>(null);
 
   openTabPathsRef.current = openTabPaths;
 
@@ -362,6 +365,39 @@ export function SessionTabs({
     syncDragFromPointer(pointerPositionRef.current.x, pointerPositionRef.current.y);
   }, [openTabPaths, resetDrag, syncDragFromPointer]);
 
+  const handleTabContextMenu = useCallback((tabPath: string, event: MouseEvent) => {
+    event.preventDefault();
+    setTabContextMenu({ x: event.clientX, y: event.clientY, tabPath });
+  }, []);
+
+  const handleTabContextAction = useCallback((action: 'duplicate' | 'close', tabPath: string) => {
+    setTabContextMenu(null);
+    if (action === 'duplicate') {
+      onDuplicate(tabPath);
+    } else if (action === 'close') {
+      onClose(tabPath);
+    }
+  }, [onDuplicate, onClose]);
+
+  // Close context menu on any outside click or Escape.
+  useEffect(() => {
+    if (!tabContextMenu) return;
+    const close = () => setTabContextMenu(null);
+    const onDown = (e: MouseEvent) => {
+      // Keep menu open if clicking inside it (for item selection).
+      const menuEl = document.querySelector('.session-tab-context-menu');
+      if (menuEl && menuEl.contains(e.target as Node)) return;
+      close();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [tabContextMenu]);
+
   const handleTabPointerDown = useCallback((tabPath: string, sourceIndex: number, event: PointerEvent) => {
     if (openTabPaths.length <= 1 || dragCandidateRef.current || event.button !== 0 || !event.isPrimary) {
       return;
@@ -447,6 +483,7 @@ export function SessionTabs({
               key={tabPath}
               class={`session-tab${isActive ? ' active' : ''}${isUnreadFinished ? ' unread-finished' : ''}`}
               data-drop-target-tab="true"
+              onContextMenu={(event) => handleTabContextMenu(tabPath, event as MouseEvent)}
             >
               <span class="session-tab-shell" aria-hidden="true" />
               <button
@@ -527,6 +564,44 @@ export function SessionTabs({
           <div class="session-tab-close" aria-hidden="true">×</div>
         </div>
       )}
+      {tabContextMenu && (() => {
+        const ctxSession = sessionByPath.get(tabContextMenu.tabPath);
+        const ctxLabel = ctxSession?.name ?? 'New Session';
+        const isPending = isPendingTabPath(tabContextMenu.tabPath);
+        const menuTop = Math.min(tabContextMenu.y, window.innerHeight - 100);
+        const menuLeft = Math.min(tabContextMenu.x, window.innerWidth - 210);
+        return (
+          <div
+            class="block-context-menu session-tab-context-menu"
+            style={`position:fixed;top:${menuTop}px;left:${menuLeft}px`}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div class="session-tab-context-title" title={ctxLabel}>{ctxLabel}</div>
+            <button
+              class="context-menu-item"
+              type="button"
+              disabled={isPending}
+              onClick={() => handleTabContextAction('duplicate', tabContextMenu.tabPath)}
+            >
+              <svg class="context-menu-check" width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" style="opacity:0">
+                <rect x="2" y="2" width="9" height="9" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.2" />
+              </svg>
+              Duplicate Tab
+            </button>
+            <button
+              class="context-menu-item"
+              type="button"
+              onClick={() => handleTabContextAction('close', tabContextMenu.tabPath)}
+            >
+              <svg class="context-menu-check" width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" style="opacity:0">
+                <line x1="3" y1="3" x2="10" y2="10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                <line x1="10" y1="3" x2="3" y2="10" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+              </svg>
+              Close Tab
+            </button>
+          </div>
+        );
+      })()}
     </div>
   );
 }

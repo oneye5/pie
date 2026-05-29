@@ -107,74 +107,249 @@
   outline-offset: 2px;
 }
 
-/* Typing indicator (three-dot bounce) */
-.typing-indicator {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 10px 14px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-surface);
-  max-width: 88%;
+/* Agent activity indicator — standalone status row */
+.activity-status-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 8px 12px;
+  max-width: 200px;
   align-self: flex-start;
 }
 
-.typing-indicator-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--panel-muted);
+.activity-status-content {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.activity-status-bar {
+  width: 100%;
+  height: 1.5px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--panel-accent) 50%, transparent) 0%,
+    color-mix(in srgb, var(--panel-accent) 70%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: activity-bar-slide 2.4s ease-in-out infinite;
   opacity: 0.5;
-  animation: typing-dot-bounce 1.2s ease-in-out infinite;
 }
 
-.typing-indicator-dot:nth-child(2) {
-  animation-delay: 0.15s;
+@keyframes activity-bar-slide {
+  0% {
+    background-position: 100% 50%;
+    opacity: 0.3;
+  }
+  50% {
+    background-position: 0% 50%;
+    opacity: 0.6;
+  }
+  100% {
+    background-position: -100% 50%;
+    opacity: 0.3;
+  }
 }
 
-.typing-indicator-dot:nth-child(3) {
-  animation-delay: 0.3s;
+.agent-activity-indicator {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+  color: color-mix(in srgb, var(--vscode-foreground) 72%, var(--panel-muted) 28%);
 }
 
-/* Inline typing indicator inside a message (when tools are running) */
-.message-typing-indicator {
+.typing-indicator {
+  display: flex;
+  align-items: baseline;
+  width: 100%;
+  min-width: 0;
+  padding-top: 2px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.agent-activity-label {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.agent-activity-label::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    color-mix(in srgb, var(--panel-accent) 70%, transparent) 50%,
+    transparent 100%
+  );
+  background-size: 180% 100%;
+  background-position: 140% 50%;
+  opacity: 0.18;
+  pointer-events: none;
+  animation: agent-activity-underline-sweep 2.1s ease-in-out infinite;
+}
+
+.agent-activity-text {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: clip;
+  white-space: nowrap;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.9em;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--panel-muted) 26%);
+  opacity: 0.8;
+  animation: agent-activity-text-breathe 2.1s ease-in-out infinite;
+}
+
+
+.turn-activity-strip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 8px 12px;
-  margin-top: 8px;
-  border-radius: 8px;
-  background: var(--panel-subtle-surface, var(--panel-surface));
-  border: 1px solid var(--panel-border);
-  opacity: 0.8;
+  gap: 6px;
+  min-height: var(--turn-activity-min-height);
+  padding: 4px 8px;
+  border-radius: var(--status-chip-radius);
+  border: 1px solid var(--status-chip-border-muted);
+  background: var(--status-chip-surface-muted);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  max-width: var(--activity-chip-max-width);
+}
+.turn-activity-strip.standalone { margin: 4px 0; }
+.turn-activity-strip-dot { width: var(--status-chip-dot-size); height: var(--status-chip-dot-size); border-radius: 50%; background: currentColor; opacity: 0.78; flex-shrink: 0; }
+.turn-activity-strip-dot.running { animation: turn-activity-dot-pulse 1.6s ease-in-out infinite; }
+@keyframes turn-activity-dot-pulse { 0%,100% { opacity:0.4; } 50% { opacity:1; } }
+@media (prefers-reduced-motion: reduce) { .turn-activity-strip-dot.running { animation:none; opacity:0.78; } }
+.turn-activity-strip-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.turn-activity-strip-detail { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:0.65; font-weight:400; }
+.turn-activity-strip.accent { border-color: color-mix(in srgb, var(--panel-accent) 28%, transparent); background: var(--panel-accent-surface); color: var(--panel-accent); }
+.turn-activity-strip.warning { border-color: color-mix(in srgb, var(--panel-warning) 28%, transparent); background: var(--panel-warning-surface); color: var(--panel-warning); }
+.turn-activity-strip.error { border-color: color-mix(in srgb, var(--panel-danger) 28%, transparent); background: var(--panel-danger-surface); color: var(--panel-danger); }
+.turn-activity-strip.success { border-color: color-mix(in srgb, var(--panel-success) 28%, transparent); background: var(--panel-success-surface); color: var(--panel-success); }
+
+/* Inline activity indicator inside a message (between assistant turns/tools) */
+.message-typing-indicator {
+  display: inline-flex;
+  align-items: baseline;
+  min-width: 0;
+  max-width: 100%;
+  margin-top: 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  line-height: 1.55;
 }
 
-.message-typing-indicator .typing-indicator-dot {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--panel-muted);
-  opacity: 0.5;
-  animation: typing-dot-bounce 1.2s ease-in-out infinite;
-}
-
-.message-typing-indicator .typing-indicator-dot:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.message-typing-indicator .typing-indicator-dot:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
-@keyframes typing-dot-bounce {
-  0%, 60%, 100% {
-    transform: translateY(0);
-    opacity: 0.5;
+@keyframes agent-activity-text-breathe {
+  0%,
+  100% {
+    opacity: 0.66;
+    color: color-mix(in srgb, var(--vscode-foreground) 70%, var(--panel-muted) 30%);
+    text-shadow: 0 0 0 transparent;
   }
-  30% {
-    transform: translateY(-4px);
+
+  50% {
     opacity: 1;
+    color: color-mix(in srgb, var(--panel-accent) 20%, var(--vscode-foreground) 80%);
+    text-shadow: 0 0 8px color-mix(in srgb, var(--panel-accent) 18%, transparent);
+  }
+}
+
+@keyframes agent-activity-underline-sweep {
+  0% {
+    background-position: 140% 50%;
+    opacity: 0.12;
+  }
+
+  45% {
+    background-position: 55% 50%;
+    opacity: 0.42;
+  }
+
+  100% {
+    background-position: -40% 50%;
+    opacity: 0.12;
+  }
+}
+
+.message-glow-indicator {
+  position: relative;
+  height: 1px;
+  margin-top: 10px;
+  overflow: hidden;
+}
+
+.message-glow-indicator::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--panel-accent, var(--panel-muted)) 50%,
+    transparent 100%
+  );
+  animation: message-glow-pulse var(--message-glow-duration, 4s) ease-in-out infinite;
+}
+
+@keyframes message-glow-pulse {
+  0%, 100% {
+    opacity: 0.2;
+    transform: scaleX(0.4);
+  }
+  50% {
+    opacity: 0.6;
+    transform: scaleX(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-activity-text {
+    animation: none;
+    opacity: 0.9;
+    color: color-mix(in srgb, var(--vscode-foreground) 78%, var(--panel-muted) 22%);
+    text-shadow: none;
+  }
+
+  .agent-activity-label::after {
+    animation: none;
+    background-position: 50% 50%;
+    opacity: 0.18;
+  }
+
+  .activity-status-bar {
+    animation: none;
+    opacity: 0.35;
+  }
+
+  .message-glow-indicator::before {
+    animation: none;
+    opacity: 0.35;
   }
 }
 
@@ -194,14 +369,56 @@
   }
 }
 
+/* Retry action for failed/interrupted assistant turns */
+.message-recovery {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.message-retry-btn {
+  background: none;
+  border: none;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 5px;
+  border-radius: 4px;
+  opacity: 0.7;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-retry-btn:hover {
+  opacity: 1;
+  background: rgba(128, 128, 128, 0.15);
+}
+
+.message-retry-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.message-retry-hint {
+  font-size: 11px;
+  color: var(--panel-muted);
+  margin-left: 6px;
+}
+
 .message {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-surface);
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--panel-border) 86%, transparent);
+  border-radius: 12px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--vscode-foreground) 2.5%, transparent), transparent 56px),
+    var(--panel-surface);
+  box-shadow: 0 10px 24px -26px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.28)) 88%, transparent);
   max-width: 88%;
   align-self: flex-start;
   width: fit-content;
@@ -210,19 +427,47 @@
 
 .message.role-user {
   align-self: flex-end;
-  background: var(--panel-accent-surface);
-  border-bottom-right-radius: 3px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel-accent) 12%, transparent), transparent 64px),
+    var(--panel-accent-surface);
+  border-color: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
+  border-bottom-right-radius: 4px;
 }
 
 .message.role-assistant {
-  border-bottom-left-radius: 3px;
+  border-bottom-left-radius: 4px;
+}
+
+/* Stable width during streaming — prevents horizontal token-by-token growth */
+.message.role-assistant.streaming {
+  width: min(var(--message-assistant-width), 100%);
+}
+
+/* Current-turn state class: marks the assistant turn being actively sent to */
+.message.role-assistant.current-turn {
+  /* No visual changes by default; used as a hook for activity strip positioning */
+}
+
+/* Has-activity: ensures the activity strip has reserved space inside the turn */
+.message.role-assistant.has-activity {
+  /* No visual changes by default; used as a hook for min-height and strip placement */
+}
+
+/* Narrow sidebar: let streaming messages fill more width */
+@media (max-width: 340px) {
+  .message.role-assistant.streaming {
+    width: min(var(--message-assistant-width-narrow), 100%);
+  }
 }
 
 .message.role-system {
   align-self: stretch;
   max-width: none;
   width: auto;
-  background: var(--panel-subtle-surface);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--panel-muted) 7%, transparent), transparent 72px),
+    var(--panel-subtle-surface);
+  border-color: color-mix(in srgb, var(--panel-muted) 24%, var(--panel-border));
   border-style: dashed;
 }
 
@@ -243,6 +488,12 @@
 
 .message-head-main {
   min-width: 0;
+}
+
+.message-head-actions {
+  justify-content: flex-end;
+  min-width: 0;
+  margin-left: auto;
 }
 
 .message-role {
@@ -267,21 +518,43 @@
 .message-status {
   display: inline-flex;
   align-items: center;
-  min-height: 22px;
+  justify-content: center;
+  gap: 5px;
+  min-height: calc(var(--status-chip-height) + 2px);
   padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--panel-subtle-surface);
+  border: 1px solid var(--status-chip-border-muted);
+  border-radius: var(--status-chip-radius);
+  background: var(--status-chip-surface-muted);
   color: var(--panel-muted);
-  font-size: 11px;
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.message-status::before {
+  content: '';
+  width: var(--status-chip-dot-size);
+  height: var(--status-chip-dot-size);
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.78;
+  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
 }
 
 .message-status.interrupted {
   background: var(--panel-warning-surface);
+  border-color: color-mix(in srgb, var(--panel-warning) 34%, transparent);
   color: var(--panel-warning);
 }
 
 .message-status.error {
   background: var(--panel-danger-surface);
+  border-color: color-mix(in srgb, var(--panel-danger) 34%, transparent);
   color: var(--panel-danger);
 }
 
@@ -383,6 +656,89 @@
 .message-body pre code {
   background: transparent;
   padding: 0;
+}
+
+/* Enhanced code blocks: language label, copy button, long-output collapse */
+.code-block {
+  margin: 8px 0;
+  border: 1px solid color-mix(in srgb, var(--panel-border) 70%, transparent);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--panel-code-surface);
+}
+
+.code-block .code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 3px 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
+  background: color-mix(in srgb, var(--panel-subtle-surface) 60%, transparent);
+}
+
+.code-block-lang {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--panel-muted);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-block-copy,
+.code-block-toggle {
+  background: none;
+  border: none;
+  color: var(--panel-muted);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.code-block-copy:hover,
+.code-block-toggle:hover {
+  color: var(--vscode-foreground);
+  background: rgba(128, 128, 128, 0.15);
+}
+
+.code-block-copy.copied {
+  color: var(--panel-success);
+}
+
+.code-block .code-block-toggle {
+  display: block;
+  width: 100%;
+  text-align: center;
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
+  padding: 3px 6px;
+}
+
+.code-block > pre {
+  margin: 0;
+  border-radius: 0;
+  border: none;
+}
+
+.code-block.code-block-collapsed > pre {
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+/* Horizontal scroll wrapper for GFM tables in narrow sidebar widths */
+.md-table-wrap {
+  width: 100%;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+
+.md-table-wrap > table {
+  margin: 0;
 }
 
 .message-body ul,

@@ -1,5 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { writeFileSync } from "node:fs";
 import { formatSkillsForPrompt } from "@mariozechner/pi-coding-agent";
 import type {
 	Skill,
@@ -53,6 +54,11 @@ function getPiToolSeams(): { getAllTools: () => ToolInfo[]; getActiveTools: () =
 }
 
 export default function (pi: ExtensionAPI) {
+	// DIAGNOSTIC: prove extension loads
+	try {
+		writeFileSync(path.join(CONFIG_ROOT, "data", "skill-pruner-loaded.txt"), `loaded at ${new Date().toISOString()}\n`);
+	} catch { /* ignore */ }
+
 	// Capture pi API methods for tool introspection (available throughout the session).
 	piApi = {
 		getAllTools: () => pi.getAllTools(),
@@ -153,6 +159,11 @@ export default function (pi: ExtensionAPI) {
 
 	// --- before_agent_start: skill + tool pruning ---
 	pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx) => {
+		// DIAGNOSTIC: prove hook fires
+		try {
+			writeFileSync(path.join(CONFIG_ROOT, "data", "skill-pruner-hook-fired.txt"), `hook at ${new Date().toISOString()}\n`);
+		} catch { /* ignore */ }
+
 		// Honor the per-extension toggle set in the pie GUI. When the user disables
 		// skill-pruner via the settings menu, the host writes PIE_EXTENSION_TOGGLES_JSON
 		// (see protocol.EXTENSION_TOGGLES_ENV / runtimePrefs.set RPC). A `false` value
@@ -186,7 +197,6 @@ export default function (pi: ExtensionAPI) {
 		let toolResult: ToolPruningResult | null = null;
 		let pruningError: string | null = null;
 		let rawResponse = "";
-		let rawThinking = "";
 		let rawSystemPrompt = "";
 		let latencyMs = 0;
 
@@ -247,7 +257,6 @@ export default function (pi: ExtensionAPI) {
 						llmSelectedSkills = result.selectedSkills;
 						llmSelectedTools = result.selectedTools;
 						rawResponse = result.rawResponse;
-						rawThinking = result.thinking;
 						rawSystemPrompt = result.systemPrompt;
 						latencyMs = result.latencyMs;
 					}
@@ -415,7 +424,6 @@ export default function (pi: ExtensionAPI) {
 			model: activeConfig.model,
 			thinkingLevel: activeConfig.thinkingLevel,
 			response: rawResponse,
-			thinking: rawThinking,
 			systemPrompt: rawSystemPrompt,
 			latencyMs,
 			error: pruningError,
@@ -532,12 +540,7 @@ function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 			?.content?.filter((b: { type: string }) => b.type === "text")
 			.map((b: { text?: string }) => b.text ?? "")
 			.join("") ?? "";
-		// Extract thinking from content blocks
-		const thinking = (result as { content?: Array<{ type: string; thinking?: string }> })
-			?.content?.filter((b: { type: string }) => b.type === "thinking")
-			.map((b: { thinking?: string }) => b.thinking ?? "")
-			.join("") ?? "";
-		return { text, thinking };
+		return { text };
 	};
 	return adapter;
 }
@@ -644,7 +647,6 @@ interface PrepassDiagnostics {
 	model: string;
 	thinkingLevel: string;
 	response: string;
-	thinking: string;
 	systemPrompt: string;
 	latencyMs: number;
 	error?: string | null;
@@ -686,7 +688,7 @@ function buildFeedbackMessage(
 	}
 
 	const parts: string[] = [];
-	const details: PruningResult & { prepassModel?: string; prepassThinkingLevel?: string; prepassResponse?: string; prepassThinking?: string; prepassSystemPrompt?: string; prepassLatencyMs?: number } = {
+	const details: PruningResult & { prepassModel?: string; prepassThinkingLevel?: string; prepassResponse?: string; prepassSystemPrompt?: string; prepassLatencyMs?: number } = {
 		includedSkills: skillResult?.included ?? [],
 		excludedSkills: skillResult?.excluded ?? [],
 		includedTools: toolResult?.included ?? [],
@@ -700,7 +702,6 @@ function buildFeedbackMessage(
 		details.prepassModel = prepass.model;
 		details.prepassThinkingLevel = prepass.thinkingLevel;
 		details.prepassResponse = prepass.response;
-		details.prepassThinking = prepass.thinking || undefined;
 		details.prepassSystemPrompt = prepass.systemPrompt;
 		details.prepassLatencyMs = prepass.latencyMs;
 	}

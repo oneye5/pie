@@ -84,6 +84,49 @@ export function mapAssistantMessage(
   };
 }
 
+function customMessageMarkdown(content: unknown): string {
+  if (typeof content === 'string') {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    return textFromParts(content);
+  }
+  return content == null ? '' : String(content);
+}
+
+export function mapCustomMessage(
+  messageId: string,
+  message: {
+    content?: unknown;
+    timestamp?: string | number;
+    customType?: string;
+    display?: boolean;
+    details?: unknown;
+  },
+): ChatMessage | null {
+  if (message.display === false) {
+    return null;
+  }
+
+  const markdown = customMessageMarkdown(message.content);
+  if (!markdown) {
+    return null;
+  }
+
+  const mapped = systemMessage(
+    messageId,
+    new Date(message.timestamp ?? Date.now()).toISOString(),
+    markdown,
+  );
+  if (message.customType) {
+    mapped.customType = message.customType;
+  }
+  if (message.details !== undefined) {
+    mapped.customDetails = message.details;
+  }
+  return mapped;
+}
+
 export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
   const transcript: ChatMessage[] = [];
   let currentAssistant: ChatMessage | undefined;
@@ -213,39 +256,36 @@ export function mapTranscript(entries: SessionEntryLike[]): ChatMessage[] {
         continue;
       }
 
-      if (message.role === 'custom' && message.display !== false) {
-        transcript.push(
-          systemMessage(
-            entry.id,
-            isoDate(entry.timestamp, message.timestamp),
-            typeof message.content === 'string'
-              ? message.content
-              : textFromParts(message.content),
-          ),
-        );
-        currentAssistant = undefined;
+      if (message.role === 'custom') {
+        const customMessage = mapCustomMessage(entry.id, {
+          content: message.content,
+          timestamp: message.timestamp,
+          customType: message.customType,
+          display: message.display,
+          details: message.details,
+        });
+        if (customMessage) {
+          transcript.push(customMessage);
+          currentAssistant = undefined;
+        }
       }
 
       continue;
     }
 
     // Custom-type entries (e.g. pruning-result) from pi.sendMessage() — stored with type 'custom_message'.
-    if ((entry.type === 'custom_message' || entry.type === 'custom') && entry.display !== false && entry.content) {
-      const msg = systemMessage(
-        entry.id,
-        new Date(entry.timestamp).toISOString(),
-        typeof entry.content === 'string'
-          ? entry.content
-          : String(entry.content),
-      );
-      if (entry.customType) {
-        msg.customType = entry.customType;
+    if (entry.type === 'custom_message' || entry.type === 'custom') {
+      const customMessage = mapCustomMessage(entry.id, {
+        content: entry.content,
+        timestamp: entry.timestamp,
+        customType: entry.customType,
+        display: entry.display,
+        details: (entry as { details?: unknown }).details,
+      });
+      if (customMessage) {
+        transcript.push(customMessage);
+        currentAssistant = undefined;
       }
-      if ((entry as { details?: unknown }).details !== undefined) {
-        msg.customDetails = (entry as { details?: unknown }).details;
-      }
-      transcript.push(msg);
-      currentAssistant = undefined;
       continue;
     }
 

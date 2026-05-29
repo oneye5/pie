@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPruningSystemPrompt, buildPruningUserMessage, parseLlmResponse, runLlmPruning } from "../llm-scorer.js";
+import { buildPruningSystemPrompt, buildPruningUserMessage, parseLlmResponse, runLlmPruning, __setPromptTemplate } from "../llm-scorer.js";
 import type { PruningConfig } from "../types.js";
 
 function makeConfig(overrides: Partial<PruningConfig> = {}): PruningConfig {
@@ -9,8 +9,8 @@ function makeConfig(overrides: Partial<PruningConfig> = {}): PruningConfig {
 		model: "gpt-5.4-mini",
 		provider: "github-copilot",
 		thinkingLevel: "minimal",
-		skills: { strategy: "discretion", ceiling: 8, pinned: [] },
-		tools: { strategy: "discretion", ceiling: 10, dependencies: {} },
+		skills: { strategy: "discretion", ceiling: 8, pinned: [], alwaysKeep: [] },
+		tools: { strategy: "discretion", ceiling: 10, dependencies: {}, alwaysKeep: [] },
 		...overrides,
 	};
 }
@@ -22,26 +22,39 @@ function makeConfig(overrides: Partial<PruningConfig> = {}): PruningConfig {
 test("buildPruningSystemPrompt includes discretion instruction for discretion strategy", () => {
 	const config = makeConfig();
 	const prompt = buildPruningSystemPrompt(config);
-	assert.ok(prompt.includes("plausibly useful"));
-	assert.ok(prompt.includes("lean toward keeping"));
-	assert.ok(!prompt.includes("Select up to"));
+	assert.ok(prompt.includes("Use discretion"));
+	assert.ok(prompt.includes("prune clearly unrelated"));
+	assert.ok(!prompt.includes("Rank by relevance"));
 });
 
 test("buildPruningSystemPrompt includes topK instruction for topK strategy", () => {
 	const config = makeConfig({
-		skills: { strategy: "topK", ceiling: 5, pinned: [] },
-		tools: { strategy: "topK", ceiling: 8, dependencies: {} },
+		skills: { strategy: "topK", ceiling: 5, pinned: [], alwaysKeep: [] },
+		tools: { strategy: "topK", ceiling: 8, dependencies: {}, alwaysKeep: [] },
 	});
 	const prompt = buildPruningSystemPrompt(config);
-	assert.ok(prompt.includes("Select up to 5 skills and 8 tools"));
-	assert.ok(!prompt.includes("genuinely needed"));
+	assert.ok(prompt.includes("Rank by relevance and select at most 5 skills and 8 tools"));
+	assert.ok(!prompt.includes("Use discretion"));
 });
 
 test("buildPruningSystemPrompt always includes core rules", () => {
 	const prompt = buildPruningSystemPrompt(makeConfig());
 	assert.ok(prompt.includes("relevance classifier"));
 	assert.ok(prompt.includes("JSON object"));
-	assert.ok(prompt.includes("Do not explain"));
+	assert.ok(prompt.includes("Do not wrap in markdown"));
+});
+
+test("buildPruningSystemPrompt works with __setPromptTemplate test seam", () => {
+	const customTemplate = "Custom template with {{SKILL_CEILING}} skills and {{TOOL_CEILING}} tools. {{STRATEGY_INSTRUCTION}}";
+	__setPromptTemplate(customTemplate);
+	try {
+		const config = makeConfig({ skills: { strategy: "discretion", ceiling: 8, pinned: [], alwaysKeep: [] } });
+		const prompt = buildPruningSystemPrompt(config);
+		assert.ok(prompt.includes("Custom template with 8 skills and 10 tools"));
+		assert.ok(prompt.includes("Use discretion"));
+	} finally {
+		__setPromptTemplate(null);
+	}
 });
 
 // ---------------------------------------------------------------------------
@@ -58,6 +71,23 @@ test("buildPruningUserMessage includes user request and skill/tool lists", () =>
 	assert.ok(msg.includes('User request: "refactor this code"'));
 	assert.ok(msg.includes("- code-simplification: Simplifies code"));
 	assert.ok(msg.includes("- read: Read files"));
+});
+
+
+test("buildPruningUserMessage includes recent conversation when provided", () => {
+	const msg = buildPruningUserMessage({
+		userPrompt: "new zealand, use the local conventions",
+		recentConversation: [
+			{ role: "user", text: "hello there, whats going on with the weather in wellington today" },
+			{ role: "assistant", text: "Do you mean Wellington, New Zealand?" },
+		],
+		skills: [],
+		tools: [],
+		config: makeConfig(),
+	});
+	assert.ok(msg.includes("Recent conversation (use this to interpret follow-up requests):"));
+	assert.ok(msg.includes("- user: hello there, whats going on with the weather in wellington today"));
+	assert.ok(msg.includes("- assistant: Do you mean Wellington, New Zealand?"));
 });
 
 test("buildPruningUserMessage includes context file when provided", () => {
@@ -114,6 +144,19 @@ test("parseLlmResponse handles JSON in markdown code block", () => {
 	const knownTools = new Set(["read"]);
 	const result = parseLlmResponse(
 		'```json\n{"skills": ["alpha"], "tools": ["read"]}\n```',
+		knownSkills,
+		knownTools,
+	);
+	assert.deepEqual(result.skills, ["alpha"]);
+	assert.deepEqual(result.tools, ["read"]);
+});
+
+
+test("parseLlmResponse extracts embedded JSON from surrounding prose", () => {
+	const knownSkills = new Set(["alpha"]);
+	const knownTools = new Set(["read"]);
+	const result = parseLlmResponse(
+		'Sure — use this: {"skills": ["alpha"], "tools": ["read"]}',
 		knownSkills,
 		knownTools,
 	);

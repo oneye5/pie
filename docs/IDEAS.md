@@ -1,7 +1,5 @@
 # Brain dump doc
 
-NLP / small LLM based prepass tool / skill pruning based off of user prompt to save context & noise
-
 Tool result post pass, cleaning up fluff to save tokens, ie white space and formatting omitted in read calls, ls -l does not list permissions, general inherant inefficiencies with commands not meant for agent use mitigated.
 
 Question UI
@@ -15,3 +13,8 @@ Tool caller intermediary small model, main agent calls a small agent using natur
 LSP
 
 Model rating rebalance based off of data
+
+Tools:
+Diff tool
+codebase_search semantic
+ask user

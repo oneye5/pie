@@ -2,7 +2,7 @@
 
 **Pattern:** CQRS-shaped Elm/MVI
 **Authoritative contract:** [`docs/STATE_CONTRACT.md`](../STATE_CONTRACT.md)
-**Migration history:** [`docs/internal/archive/ARCH-MIGRATION-PLAN.md`](archive/ARCH-MIGRATION-PLAN.md)
+**Migration history:** removed (see git history, commit `d581d83`)
 
 ---
 

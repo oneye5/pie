@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useState, useCallback } from 'preact/hooks';
+import { useState, useCallback, useEffect, useMemo } from 'preact/hooks';
 
 import type {
   ChatPrefs,
@@ -12,12 +12,16 @@ import type {
   ViewState,
   WebviewToHostMessage,
 } from '../../shared/protocol';
+import { deriveTurnActivityState, type TurnActivityState } from './transcript/activity';
+import { createLocalMessageId } from '../../shared/local-message-id';
+import { warmupCompletionSoundContext } from './completion-sound';
 import { FileChangesPanel } from './file-changes-panel';
 import { ExtensionUIPrompt } from './extension-ui-prompt';
 import { resolvePanelSurface } from './panel-state';
 import { TranscriptHost } from './transcript/transcript-host';
 import { type TranscriptContextMenuType } from './chat-prefs';
 import { ContextMenu, type ContextMenuState } from './components/context-menu';
+import { resolveComposerModelState } from './composer/model-state';
 import { SessionTabs, Composer } from './ui';
 import { RunOutcomeDialog } from './run-outcome-dialog';
 import { NoticeBanner } from './components/notice-banner';
@@ -25,10 +29,6 @@ import { NoticeContext } from './hooks/notice-context';
 import { useHostSync, EMPTY_VIEW_STATE } from './hooks/use-host-sync';
 
 export { EMPTY_VIEW_STATE };
-
-function generateLocalId(): string {
-  return `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
-}
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
@@ -50,7 +50,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
     setDraftRestore(null);
 
     // Show the user's message instantly in the transcript before the host confirms it.
-    const localId = generateLocalId();
+    const localId = createLocalMessageId();
     addOptimisticMessage({ localId, text, sessionPath });
 
     postMessage({ type: 'send', sessionPath, text, localId });
@@ -66,6 +66,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
   const handleOpenFile = useCallback((path: string) => postMessage({ type: 'openFile', path }), [postMessage]);
   const handleNewSession = useCallback(() => postMessage({ type: 'newSession' }), [postMessage]);
   const handleCloseTab = useCallback((path: string) => postMessage({ type: 'closeSession', sessionPath: path }), [postMessage]);
+  const handleDuplicateTab = useCallback((path: string) => postMessage({ type: 'duplicateSession', sessionPath: path }), [postMessage]);
   const handleMarkComplete = useCallback(() => postMessage({ type: 'openOutcomeDialog' }), [postMessage]);
   const handleCancelOutcome = useCallback(() => postMessage({ type: 'closeOutcomeDialog' }), [postMessage]);
   const handleCancelEdit = useCallback(() => postMessage({ type: 'cancelEdit' }), [postMessage]);
@@ -128,18 +129,47 @@ export function App({ adapter }: { adapter: AppAdapter }) {
     setContextMenu({ type, rawData, x: e.clientX, y: e.clientY });
   }, []);
 
+  // Warm the AudioContext on the first user click so the completion sound
+  // works even when triggered from a non-gesture postMessage handler.
+  useEffect(() => {
+    const warmup = () => {
+      warmupCompletionSoundContext();
+      document.removeEventListener('click', warmup, true);
+    };
+    document.addEventListener('click', warmup, true);
+    return () => document.removeEventListener('click', warmup, true);
+  }, []);
+
   // ─── Derived state ───────────────────────────────────────────────────────
 
   const { sessions, openTabPaths, runningSessionPaths, unreadFinishedSessionPaths,
     activeSession, transcript, transcriptWindow, pendingComposerInputs, activeRunSummary,
     busy, notice, backendReady, workspaceCwd, modelSettings, availableModels, contextUsage,
-    prefs, systemPrompts, fileChanges, pruningResult, pruningSettings, availableExtensions,
+    prefs, systemPrompts, fileChanges, pruningResult, pruningSettings, pruningCatalog, availableExtensions,
     editingMessageId, showOutcomeDialog, pendingExtensionUIRequest } = viewState;
 
   const panelSurface = resolvePanelSurface({ backendReady, notice, openTabPaths });
   const hasActiveTabs = panelSurface === 'session';
   const showSessionChrome = panelSurface !== 'loading';
   const activeSessionPath = activeSession?.path ?? null;
+  const {
+    selectedModel: pendingAssistantModelId,
+    selectedLevel: pendingAssistantThinkingLevel,
+  } = useMemo(() => resolveComposerModelState({
+    activeModelId: activeSession?.modelId,
+    activeThinkingLevel: activeSession?.thinkingLevel,
+    modelSettings,
+    availableModels,
+  }), [activeSession?.modelId, activeSession?.thinkingLevel, availableModels, modelSettings]);
+
+  const activityState = useMemo(() => deriveTurnActivityState({
+    busy,
+    transcript,
+    prefs,
+    pruningSettings,
+    pendingAssistantModelId: activeSession?.modelId,
+    pendingAssistantThinkingLevel: activeSession?.thinkingLevel,
+  }), [busy, transcript, prefs, pruningSettings, activeSession?.modelId, activeSession?.thinkingLevel]);
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
@@ -179,6 +209,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
           onMove={handleMoveTab}
           onNew={handleNewSession}
           onMarkComplete={handleMarkComplete}
+          onDuplicate={handleDuplicateTab}
         />
       )}
 
@@ -212,8 +243,11 @@ export function App({ adapter }: { adapter: AppAdapter }) {
             transcriptWindow={transcriptWindow}
             busy={busy}
             prefs={prefs}
+            pruningSettings={pruningSettings}
             systemPrompts={systemPrompts}
             pruningResult={pruningResult}
+            pendingAssistantModelId={pendingAssistantModelId}
+            pendingAssistantThinkingLevel={pendingAssistantThinkingLevel}
             workingDirectory={activeSession?.cwd ?? workspaceCwd}
             editingId={editingMessageId}
             onEditRequest={handleEditRequest}
@@ -241,6 +275,8 @@ export function App({ adapter }: { adapter: AppAdapter }) {
           contextUsage={contextUsage}
           prefs={prefs}
           pruningSettings={pruningSettings}
+          pruningCatalog={pruningCatalog}
+          pruningResult={pruningResult}
           systemPrompts={systemPrompts}
           transcript={transcript}
           transcriptWindow={transcriptWindow}
@@ -258,6 +294,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
           onSetPruningSettings={handleSetPruningSettings}
           onMarkComplete={handleMarkComplete}
           tokenRate={tokenRateState}
+          activityState={activityState}
         />
       )}
     </div>

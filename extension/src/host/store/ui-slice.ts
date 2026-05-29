@@ -26,18 +26,20 @@ const uiSlice = createSlice({
       state.backendReady = action.payload;
     },
     setPrefs(state, action: PayloadAction<Partial<ChatPrefs>>) {
+      const prevExtensionToggles = state.prefs.extensionToggles;
+      const prevProviderToggles = state.prefs.providerToggles;
       state.prefs = { ...state.prefs, ...action.payload };
       // Deep-merge extensionToggles to avoid overwriting missing keys.
       if (action.payload.extensionToggles) {
         state.prefs.extensionToggles = {
-          ...state.prefs.extensionToggles,
+          ...prevExtensionToggles,
           ...action.payload.extensionToggles,
         };
       }
       // Deep-merge providerToggles to avoid overwriting missing keys.
       if (action.payload.providerToggles) {
         state.prefs.providerToggles = {
-          ...state.prefs.providerToggles,
+          ...prevProviderToggles,
           ...action.payload.providerToggles,
         };
       }

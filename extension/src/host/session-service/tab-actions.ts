@@ -7,12 +7,13 @@ import {
   getSessionByPath,
   sessionsActions,
   store,
+  uiActions,
 } from '../store';
 import {
   getNextVisibleTabPathOnClose,
   isPendingTabPath,
 } from '../../shared/tab-behavior';
-import type { SessionSummary } from '../../shared/protocol';
+import type { SessionOpenedPayload, SessionSummary } from '../../shared/protocol';
 import type { ScheduleRender } from './types';
 import { SessionServiceState } from './state';
 
@@ -192,5 +193,63 @@ export class SessionTabActions {
     this.state.saveOpenTabs();
     this.state.assertSelectionInvariant('moveSessionTab');
     this.scheduleRender();
+  }
+
+  duplicateSession(sourceSessionPath: string): void {
+    const source = getSessionByPath(store.getState(), sourceSessionPath);
+    if (!source) {
+      store.dispatch(uiActions.setNotice('Cannot duplicate: session not found.'));
+      this.scheduleRender();
+      return;
+    }
+
+    if (isPendingTabPath(sourceSessionPath)) {
+      store.dispatch(uiActions.setNotice('Cannot duplicate: session is still being created.'));
+      this.scheduleRender();
+      return;
+    }
+
+    const pendingPath = this.state.createPendingSessionPath();
+    const selectionToken = this.state.beginSelectionRequest(pendingPath, pendingPath);
+
+    auditLog(this.context, 'session-service', 'session.duplicate.requested', {
+      sourceSessionPath,
+      pendingPath,
+      selectionToken,
+    });
+
+    // Show a placeholder tab for the duplicate immediately.
+    store.dispatch(
+      sessionsActions.upsertSession({
+        path: pendingPath,
+        name: `${source.name} (copy)`,
+        cwd: source.cwd,
+        modifiedAt: new Date().toISOString(),
+        messageCount: source.messageCount,
+        isPlaceholder: true,
+      }),
+    );
+
+    const sourceIndex = store.getState().sessions.openTabPaths.indexOf(sourceSessionPath);
+    // Insert duplicate tab right after the source tab.
+    store.dispatch(sessionsActions.insertOpenTabAfter({
+      afterPath: sourceSessionPath,
+      newPath: pendingPath,
+    }));
+    store.dispatch(sessionsActions.setActiveSessionPath(pendingPath));
+    this.state.saveOpenTabs();
+    this.scheduleRender();
+
+    void this.state.enqueueLifecycle(async () => {
+      await this.backend.request<SessionOpenedPayload>('session.duplicate', {
+        sessionPath: sourceSessionPath,
+        selectionToken,
+      });
+    }).catch((err) => {
+      this.state.handleSelectionFailure(
+        selectionToken,
+        `Failed to duplicate session: ${(err as Error).message}`,
+      );
+    });
   }
 }

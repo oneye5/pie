@@ -1,4 +1,34 @@
 /**
+ * Shared AudioContext that persists across calls so that the autoplay
+ * policy doesn't block sound triggered from non-user-gesture contexts
+ * (e.g. a postMessage handler). Once warmed from a user click (Test
+ * button or any interaction), subsequent plays work from any context,
+ * including when the VS Code window is minimized.
+ */
+let sharedCtx: AudioContext | null = null;
+
+function getAudioContext(): AudioContext {
+  if (sharedCtx && sharedCtx.state !== 'closed') {
+    return sharedCtx;
+  }
+  sharedCtx = new AudioContext();
+  return sharedCtx;
+}
+
+/**
+ * Warm up the AudioContext during a user gesture so it enters the
+ * 'running' state. Call this from any click handler (e.g. the Test
+ * button). Subsequent calls to playCompletionSound from non-gesture
+ * contexts (postMessage) will reuse the already-running context.
+ */
+export function warmupCompletionSoundContext(): void {
+  const ctx = getAudioContext();
+  if (ctx.state === 'suspended') {
+    void ctx.resume();
+  }
+}
+
+/**
  * Plays a completion notification sound using the Web Audio API.
  * Synthesizes a pleasant two-tone chime.
  * @param volume 0–100 (0 = silent / off, 100 = full volume)
@@ -6,10 +36,8 @@
 export function playCompletionSound(volume: number): void {
   if (volume <= 0) return;
 
-  const ctx = new AudioContext();
+  const ctx = getAudioContext();
 
-  // Resume the context in case autoplay policy has it suspended
-  // (happens when triggered from a non-user-gesture like a postMessage handler).
   const play = () => {
     const normalizedVolume = Math.min(100, Math.max(1, volume)) / 100;
 
@@ -37,15 +65,10 @@ export function playCompletionSound(volume: number): void {
     gain2.connect(ctx.destination);
     osc2.start(ctx.currentTime + 0.15);
     osc2.stop(ctx.currentTime + 0.5);
-
-    // Cleanup after sound finishes
-    setTimeout(() => {
-      void ctx.close();
-    }, 600);
   };
 
   if (ctx.state === 'suspended') {
-    void ctx.resume().then(play);
+    void ctx.resume().then(play).catch(() => {});
   } else {
     play();
   }

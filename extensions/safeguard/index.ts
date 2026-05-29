@@ -9,18 +9,150 @@
  * raw device writes, registry destruction, credential exfiltration, and more.
  */
 
+import * as path from "node:path";
+
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function normalizePath(p: string): string {
-	return p.replace(/\\/g, "/").toLowerCase();
+function normalizeSlashes(value: string): string {
+	return value.replace(/\\/g, "/");
 }
 
-function isUnderCwd(path: string, cwd: string): boolean {
-	const norm = normalizePath(path);
-	const cwdNorm = normalizePath(cwd);
-	return norm.startsWith(cwdNorm + "/") || norm === cwdNorm;
+function collapseLeadingSlashes(value: string): string {
+	return value.startsWith("//./") ? value : value.replace(/^\/\/+/, "/");
+}
+
+function isWindowsLikePath(value: string): boolean {
+	return /^[a-zA-Z]:[\\/]/.test(value) || value.startsWith("\\\\") || value.startsWith("//./");
+}
+
+function normalizePath(p: string): string {
+	const withSlashes = collapseLeadingSlashes(normalizeSlashes(p.trim()));
+	const normalized = isWindowsLikePath(withSlashes)
+		? path.win32.normalize(withSlashes).replace(/\\/g, "/")
+		: path.posix.normalize(withSlashes || ".");
+	return collapseLeadingSlashes(normalized).toLowerCase();
+}
+
+function resolvePathForComparison(targetPath: string, cwd: string): string {
+	const rawTarget = collapseLeadingSlashes(normalizeSlashes(targetPath.trim()));
+	const rawCwd = collapseLeadingSlashes(normalizeSlashes(cwd.trim()));
+	if (!rawTarget) {
+		return normalizePath(rawCwd || "/");
+	}
+	if (isWindowsLikePath(rawTarget)) {
+		const base = isWindowsLikePath(rawCwd) ? rawCwd : process.cwd();
+		return normalizePath(path.win32.resolve(base, rawTarget));
+	}
+	if (rawTarget.startsWith("~")) {
+		return normalizePath(rawTarget);
+	}
+	const base = rawCwd || process.cwd().replace(/\\/g, "/");
+	return normalizePath(rawTarget.startsWith("/") ? rawTarget : path.posix.resolve(base, rawTarget));
+}
+
+function isUnderCwd(targetPath: string, cwd: string): boolean {
+	const norm = resolvePathForComparison(targetPath, cwd);
+	const cwdNorm = resolvePathForComparison(cwd, cwd);
+	return norm === cwdNorm || norm.startsWith(`${cwdNorm}/`);
+}
+
+function splitShellSegments(command: string): string[] {
+	return command
+		.split(/(?:&&|\|\||\||;|\n)/)
+		.map((segment) => segment.trim())
+		.filter(Boolean);
+}
+
+function tokenizeShellSegment(segment: string): string[] {
+	return Array.from(segment.matchAll(/"(?:\\.|[^"])*"|'(?:\\.|[^'])*'|\S+/g), (match) => {
+		const token = match[0] ?? "";
+		if ((token.startsWith('"') && token.endsWith('"')) || (token.startsWith("'") && token.endsWith("'"))) {
+			return token.slice(1, -1);
+		}
+		return token;
+	});
+}
+
+function isRecursiveForceRmToken(token: string): { recursive: boolean; force: boolean } {
+	if (!token.startsWith("-")) {
+		return { recursive: false, force: false };
+	}
+	const lower = token.toLowerCase();
+	if (lower === "--recursive") {
+		return { recursive: true, force: false };
+	}
+	if (lower === "--force") {
+		return { recursive: false, force: true };
+	}
+	if (lower.startsWith("--")) {
+		return {
+			recursive: lower.includes("recursive"),
+			force: lower.includes("force"),
+		};
+	}
+	return {
+		recursive: /r/.test(lower),
+		force: /f/.test(lower),
+	};
+}
+
+function isRootDeleteTarget(target: string): boolean {
+	const trimmed = collapseLeadingSlashes(normalizeSlashes(target.trim())).toLowerCase();
+	if (trimmed === "/" || trimmed === "/*" || trimmed === "~" || trimmed === "~/") {
+		return true;
+	}
+	if (/^[a-z]:\/$/.test(trimmed) || /^"[a-z]:\\"$/i.test(target.trim())) {
+		return true;
+	}
+	return false;
+}
+
+function analyzeRecursiveRm(command: string, cwd: string): { action: "allow" | "block" | "prompt"; reason?: string } | null {
+	for (const segment of splitShellSegments(command)) {
+		const tokens = tokenizeShellSegment(segment);
+		if (tokens.length === 0 || tokens[0]?.toLowerCase() !== "rm") {
+			continue;
+		}
+
+		let recursive = false;
+		let force = false;
+		const targets: string[] = [];
+		let parsingFlags = true;
+		for (let index = 1; index < tokens.length; index += 1) {
+			const token = tokens[index] ?? "";
+			if (parsingFlags && token === "--") {
+				parsingFlags = false;
+				continue;
+			}
+			if (parsingFlags && token.startsWith("-")) {
+				const flags = isRecursiveForceRmToken(token);
+				recursive ||= flags.recursive;
+				force ||= flags.force;
+				continue;
+			}
+			parsingFlags = false;
+			targets.push(token);
+		}
+
+		if (!recursive || !force || targets.length === 0) {
+			continue;
+		}
+
+		for (const target of targets) {
+			if (isRootDeleteTarget(target)) {
+				return { action: "block", reason: "Recursive force-delete on root (/)" };
+			}
+			if (!isUnderCwd(target, cwd)) {
+				return { action: "prompt", reason: "Recursive force-delete outside project directory" };
+			}
+		}
+
+		return { action: "allow" };
+	}
+
+	return null;
 }
 
 /**
@@ -229,30 +361,26 @@ export function isSafe(command: string, options: { cwd?: string } = {}): boolean
 }
 
 function analyzeBash(command: string, cwd: string): { action: "allow" | "block" | "prompt"; reason?: string } {
-	// Check hard blocks first
+	// Check hard blocks first.
 	for (const { pattern, reason } of HARD_BLOCK_PATTERNS) {
 		if (pattern.test(command)) {
 			return { action: "block", reason };
 		}
 	}
 
-	// Check prompt patterns
+	const rmAnalysis = analyzeRecursiveRm(command, cwd);
+	if (rmAnalysis && rmAnalysis.action !== "allow") {
+		return rmAnalysis;
+	}
+
+	// Check prompt patterns.
 	for (const { pattern, reason } of PROMPT_PATTERNS) {
 		if (pattern.test(command)) {
 			return { action: "prompt", reason };
 		}
 	}
 
-	// Contextual: rm -rf on paths outside cwd
-	const rmRfMatch = command.match(/\brm\s+(-[^\s]*rf|-[^\s]*fr)\s+["']?([^\s"']+)/);
-	if (rmRfMatch) {
-		const target = rmRfMatch[2];
-		if (!isUnderCwd(target, cwd)) {
-			return { action: "prompt", reason: "Recursive force-delete outside project directory" };
-		}
-	}
-
-	return { action: "allow" };
+	return rmAnalysis ?? { action: "allow" };
 }
 
 // ─── Extension Entry Point ───────────────────────────────────────────────────
@@ -288,10 +416,10 @@ function handleBash(command: string, ctx: ExtensionContext) {
 	return undefined;
 }
 
-function handleWritePath(path: string, ctx: ExtensionContext) {
-	const normalized = normalizePath(path);
+function handleWritePath(targetPath: string, ctx: ExtensionContext) {
+	const normalized = resolvePathForComparison(targetPath, ctx.cwd);
 
-	// Hard blocks
+	// Hard blocks.
 	for (const { pattern, reason } of HARD_BLOCK_PATHS) {
 		if (pattern.test(normalized)) {
 			notify(ctx, `🛑 BLOCKED: ${reason}`);
@@ -299,17 +427,17 @@ function handleWritePath(path: string, ctx: ExtensionContext) {
 		}
 	}
 
-	// Prompt paths (only outside cwd)
-	if (!isUnderCwd(path, ctx.cwd)) {
+	// Prompt paths (only outside cwd after normalization / traversal resolution).
+	if (!isUnderCwd(targetPath, ctx.cwd)) {
 		for (const { pattern, reason } of PROMPT_PATHS) {
 			if (pattern.test(normalized)) {
-				return promptOrBlock(ctx, path, reason);
+				return promptOrBlock(ctx, targetPath, reason);
 			}
 		}
 
-		// .env files outside project
-		if (/\/\.env(\.|$)/.test(normalized)) {
-			return promptOrBlock(ctx, path, "Writing to .env file outside project");
+		// .env files outside project, including .envrc.
+		if (/\/\.env(?:$|\.[^/]+$|rc$)/.test(normalized)) {
+			return promptOrBlock(ctx, targetPath, "Writing to .env file outside project");
 		}
 	}
 
@@ -317,6 +445,8 @@ function handleWritePath(path: string, ctx: ExtensionContext) {
 }
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
+
+const CONFIRM_TIMEOUT_MS = 30_000;
 
 async function promptOrBlock(
 	ctx: ExtensionContext,
@@ -328,16 +458,32 @@ async function promptOrBlock(
 	}
 
 	const truncated = target.length > 120 ? target.slice(0, 120) + "…" : target;
-	const allowed = await ctx.ui.confirm(
-		`⚠️ Safeguard: ${reason}`,
-		`Allow?\n\n  ${truncated}`,
-	);
+
+	let allowed: boolean;
+	try {
+		allowed = await withTimeout(
+			ctx.ui.confirm(`⚠️ Safeguard: ${reason}`, `Allow?\n\n  ${truncated}`),
+			CONFIRM_TIMEOUT_MS,
+		);
+	} catch {
+		return { block: true, reason: `Safeguard: ${reason} (confirmation timed out)` };
+	}
 
 	if (!allowed) {
 		return { block: true, reason: `Safeguard: ${reason} (denied by user)` };
 	}
 
 	return undefined;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+	return new Promise<T>((resolve, reject) => {
+		const timer = setTimeout(() => reject(new Error("timeout")), ms);
+		promise.then(
+			(value) => { clearTimeout(timer); resolve(value); },
+			(err) => { clearTimeout(timer); reject(err); },
+		);
+	});
 }
 
 function notify(ctx: ExtensionContext, message: string): void {

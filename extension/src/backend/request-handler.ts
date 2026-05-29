@@ -7,6 +7,7 @@ import {
   validateMessageSend,
   validateRuntimePrefsSet,
   validateSessionCreate,
+  validateSessionDuplicate,
   validateSessionOpen,
   validateSessionPath,
   validateSettingsSet,
@@ -97,6 +98,23 @@ export async function handleBackendRequest(
       deps.emitBusyChanged(context, context.session.isStreaming || !!context.activeRequest);
       void deps.emitSessionListChanged();
       return openPayload;
+    }
+
+    case 'session.duplicate': {
+      const params = validateSessionDuplicate(request.params);
+      const sourceContext = deps.getSessionContext(params.sessionPath);
+      const sourceCwd = sourceContext?.session.sessionManager.getCwd() ?? deps.startupCwd;
+      const forkedManager = deps.sdk.SessionManager.forkFrom(params.sessionPath, sourceCwd);
+      const context = await deps.createSessionContext(forkedManager, 'new');
+      deps.setViewedSessionPath(context.sessionPath);
+      const duplicatePayload = await deps.buildSessionOpenedPayload(
+        context.sessionPath,
+        params.selectionToken,
+      );
+      deps.emit('session.opened', duplicatePayload);
+      deps.emitBusyChanged(context, context.session.isStreaming || !!context.activeRequest);
+      void deps.emitSessionListChanged();
+      return duplicatePayload;
     }
 
     case 'session.preload': {

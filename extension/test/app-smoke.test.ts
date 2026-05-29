@@ -151,6 +151,36 @@ test('App posts send message when composer submits', () => {
   assert.ok(true, 'Composer submit did not crash');
 });
 
+test('App busy composer shows a specific activity placeholder', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState({
+    busy: true,
+    transcript: [
+      {
+        id: 'user-1',
+        role: 'user',
+        createdAt: '2026-01-01T12:00:00.000Z',
+        markdown: 'Do the thing',
+        status: 'completed',
+      } as ChatMessage,
+    ],
+  });
+
+  act(() => {
+    render(h(App, { adapter }), container);
+  });
+
+  const textarea = container.querySelector('textarea');
+  assert.ok(textarea, 'Composer textarea should render while busy');
+  const placeholder = textarea!.getAttribute('placeholder') ?? '';
+  assert.notEqual(placeholder, 'Ask PI anything...', 'busy composer must not show idle placeholder');
+  assert.match(
+    placeholder,
+    /Agent is .+…|Waiting for a response\.\.\./,
+    'busy placeholder should describe activity or fall back to waiting copy',
+  );
+});
+
 test('App renders loading state when backend not ready', () => {
   const adapter = makeAdapter();
   adapter.initialState = { ...EMPTY_VIEW_STATE };

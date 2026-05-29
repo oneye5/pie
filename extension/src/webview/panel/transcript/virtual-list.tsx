@@ -4,7 +4,8 @@
 import { Virtualizer, elementScroll, observeElementOffset, observeElementRect } from '@tanstack/virtual-core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
-import { type ChatMessage, type ChatPrefs, type PruningResult, type SystemPromptEntry, type ToolCall, type TranscriptWindow } from '../../../shared/protocol';
+import { type ChatMessage, type ChatPrefs, type PruningResult, type PruningSettings, type SystemPromptEntry, type ThinkingLevel, type ToolCall, type TranscriptWindow } from '../../../shared/protocol';
+import { deriveTurnActivityState, type TurnActivityState } from './activity';
 import { ToolCallItem } from './tool-call-item';
 import { useTranscriptScroll } from './use-transcript-scroll';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
@@ -17,8 +18,11 @@ interface TranscriptVirtualListProps {
   transcriptWindow: TranscriptWindow;
   busy: boolean;
   prefs: ChatPrefs;
+  pruningSettings: PruningSettings;
   systemPrompts: SystemPromptEntry[];
   pruningResult: PruningResult | null;
+  pendingAssistantModelId?: string;
+  pendingAssistantThinkingLevel?: ThinkingLevel;
   workingDirectory: string | null;
   editingId: string | null;
   onEditRequest: (messageId: string) => void;
@@ -41,8 +45,11 @@ export function TranscriptVirtualList({
   transcriptWindow,
   busy,
   prefs,
+  pruningSettings,
   systemPrompts,
   pruningResult,
+  pendingAssistantModelId,
+  pendingAssistantThinkingLevel,
   workingDirectory,
   editingId,
   onEditRequest,
@@ -57,6 +64,15 @@ export function TranscriptVirtualList({
   const [renderTick, setRenderTick] = useState(0);
   const renderFrameRef = useRef<number | null>(null);
 
+  const activityState = useMemo(() => deriveTurnActivityState({
+    busy,
+    transcript,
+    prefs,
+    pruningSettings,
+    pendingAssistantModelId,
+    pendingAssistantThinkingLevel,
+  }), [busy, transcript, prefs, pruningSettings, pendingAssistantModelId, pendingAssistantThinkingLevel]);
+
   const rows = useMemo(() => buildTranscriptRows({
     transcript,
     systemPromptCount: systemPrompts.length,
@@ -64,7 +80,11 @@ export function TranscriptVirtualList({
     hasNewer: transcriptWindow.hasNewer,
     busy,
     hasPruningResult: pruningResult !== null,
-  }), [systemPrompts.length, transcript, transcriptWindow.hasOlder, transcriptWindow.hasNewer, busy, pruningResult]);
+    showPruningMessages: prefs.showPruningMessages,
+    activityState,
+    pendingAssistantModelId,
+    pendingAssistantThinkingLevel,
+  }), [systemPrompts.length, transcript, transcriptWindow.hasOlder, transcriptWindow.hasNewer, busy, pruningResult, prefs.showPruningMessages, activityState, pendingAssistantModelId, pendingAssistantThinkingLevel]);
 
   const {
     scrollRef,
@@ -164,8 +184,46 @@ export function TranscriptVirtualList({
   const totalSize = virtualizer.getTotalSize();
   const lastRow = rows[rows.length - 1];
 
+  // Delegated handler for code-block affordances injected by renderMarkdown.
+  const handleTranscriptClick = useCallback((event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+
+    const copyBtn = target.closest('.code-block-copy');
+    if (copyBtn) {
+      const code = copyBtn.closest('.code-block')?.querySelector('code');
+      const text = code?.textContent ?? '';
+      if (text) {
+        void navigator.clipboard?.writeText(text);
+        copyBtn.classList.add('copied');
+        window.setTimeout(() => copyBtn.classList.remove('copied'), 1200);
+      }
+      return;
+    }
+
+    const toggleBtn = target.closest('.code-block-toggle');
+    if (toggleBtn) {
+      const block = toggleBtn.closest('.code-block');
+      if (block) {
+        // Preserve the original "Show all N lines" label for re-collapse.
+        if (!toggleBtn.getAttribute('data-collapsed-label')) {
+          toggleBtn.setAttribute('data-collapsed-label', toggleBtn.textContent ?? 'Show all');
+        }
+        const collapsed = block.classList.toggle('code-block-collapsed');
+        toggleBtn.setAttribute('aria-expanded', String(!collapsed));
+        toggleBtn.textContent = collapsed
+          ? toggleBtn.getAttribute('data-collapsed-label') ?? 'Show all'
+          : 'Show less';
+      }
+    }
+  }, []);
+
   return (
-    <div class={`transcript transcript-virtual${isInitialPositioning ? ' transcript-positioning' : ''}`} ref={scrollRef}>
+    <div
+      class={`transcript transcript-virtual${isInitialPositioning ? ' transcript-positioning' : ''}`}
+      ref={scrollRef}
+      onClick={handleTranscriptClick}
+    >
       <div class="transcript-virtual-inner" style={{ height: `${totalSize}px` }}>
         {virtualRows.map((virtualRow) => {
           const row = rows[virtualRow.index];
@@ -200,6 +258,9 @@ export function TranscriptVirtualList({
                 onRequestOlder={requestOlderPage}
                 onRequestNewer={requestNewerPage}
                 renderToolCall={renderToolCall}
+                transcript={transcript}
+                transcriptIndex={row.kind === 'message' ? row.transcriptIndex : undefined}
+                hasOlder={transcriptWindow.hasOlder}
               />
             </div>
           );

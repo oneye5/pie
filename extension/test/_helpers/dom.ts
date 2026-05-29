@@ -6,6 +6,29 @@ import { Window } from 'happy-dom';
 
 let installed = false;
 
+function installGlobal(key: PropertyKey, value: unknown): void {
+  const descriptor = Object.getOwnPropertyDescriptor(globalThis, key);
+
+  if (!descriptor || descriptor.writable || descriptor.set) {
+    try {
+      (globalThis as Record<PropertyKey, unknown>)[key] = value;
+      return;
+    } catch {
+      // Fall through to defineProperty for getter-only globals like navigator.
+    }
+  }
+
+  if (descriptor?.configurable === false) {
+    return;
+  }
+
+  Object.defineProperty(globalThis, key, {
+    configurable: true,
+    writable: true,
+    value,
+  });
+}
+
 export function installDom(): void {
   if (installed) return;
   installed = true;
@@ -25,12 +48,12 @@ export function installDom(): void {
 
   for (const key of globals) {
     if ((window as any)[key] !== undefined) {
-      (globalThis as any)[key] = (window as any)[key];
+      installGlobal(key, (window as any)[key]);
     }
   }
 
   // Set window itself
-  (globalThis as any).window = window;
+  installGlobal('window', window);
 
   // Stub ResizeObserver (happy-dom doesn't provide one)
   if (typeof globalThis.ResizeObserver === 'undefined') {

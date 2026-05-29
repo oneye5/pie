@@ -60,6 +60,20 @@ export interface SessionOpenParams extends SessionPathParams {
   selectionToken?: string;
 }
 
+export interface SessionDuplicateParams {
+  sessionPath: string;
+  selectionToken?: string;
+}
+
+export function validateSessionDuplicate(params: unknown): SessionDuplicateParams {
+  if (!isObj(params)) fail('session.duplicate', 'expected an object');
+  const { sessionPath } = validateSessionPath('session.duplicate', params);
+  return {
+    sessionPath,
+    selectionToken: readSelectionToken('session.duplicate', params),
+  };
+}
+
 const THINKING_LEVELS: ReadonlyArray<ThinkingLevel> = [
   'off',
   'minimal',

@@ -16,7 +16,7 @@ The system follows a **CQRS-shaped Elm/MVI** pattern. User actions and backend e
 
 This pattern was chosen to eliminate the class of bugs caused by distributed mutable state across host and webview, ensure testability of all state transitions without I/O, and make streaming/optimistic-update interactions explicit and auditable.
 
-See [`docs/internal/archive/ARCH-MIGRATION-PLAN.md`](internal/archive/ARCH-MIGRATION-PLAN.md) for historical context.
+See git history (commit d581d83, file docs/internal/archive/ARCH-MIGRATION-PLAN.md) for historical context.
 
 ---
 
@@ -208,4 +208,4 @@ See [`docs/STATE_CONTRACT.md`](STATE_CONTRACT.md) for additional invariants (sna
 - [`docs/STATE_CONTRACT.md`](STATE_CONTRACT.md) — authoritative host ↔ webview invariants
 - [`docs/internal/ARCH-OVERVIEW.md`](internal/ARCH-OVERVIEW.md) — concise file map and glossary
 - [`AGENTS.md`](../AGENTS.md) — repo conventions, test commands, build instructions
-- [`docs/internal/archive/ARCH-MIGRATION-PLAN.md`](internal/archive/ARCH-MIGRATION-PLAN.md) — original migration plan (phases 0–7)
+- Git history: `docs/internal/archive/ARCH-MIGRATION-PLAN.md` (commit `d581d83`) — original migration plan (phases 0–7)

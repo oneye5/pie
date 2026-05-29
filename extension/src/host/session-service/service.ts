@@ -151,6 +151,10 @@ export class SessionService implements vscode.Disposable {
     this.tabs.moveSessionTab(sessionPath, fromIndex, toIndex);
   }
 
+  duplicateSession(sessionPath: string): void {
+    this.tabs.duplicateSession(sessionPath);
+  }
+
   async addFilesystemPaths(
     requestedSessionPath: string | undefined,
     paths: string[],

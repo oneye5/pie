@@ -1,4 +1,5 @@
 import type {
+  CustomMessagePayload,
   MessageAbortedPayload,
   MessageDeltaPayload,
   MessageFinishedPayload,
@@ -9,7 +10,7 @@ import type {
   ToolStartedPayload,
 } from '../shared/protocol';
 import type { SdkSessionEvent } from './sdk';
-import { mapAssistantMessage } from './transcript';
+import { mapAssistantMessage, mapCustomMessage } from './transcript';
 import type { SessionContext } from './server-types';
 
 export interface BackendSessionEventHandlerDeps {
@@ -137,7 +138,35 @@ export function handleSdkSessionEvent(
     }
 
     case 'message_end': {
-      if (event.message?.role !== 'assistant' || !context.activeRequest) {
+      if (!context.activeRequest || !event.message) {
+        return;
+      }
+
+      if (event.message.role === 'custom') {
+        // before_agent_start extensions (like skill-pruner) surface transcript
+        // entries as message_end/custom events. Forward them live so the webview
+        // can render pruning summaries before the assistant turn starts.
+        const customMessageIndex = (context.activeRequest.customMessageIndex ?? 0) + 1;
+        context.activeRequest.customMessageIndex = customMessageIndex;
+        const message = mapCustomMessage(
+          `${context.activeRequest.id}:custom:${customMessageIndex}`,
+          event.message,
+        );
+        if (!message) {
+          deps.emitContextUsageChanged(context);
+          return;
+        }
+
+        deps.emit('message.custom', {
+          requestId: context.activeRequest.id,
+          sessionPath: context.sessionPath,
+          message,
+        } satisfies CustomMessagePayload);
+        deps.emitContextUsageChanged(context);
+        return;
+      }
+
+      if (event.message.role !== 'assistant') {
         return;
       }
 

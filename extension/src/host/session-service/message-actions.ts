@@ -15,6 +15,7 @@ import {
   transcriptActions,
   uiActions,
 } from '../store';
+import { createLocalMessageId } from '../../shared/local-message-id';
 import { deriveSessionNameFromText } from '../../shared/session-name';
 import { isPendingTabPath } from '../../shared/tab-behavior';
 import type {
@@ -183,7 +184,7 @@ export class SessionMessageActions {
 
     const previousSummary = this.maybeApplyOptimisticSessionName(sessionPath, composedText);
 
-    const localId = `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const localId = createLocalMessageId();
     store.dispatch(
       transcriptActions.appendLocalUserMessage({
         sessionPath,
@@ -253,7 +254,7 @@ export class SessionMessageActions {
           this.runObserver.onTruncatedAfter(sessionPath, messageId);
           this.runObserver.onMessageEdited(sessionPath, messageId);
 
-          localId = `local:edit:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+          localId = createLocalMessageId('edit');
           store.dispatch(
             transcriptActions.appendLocalUserMessage({
               sessionPath,

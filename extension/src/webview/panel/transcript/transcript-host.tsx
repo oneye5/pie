@@ -11,7 +11,9 @@
 import type {
   ChatPrefs,
   PruningResult,
+  PruningSettings,
   SystemPromptEntry,
+  ThinkingLevel,
   TranscriptWindow,
   ChatMessage,
 } from '../../../shared/protocol';
@@ -25,8 +27,11 @@ interface TranscriptSurfaceProps {
   transcriptWindow: TranscriptWindow;
   busy: boolean;
   prefs: ChatPrefs;
+  pruningSettings: PruningSettings;
   systemPrompts: SystemPromptEntry[];
   pruningResult: PruningResult | null;
+  pendingAssistantModelId?: string;
+  pendingAssistantThinkingLevel?: ThinkingLevel;
   workingDirectory: string | null;
   editingId: string | null;
   onEditRequest: (messageId: string) => void;
@@ -46,8 +51,11 @@ function TranscriptSurface({
   transcriptWindow,
   busy,
   prefs,
+  pruningSettings,
   systemPrompts,
   pruningResult,
+  pendingAssistantModelId,
+  pendingAssistantThinkingLevel,
   workingDirectory,
   editingId,
   onEditRequest,
@@ -76,8 +84,11 @@ function TranscriptSurface({
         transcriptWindow={transcriptWindow}
         busy={busy}
         prefs={prefs}
+        pruningSettings={pruningSettings}
         systemPrompts={systemPrompts}
         pruningResult={pruningResult}
+        pendingAssistantModelId={pendingAssistantModelId}
+        pendingAssistantThinkingLevel={pendingAssistantThinkingLevel}
         workingDirectory={workingDirectory}
         editingId={editingId}
         onEditRequest={onEditRequest}
@@ -102,8 +113,11 @@ export interface TranscriptHostProps {
   transcriptWindow: TranscriptWindow;
   busy: boolean;
   prefs: ChatPrefs;
+  pruningSettings: PruningSettings;
   systemPrompts: SystemPromptEntry[];
   pruningResult: PruningResult | null;
+  pendingAssistantModelId?: string;
+  pendingAssistantThinkingLevel?: ThinkingLevel;
   workingDirectory: string | null;
   editingId: string | null;
   onEditRequest: (messageId: string) => void;
@@ -121,8 +135,11 @@ export function TranscriptHost({
   transcriptWindow,
   busy,
   prefs,
+  pruningSettings,
   systemPrompts,
   pruningResult,
+  pendingAssistantModelId,
+  pendingAssistantThinkingLevel,
   workingDirectory,
   editingId,
   onEditRequest,
@@ -142,8 +159,11 @@ export function TranscriptHost({
           transcriptWindow={transcriptWindow}
           busy={busy}
           prefs={prefs}
+          pruningSettings={pruningSettings}
           systemPrompts={systemPrompts}
           pruningResult={pruningResult}
+          pendingAssistantModelId={pendingAssistantModelId}
+          pendingAssistantThinkingLevel={pendingAssistantThinkingLevel}
           workingDirectory={workingDirectory}
           editingId={editingId}
           onEditRequest={onEditRequest}

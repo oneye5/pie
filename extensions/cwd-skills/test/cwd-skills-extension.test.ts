@@ -1,22 +1,14 @@
 /**
  * Bug-hunting tests for cwd-skills extension.
  *
- * Known bugs this suite is designed to surface:
+ * Regression-focused tests for cwd-skills.
  *
- *  BUG-1: cwd=undefined  → path.join(undefined,'skills') throws TypeError instead of
- *                           returning {} gracefully. The handler has no guard on event.cwd.
+ * Historically this extension had two easy-to-miss path bugs:
  *
- *  BUG-2: cwd=""         → path.join('','skills') === 'skills' (relative path), so
- *                           existsSync resolves against process.cwd().  In this repo,
- *                           d:/…/pi-config/skills/ exists, so the handler accidentally
- *                           returns { skillPaths: ['skills'] } — the wrong directory.
+ *  - undefined/null cwd threw instead of returning {}
+ *  - empty-string cwd resolved a relative `skills/` directory against process.cwd()
  *
- *  BUG-3: statSync guard is dead code when existsSync already returned true AND the
- *           path is a regular file — the guard works, but the try/catch around statSync
- *           is reachable only via a TOCTOU race that no test exercises.
- *
- *  Everything else (symlinks, nonexistent dir, concurrent calls) is tested to catch
- *  regressions if the implementation is refactored.
+ * The assertions below lock in the fixed behavior and guard future refactors.
  */
 
 import test, { describe, it, before, beforeEach, afterEach } from 'node:test';
@@ -136,67 +128,36 @@ describe('happy path', () => {
 // BUG-1 — undefined / null cwd
 // ---------------------------------------------------------------------------
 
-describe('BUG-1: undefined/null cwd', () => {
-  it(
-    'returns {} (does NOT throw) when cwd is undefined — BUG: currently throws TypeError',
-    async () => {
-      const handler = await makeHandler();
+describe('regression: undefined/null cwd', () => {
+  it('returns {} (does NOT throw) when cwd is undefined', async () => {
+    const handler = await makeHandler();
+    const result = await handler({ cwd: undefined as unknown as string, reason: 'startup' }, {});
+    assert.deepEqual(result, {});
+  });
 
-      // path.join(undefined, 'skills') throws:
-      //   TypeError [ERR_INVALID_ARG_TYPE]: The "path" argument must be of type string.
-      // The implementation has no guard, so it surfaces as a rejected promise.
-      // This test DOCUMENTS the bug: it asserts rejects, not deepEqual({}).
-      await assert.rejects(
-        () => handler({ cwd: undefined as unknown as string, reason: 'startup' }, {}),
-        (err: unknown) => {
-          assert.ok(err instanceof TypeError, `Expected TypeError, got ${err}`);
-          return true;
-        },
-      );
-      // When the bug is FIXED the assertion above should change to:
-      //   assert.deepEqual(result, {});
-    },
-  );
-
-  it(
-    'returns {} (does NOT throw) when cwd is null — BUG: currently throws TypeError',
-    async () => {
-      const handler = await makeHandler();
-
-      await assert.rejects(
-        () => handler({ cwd: null as unknown as string, reason: 'startup' }, {}),
-        TypeError,
-      );
-    },
-  );
+  it('returns {} (does NOT throw) when cwd is null', async () => {
+    const handler = await makeHandler();
+    const result = await handler({ cwd: null as unknown as string, reason: 'startup' }, {});
+    assert.deepEqual(result, {});
+  });
 });
 
 // ---------------------------------------------------------------------------
 // BUG-2 — empty-string cwd resolves to a relative path
 // ---------------------------------------------------------------------------
 
-describe('BUG-2: empty-string cwd resolves relative to process.cwd()', () => {
-  it(
-    'returns {} for empty-string cwd — BUG: may return process.cwd()/skills instead',
-    async () => {
-      const handler = await makeHandler();
+describe('regression: empty-string cwd resolves relative to process.cwd()', () => {
+  it('returns {} for empty-string cwd', async () => {
+    const handler = await makeHandler();
+    const result = await handler({ cwd: '', reason: 'startup' }, {});
 
-      // path.join('', 'skills') === 'skills'   (relative path)
-      // existsSync('skills') checks PROCESS.CWD/skills.
-      // In this repo, d:/.../pi-config/skills/ EXISTS, so the handler accidentally
-      // returns { skillPaths: ['skills'] } — a relative, wrong path.
-      const result = await handler({ cwd: '', reason: 'startup' }, {});
-
-      // The CORRECT behaviour for an empty cwd is to return {}.
-      // If this assertion fails it confirms the relative-path bug is active.
-      assert.deepEqual(
-        result,
-        {},
-        `Empty cwd should return {} but returned ${JSON.stringify(result)} ` +
-          `(resolved against process.cwd()=${process.cwd()})`,
-      );
-    },
-  );
+    assert.deepEqual(
+      result,
+      {},
+      `Empty cwd should return {} but returned ${JSON.stringify(result)} ` +
+        `(resolved against process.cwd()=${process.cwd()})`,
+    );
+  });
 
   it('skillPaths entries are always absolute paths', async (t) => {
     const cwd = await makeTempDir();

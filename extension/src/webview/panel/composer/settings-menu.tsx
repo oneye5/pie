@@ -1,11 +1,11 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
-import { playCompletionSound } from '../completion-sound';
+import { playCompletionSound, warmupCompletionSoundContext } from '../completion-sound';
 
-import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningMode, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
+import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningCatalog, PruningMode, PruningResult, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
 import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
 import { orderModelsForPicker } from './model-list';
 
@@ -29,13 +29,121 @@ const THINKING_LEVEL_OPTIONS: { value: ThinkingLevel; label: string }[] = [
 interface ComposerSettingsMenuProps {
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;
+  pruningCatalog: PruningCatalog;
+  pruningResult: PruningResult | null;
   availableExtensions: ExtensionInfo[];
   availableModels: ModelInfo[];
   onSetPrefs: (prefs: Partial<ChatPrefs>) => void;
   onSetPruningSettings: (settings: Partial<PruningSettings>) => void;
 }
 
-export function ComposerSettingsMenu({ prefs, pruningSettings, availableExtensions, availableModels, onSetPrefs, onSetPruningSettings }: ComposerSettingsMenuProps) {
+/** Compute a sorted, deduplicated catalog for the always-keep picker. */
+export function computeKeepCatalog(
+  discoveredNames: string[],
+  fromPruningResult: { included?: string[]; excluded?: string[] } | null,
+  currentlySelected: string[],
+): string[] {
+  const set = new Set<string>();
+  for (const name of discoveredNames) set.add(name);
+  for (const name of fromPruningResult?.included ?? []) set.add(name);
+  for (const name of fromPruningResult?.excluded ?? []) set.add(name);
+  // Always-keep items are filtered OUT of the prepass input, so they will not
+  // appear in included/excluded after the next pruning turn. Union them in so
+  // they remain visible/removable in the picker.
+  for (const name of currentlySelected) set.add(name);
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+/** Filter catalog by hiding already-selected names. */
+export function filterKeepCatalog(catalog: string[], selected: string[]): string[] {
+  const selectedSet = new Set(selected);
+  return catalog.filter((name) => !selectedSet.has(name));
+}
+
+interface AlwaysKeepPickerProps {
+  label: string;
+  selected: string[];
+  catalog: string[];
+  category: 'skill' | 'tool';
+  onChange: (next: string[]) => void;
+}
+
+export function AlwaysKeepPicker({ label, selected, catalog, category, onChange }: AlwaysKeepPickerProps) {
+  const availableOptions = useMemo(() => filterKeepCatalog(catalog, selected), [catalog, selected]);
+
+  const addName = (rawName: string) => {
+    const name = rawName.trim();
+    if (!name || selected.includes(name)) return;
+    onChange([...selected, name]);
+  };
+
+  const removeName = (name: string) => {
+    onChange(selected.filter((n) => n !== name));
+  };
+
+  return (
+    <div class="toolbar-settings-keep-picker">
+      <div class="toolbar-settings-keep-picker-label">{label}</div>
+      {selected.length > 0 && (
+        <div class="toolbar-settings-keep-chips">
+          {selected.map((name) => (
+            <span key={name} class="toolbar-settings-keep-chip">
+              <span>{name}</span>
+              <button
+                type="button"
+                class="toolbar-settings-keep-chip-remove"
+                aria-label={`Remove ${name}`}
+                onClick={() => removeName(name)}
+              >×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div class="toolbar-settings-keep-picker-wrap">
+        <select
+          class="toolbar-settings-select toolbar-settings-keep-select"
+          value=""
+          aria-label={label}
+          disabled={availableOptions.length === 0}
+          onChange={(e) => {
+            const name = (e.target as HTMLSelectElement).value;
+            if (name) {
+              addName(name);
+              (e.target as HTMLSelectElement).value = '';
+            }
+          }}
+        >
+          <option value="">
+            {availableOptions.length === 0
+              ? `No ${category}s available`
+              : `Select ${category} to omit from pruning...`}
+          </option>
+          {availableOptions.map((name) => (
+            <option key={name} value={name}>{name}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, pruningResult, availableExtensions, availableModels, onSetPrefs, onSetPruningSettings }: ComposerSettingsMenuProps) {
+  const skillCatalog = useMemo(
+    () => computeKeepCatalog(
+      pruningCatalog.skills,
+      pruningResult ? { included: pruningResult.includedSkills, excluded: pruningResult.excludedSkills } : null,
+      pruningSettings.skillAlwaysKeep,
+    ),
+    [pruningCatalog.skills, pruningResult, pruningSettings.skillAlwaysKeep],
+  );
+  const toolCatalog = useMemo(
+    () => computeKeepCatalog(
+      pruningCatalog.tools,
+      pruningResult ? { included: pruningResult.includedTools, excluded: pruningResult.excludedTools } : null,
+      pruningSettings.toolAlwaysKeep,
+    ),
+    [pruningCatalog.tools, pruningResult, pruningSettings.toolAlwaysKeep],
+  );
   const [open, setOpen] = useState(false);
   const [expandedExt, setExpandedExt] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -137,7 +245,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, availableExtensio
                     type="button"
                     class="toolbar-settings-test-btn"
                     disabled={prefs.completionSoundVolume === 0}
-                    onClick={() => playCompletionSound(prefs.completionSoundVolume)}
+                    onClick={() => { warmupCompletionSoundContext(); playCompletionSound(prefs.completionSoundVolume); }}
                     aria-label="Test completion sound"
                   >▶</button>
                 </div>
@@ -295,6 +403,20 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, availableExtensio
                               >+</button>
                             </div>
                           </div>
+                          <AlwaysKeepPicker
+                            label="Omitted skills (never pruned)"
+                            selected={pruningSettings.skillAlwaysKeep}
+                            catalog={skillCatalog}
+                            category="skill"
+                            onChange={(next) => onSetPruningSettings({ skillAlwaysKeep: next })}
+                          />
+                          <AlwaysKeepPicker
+                            label="Omitted tools (never pruned)"
+                            selected={pruningSettings.toolAlwaysKeep}
+                            catalog={toolCatalog}
+                            category="tool"
+                            onChange={(next) => onSetPruningSettings({ toolAlwaysKeep: next })}
+                          />
                         </div>
                       )}
                     </div>

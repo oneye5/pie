@@ -20,6 +20,7 @@ import { deriveFileChangeFromToolCall, deriveFileChangesFromTranscript } from '.
 import type {
   BusyChangedPayload,
   ContextUsageChangedPayload,
+  CustomMessagePayload,
   ErrorPayload,
   EventEnvelope,
   ExtensionInfo,
@@ -224,6 +225,7 @@ export class SessionServiceEvents {
       onToolFinished: (payload) => this.onToolFinished(payload),
       onToolProgress: (payload) => this.onToolProgress(payload),
       onMessageFinished: (payload) => this.onMessageFinished(payload),
+      onCustomMessage: (payload) => this.onCustomMessage(payload),
       onMessageAborted: (payload) => this.onMessageAborted(payload),
       onBusyChanged: (payload) => this.onBusyChanged(payload),
       onContextUsageChanged: (payload) => this.onContextUsageChanged(payload),
@@ -493,6 +495,19 @@ export class SessionServiceEvents {
 
     // MessageFinished replaces the streaming entry with its authoritative form.
     // The next snapshot diff naturally produces the content replacement.
+    this.state.touchSessionTranscript(sessionPath);
+  }
+
+  private onCustomMessage(payload: CustomMessagePayload): void {
+    const sessionPath = this.requireEventSessionPath('message.custom', payload.sessionPath);
+    if (!sessionPath) {
+      return;
+    }
+
+    store.dispatch(
+      transcriptActions.upsertMessage({ sessionPath, message: payload.message }),
+    );
+    this.scheduleRender();
     this.state.touchSessionTranscript(sessionPath);
   }
 

@@ -10,10 +10,43 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import DOMPurify from 'dompurify';
+import { h } from 'preact';
+import renderToString from 'preact-render-to-string';
+
 import { buildTranscriptRows, estimateTranscriptRowSize } from '../src/webview/panel/transcript/virtual-list-rows';
+import { AGENT_ACTIVITY_LABELS, derivePendingActivityLabel, deriveTurnActivityState } from '../src/webview/panel/transcript/activity';
 import { isPanelBooting, resolvePanelSurface } from '../src/webview/panel/panel-state';
 import { derivePruningResult } from '../src/host/store';
-import type { ChatMessage } from '../src/shared/protocol';
+import { DEFAULT_CHAT_PREFS, DEFAULT_PRUNING_SETTINGS, type ChatMessage } from '../src/shared/protocol';
+import type { TurnActivityState } from '../src/webview/panel/transcript/activity';
+
+// Mock DOMPurify for markdown rendering in tests
+DOMPurify.sanitize = ((html: string) => html) as typeof DOMPurify.sanitize;
+
+function assistantMessage(parts: any[] = [], overrides: Partial<ChatMessage> = {}): ChatMessage {
+  return {
+    id: 'assistant-1',
+    role: 'assistant',
+    createdAt: '2026-01-01T12:34:56.000Z',
+    markdown: 'fallback',
+    parts,
+    status: 'streaming',
+    modelId: 'claude-sonnet-4-5:cloud',
+    thinkingLevel: 'high',
+    ...overrides,
+  } as unknown as ChatMessage;
+}
+
+async function loadWebviewModules() {
+  const [messageItemModule] = await Promise.all([
+    import('../src/webview/panel/transcript/message-item.tsx'),
+  ]);
+  return { MessageItem: messageItemModule.MessageItem };
+}
+
+const noop = () => undefined;
+const noopContextMenu = () => undefined;
 
 function makeMessage(id: string, role: ChatMessage['role'], overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
@@ -90,8 +123,227 @@ test('buildTranscriptRows places typingIndicator before bottomGap', () => {
 test('estimateTranscriptRowSize returns stable size for typingIndicator', () => {
   assert.equal(
     estimateTranscriptRowSize({ kind: 'typingIndicator', key: 'typing-indicator' }),
-    48,
+    64,
   );
+});
+
+test('derivePendingActivityLabel names pruning prepass after a user prompt', () => {
+  assert.equal(
+    derivePendingActivityLabel({
+      busy: true,
+      transcript: [makeMessage('user-1', 'user')],
+      prefs: DEFAULT_CHAT_PREFS,
+      pruningSettings: DEFAULT_PRUNING_SETTINGS,
+    }),
+    AGENT_ACTIVITY_LABELS.pruning,
+  );
+});
+
+test('derivePendingActivityLabel falls back when skill-pruner is disabled', () => {
+  assert.equal(
+    derivePendingActivityLabel({
+      busy: true,
+      transcript: [makeMessage('user-1', 'user')],
+      prefs: { ...DEFAULT_CHAT_PREFS, extensionToggles: { 'skill-pruner': false } },
+      pruningSettings: DEFAULT_PRUNING_SETTINGS,
+    }),
+    AGENT_ACTIVITY_LABELS.preparing,
+  );
+
+  assert.equal(
+    derivePendingActivityLabel({
+      busy: true,
+      transcript: [makeMessage('user-1', 'user')],
+      prefs: DEFAULT_CHAT_PREFS,
+      pruningSettings: { ...DEFAULT_PRUNING_SETTINGS, mode: 'off' },
+    }),
+    AGENT_ACTIVITY_LABELS.preparing,
+  );
+});
+
+test('derivePendingActivityLabel advances after pruning and assistant phases', () => {
+  const pruningMessage = {
+    id: 'prune-1',
+    role: 'system',
+    createdAt: '2026-05-16T00:00:01.000Z',
+    markdown: 'Pruned',
+    status: 'completed',
+    customType: 'pruning-result',
+    customDetails: {
+      includedSkills: ['debugging'],
+      excludedSkills: [],
+      includedTools: ['read'],
+      excludedTools: [],
+      mode: 'auto',
+      skillTokensSaved: 0,
+      toolTokensSaved: 0,
+    },
+  } as unknown as ChatMessage;
+
+  assert.equal(
+    derivePendingActivityLabel({
+      busy: true,
+      transcript: [makeMessage('user-1', 'user'), pruningMessage],
+      prefs: DEFAULT_CHAT_PREFS,
+      pruningSettings: DEFAULT_PRUNING_SETTINGS,
+    }),
+    AGENT_ACTIVITY_LABELS.startingModel,
+  );
+
+  assert.equal(
+    derivePendingActivityLabel({
+      busy: true,
+      transcript: [
+        makeMessage('user-1', 'user'),
+        makeMessage('assistant-1', 'assistant', {
+          toolCalls: [{ id: 'tool-1', name: 'read', input: {}, status: 'running' }],
+        }),
+      ],
+      prefs: DEFAULT_CHAT_PREFS,
+      pruningSettings: DEFAULT_PRUNING_SETTINGS,
+    }),
+    'running read',
+  );
+
+  assert.equal(
+    derivePendingActivityLabel({
+      busy: true,
+      transcript: [makeMessage('user-1', 'user'), makeMessage('assistant-1', 'assistant')],
+      prefs: DEFAULT_CHAT_PREFS,
+      pruningSettings: DEFAULT_PRUNING_SETTINGS,
+    }),
+    AGENT_ACTIVITY_LABELS.thinking,
+  );
+});
+
+// ─── Structured activity state ───────────────────────────────────────────────
+
+test('deriveTurnActivityState returns null when not busy', () => {
+  const state = deriveTurnActivityState({
+    busy: false,
+    transcript: [makeMessage('user-1', 'user')],
+    prefs: DEFAULT_CHAT_PREFS,
+    pruningSettings: DEFAULT_PRUNING_SETTINGS,
+  });
+  assert.equal(state, null);
+});
+
+test('deriveTurnActivityState returns null when streaming', () => {
+  const state = deriveTurnActivityState({
+    busy: true,
+    transcript: [
+      makeMessage('user-1', 'user'),
+      makeMessage('assistant-1', 'assistant', { status: 'streaming' }),
+    ],
+    prefs: DEFAULT_CHAT_PREFS,
+    pruningSettings: DEFAULT_PRUNING_SETTINGS,
+  });
+  assert.equal(state, null);
+});
+
+test('deriveTurnActivityState returns structured pruning state', () => {
+  const state = deriveTurnActivityState({
+    busy: true,
+    transcript: [makeMessage('user-1', 'user')],
+    prefs: DEFAULT_CHAT_PREFS,
+    pruningSettings: DEFAULT_PRUNING_SETTINGS,
+  });
+  assert.ok(state);
+  assert.equal(state!.phase, 'pruning');
+  assert.equal(state!.label, AGENT_ACTIVITY_LABELS.pruning);
+  assert.equal(state!.tone, 'processing');
+  assert.ok(state!.ariaLabel.includes('pruning'));
+});
+
+test('deriveTurnActivityState returns startingModel phase after pruning', () => {
+  const pruningMessage = {
+    id: 'prune-1',
+    role: 'system',
+    createdAt: '2026-05-16T00:00:01.000Z',
+    markdown: 'Pruned',
+    status: 'completed',
+    customType: 'pruning-result',
+    customDetails: {
+      includedSkills: ['debugging'],
+      excludedSkills: [],
+      includedTools: ['read'],
+      excludedTools: [],
+      mode: 'auto',
+      skillTokensSaved: 0,
+      toolTokensSaved: 0,
+    },
+  } as unknown as ChatMessage;
+
+  const state = deriveTurnActivityState({
+    busy: true,
+    transcript: [makeMessage('user-1', 'user'), pruningMessage],
+    prefs: DEFAULT_CHAT_PREFS,
+    pruningSettings: DEFAULT_PRUNING_SETTINGS,
+    pendingAssistantModelId: 'gpt-5.4',
+    pendingAssistantThinkingLevel: 'xhigh',
+  });
+  assert.ok(state);
+  assert.equal(state!.phase, 'startingModel');
+  assert.equal(state!.label, AGENT_ACTIVITY_LABELS.startingModel);
+  assert.equal(state!.pendingModelLabel, 'gpt-5.4 (xhigh)');
+});
+
+test('deriveTurnActivityState returns runningTool phase with tool name', () => {
+  const state = deriveTurnActivityState({
+    busy: true,
+    transcript: [
+      makeMessage('user-1', 'user'),
+      makeMessage('assistant-1', 'assistant', {
+        toolCalls: [{ id: 'tool-1', name: 'read', input: {}, status: 'running' }],
+      }),
+    ],
+    prefs: DEFAULT_CHAT_PREFS,
+    pruningSettings: DEFAULT_PRUNING_SETTINGS,
+  });
+  assert.ok(state);
+  assert.equal(state!.phase, 'runningTool');
+  assert.equal(state!.label, 'running read');
+  assert.equal(state!.runningToolName, 'read');
+  assert.ok(state!.ariaLabel.includes('running read'));
+});
+
+test('deriveTurnActivityState returns runningTool phase with multiple tools', () => {
+  const state = deriveTurnActivityState({
+    busy: true,
+    transcript: [
+      makeMessage('user-1', 'user'),
+      makeMessage('assistant-1', 'assistant', {
+        toolCalls: [
+          { id: 'tool-1', name: 'read', input: {}, status: 'running' },
+          { id: 'tool-2', name: 'bash', input: {}, status: 'running' },
+          { id: 'tool-3', name: 'write', input: {}, status: 'running' },
+        ],
+      }),
+    ],
+    prefs: DEFAULT_CHAT_PREFS,
+    pruningSettings: DEFAULT_PRUNING_SETTINGS,
+  });
+  assert.ok(state);
+  assert.equal(state!.phase, 'runningTool');
+  assert.equal(state!.label, 'running 3 tools');
+  assert.equal(state!.runningToolSummary, 'running 3 tools');
+  assert.equal(state!.detail, 'read, bash, write');
+});
+
+test('deriveTurnActivityState returns thinking phase when assistant is not streaming', () => {
+  const state = deriveTurnActivityState({
+    busy: true,
+    transcript: [
+      makeMessage('user-1', 'user'),
+      makeMessage('assistant-1', 'assistant'),
+    ],
+    prefs: DEFAULT_CHAT_PREFS,
+    pruningSettings: DEFAULT_PRUNING_SETTINGS,
+  });
+  assert.ok(state);
+  assert.equal(state!.phase, 'thinking');
+  assert.equal(state!.label, AGENT_ACTIVITY_LABELS.thinking);
+  assert.equal(state!.tone, 'processing');
 });
 
 // ─── Panel loading states ────────────────────────────────────────────────────
@@ -361,6 +613,8 @@ test('selectViewState hides pruning banner when pruningSettings.mode is off', ()
     mode: 'off',
     skillCeiling: 5,
     toolCeiling: 5,
+    skillAlwaysKeep: [],
+    toolAlwaysKeep: [],
     model: 'gpt-5.4-mini',
     provider: 'github-copilot',
     thinkingLevel: 'minimal',
@@ -407,4 +661,80 @@ test('RemoveOptimisticMessage effect clears running state on send failure', asyn
     /sessionsActions\.setSessionRunning\(\s*\{[^}]*running:\s*false/,
     'RemoveOptimisticMessage should clear the optimistic running state',
   );
+});
+
+// ─── TurnActivityStrip inline rendering ──────────────────────────────────────
+
+test('MessageItem renders TurnActivityStrip inline for assistant turns with activityState', async () => {
+  const { MessageItem } = await import('../src/webview/panel/transcript/message-item.tsx');
+  const activityState: TurnActivityState = {
+    phase: 'runningTool',
+    label: 'running read',
+    detail: 'src/main.ts',
+    tone: 'active',
+    ariaLabel: 'Agent is running read',
+    runningToolName: 'read',
+  };
+
+  const html = renderToString(h(MessageItem, {
+    message: assistantMessage([{ kind: 'text', text: 'Reading file' }], { status: 'completed' }),
+    isStreaming: false,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: false,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: () => null,
+    isLastAssistantMessage: true,
+    activityState,
+  }));
+
+  // TurnActivityStrip renders with accent tone (mapped from 'active')
+  assert.match(html, /turn-activity-strip accent/);
+  // Detail text is shown
+  assert.match(html, /turn-activity-strip-detail">src\/main\.ts</);
+  // Label is shown
+  assert.match(html, /turn-activity-strip-label">running read</);
+  // Running dot is shown for runningTool phase
+  assert.match(html, /turn-activity-strip-dot running/);
+  // Not standalone (inline)
+  assert.doesNotMatch(html, /standalone/);
+});
+
+test('MessageItem renders TurnActivityStrip with neutral tone for thinking phase', async () => {
+  const { MessageItem } = await loadWebviewModules();
+  const activityState: TurnActivityState = {
+    phase: 'thinking',
+    label: 'thinking',
+    tone: 'processing',
+    ariaLabel: 'Agent is thinking',
+  };
+
+  const html = renderToString(h(MessageItem, {
+    message: assistantMessage([{ kind: 'text', text: 'Done' }], { status: 'completed' }),
+    isStreaming: false,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: true,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: () => null,
+    isLastAssistantMessage: true,
+    activityState,
+  }));
+
+  // Neutral tone (no tone class for neutral)
+  assert.match(html, /turn-activity-strip/);
+  assert.doesNotMatch(html, /\.accent/);
+  assert.doesNotMatch(html, /\.warning/);
+  // Running dot for thinking phase
+  assert.match(html, /turn-activity-strip-dot running/);
 });

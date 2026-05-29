@@ -14,11 +14,14 @@ import type {
   ExtensionInfo,
   ModelInfo,
   ModelSettings,
+  PruningCatalog,
+  PruningResult,
   PruningSettings,
   SystemPromptEntry,
   ThinkingLevel,
   TranscriptWindow,
 } from '../../shared/protocol';
+import type { TurnActivityState } from './transcript/activity';
 import { buildContextWindowBreakdown } from './context-window/breakdown';
 import { buildContextWindowIndicatorState } from './context-window/indicator';
 import { buildSessionTokenIndicator, buildSessionTokenUsage, type TokenRateState } from './session-tabs/token-usage';
@@ -38,6 +41,18 @@ export { SessionTabs } from './session-tabs';
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
 
+/**
+ * Build the busy-state composer placeholder from the current turn activity.
+ * Falls back to a generic waiting message when no structured phase is known.
+ */
+function composerBusyPlaceholder(activityState?: TurnActivityState | null): string {
+  if (!activityState) {
+    return 'Waiting for a response...';
+  }
+  const detail = activityState.detail ? ` (${activityState.detail})` : '';
+  return `Agent is ${activityState.label}${detail}…`;
+}
+
 function resizeComposerTextarea(textarea: HTMLTextAreaElement): void {
   textarea.style.height = 'auto';
   textarea.style.height = `${Math.min(textarea.scrollHeight, COMPOSER_TEXTAREA_MAX_HEIGHT)}px`;
@@ -54,6 +69,8 @@ interface ComposerProps {
   contextUsage: ContextWindowUsage | null;
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;
+  pruningCatalog: PruningCatalog;
+  pruningResult: PruningResult | null;
   systemPrompts: SystemPromptEntry[];
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
@@ -61,6 +78,7 @@ interface ComposerProps {
   activeRunSummary?: ActiveRunSummary | null;
   focusTrigger?: string;
   tokenRate: TokenRateState | null;
+  activityState?: TurnActivityState | null;
   onSend: (text: string) => void;
   onInterrupt: () => void;
   onOpenFilePicker: () => void;
@@ -83,6 +101,8 @@ function ComposerView({
   contextUsage,
   prefs,
   pruningSettings,
+  pruningCatalog,
+  pruningResult,
   systemPrompts,
   transcript,
   transcriptWindow,
@@ -90,6 +110,7 @@ function ComposerView({
   activeRunSummary,
   focusTrigger,
   tokenRate,
+  activityState,
   onSend,
   onInterrupt,
   onOpenFilePicker,
@@ -321,7 +342,7 @@ function ComposerView({
   );
   const showAttachmentSummary = pendingComposerInputs.length > 1;
   const composerPlaceholder = busy
-    ? 'Waiting for a response...'
+    ? composerBusyPlaceholder(activityState)
     : 'Ask PI anything...';
 
   return (
@@ -329,6 +350,8 @@ function ComposerView({
       <ComposerToolbar
         prefs={prefs}
         pruningSettings={pruningSettings}
+        pruningCatalog={pruningCatalog}
+        pruningResult={pruningResult}
         onSetPrefs={onSetPrefs}
         onSetPruningSettings={onSetPruningSettings}
         availableExtensions={availableExtensions}

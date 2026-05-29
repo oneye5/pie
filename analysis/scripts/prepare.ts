@@ -4,10 +4,12 @@ import {
   type PreparedAnalyticsData,
   type PreparedBackendErrorRow,
   type PreparedFileExtensionRow,
+  type PreparedPruningEventRow,
   type PreparedRunRow,
   type PreparedToolFailureRow,
   type PreparedToolUsageRow,
   type PreparedVerificationUsageRow,
+  type PruningSourceDecision,
   type SourceAnalyticsPayload,
   type ThinkingLevel,
   type VerificationCommandKind,
@@ -445,6 +447,55 @@ function prepareFileExtensions(run: RunSnapshot, outcome: RunOutcome | null): Pr
   });
 }
 
+function preparePruningEvents(
+  pruningDecisions: PruningSourceDecision[],
+  runs: PreparedRunRow[],
+): PreparedPruningEventRow[] {
+  const runBySessionHash = new Map<string, PreparedRunRow>();
+  for (const run of runs) {
+    runBySessionHash.set(run.sessionPathHash, run);
+  }
+
+  return pruningDecisions.map((d) => {
+    const sessionPathHash = hashToPrefix(d.sessionPath || d.sessionId, 16);
+    const matchedRun = runBySessionHash.get(sessionPathHash);
+    const runId = matchedRun?.runId ?? `pruning-${sessionPathHash}`;
+
+    const skillKept = d.included.length;
+    const skillPruned = d.excluded.length;
+    const skillTokensSaved = d.originalBlockTokens - d.skillBlockTokens;
+    const toolKept = d.toolIncluded?.length ?? 0;
+    const toolPruned = d.toolExcluded?.length ?? 0;
+    const toolTokensSaved = (d.originalToolBlockTokens ?? 0) - (d.toolBlockTokens ?? 0);
+
+    return {
+      runId,
+      sessionPathHash,
+      timestamp: d.timestamp,
+      startedDay: d.timestamp.slice(0, 10),
+      pruningMode: d.mode,
+      query: d.query,
+      llmModel: d.llmModel,
+      llmThinkingLevel: d.llmThinkingLevel,
+      llmLatencyMs: d.llmLatencyMs,
+      skillCountKept: skillKept,
+      skillCountPruned: skillPruned,
+      skillCountTotal: skillKept + skillPruned,
+      skillTokensSaved: Math.max(0, skillTokensSaved),
+      skillTokensOriginal: d.originalBlockTokens,
+      toolCountKept: toolKept,
+      toolCountPruned: toolPruned,
+      toolCountTotal: toolKept + toolPruned,
+      toolTokensSaved: Math.max(0, toolTokensSaved),
+      toolTokensOriginal: d.originalToolBlockTokens ?? 0,
+      keptSkillNames: d.included,
+      prunedSkillNames: d.excluded,
+      keptToolNames: d.toolIncluded ?? [],
+      prunedToolNames: d.toolExcluded ?? [],
+    };
+  });
+}
+
 export function prepareSourceAnalytics(source: SourceAnalyticsPayload): PreparedAnalyticsData {
   const outcomesByRunId = new Map<string, RunOutcome>();
   for (const outcome of source.outcomes) {
@@ -468,6 +519,8 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
     fileExtensions.push(...prepareFileExtensions(run, outcome));
   }
 
+  const pruningEvents = preparePruningEvents(source.pruningDecisions ?? [], runs);
+
   return {
     sourceSchemaVersion: source.schemaVersion,
     sourceExportedAt: source.exportedAt,
@@ -478,5 +531,6 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
     verificationUsage,
     backendErrors,
     fileExtensions,
+    pruningEvents,
   };
 }

@@ -10,6 +10,7 @@ import {
   type ExtensionUIRequestPayload,
   type FileChangeEntry,
   type ModelInfo,
+  type PruningCatalog,
   type PruningDetails,
   type PruningResult,
   type PruningSettings,
@@ -87,6 +88,7 @@ const EMPTY_AVAILABLE_MODELS: ModelInfo[] = [];
 const EMPTY_COMPOSER_INPUTS: ComposerInput[] = [];
 const EMPTY_FILE_CHANGES: FileChangeEntry[] = [];
 const EMPTY_WINDOW: TranscriptWindow = EMPTY_TRANSCRIPT_WINDOW;
+const EMPTY_PRUNING_CATALOG: PruningCatalog = { skills: [], tools: [] };
 
 const selectActiveTranscript = (state: RootState): ChatMessage[] => {
   const path = selectActiveSessionPath(state);
@@ -143,6 +145,35 @@ const selectActiveRunSummary = (state: RootState): ActiveRunSummary | null => {
   if (!path) return null;
   return state.sessionState.activeRunSummaryBySession[path] ?? null;
 };
+
+function sortUniqueNames(names: readonly string[]): string[] {
+  return [...new Set(
+    names
+      .map((name) => name.trim())
+      .filter((name) => name.length > 0),
+  )].sort((a, b) => a.localeCompare(b));
+}
+
+const selectActivePruningCatalog = createSelector(
+  [
+    selectActiveSessionPath,
+    (state: RootState) => state.sessionState.analyticsFactorsBySession,
+  ],
+  (path, analyticsFactorsBySession): PruningCatalog => {
+    if (!path) return EMPTY_PRUNING_CATALOG;
+    const factors = analyticsFactorsBySession[path];
+    if (!factors) return EMPTY_PRUNING_CATALOG;
+
+    return {
+      skills: sortUniqueNames(
+        factors.skills
+          .filter((skill) => !skill.disableModelInvocation)
+          .map((skill) => skill.name),
+      ),
+      tools: sortUniqueNames(factors.selectedToolIds),
+    };
+  },
+);
 
 /**
  * Derive a PruningResult summary from the most recent pruning-result custom
@@ -235,6 +266,7 @@ export const selectViewState = createSelector(
     selectAvailableExtensions,
     selectActivePruningResult,
     (s: RootState) => s.settings.pruningSettings,
+    selectActivePruningCatalog,
     (s: RootState) => s.ui.editingMessageId,
     (s: RootState) => s.ui.showOutcomeDialog,
     (s: RootState) => s.ui.pendingExtensionUIRequest,
@@ -263,6 +295,7 @@ export const selectViewState = createSelector(
     availableExtensions,
     pruningResult,
     pruningSettings,
+    pruningCatalog,
     editingMessageId,
     showOutcomeDialog,
     pendingExtensionUIRequest,
@@ -292,6 +325,7 @@ export const selectViewState = createSelector(
       availableExtensions,
       pruningResult,
       pruningSettings,
+      pruningCatalog,
       editingMessageId,
       showOutcomeDialog,
       pendingExtensionUIRequest,

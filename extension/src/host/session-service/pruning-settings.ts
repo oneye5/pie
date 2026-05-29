@@ -18,6 +18,21 @@ function resolveSettingsPath(): string | null {
 const VALID_MODES = new Set<PruningMode>(['auto', 'shadow', 'off']);
 const VALID_THINKING_LEVELS = new Set<ThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
+function cloneDefaultPruningSettings(): PruningSettings {
+  return {
+    ...DEFAULT_PRUNING_SETTINGS,
+    skillAlwaysKeep: [...DEFAULT_PRUNING_SETTINGS.skillAlwaysKeep],
+    toolAlwaysKeep: [...DEFAULT_PRUNING_SETTINGS.toolAlwaysKeep],
+  };
+}
+
+function parseStringArrayOrDefault(value: unknown, fallback: string[]): string[] {
+  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+    return [...value];
+  }
+  return [...fallback];
+}
+
 /**
  * Read the pruning settings from the on-disk settings.json.
  * Returns defaults when the file is missing or the pruning key is absent.
@@ -25,7 +40,7 @@ const VALID_THINKING_LEVELS = new Set<ThinkingLevel>(['off', 'minimal', 'low', '
 export async function readPruningSettings(): Promise<PruningSettings> {
   const settingsPath = resolveSettingsPath();
   if (!settingsPath) {
-    return { ...DEFAULT_PRUNING_SETTINGS };
+    return cloneDefaultPruningSettings();
   }
 
   try {
@@ -33,7 +48,7 @@ export async function readPruningSettings(): Promise<PruningSettings> {
     const parsed = JSON.parse(raw) as Record<string, unknown>;
     const pruning = parsed.pruning as Record<string, unknown> | undefined;
     if (!pruning || typeof pruning !== 'object') {
-      return { ...DEFAULT_PRUNING_SETTINGS };
+      return cloneDefaultPruningSettings();
     }
 
     const mode = typeof pruning.mode === 'string' && VALID_MODES.has(pruning.mode as PruningMode)
@@ -51,6 +66,16 @@ export async function readPruningSettings(): Promise<PruningSettings> {
       ? tools.ceiling
       : DEFAULT_PRUNING_SETTINGS.toolCeiling;
 
+    const skillAlwaysKeep = parseStringArrayOrDefault(
+      skills?.alwaysKeep,
+      DEFAULT_PRUNING_SETTINGS.skillAlwaysKeep,
+    );
+
+    const toolAlwaysKeep = parseStringArrayOrDefault(
+      tools?.alwaysKeep,
+      DEFAULT_PRUNING_SETTINGS.toolAlwaysKeep,
+    );
+
     const model = typeof pruning.model === 'string' && pruning.model.length > 0
       ? pruning.model
       : DEFAULT_PRUNING_SETTINGS.model;
@@ -63,9 +88,9 @@ export async function readPruningSettings(): Promise<PruningSettings> {
       ? (pruning.thinkingLevel as ThinkingLevel)
       : DEFAULT_PRUNING_SETTINGS.thinkingLevel;
 
-    return { mode, skillCeiling, toolCeiling, model, provider, thinkingLevel };
+    return { mode, skillCeiling, toolCeiling, skillAlwaysKeep, toolAlwaysKeep, model, provider, thinkingLevel };
   } catch {
-    return { ...DEFAULT_PRUNING_SETTINGS };
+    return cloneDefaultPruningSettings();
   }
 }
 
@@ -110,6 +135,22 @@ export async function writePruningSettings(
       ? { ...(pruning.tools as Record<string, unknown>) }
       : {}) as Record<string, unknown>;
     tools.ceiling = updates.toolCeiling;
+    pruning.tools = tools;
+  }
+
+  if (updates.skillAlwaysKeep !== undefined) {
+    const skills = (pruning.skills && typeof pruning.skills === 'object'
+      ? { ...(pruning.skills as Record<string, unknown>) }
+      : {}) as Record<string, unknown>;
+    skills.alwaysKeep = [...updates.skillAlwaysKeep];
+    pruning.skills = skills;
+  }
+
+  if (updates.toolAlwaysKeep !== undefined) {
+    const tools = (pruning.tools && typeof pruning.tools === 'object'
+      ? { ...(pruning.tools as Record<string, unknown>) }
+      : {}) as Record<string, unknown>;
+    tools.alwaysKeep = [...updates.toolAlwaysKeep];
     pruning.tools = tools;
   }
 

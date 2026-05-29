@@ -5,8 +5,8 @@ Personal pi config stack: VS Code extension GUI ("pie"), custom pi extensions, a
 ## Structure
 
 - `extension/` — VS Code extension (TypeScript + Preact webview)
-- `extensions/` — Custom pi tools: `subagent` (delegate to isolated pi processes), `cwd-skills` (auto-discovers `skills/` in cwd), `skill-pruner` (NLP-based skill relevance scoring + prompt pruning)
-- `agents/` — Agent definitions (worker, planner, reviewer, scout)
+- `extensions/` — Custom pi tools: `subagent` (delegate to isolated pi processes), `cwd-skills` (auto-discovers `skills/` in cwd), `skill-pruner` (NLP-based skill relevance scoring + prompt pruning), `safeguard` (blocks dangerous agent operations)
+- `agents/` — Agent definitions (worker, reviewer, scout)
 - `skills/` — Pi skills
 - `settings.json` — Pi settings (model, sessionDir, packages) — tracked, don't commit local overrides
 - `model-profiles.yaml` — Shared model registry: subagent eligibility + per-dimension scores. Read by both the `subagent` extension (for selection) and pie's model picker (for ordering + warnings). When missing, subagents inherit the caller's model and the picker shows models unranked.

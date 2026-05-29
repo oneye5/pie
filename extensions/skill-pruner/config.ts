@@ -12,6 +12,7 @@ export const DEFAULT_TOOL_CONFIG: ToolPruningConfig = {
 		edit: ["read"],
 		subagent: ["bash"],
 	},
+	alwaysKeep: [],
 };
 
 export const DEFAULT_CONFIG: PruningConfig = {
@@ -23,6 +24,7 @@ export const DEFAULT_CONFIG: PruningConfig = {
 		strategy: "discretion",
 		ceiling: 8,
 		pinned: [],
+		alwaysKeep: [],
 	},
 	tools: cloneDefaultToolConfig(),
 };
@@ -40,6 +42,7 @@ function cloneDefault(): PruningConfig {
 			strategy: DEFAULT_CONFIG.skills.strategy,
 			ceiling: DEFAULT_CONFIG.skills.ceiling,
 			pinned: [...DEFAULT_CONFIG.skills.pinned],
+			alwaysKeep: [...DEFAULT_CONFIG.skills.alwaysKeep],
 		},
 		tools: cloneDefaultToolConfig(),
 	};
@@ -52,11 +55,89 @@ function cloneDefaultToolConfig(): ToolPruningConfig {
 		dependencies: Object.fromEntries(
 			Object.entries(DEFAULT_TOOL_CONFIG.dependencies).map(([k, v]) => [k, [...v]]),
 		),
+		alwaysKeep: [...DEFAULT_TOOL_CONFIG.alwaysKeep],
 	};
 }
 
 function warn(message: string): void {
 	console.warn(`[skill-pruner] ${message}`);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return !!value && typeof value === "object";
+}
+
+function isNonEmptyString(value: unknown): value is string {
+	return typeof value === "string" && value.length > 0;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+	return typeof value === "number" && Number.isInteger(value) && value > 0;
+}
+
+function isStringArray(value: unknown): value is string[] {
+	return Array.isArray(value) && value.every((entry) => typeof entry === "string");
+}
+
+function assignEnumValue<T extends string>(
+	value: unknown,
+	allowed: Set<T>,
+	assign: (next: T) => void,
+	invalidMessage: string,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (typeof value === "string" && allowed.has(value as T)) {
+		assign(value as T);
+		return;
+	}
+	warn(invalidMessage);
+}
+
+function assignNonEmptyString(
+	value: unknown,
+	assign: (next: string) => void,
+	invalidMessage: string,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (isNonEmptyString(value)) {
+		assign(value);
+		return;
+	}
+	warn(invalidMessage);
+}
+
+function assignPositiveInteger(
+	value: unknown,
+	assign: (next: number) => void,
+	invalidMessage: string,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (isPositiveInteger(value)) {
+		assign(value);
+		return;
+	}
+	warn(invalidMessage);
+}
+
+function assignStringArray(
+	value: unknown,
+	assign: (next: string[]) => void,
+	invalidMessage: string,
+): void {
+	if (value === undefined) {
+		return;
+	}
+	if (isStringArray(value)) {
+		assign([...value]);
+		return;
+	}
+	warn(invalidMessage);
 }
 
 export function loadConfig(
@@ -75,104 +156,114 @@ export function loadConfig(
 		return cloneDefault();
 	}
 
-	if (!parsed || typeof parsed !== "object" || !("pruning" in parsed)) {
+	if (!isRecord(parsed) || !("pruning" in parsed)) {
 		return cloneDefault();
 	}
 
-	const pruning = (parsed as { pruning?: unknown }).pruning;
-	if (!pruning || typeof pruning !== "object") {
+	const pruning = parsed.pruning;
+	if (!isRecord(pruning)) {
 		warn("settings.pruning must be an object; using pruning defaults");
 		return cloneDefault();
 	}
 
-	const raw = pruning as Record<string, unknown>;
+	const raw = pruning;
 	const config = cloneDefault();
 
 	// Parse top-level fields
-	if (raw.mode !== undefined) {
-		if (typeof raw.mode === "string" && VALID_MODES.has(raw.mode as PruningMode)) {
-			config.mode = raw.mode as PruningMode;
-		} else {
-			warn(`invalid pruning.mode '${String(raw.mode)}'; using default '${DEFAULT_CONFIG.mode}'`);
-		}
-	}
+	assignEnumValue(
+		raw.mode,
+		VALID_MODES,
+		(value) => {
+			config.mode = value;
+		},
+		`invalid pruning.mode '${String(raw.mode)}'; using default '${DEFAULT_CONFIG.mode}'`,
+	);
 
-	if (raw.model !== undefined) {
-		if (typeof raw.model === "string" && raw.model.length > 0) {
-			config.model = raw.model;
-		} else {
-			warn("invalid pruning.model; using default");
-		}
-	}
+	assignNonEmptyString(
+		raw.model,
+		(value) => {
+			config.model = value;
+		},
+		"invalid pruning.model; using default",
+	);
 
-	if (raw.provider !== undefined) {
-		if (typeof raw.provider === "string" && raw.provider.length > 0) {
-			config.provider = raw.provider;
-		} else {
-			warn("invalid pruning.provider; using default");
-		}
-	}
+	assignNonEmptyString(
+		raw.provider,
+		(value) => {
+			config.provider = value;
+		},
+		"invalid pruning.provider; using default",
+	);
 
-	if (raw.thinkingLevel !== undefined) {
-		if (typeof raw.thinkingLevel === "string" && raw.thinkingLevel.length > 0) {
-			config.thinkingLevel = raw.thinkingLevel;
-		} else {
-			warn("invalid pruning.thinkingLevel; using default");
-		}
-	}
+	assignNonEmptyString(
+		raw.thinkingLevel,
+		(value) => {
+			config.thinkingLevel = value;
+		},
+		"invalid pruning.thinkingLevel; using default",
+	);
 
 	// Parse skills config
-	const rawSkills = raw.skills && typeof raw.skills === "object" ? raw.skills as Record<string, unknown> : {};
+	const rawSkills = isRecord(raw.skills) ? raw.skills : {};
 
-	if (rawSkills.strategy !== undefined) {
-		if (typeof rawSkills.strategy === "string" && VALID_STRATEGIES.has(rawSkills.strategy as PruningStrategy)) {
-			config.skills.strategy = rawSkills.strategy as PruningStrategy;
-		} else {
-			warn("invalid pruning.skills.strategy; using default");
-		}
-	}
+	assignEnumValue(
+		rawSkills.strategy,
+		VALID_STRATEGIES,
+		(value) => {
+			config.skills.strategy = value;
+		},
+		"invalid pruning.skills.strategy; using default",
+	);
 
-	if (rawSkills.ceiling !== undefined) {
-		if (typeof rawSkills.ceiling === "number" && Number.isInteger(rawSkills.ceiling) && rawSkills.ceiling > 0) {
-			config.skills.ceiling = rawSkills.ceiling;
-		} else {
-			warn("invalid pruning.skills.ceiling; must be a positive integer; using default");
-		}
-	}
+	assignPositiveInteger(
+		rawSkills.ceiling,
+		(value) => {
+			config.skills.ceiling = value;
+		},
+		"invalid pruning.skills.ceiling; must be a positive integer; using default",
+	);
 
-	if (rawSkills.pinned !== undefined) {
-		if (Array.isArray(rawSkills.pinned) && rawSkills.pinned.every((value) => typeof value === "string")) {
-			config.skills.pinned = [...rawSkills.pinned];
-		} else {
-			warn("invalid pruning.skills.pinned; using default []");
-		}
-	}
+	assignStringArray(
+		rawSkills.pinned,
+		(value) => {
+			config.skills.pinned = value;
+		},
+		"invalid pruning.skills.pinned; using default []",
+	);
+
+	assignStringArray(
+		rawSkills.alwaysKeep,
+		(value) => {
+			config.skills.alwaysKeep = value;
+		},
+		"invalid pruning.skills.alwaysKeep; using default []",
+	);
 
 	// Parse tools config
-	if (raw.tools != null && typeof raw.tools === "object") {
-		const rawTools = raw.tools as Record<string, unknown>;
+	if (isRecord(raw.tools)) {
+		const rawTools = raw.tools;
 
-		if (rawTools.strategy !== undefined) {
-			if (typeof rawTools.strategy === "string" && VALID_STRATEGIES.has(rawTools.strategy as PruningStrategy)) {
-				config.tools!.strategy = rawTools.strategy as PruningStrategy;
-			} else {
-				warn("invalid pruning.tools.strategy; using default");
-			}
-		}
+		assignEnumValue(
+			rawTools.strategy,
+			VALID_STRATEGIES,
+			(value) => {
+				config.tools!.strategy = value;
+			},
+			"invalid pruning.tools.strategy; using default",
+		);
 
-		if (rawTools.ceiling !== undefined) {
-			if (typeof rawTools.ceiling === "number" && Number.isInteger(rawTools.ceiling) && rawTools.ceiling > 0) {
-				config.tools!.ceiling = rawTools.ceiling;
-			} else {
-				warn("invalid pruning.tools.ceiling; must be a positive integer; using default");
-			}
-		}
+		assignPositiveInteger(
+			rawTools.ceiling,
+			(value) => {
+				config.tools!.ceiling = value;
+			},
+			"invalid pruning.tools.ceiling; must be a positive integer; using default",
+		);
 
-		if (rawTools.dependencies && typeof rawTools.dependencies === "object") {
-			const userDeps = rawTools.dependencies as Record<string, unknown>;
+		if (isRecord(rawTools.dependencies)) {
 			const newDependencies: Record<string, string[]> = { ...DEFAULT_TOOL_CONFIG.dependencies };
-			for (const [tool, deps] of Object.entries(userDeps)) {
-				if (Array.isArray(deps) && deps.every((d) => typeof d === "string")) {
+			for (const [tool, deps] of Object.entries(rawTools.dependencies)) {
+				if (isStringArray(deps)) {
 					newDependencies[tool] = deps;
 				} else {
 					warn(`Invalid dependencies for tool '${tool}'; skipping`);
@@ -180,6 +271,14 @@ export function loadConfig(
 			}
 			config.tools!.dependencies = newDependencies;
 		}
+
+		assignStringArray(
+			rawTools.alwaysKeep,
+			(value) => {
+				config.tools!.alwaysKeep = value;
+			},
+			"invalid pruning.tools.alwaysKeep; using default []",
+		);
 	}
 
 	return config;

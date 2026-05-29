@@ -142,8 +142,17 @@ const REASONING_TO_THINKING: ThinkingLevel[] = [
  * Never returns "off" — minimum is "minimal".
  */
 export function reasoningToThinking(reasoningScore: number | undefined): ThinkingLevel {
-	const clamped = Math.max(0, Math.min(5, reasoningScore ?? DEFAULT_SCORE));
-	return REASONING_TO_THINKING[clamped];
+	if (reasoningScore === undefined) {
+		return REASONING_TO_THINKING[DEFAULT_SCORE];
+	}
+	if (Number.isNaN(reasoningScore) || reasoningScore === -Infinity) {
+		return REASONING_TO_THINKING[0];
+	}
+	if (reasoningScore === Infinity) {
+		return REASONING_TO_THINKING[5];
+	}
+	const clamped = Math.max(0, Math.min(5, reasoningScore));
+	return REASONING_TO_THINKING[Math.floor(clamped)];
 }
 
 /**

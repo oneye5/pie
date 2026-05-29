@@ -3,7 +3,7 @@
 
 import { useState } from 'preact/hooks';
 
-import type { PruningResult, SystemPromptEntry } from '../../shared/protocol';
+import type { SystemPromptEntry } from '../../shared/protocol';
 import { renderMarkdown, reasoningSummary } from './markdown';
 import {
   estimateSystemPromptTokens,
@@ -11,7 +11,6 @@ import {
   getSystemPromptTokenEstimateTitle,
 } from './system-prompt-tokens';
 import { ToolCallHeader } from './transcript/tool-call-card';
-import { PruningBanner } from './pruning-banner';
 
 interface SystemPromptCardProps {
   prompt: SystemPromptEntry;
@@ -73,11 +72,10 @@ function SystemPromptCard({ prompt }: SystemPromptCardProps) {
 
 interface SystemPromptMessageProps {
   prompts: SystemPromptEntry[];
-  pruningResult?: PruningResult | null;
 }
 
-export function SystemPromptMessage({ prompts, pruningResult }: SystemPromptMessageProps) {
-  if (prompts.length === 0 && !pruningResult) {
+export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
+  if (prompts.length === 0) {
     return null;
   }
 
@@ -95,30 +93,21 @@ export function SystemPromptMessage({ prompts, pruningResult }: SystemPromptMess
       data-role="assistant"
       data-scroll-anchor-id="system-prompts"
     >
-      {pruningResult && (
-        <div class="pruning-banner-wrapper">
-          <PruningBanner pruningResult={pruningResult} />
+      <div class="message-head">
+        <div class="message-head-main">
+          <span class="message-role">PI</span>
+          <span class="message-time">System prompts</span>
+          {tokenLabel && <span class="message-duration" title={tokenTitle}>{tokenLabel}</span>}
         </div>
-      )}
-      {prompts.length > 0 && (
-        <>
-          <div class="message-head">
-            <div class="message-head-main">
-              <span class="message-role">PI</span>
-              <span class="message-time">System prompts</span>
-              {tokenLabel && <span class="message-duration" title={tokenTitle}>{tokenLabel}</span>}
-            </div>
-          </div>
-          <div class="tool-call-list">
-            {prompts.map((prompt, index) => (
-              <SystemPromptCard
-                key={`${prompt.source}:${prompt.title}:${prompt.summary}:${index}`}
-                prompt={prompt}
-              />
-            ))}
-          </div>
-        </>
-      )}
+      </div>
+      <div class="tool-call-list">
+        {prompts.map((prompt, index) => (
+          <SystemPromptCard
+            key={`${prompt.source}:${prompt.title}:${prompt.summary}:${index}`}
+            prompt={prompt}
+          />
+        ))}
+      </div>
     </div>
   );
 }

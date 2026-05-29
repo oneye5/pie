@@ -203,6 +203,8 @@ export interface SourceAnalyticsPayload {
   completedRuns: RunSnapshot[];
   openRuns: RunSnapshot[];
   outcomes: OutcomeHistoryLogEntry[];
+  /** Raw pruning decisions read from data/pruning.jsonl. */
+  pruningDecisions: PruningSourceDecision[];
 }
 
 export interface LoadedSourceAnalytics {
@@ -393,6 +395,53 @@ export interface PreparedFileExtensionRow {
   resolution: RunOutcomeResolution | null;
 }
 
+/** Raw pruning decision as read from data/pruning.jsonl. */
+export interface PruningSourceDecision {
+  timestamp: string;
+  sessionId: string;
+  sessionPath: string;
+  mode: string;
+  query: string;
+  llmModel: string;
+  llmThinkingLevel: string;
+  llmLatencyMs: number;
+  included: string[];
+  excluded: string[];
+  skillBlockTokens: number;
+  originalBlockTokens: number;
+  toolIncluded?: string[];
+  toolExcluded?: string[];
+  toolBlockTokens?: number;
+  originalToolBlockTokens?: number;
+}
+
+/** Prepared pruning event row for DuckDB. */
+export interface PreparedPruningEventRow {
+  runId: string;
+  sessionPathHash: string;
+  timestamp: string;
+  startedDay: string;
+  pruningMode: string;
+  query: string;
+  llmModel: string;
+  llmThinkingLevel: string;
+  llmLatencyMs: number;
+  skillCountKept: number;
+  skillCountPruned: number;
+  skillCountTotal: number;
+  skillTokensSaved: number;
+  skillTokensOriginal: number;
+  toolCountKept: number;
+  toolCountPruned: number;
+  toolCountTotal: number;
+  toolTokensSaved: number;
+  toolTokensOriginal: number;
+  keptSkillNames: string[];
+  prunedSkillNames: string[];
+  keptToolNames: string[];
+  prunedToolNames: string[];
+}
+
 export interface PreparedAnalyticsData {
   sourceSchemaVersion: number;
   sourceExportedAt: string;
@@ -403,6 +452,7 @@ export interface PreparedAnalyticsData {
   verificationUsage: PreparedVerificationUsageRow[];
   backendErrors: PreparedBackendErrorRow[];
   fileExtensions: PreparedFileExtensionRow[];
+  pruningEvents: PreparedPruningEventRow[];
 }
 
 export interface SiteManifest {

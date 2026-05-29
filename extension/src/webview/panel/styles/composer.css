@@ -392,8 +392,8 @@ button.composer-meta-chip.open:focus {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  min-width: 220px;
-  max-width: 280px;
+  min-width: 240px;
+  max-width: 300px;
   padding: 8px;
   border: 1px solid var(--vscode-menu-border, var(--panel-border));
   border-radius: 10px;
@@ -408,12 +408,13 @@ button.composer-meta-chip.open:focus {
 }
 
 .toolbar-settings-section + .toolbar-settings-section {
-  padding-top: 6px;
+  padding-top: 8px;
   border-top: 1px solid var(--panel-border);
 }
 
 .toolbar-settings-section-label {
   padding: 0 8px;
+  margin-bottom: 2px;
   font-size: 10px;
   line-height: 1.3;
   text-transform: uppercase;
@@ -458,14 +459,15 @@ button.composer-meta-chip.open:focus {
   width: 14px;
   height: 14px;
   border: 1px solid var(--panel-border);
-  border-radius: 3px;
+  border-radius: 4px;
   background: transparent;
   color: var(--panel-accent);
 }
 
 .toolbar-settings-item.checked .toolbar-settings-item-check {
-  border-color: var(--panel-accent);
-  background: var(--panel-subtle-surface);
+  border-color: var(--vscode-checkbox-border, var(--panel-accent));
+  background: var(--vscode-checkbox-background, var(--panel-accent));
+  color: var(--vscode-checkbox-foreground, #fff);
 }
 
 .toolbar-settings-item-label {
@@ -517,11 +519,10 @@ button.composer-meta-chip.open:focus {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding-left: 22px;
-  padding-top: 2px;
-  padding-bottom: 4px;
-  border-left: 1px solid var(--panel-border);
-  margin-left: 15px;
+  background: var(--panel-subtle-surface);
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 8px;
 }
 
 /* Pruning settings: mode select and stepper rows */
@@ -544,12 +545,13 @@ button.composer-meta-chip.open:focus {
   background: var(--vscode-dropdown-background, var(--panel-surface));
   color: var(--vscode-dropdown-foreground, inherit);
   border: 1px solid var(--vscode-dropdown-border, var(--panel-border));
-  border-radius: 3px;
-  padding: 1px 4px;
+  border-radius: 6px;
+  padding: 3px 8px;
   font-size: 11px;
   outline: none;
   min-width: 0;
   max-width: 60%;
+  min-height: 24px;
 }
 
 .toolbar-settings-stepper {
@@ -562,9 +564,9 @@ button.composer-meta-chip.open:focus {
   background: var(--vscode-button-secondaryBackground, var(--panel-subtle-surface));
   color: var(--vscode-button-secondaryForeground, inherit);
   border: 1px solid var(--panel-border);
-  border-radius: 3px;
-  width: 20px;
-  height: 20px;
+  border-radius: 6px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   cursor: pointer;
   font-size: 12px;
@@ -597,7 +599,7 @@ button.composer-meta-chip.open:focus {
 }
 
 .toolbar-settings-slider {
-  width: 80px;
+  width: 96px;
   height: 4px;
   cursor: pointer;
   accent-color: var(--vscode-focusBorder);
@@ -616,6 +618,82 @@ button.composer-meta-chip.open:focus {
 
 .toolbar-settings-test-btn:hover:not(:disabled) {
   background: var(--vscode-list-hoverBackground);
+}
+
+/* Always-keep picker (skills/tools enum select with chips) */
+.toolbar-settings-keep-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  cursor: default;
+}
+
+/* Composer placeholder styling to match activity chips when busy */
+.composer-textarea::placeholder {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--panel-muted);
+  opacity: 0.6;
+}
+
+.toolbar-settings-keep-picker-label {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--panel-muted);
+}
+
+.toolbar-settings-keep-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.toolbar-settings-keep-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px 2px 6px;
+  border-radius: 999px;
+  background: var(--panel-subtle-surface);
+  border: 1px solid var(--panel-border);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--vscode-foreground);
+}
+
+.toolbar-settings-keep-chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--panel-muted);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.toolbar-settings-keep-chip-remove:hover {
+  background: var(--panel-hover-surface);
+  color: var(--vscode-foreground);
+}
+
+.toolbar-settings-keep-picker-wrap {
+  display: flex;
+}
+
+.toolbar-settings-keep-select {
+  width: 100%;
+  max-width: 100%;
 }
 
 .toolbar-settings-test-btn:disabled {

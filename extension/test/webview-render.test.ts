@@ -5,6 +5,8 @@ import DOMPurify from 'dompurify';
 import { h } from 'preact';
 import renderToString from 'preact-render-to-string';
 
+import { TurnActivityStrip } from '../src/webview/panel/transcript/turn-activity-strip.tsx';
+
 import {
   DEFAULT_CHAT_PREFS,
   EMPTY_TRANSCRIPT_WINDOW,
@@ -12,7 +14,10 @@ import {
   type ChatMessagePart,
   type SystemPromptEntry,
   type ToolCall,
+  type PruningDetails,
+  type PruningResult,
 } from '../src/shared/protocol';
+import type { TurnActivityState } from '../src/webview/panel/transcript/activity';
 
 DOMPurify.sanitize = ((html: string) => html) as typeof DOMPurify.sanitize;
 
@@ -182,6 +187,9 @@ test('rendered tool-call components cover collapsed summaries, expanded bodies, 
   assert.match(headerHtml, /tool-call-summary-link/);
   assert.match(headerHtml, /tool-call-file-name/);
   assert.match(headerHtml, /Failed/);
+  assert.match(headerHtml, /role="button"/);
+  assert.match(headerHtml, /tabindex="0"/);
+  assert.match(headerHtml, /Copy tool-call error detail/);
   assert.match(headerHtml, /tool-call-size-hint/);
 
   const expandedToolHtml = renderToString(h(ToolCallItem, {
@@ -262,6 +270,7 @@ test('rendered tool-call components cover collapsed summaries, expanded bodies, 
     renderToolCall: () => null,
   }));
   assert.match(runningSubagentHtml, /subagent-status-running/);
+  assert.match(runningSubagentHtml, /subagent-status-label">Running/);
   assert.match(runningSubagentHtml, /subagent-running-tool/);
 
   const parallelSubagentHtml = renderToString(h(ToolCallItem, {
@@ -505,6 +514,9 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
   }));
 
   assert.match(abortedHtml, /subagent-status-failed has-error-detail/);
+  assert.match(abortedHtml, /role="button"/);
+  assert.match(abortedHtml, /tabindex="0"/);
+  assert.match(abortedHtml, /Copy subagent error detail/);
   assert.match(abortedHtml, /Aborted: cancelled by caller/);
 
   const fallbackHtml = renderToString(h(ToolCallItem, {
@@ -765,8 +777,48 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
   }));
   assert.match(bottomGapHtml, /Loading newer messages…/);
 
+  const pruningActivityState: TurnActivityState = {
+    phase: 'pruning',
+    label: 'pruning skills/tools',
+    tone: 'processing',
+    ariaLabel: 'Agent is pruning skills and tools',
+  };
+
+  const typingRowHtml = renderToString(h(TranscriptVirtualRow, {
+    row: { kind: 'typingIndicator', key: 'typing-row', activityState: pruningActivityState },
+    busy: true,
+    prefs: DEFAULT_CHAT_PREFS,
+    systemPrompts: [prompt],
+    pruningResult: null,
+    workingDirectory: '/repo',
+    editingId: null,
+    isLoadingOlder: false,
+    isLoadingNewer: false,
+    isLastRow: true,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    onRequestOlder: noop,
+    onRequestNewer: noop,
+    renderToolCall: () => null,
+  }));
+  assert.match(typingRowHtml, /activity-status-indicator/);
+  assert.match(typingRowHtml, /aria-label="Agent is pruning skills and tools"/);
+  assert.match(typingRowHtml, /turn-activity-strip warning standalone/);
+  assert.match(typingRowHtml, /turn-activity-strip-label">pruning skills\/tools</);
+  assert.doesNotMatch(typingRowHtml, /turn-activity-strip-dot running/);
+
+  const thinkingActivityState: TurnActivityState = {
+    phase: 'thinking',
+    label: 'thinking',
+    tone: 'processing',
+    ariaLabel: 'Agent is thinking',
+  };
+
   const messageRowHtml = renderToString(h(TranscriptVirtualRow, {
-    row: { kind: 'message', key: 'message-row', message: assistantMessage([{ kind: 'text', text: 'Rendered row' }], { status: 'completed' }) },
+    row: { kind: 'message', key: 'message-row', message: assistantMessage([{ kind: 'text', text: 'Rendered row' }], { status: 'completed' }), activityState: thinkingActivityState }, 
     busy: true,
     prefs: DEFAULT_CHAT_PREFS,
     systemPrompts: [prompt],
@@ -786,7 +838,9 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
     renderToolCall: () => null,
   }));
   assert.match(messageRowHtml, /Rendered row/);
-  assert.match(messageRowHtml, /message-typing-indicator/);
+  assert.match(messageRowHtml, /turn-activity-strip warning/);
+  assert.match(messageRowHtml, /turn-activity-strip-label">thinking</);
+  assert.match(messageRowHtml, /turn-activity-strip-dot running/);
 
   const emptyPromptHtml = renderToString(h(SystemPromptMessage, { prompts: [] }));
   assert.equal(emptyPromptHtml, '');
@@ -799,4 +853,365 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
     isPartial: false,
     hasUserMessages: false,
   });
+});
+
+test('rendered assistant pruning header shows compact counts and expanded diagnostics', async () => {
+  const { MessageItem } = await loadWebviewModules();
+  const { PruningHeaderButton, PruningHeaderChip, PruningHeaderPanel } = await import('../src/webview/panel/transcript/pruning-header.tsx');
+  const { formatPruningSummary, normalizePruningDetails } = await import('../src/webview/panel/transcript/pruning.ts');
+
+  const details: PruningDetails = {
+    includedSkills: ['debugging', 'tests', 'review'],
+    excludedSkills: Array.from({ length: 11 }, (_, i) => `skill-${i}`),
+    includedTools: ['read', 'edit', 'bash', 'write', 'search'],
+    excludedTools: Array.from({ length: 8 }, (_, i) => `tool-${i}`),
+    mode: 'auto',
+    skillTokensSaved: 1200,
+    toolTokensSaved: 880,
+    prepassModel: 'gpt-5-mini',
+    prepassThinkingLevel: 'minimal',
+    prepassLatencyMs: 52,
+    prepassThinking: 'Keep code-editing tools and remove unrelated discovery tools.',
+    prepassSystemPrompt: 'You are a pruner.',
+    prepassUserMessage: 'Choose skills and tools.',
+    prepassResponse: '{"skills":["debugging"]}',
+  };
+
+  assert.equal(
+    formatPruningSummary(details),
+    'Pruned: Kept 3/14 skills, Kept 5/13 tools · Saved ~2080 tokens',
+  );
+
+  const messageHtml = renderToString(h(MessageItem, {
+    message: assistantMessage([{ kind: 'text', text: 'Done' }], { status: 'completed' }),
+    isStreaming: false,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: false,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: () => null,
+    isLastAssistantMessage: false,
+    pruningHeaderState: { kind: 'result', details },
+  }));
+
+  assert.match(messageHtml, /assistant-pruning-chip/);
+  assert.match(messageHtml, /message-head-actions"><button[^>]*assistant-pruning-chip/);
+  assert.match(messageHtml, /Pruned: Kept 3\/14 skills, Kept 5\/13 tools · Saved ~2080 tokens/);
+  assert.doesNotMatch(messageHtml, /Skills pruned/);
+
+  const chipHtml = renderToString(h(PruningHeaderButton, {
+    details,
+    expanded: true,
+    onToggle: noop,
+  }));
+  const pendingChipHtml = renderToString(h(PruningHeaderChip, {
+    state: { kind: 'pending', label: 'pruning skills/tools' },
+    expanded: false,
+    onToggle: noop,
+  }));
+  assert.match(chipHtml, /aria-expanded="true"/);
+  assert.match(chipHtml, /Pruned: Kept 3\/14 skills/);
+  assert.match(pendingChipHtml, /assistant-pruning-chip pending/);
+  assert.match(pendingChipHtml, /agent-activity-text">pruning skills\/tools<\/span>/);
+  assert.doesNotMatch(pendingChipHtml, /aria-expanded=/);
+
+  const panelHtml = renderToString(h(PruningHeaderPanel, {
+    details,
+    rawExpanded: true,
+    onRawToggle: noop,
+  }));
+  assert.match(panelHtml, /Prepass/);
+  assert.match(panelHtml, /gpt-5-mini · minimal · 52ms/);
+  assert.match(panelHtml, /Skills pruned/);
+  assert.match(panelHtml, /Reasoning/);
+  assert.match(panelHtml, /Keep code-editing tools/);
+  assert.match(panelHtml, /Prepass prompts and output/);
+  assert.match(panelHtml, /You are a pruner\./);
+
+  assert.deepEqual(normalizePruningDetails({ prepassError: 'timeout' })?.includedSkills, []);
+});
+
+test('rendered MessageItem keeps pruning pending state in the header without an inline body indicator', async () => {
+  const { MessageItem } = await loadWebviewModules();
+
+  const html = renderToString(h(MessageItem, {
+    message: assistantMessage([], { status: 'completed', modelId: 'gpt-5.4', thinkingLevel: 'xhigh' }),
+    isStreaming: false,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: false,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: () => null,
+    isLastAssistantMessage: true,
+    pruningHeaderState: { kind: 'pending', label: 'pruning skills/tools' },
+  }));
+
+  assert.match(html, /assistant-pruning-chip pending/);
+  assert.match(html, /message-time/);
+  assert.match(html, /assistant-reply-hint">gpt-5\.4 max<\/span>/);
+  assert.match(html, /agent-activity-text">pruning skills\/tools<\/span>/);
+  assert.doesNotMatch(html, /message-typing-indicator/);
+});
+
+test('rendered failed assistant turn exposes copyable error detail and an edit-previous-prompt recovery action', async () => {
+  const { MessageItem } = await loadWebviewModules();
+
+  const userMsg = userMessage({ id: 'user-99', markdown: 'Do the thing' });
+  const failedAssistant = assistantMessage([{ kind: 'text', text: 'Partial' }], {
+    id: 'assistant-99',
+    status: 'error',
+    errorDetail: 'Backend connection reset',
+  });
+  const transcript = [userMsg, failedAssistant];
+
+  const html = renderToString(h(MessageItem, {
+    message: failedAssistant,
+    isStreaming: false,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: false,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: () => null,
+    isLastAssistantMessage: false,
+    transcript,
+    transcriptIndex: 1,
+    hasOlder: false,
+  }));
+
+  // Error detail is shown with a copy affordance.
+  assert.match(html, /Backend connection reset/);
+  assert.match(html, /aria-label="Copy error detail"/);
+  // Recovery action targets the previous user prompt.
+  assert.match(html, /message-retry-btn/);
+  assert.match(html, /Edit previous prompt/);
+  assert.doesNotMatch(html, /Load older messages to retry/);
+});
+
+test('rendered failed assistant turn disables recovery when the previous prompt is outside the loaded window', async () => {
+  const { MessageItem } = await loadWebviewModules();
+
+  const failedAssistant = assistantMessage([{ kind: 'text', text: 'Partial' }], {
+    id: 'assistant-100',
+    status: 'interrupted',
+  });
+
+  const html = renderToString(h(MessageItem, {
+    message: failedAssistant,
+    isStreaming: false,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: false,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: () => null,
+    isLastAssistantMessage: false,
+    transcript: [failedAssistant],
+    transcriptIndex: 0,
+    hasOlder: true,
+  }));
+
+  assert.match(html, /Load older messages to retry/);
+  assert.doesNotMatch(html, /message-retry-btn/);
+});
+
+test('rendered PruningBanner uses real buttons, shows at-a-glance counts, and hides detail content when collapsed', async () => {
+  const { PruningBanner } = await import('../src/webview/panel/pruning-banner.tsx');
+
+  const pruningResult: PruningResult = {
+    skillsKept: 1,
+    skillsTotal: 3,
+    toolsKept: 0,
+    toolsTotal: 2,
+    tokensSaved: 120,
+    hasSkillPruning: true,
+    hasToolPruning: false,
+    details: {
+      includedSkills: ['skill-a'],
+      excludedSkills: ['skill-b', 'skill-c'],
+      includedTools: [],
+      excludedTools: ['tool-a', 'tool-b'],
+      mode: 'auto',
+      skillTokensSaved: 100,
+      toolTokensSaved: 20,
+      prepassFailOpenReason: 'Too few candidates to prune',
+      prepassSystemPrompt: 'You are a pruner',
+      prepassUserMessage: 'Skills: a, b, c',
+      prepassThinking: '',
+      prepassResponse: '{"kept":["a"]}',
+    },
+  };
+
+  const html = renderToString(h(PruningBanner, { pruningResult }));
+
+  // Accessible disclosure button
+  assert.match(html, /<button[^>]*class="pruning-banner-summary"[^>]*>/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.doesNotMatch(html, /role="button"/);
+
+  // At-a-glance counts in summary line
+  assert.match(html, /1\/3 skills kept/);
+  assert.match(html, /0\/2 tools kept/);
+  assert.match(html, /~120 tokens saved/);
+
+  // Collapsed: detail content should NOT be present
+  assert.doesNotMatch(html, /Skills pruned/);
+  assert.doesNotMatch(html, /Fail-open reason/);
+  assert.doesNotMatch(html, /Prepass reasoning/);
+
+  // Error state
+  const errorHtml = renderToString(h(PruningBanner, {
+    pruningResult: {
+      skillsKept: 0,
+      skillsTotal: 0,
+      toolsKept: 0,
+      toolsTotal: 0,
+      tokensSaved: 0,
+      hasSkillPruning: false,
+      hasToolPruning: false,
+      error: 'prepass timeout',
+    },
+  }));
+
+  assert.match(errorHtml, /Pruning failed/);
+  assert.match(errorHtml, /<button[^>]*class="pruning-banner-summary"[^>]*>/);
+  assert.match(errorHtml, /aria-expanded="false"/);
+  assert.doesNotMatch(errorHtml, /role="button"/);
+});
+
+test('rendered PruningInlineCard uses real buttons and shows at-a-glance counts', async () => {
+  const { PruningInlineCard } = await import('../src/webview/panel/transcript/pruning-inline.tsx');
+
+  const details: PruningDetails = {
+    includedSkills: [],
+    excludedSkills: [],
+    includedTools: [],
+    excludedTools: [],
+    mode: 'auto',
+    skillTokensSaved: 0,
+    toolTokensSaved: 0,
+    prepassModel: 'gpt-5.4-mini',
+    prepassLatencyMs: 45,
+    prepassFailOpenReason: 'Nothing to exclude',
+  };
+
+  const html = renderToString(h(PruningInlineCard, {
+    details,
+    fallbackText: 'No pruning performed',
+    createdAt: '2026-05-27T10:00:00.000Z',
+  }));
+
+  // Message wrapper and head
+  assert.match(html, /class="message role-assistant pruning-inline"/);
+  assert.match(html, /PI/);
+  assert.match(html, /skill-pruner/);
+  assert.match(html, /via gpt-5\.4-mini 45ms/);
+
+  // Accessible disclosure button
+  assert.match(html, /<button[^>]*class="pruning-banner-summary"[^>]*>/);
+  assert.match(html, /aria-expanded="false"/);
+  assert.doesNotMatch(html, /role="button"/);
+
+  // Collapsed: expanded detail should NOT be present
+  assert.doesNotMatch(html, /Skills pruned/);
+  assert.doesNotMatch(html, /Fail-open reason/);
+  assert.doesNotMatch(html, /Prepass LLM output/);
+});
+
+test('rendered TurnActivityStrip covers all tones, standalone/inline variants, and runningDot states', async () => {
+  // Neutral tone - inline (no standalone class)
+  const neutralInlineHtml = renderToString(h(TurnActivityStrip, {
+    label: 'thinking',
+    tone: 'neutral',
+    runningDot: false,
+    standalone: false,
+  }));
+  assert.match(neutralInlineHtml, /turn-activity-strip/);
+  assert.doesNotMatch(neutralInlineHtml, /standalone/);
+  assert.doesNotMatch(neutralInlineHtml, /\.accent/);
+  assert.doesNotMatch(neutralInlineHtml, /\.warning/);
+  assert.match(neutralInlineHtml, /role="status"/);
+  assert.match(neutralInlineHtml, /turn-activity-strip-dot/);
+  assert.match(neutralInlineHtml, /turn-activity-strip-label">thinking</);
+  assert.doesNotMatch(neutralInlineHtml, /turn-activity-strip-dot running/);
+
+  // Neutral tone - standalone
+  const neutralStandaloneHtml = renderToString(h(TurnActivityStrip, {
+    label: 'preparing response',
+    tone: 'neutral',
+    runningDot: false,
+    standalone: true,
+  }));
+  assert.match(neutralStandaloneHtml, /turn-activity-strip.*standalone/);
+  assert.match(neutralStandaloneHtml, /role="status"/);
+
+  // Accent tone with runningDot
+  const accentHtml = renderToString(h(TurnActivityStrip, {
+    label: 'running read',
+    tone: 'accent',
+    runningDot: true,
+    standalone: false,
+  }));
+  assert.match(accentHtml, /turn-activity-strip.*accent/);
+  assert.match(accentHtml, /turn-activity-strip-dot running/);
+  assert.match(accentHtml, /turn-activity-strip-label">running read</);
+
+  // Warning tone with detail
+  const warningHtml = renderToString(h(TurnActivityStrip, {
+    label: 'thinking',
+    detail: 'Planning the fix',
+    tone: 'warning',
+    runningDot: true,
+    standalone: false,
+  }));
+  assert.match(warningHtml, /turn-activity-strip.*warning/);
+  assert.match(warningHtml, /turn-activity-strip-detail">Planning the fix</);
+  assert.match(warningHtml, /aria-label="Activity status: thinking, Planning the fix"/);
+
+  // Error tone
+  const errorHtml = renderToString(h(TurnActivityStrip, {
+    label: 'failed',
+    tone: 'error',
+    runningDot: false,
+    standalone: true,
+  }));
+  assert.match(errorHtml, /turn-activity-strip.*error.*standalone/);
+  assert.match(errorHtml, /turn-activity-strip-dot/);
+
+  // Success tone
+  const successHtml = renderToString(h(TurnActivityStrip, {
+    label: 'completed',
+    tone: 'success',
+    runningDot: false,
+    standalone: true,
+  }));
+  assert.match(successHtml, /turn-activity-strip.*success.*standalone/);
+
+  // Without detail, aria-label uses the Activity status prefix
+  const noDetailHtml = renderToString(h(TurnActivityStrip, {
+    label: 'running tools',
+    tone: 'accent',
+    runningDot: true,
+    standalone: false,
+  }));
+  assert.match(noDetailHtml, /aria-label="Activity status: running tools"/);
+  assert.doesNotMatch(noDetailHtml, /turn-activity-strip-detail/);
 });

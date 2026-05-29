@@ -17,6 +17,9 @@ function renderMessage({
   onOpenFile,
   onContextMenu,
   renderToolCall,
+  transcript,
+  transcriptIndex,
+  hasOlder,
 }: RowRendererProps) {
   if (row.kind !== 'message') return null;
 
@@ -39,6 +42,11 @@ function renderMessage({
       onContextMenu={onContextMenu}
       renderToolCall={renderToolCall}
       isLastAssistantMessage={isLastAssistantMessage}
+      pruningHeaderState={row.pruningHeaderState}
+      activityState={row.activityState}
+      transcript={transcript}
+      transcriptIndex={transcriptIndex}
+      hasOlder={hasOlder}
     />
   );
 }

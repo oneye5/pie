@@ -316,10 +316,10 @@ const transcriptSlice = createSlice({
       const { sessionPath, errorDetail } = action.payload;
       const list = state.bySession[sessionPath];
       if (!list) return;
-      // Find the last streaming or most recent assistant message and attach the error.
-      const msg = [...list].reverse().find(
+      const reversed = [...list].reverse();
+      const msg = reversed.find(
         (m) => m.role === 'assistant' && (m.status === 'streaming' || m.status === 'error'),
-      );
+      ) ?? reversed.find((m) => m.role === 'assistant');
       if (msg) {
         msg.status = 'error';
         msg.errorDetail = errorDetail;

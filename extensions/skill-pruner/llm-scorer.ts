@@ -22,7 +22,6 @@ export interface LlmPruningOutput {
 	selectedSkills: string[];
 	selectedTools: string[];
 	rawResponse: string;
-	thinking: string;
 	systemPrompt: string;
 	latencyMs: number;
 }
@@ -116,7 +115,7 @@ export type CompleteSimpleFn = (
 	model: unknown,
 	context: Array<{ role: string; content: string }>,
 	options: Record<string, unknown>,
-) => Promise<{ text: string; thinking?: string }>;
+) => Promise<{ text: string }>;
 
 /**
  * Run the LLM pruning call. Accepts a `completeFn` parameter for testability.
@@ -147,7 +146,6 @@ export async function runLlmPruning(
 		selectedSkills: parsed.skills,
 		selectedTools: parsed.tools,
 		rawResponse: response.text,
-		thinking: response.thinking ?? '',
 		systemPrompt,
 		latencyMs,
 	};

@@ -118,27 +118,45 @@ function PrimaryMeta({ result }: { result: SubagentSingleResult }) {
   );
 }
 
-/** Status indicator: small dot or label at the right side of the header. */
+/** Status indicator chip at the right side of the header. */
 function StatusIndicator({ status, errorDetail }: { status: 'running' | 'failed' | 'completed'; errorDetail?: string }) {
   if (status === 'completed') return null;
   if (status === 'running') {
-    return <span class="subagent-status subagent-status-running" aria-label="Running" />;
+    return (
+      <span class="subagent-status subagent-status-running" aria-label="Running">
+        <span class="subagent-status-label">Running</span>
+      </span>
+    );
   }
 
-  const handleClick = (e: MouseEvent) => {
-    e.stopPropagation();
+  const copyErrorDetail = (target: HTMLElement) => {
     if (!errorDetail) return;
-    const target = e.currentTarget as HTMLElement;
     navigator.clipboard.writeText(errorDetail);
     target.dataset.copied = '';
     setTimeout(() => { delete target.dataset.copied; }, 1200);
+  };
+
+  const handleClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    copyErrorDetail(e.currentTarget as HTMLElement);
+  };
+
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    e.stopPropagation();
+    copyErrorDetail(e.currentTarget as HTMLElement);
   };
 
   return (
     <span
       class={`subagent-status subagent-status-failed${errorDetail ? ' has-error-detail' : ''}`}
       title={errorDetail ?? undefined}
+      role={errorDetail ? 'button' : undefined}
+      tabIndex={errorDetail ? 0 : undefined}
+      aria-label={errorDetail ? 'Copy subagent error detail' : undefined}
       onClick={errorDetail ? handleClick : undefined}
+      onKeyDown={errorDetail ? handleKeyDown : undefined}
     ><span class="subagent-status-label">Failed</span></span>
   );
 }

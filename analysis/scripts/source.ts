@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -9,6 +10,7 @@ import {
   type InputKind,
   type LoadedSourceAnalytics,
   type OutcomeHistoryLogEntry,
+  type PruningSourceDecision,
   type RunFinalizationReason,
   type RunOutcome,
   type RunSnapshot,
@@ -589,7 +591,54 @@ export function coerceSourceAnalyticsPayload(value: unknown): SourceAnalyticsPay
     completedRuns: coerceRunSnapshotArray('completedRuns', value.completedRuns),
     openRuns: coerceRunSnapshotArray('openRuns', value.openRuns),
     outcomes: coerceOutcomeArray(value.outcomes),
+    pruningDecisions: Array.isArray(value.pruningDecisions) ? value.pruningDecisions : [],
   };
+}
+
+function readPruningDecisions(configRoot: string): PruningSourceDecision[] {
+  const pruningPath = path.join(configRoot, 'data', 'pruning.jsonl');
+  let raw: string;
+  try {
+    raw = readFileSync(pruningPath, 'utf8');
+  } catch {
+    return [];
+  }
+  const lines = raw.trim().split('\n').filter((line) => line.trim().length > 0);
+  const decisions: PruningSourceDecision[] = [];
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (
+        typeof parsed.timestamp === 'string' &&
+        typeof parsed.sessionId === 'string' &&
+        typeof parsed.mode === 'string' &&
+        Array.isArray(parsed.included) &&
+        Array.isArray(parsed.excluded)
+      ) {
+        decisions.push({
+          timestamp: parsed.timestamp,
+          sessionId: parsed.sessionId,
+          sessionPath: typeof parsed.sessionPath === 'string' ? parsed.sessionPath : parsed.sessionId,
+          mode: parsed.mode,
+          query: typeof parsed.query === 'string' ? parsed.query : '',
+          llmModel: typeof parsed.llmModel === 'string' ? parsed.llmModel : '',
+          llmThinkingLevel: typeof parsed.llmThinkingLevel === 'string' ? parsed.llmThinkingLevel : '',
+          llmLatencyMs: typeof parsed.llmLatencyMs === 'number' ? parsed.llmLatencyMs : 0,
+          included: parsed.included.filter((s: unknown) => typeof s === 'string'),
+          excluded: parsed.excluded.filter((s: unknown) => typeof s === 'string'),
+          skillBlockTokens: typeof parsed.skillBlockTokens === 'number' ? parsed.skillBlockTokens : 0,
+          originalBlockTokens: typeof parsed.originalBlockTokens === 'number' ? parsed.originalBlockTokens : 0,
+          toolIncluded: Array.isArray(parsed.toolIncluded) ? parsed.toolIncluded.filter((s: unknown) => typeof s === 'string') : [],
+          toolExcluded: Array.isArray(parsed.toolExcluded) ? parsed.toolExcluded.filter((s: unknown) => typeof s === 'string') : [],
+          toolBlockTokens: typeof parsed.toolBlockTokens === 'number' ? parsed.toolBlockTokens : 0,
+          originalToolBlockTokens: typeof parsed.originalToolBlockTokens === 'number' ? parsed.originalToolBlockTokens : 0,
+        });
+      }
+    } catch {
+      // Skip malformed lines
+    }
+  }
+  return decisions;
 }
 
 export async function readSourceAnalyticsPayload(filePath: string): Promise<SourceAnalyticsPayload> {
@@ -611,8 +660,8 @@ export async function readSourceAnalyticsPayload(filePath: string): Promise<Sour
 }
 
 async function querySourceAnalyticsPayloadFromStorageDir(storageDir: string): Promise<SourceAnalyticsPayload> {
-  const queryModuleUrl = pathToFileURL(path.resolve(SCRIPT_DIR, '../../extension/src/host/run-analytics-query.ts')).href;
-  const typesModuleUrl = pathToFileURL(path.resolve(SCRIPT_DIR, '../../extension/src/host/run-analytics-types.ts')).href;
+  const queryModuleUrl = pathToFileURL(path.resolve(SCRIPT_DIR, '../../extension/src/host/run-analytics/query.ts')).href;
+  const typesModuleUrl = pathToFileURL(path.resolve(SCRIPT_DIR, '../../extension/src/host/run-analytics/types.ts')).href;
   const [{ queryRunAnalyticsStore }, { RUN_ANALYTICS_SCHEMA_VERSION: sourceSchemaVersion }] = await Promise.all([
     import(queryModuleUrl),
     import(typesModuleUrl),
@@ -626,28 +675,36 @@ async function querySourceAnalyticsPayloadFromStorageDir(storageDir: string): Pr
     completedRuns: result.completedRuns,
     openRuns: result.openRuns,
     outcomes: result.outcomes,
+    pruningDecisions: [],
   };
 }
 
 export async function loadSourceAnalytics(selection: SourceSelection = {}): Promise<LoadedSourceAnalytics> {
+  const configRoot = path.resolve(SCRIPT_DIR, '..', '..');
   if (selection.exportPath) {
+    const source = await readSourceAnalyticsPayload(selection.exportPath);
+    source.pruningDecisions = readPruningDecisions(configRoot);
     return {
-      source: await readSourceAnalyticsPayload(selection.exportPath),
+      source,
       sourceKind: 'export',
       sourcePath: selection.exportPath,
     };
   }
 
   if (selection.storageDir) {
+    const source = await querySourceAnalyticsPayloadFromStorageDir(selection.storageDir);
+    source.pruningDecisions = readPruningDecisions(configRoot);
     return {
-      source: await querySourceAnalyticsPayloadFromStorageDir(selection.storageDir),
+      source,
       sourceKind: 'storage-dir',
       sourcePath: selection.storageDir,
     };
   }
 
+  const source = await readSourceAnalyticsPayload(DEFAULT_FIXTURE_PATH);
+  source.pruningDecisions = readPruningDecisions(configRoot);
   return {
-    source: await readSourceAnalyticsPayload(DEFAULT_FIXTURE_PATH),
+    source,
     sourceKind: 'fixture',
     sourcePath: DEFAULT_FIXTURE_PATH,
   };

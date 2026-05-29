@@ -242,6 +242,65 @@ test('message_end emits finished and aborted payloads and clears the current mes
   }
 });
 
+test('message_end emits custom transcript messages for displayed extension output', () => {
+  const { deps, emitted, getContextUsageChangedCount } = createDeps();
+  const context = createContext({
+    activeRequest: {
+      id: 'req-custom',
+      messageIndex: 0,
+      aborted: false,
+    },
+  });
+
+  handleSdkSessionEvent(deps, context, {
+    type: 'message_end',
+    message: {
+      role: 'custom',
+      customType: 'pruning-result',
+      content: 'Pruned: Kept 4/14 skills, Kept 8/13 tools · Saved ~1815 tokens',
+      details: {
+        includedSkills: ['systematic-debugging'],
+        excludedSkills: ['frontend-design'],
+        includedTools: ['read'],
+        excludedTools: ['web_search'],
+        mode: 'auto',
+        skillTokensSaved: 100,
+        toolTokensSaved: 50,
+      },
+      timestamp: Date.UTC(2026, 0, 1, 0, 0, 1),
+    },
+  } as SdkSessionEvent);
+
+  assert.deepEqual(emitted, [{
+    event: 'message.custom',
+    payload: {
+      requestId: 'req-custom',
+      sessionPath: '/workspace/session.jsonl',
+      message: {
+        id: 'req-custom:custom:1',
+        role: 'system',
+        createdAt: '2026-01-01T00:00:01.000Z',
+        markdown: 'Pruned: Kept 4/14 skills, Kept 8/13 tools · Saved ~1815 tokens',
+        status: 'completed',
+        customType: 'pruning-result',
+        customDetails: {
+          includedSkills: ['systematic-debugging'],
+          excludedSkills: ['frontend-design'],
+          includedTools: ['read'],
+          excludedTools: ['web_search'],
+          mode: 'auto',
+          skillTokensSaved: 100,
+          toolTokensSaved: 50,
+        },
+      },
+    },
+  }]);
+  assert.equal(context.activeRequest?.customMessageIndex, 1);
+  assert.equal(context.activeRequest?.currentMessageId, undefined);
+  assert.equal(context.activeRequest?.lastAssistantMessageId, undefined);
+  assert.equal(getContextUsageChangedCount(), 1);
+});
+
 test('agent_end emits busy false, refreshes session state, and aborts requests with no message id', async () => {
   const { deps, emitted, busy, sessionOpened, getListChangedCount, getContextUsageChangedCount } = createDeps();
   const context = createContext({

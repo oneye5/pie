@@ -8,6 +8,7 @@ import {
   validateMessageSend,
   validateRuntimePrefsSet,
   validateSessionCreate,
+  validateSessionDuplicate,
   validateSessionOpen,
   validateSessionPath,
   validateSessionPathOptional,
@@ -36,6 +37,20 @@ test('session create/open validators reject invalid payloads and selection token
   assert.throws(() => validateSessionCreate({ cwd: 123 }), /cwd must be a string/);
   assert.throws(() => validateSessionCreate({ selectionToken: 123 }), /selectionToken must be a string/);
   assert.throws(() => validateSessionOpen({ sessionPath: '/repo/session.jsonl', selectionToken: 123 }), /selectionToken must be a string/);
+});
+
+test('session duplicate validator requires a sessionPath and optionally accepts selectionToken', () => {
+  assert.deepEqual(validateSessionDuplicate({ sessionPath: '/repo/session.jsonl' }), {
+    sessionPath: '/repo/session.jsonl',
+    selectionToken: undefined,
+  });
+  assert.deepEqual(validateSessionDuplicate({ sessionPath: '/repo/session.jsonl', selectionToken: 'sel-1' }), {
+    sessionPath: '/repo/session.jsonl',
+    selectionToken: 'sel-1',
+  });
+  assert.throws(() => validateSessionDuplicate('bad'), /expected an object/);
+  assert.throws(() => validateSessionDuplicate({ sessionPath: '' }), /requires a string sessionPath/);
+  assert.throws(() => validateSessionDuplicate({ sessionPath: '/repo/session.jsonl', selectionToken: 123 }), /selectionToken must be a string/);
 });
 
 test('transcript page and truncation validators cover range edge cases', () => {

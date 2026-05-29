@@ -11,6 +11,7 @@ export interface ActiveRequest {
   currentMessageId?: string;
   lastAssistantMessageId?: string;
   currentMessageStartedAt?: number;
+  customMessageIndex?: number;
   aborted: boolean;
 }
 

@@ -20,7 +20,7 @@ export interface SdkSessionEvent {
     | 'tool_execution_end'
     | string;
   message?: {
-    role?: 'user' | 'assistant';
+    role?: 'user' | 'assistant' | 'custom';
     content?: unknown;
     stopReason?: string;
     usage?: {
@@ -162,6 +162,7 @@ export interface SdkModule {
     continueRecent: (cwd: string) => SdkSessionManager;
     create: (cwd: string) => SdkSessionManager;
     open: (sessionPath: string) => SdkSessionManager;
+    forkFrom: (sourcePath: string, targetCwd: string, sessionDir?: string) => SdkSessionManager;
     listAll: () => Promise<SdkSessionInfo[]>;
   };
   createAgentSessionServices: (options: unknown) => Promise<unknown>;
