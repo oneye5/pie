@@ -1,44 +1,33 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
+import { h } from 'preact';
+import renderToString from 'preact-render-to-string';
 
 async function readToolCallCss() {
   return readFile(new URL('../src/webview/panel/styles/tool-call.css', import.meta.url), 'utf8');
 }
 
 test('collapsed tool-call headers keep titles ahead of summary text', async () => {
-  const css = await readToolCallCss();
-  const headingRule = css.match(/\.tool-call-heading\.with-summary,\s*\.tool-call-heading\.with-size-hint\s*\{[\s\S]*?\n\}/);
-  const nameRule = css.match(/\.tool-call-name\.with-summary\s*\{[\s\S]*?\n\}/);
-  const summaryRule = css.match(/\.tool-call-summary\s*\{[\s\S]*?\n\}/);
-  const summaryLinkRule = css.match(/\.tool-call-summary-link\s*\{[\s\S]*?\n\}/);
-  const sizeHintRule = css.match(/\.tool-call-size-hint\s*\{[\s\S]*?\n\}/);
-  const emptyHintRule = css.match(/\.tool-call-size-hint\.is-empty\s*\{[\s\S]*?\n\}/);
+  const { ToolCallHeader } = await import('../src/webview/panel/transcript/tool-call-card.tsx');
+  const html = renderToString(h(ToolCallHeader, {
+    open: false,
+    name: 'read',
+    nameTitle: 'Read file',
+    status: 'completed',
+    summary: 'src/example.ts',
+    summaryPath: '/repo/src/example.ts',
+    sizeHint: '+3 lines',
+    onOpenFile: () => {},
+  }));
 
-  assert.ok(headingRule, 'expected collapsed heading rule in tool-call.css');
-  assert.ok(!/grid-template-columns:/.test(headingRule[0]), 'collapsed headings should use flex layout, not grid columns');
-  assert.match(headingRule[0], /gap:\s*6px;/);
-
-  assert.ok(nameRule, 'expected name rule in tool-call.css');
-  assert.match(nameRule[0], /max-width:\s*none;/);
-
-  assert.ok(summaryRule, 'expected summary rule in tool-call.css');
-  assert.match(summaryRule[0], /display:\s*block;/);
-  assert.match(summaryRule[0], /flex:\s*0 1 auto;/);
-  assert.match(summaryRule[0], /max-width:\s*var\(--tool-call-summary-column-width\);/);
-
-  assert.ok(summaryLinkRule, 'expected summary-link rule in tool-call.css');
-  assert.match(summaryLinkRule[0], /display:\s*block;/);
-  assert.match(summaryLinkRule[0], /flex:\s*0 1 auto;/);
-  assert.match(summaryLinkRule[0], /max-width:\s*var\(--tool-call-summary-column-width\);/);
-
-  assert.ok(sizeHintRule, 'expected size-hint rule in tool-call.css');
-  assert.match(sizeHintRule[0], /display:\s*block;/);
-  assert.match(sizeHintRule[0], /flex:\s*0 0 var\(--tool-call-size-column-width\);/);
-  assert.match(sizeHintRule[0], /margin-left:\s*auto;/);
-
-  assert.ok(emptyHintRule, 'expected empty size-hint rule in tool-call.css');
-  assert.match(emptyHintRule[0], /display:\s*none;/);
+  assert.match(html, /flex min-w-0 flex-1 items-center/);
+  assert.doesNotMatch(html, /grid-template-columns:/);
+  assert.match(html, /min-w-0 flex-auto truncate font-mono text-xs font-semibold/);
+  assert.match(html, /max-w-\[var\(--tool-call-summary-column-width\)\]/);
+  assert.match(html, /flex-\[0_1_auto\]/);
+  assert.match(html, /flex-\[0_0_var\(--tool-call-size-column-width\)\]/);
+  assert.match(html, /ml-auto/);
 });
 
 test('subagent headers keep score badges ahead of summary text without extra model or thinking chrome', async () => {

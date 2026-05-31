@@ -1,3 +1,5 @@
+/* MIGRATED: .message.editable[data-role="user"]:hover */
+
 .panel-main {
   flex: 1;
   min-height: 0;
@@ -106,7 +108,3 @@
   color: var(--vscode-foreground);
 }
 
-.message.editable[data-role="user"]:hover {
-  border-color: var(--vscode-focusBorder, var(--panel-accent));
-  opacity: 0.95;
-}

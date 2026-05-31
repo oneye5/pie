@@ -6,6 +6,7 @@ import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import esbuild from 'esbuild';
+import tailwindPlugin from 'esbuild-plugin-tailwindcss';
 
 const rootDir = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const srcDir = path.join(rootDir, 'src');
@@ -66,7 +67,7 @@ function createWebviewCssBuildOptions() {
     outfile: path.join(outDir, 'webview', webviewViewName, `${webviewViewName}.css`),
     sourcemap: true,
     target: 'es2022',
-    loader: { '.css': 'css' },
+    plugins: [tailwindPlugin()],
   };
 }
 

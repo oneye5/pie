@@ -346,10 +346,9 @@ test('MessageItem stabilizes layout during streaming via class hooks and footer 
     hasOlder: false,
   }));
 
-  // `streaming` activates the fixed-width rule (prevents horizontal token growth).
-  assert.match(html, /class="message role-assistant[^"]*\bstreaming\b/, 'streaming class should be applied');
-  // `has-activity` + the footer slot reserve a constant footer height for the turn.
-  assert.match(html, /class="message role-assistant[^"]*\bhas-activity\b/, 'has-activity class should be applied');
+  // Streaming activates the fixed-width utility (prevents horizontal token growth).
+  assert.match(html, /w-\[min\(var\(--message-assistant-width\),100%\)\]/, 'streaming width utility should be applied');
+  // The footer slot reserves a constant footer height for the turn.
   assert.match(html, /message-activity-footer/, 'activity footer slot should render');
 });
 

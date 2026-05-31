@@ -93,16 +93,6 @@ body {
   background: var(--vscode-sideBar-background, var(--panel-surface));
 }
 
-button,
-textarea,
-select {
-  font: inherit;
-}
-
-button {
-  color: inherit;
-}
-
 :focus-visible {
   outline: 1px solid var(--panel-accent);
   outline-offset: 2px;

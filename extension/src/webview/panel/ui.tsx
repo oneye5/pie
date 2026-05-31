@@ -36,6 +36,7 @@ import {
 import { ComposerAttachments } from './composer/attachments';
 import { ComposerToolbar } from './composer/toolbar';
 import { getComposerRunControls } from './session-tabs/run-state';
+import { cx } from './utils/cx';
 export { SessionTabs } from './session-tabs';
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
@@ -330,7 +331,7 @@ function ComposerView({
   const composerPlaceholder = '';
 
   return (
-    <div class="composer-area" ref={composerAreaRef}>
+    <div class="flex shrink-0 flex-col gap-1.5 border-t border-border/50 bg-surface px-3 py-2 pb-2.5" ref={composerAreaRef}>
       <ComposerToolbar
         prefs={prefs}
         pruningSettings={pruningSettings}
@@ -363,7 +364,10 @@ function ComposerView({
 
       <div
         ref={composerShellRef}
-        class={`composer-input-shell${isDragActive ? ' drag-active' : ''}`}
+        class={cx(
+          'flex flex-col gap-1.5 rounded-xl border border-border bg-input px-2 py-1.5 pb-2 transition-colors duration-150',
+          isDragActive && 'border-accent/40 bg-accent/5',
+        )}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}
         onDrop={handleDrop}
@@ -376,7 +380,7 @@ function ComposerView({
         />
         <textarea
           ref={textareaRef}
-          class="composer-textarea"
+          class="max-h-[200px] min-h-10 w-full resize-none border-0 bg-transparent p-0 leading-normal text-foreground outline-none placeholder:text-muted/60"
           rows={1}
           placeholder={composerPlaceholder}
           value={text}
@@ -385,7 +389,7 @@ function ComposerView({
           onPaste={handlePaste}
           aria-label="Message composer"
         />
-        <div class="composer-actions">
+        <div class="flex flex-wrap items-center justify-end gap-2">
           <button
             class="action-btn icon-only"
             type="button"

@@ -1,3 +1,6 @@
+/* MIGRATED: .message.pruning-inline, .message.pruning-inline .pruning-banner */
+/* REMAINING: .pruning-banner* settings-menu pruning banner styles */
+
 .pruning-banner-wrapper {
   margin-bottom: 6px;
 }
@@ -123,16 +126,6 @@
     grid-template-columns: 1fr;
     gap: 2px;
   }
-}
-
-/* Inline pruning card rendered as a message between user prompt and assistant reply */
-.message.pruning-inline {
-  /* inherits .message styling; banner is the only body */
-}
-.message.pruning-inline .pruning-banner {
-  margin-top: 4px;
-  border-color: color-mix(in srgb, var(--panel-accent) 18%, var(--panel-border));
-  background: color-mix(in srgb, var(--panel-accent-surface) 45%, var(--panel-control-surface));
 }
 
 /* "Edited" indicator on the System Prompts header */

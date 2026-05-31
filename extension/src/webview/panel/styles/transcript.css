@@ -1,4 +1,7 @@
-﻿.transcript {
+﻿/* MIGRATED: .transcript-virtual-row, .message, .message.role-user, .message.role-assistant, .message.role-system, .message.role-assistant.streaming, .message-head, .message-head-main, .message-head-actions, .message-role, .message-time, .message-duration, .assistant-reply-hint */
+/* REMAINING: transcript shell, activity indicators, message body markdown, error/recovery UI, user images */
+
+.transcript {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
@@ -24,18 +27,6 @@
   position: relative;
   width: 100%;
   min-height: 100%;
-}
-
-.transcript-virtual-row {
-  position: absolute;
-  top: 0;
-  inset-inline-start: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  padding-bottom: 6px;
-  box-sizing: border-box;
 }
 
 .transcript-gap-row {
@@ -328,106 +319,6 @@
   margin-left: 6px;
 }
 
-.message {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 10px 12px;
-  border: 1px solid var(--panel-border-subtle);
-  border-radius: var(--panel-radius-xl);
-  background: var(--panel-card-surface);
-  box-shadow: var(--panel-shadow-sm);
-  max-width: 88%;
-  align-self: flex-start;
-  width: fit-content;
-  min-width: 0;
-}
-
-.message.role-user {
-  align-self: flex-end;
-  background: color-mix(in srgb, var(--panel-accent) 6%, var(--panel-card-surface));
-  border-color: color-mix(in srgb, var(--panel-accent) 18%, var(--panel-border));
-  border-bottom-right-radius: var(--panel-radius-sm);
-}
-
-.message.role-assistant {
-  border-bottom-left-radius: var(--panel-radius-sm);
-}
-
-/* Stable width during streaming — prevents horizontal token-by-token growth */
-.message.role-assistant.streaming {
-  width: min(var(--message-assistant-width), 100%);
-}
-
-/* Current-turn state class: marks the assistant turn being actively sent to */
-.message.role-assistant.current-turn {
-  /* No visual changes by default; used as a hook for activity strip positioning */
-}
-
-/* Has-activity: ensures the activity strip has reserved space inside the turn */
-.message.role-assistant.has-activity {
-  /* No visual changes by default; used as a hook for min-height and strip placement */
-}
-
-/* Narrow sidebar: let streaming messages fill more width */
-@media (max-width: 340px) {
-  .message.role-assistant.streaming {
-    width: min(var(--message-assistant-width-narrow), 100%);
-  }
-}
-
-.message.role-system {
-  align-self: stretch;
-  max-width: none;
-  width: auto;
-  background: var(--panel-control-surface);
-  border-color: color-mix(in srgb, var(--panel-muted) 20%, var(--panel-border));
-}
-
-.message-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.message-head-main,
-.message-head-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.message-head-main {
-  min-width: 0;
-}
-
-.message-head-actions {
-  justify-content: flex-end;
-  min-width: 0;
-  margin-left: auto;
-}
-
-.message-role {
-  font-size: 10px;
-  line-height: 1;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--panel-muted);
-}
-
-.message-time {
-  font-size: 11px;
-  color: var(--panel-muted);
-}
-
-.message-duration {
-  font-size: 10px;
-  color: var(--panel-muted);
-  opacity: 0.6;
-}
-
 .message-error-detail {
   margin: 4px 0 6px;
   padding: 6px 10px;
@@ -469,14 +360,6 @@
 .message-error-detail-btn:hover {
   opacity: 1;
   background: var(--panel-control-hover);
-}
-
-.assistant-reply-hint {
-  min-width: 0;
-  font-size: 10px;
-  color: var(--panel-muted);
-  opacity: 0.78;
-  overflow-wrap: anywhere;
 }
 
 .message-body {

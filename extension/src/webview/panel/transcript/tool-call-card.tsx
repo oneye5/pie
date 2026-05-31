@@ -2,6 +2,7 @@
 /** @jsxImportSource preact */
 
 import type { ToolCall } from '../../../shared/protocol';
+import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
 
 import { formatDuration } from './header';
@@ -81,6 +82,14 @@ export function splitSummaryPath(summary: string): { pathSection: string | null;
   };
 }
 
+export function DisclosureChevron({ open }: { open: boolean }) {
+  return (
+    <svg class={cx('shrink-0 text-muted transition-transform duration-150', open && 'rotate-90')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+      <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+    </svg>
+  );
+}
+
 export function ToolCallHeader({ open, name, nameTitle, status, summary, summaryPath, sizeHint, errorDetail, durationMs, onOpenFile }: ToolCallHeaderProps) {
   const statusTone =
     status === 'running' ? 'running'
@@ -99,17 +108,15 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
       : null;
 
   return (
-    <div class="tool-call-header">
-      <svg class={`thinking-block-chevron${open ? ' open' : ''}`} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-        <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
-      <div class={`tool-call-heading${showSummary ? ' with-summary' : ''}${showSizeHint && !showSummary ? ' with-size-hint' : ''}`}>
-        <span class={`tool-call-name${showSummary ? ' with-summary' : ''}`} title={nameTitle}>{name}</span>
+    <div class="flex items-center gap-[7px] rounded-md px-2 py-[5px]">
+      <DisclosureChevron open={open} />
+      <div class={cx('flex min-w-0 flex-1 items-center gap-2', (showSummary || showSizeHint) && 'gap-1.5')}>
+        <span class="min-w-0 flex-auto truncate font-mono text-xs font-semibold" title={nameTitle}>{name}</span>
         {showSummary ? (
           summaryPath ? (
             <button
               type="button"
-              class="tool-call-summary-link"
+              class="group block min-w-0 max-w-[var(--tool-call-summary-column-width)] flex-[0_1_auto] cursor-pointer rounded-md border-0 bg-transparent p-0 text-left focus-visible:outline-1 focus-visible:outline-accent focus-visible:outline-offset-1"
               title={summaryPath}
               onMouseDown={(e) => e.stopPropagation()}
               onKeyDown={(e) => e.stopPropagation()}
@@ -119,17 +126,17 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
               }}
             >
               {pathSummary ? (
-                <span class="tool-call-summary tool-call-summary-file">
-                  <span class={`tool-call-file-path${pathSummary.pathSection ? '' : ' is-empty'}`}><span class="tool-call-file-path-text">{pathSummary.pathSection ?? ''}</span></span>
-                  <span class="tool-call-file-name">{pathSummary.fileSection}</span>
+                <span class="flex min-w-0 items-center gap-1.5">
+                  <span class={cx('block min-w-0 truncate text-left font-mono text-[11px] text-muted opacity-70 [direction:rtl] transition-colors duration-150 group-hover:opacity-85 group-focus-visible:opacity-85', !pathSummary.pathSection && 'opacity-0')}><span class="[direction:ltr] [unicode-bidi:isolate]">{pathSummary.pathSection ?? ''}</span></span>
+                  <span class="inline-flex min-w-0 max-w-full flex-none items-center truncate rounded-sm bg-control px-[7px] py-px font-mono text-[11px] text-foreground ring-1 ring-inset ring-border-subtle transition-colors duration-150 group-hover:bg-control-hover group-hover:ring-border group-focus-visible:bg-control-hover group-focus-visible:ring-border">{pathSummary.fileSection}</span>
                 </span>
-              ) : <span class="tool-call-summary">{summary}</span>}
+              ) : <span class="block min-w-0 max-w-[var(--tool-call-summary-column-width)] flex-[0_1_auto] truncate font-mono text-[11px] text-muted">{summary}</span>}
             </button>
-          ) : <span class="tool-call-summary">{summary}</span>
+          ) : <span class="block min-w-0 max-w-[var(--tool-call-summary-column-width)] flex-[0_1_auto] truncate font-mono text-[11px] text-muted">{summary}</span>
         ) : null}
-        {showSizeHint && <span class="tool-call-size-hint">{sizeHint}</span>}
+        {showSizeHint && <span class="ml-auto block min-w-0 max-w-[var(--tool-call-size-column-width)] flex-[0_0_var(--tool-call-size-column-width)] truncate text-right font-mono text-[10px] text-muted/50">{sizeHint}</span>}
       </div>
-      {durationLabel && <span class="tool-call-duration" title="Tool execution time">{durationLabel}</span>}
+      {durationLabel && <span class="ml-auto flex-none whitespace-nowrap font-mono text-[10px] text-muted/60 [font-variant-numeric:tabular-nums]" title="Tool execution time">{durationLabel}</span>}
       {statusTone && statusLabel && (
         <StatusChip
           tone={statusTone}
@@ -153,13 +160,19 @@ export function ToolCallCard({
 }: ToolCallCardProps) {
   const [open, setOpen] = useDisclosureOpen(`tool:${toolCall.id}`, autoExpand);
   const presentation = getToolCallPresentation(toolCall, { workingDirectory });
-  const variantClass = presentation.variant ? ` tool-call-variant-${presentation.variant}` : '';
-  const customClass = className ? ` ${className}` : '';
   const errorDetail = toolCall.status === 'failed' ? formatToolCallResultForDisplay(toolCall) || undefined : undefined;
 
   return (
     <div
-      class={`tool-call ${toolCall.status}${variantClass}${customClass}`}
+      class={cx(
+        'cursor-pointer select-none overflow-hidden rounded-xl border-l-2 border-l-transparent bg-card shadow-sm transition-all duration-150 hover:bg-control-hover hover:shadow-md',
+        'forced-colors:border forced-colors:border-[ButtonText]',
+        toolCall.status === 'running' && 'border-l-accent/40',
+        toolCall.status === 'failed' && 'border-l-danger/50',
+        toolCall.status === 'completed' && 'border-l-success/30',
+        presentation.variant === 'skill-load' && 'bg-accent/5',
+        className,
+      )}
       role="button"
       aria-expanded={open}
       tabIndex={0}

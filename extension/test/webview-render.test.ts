@@ -166,7 +166,8 @@ test('rendered MessageItem covers assistant, editable user, and image-user branc
     disclosureKey: 'reasoning:test',
     onContextMenu: noop,
   }));
-  assert.match(reasoningHtml, /thinking-block-summary/);
+  assert.match(reasoningHtml, /Reasoning/);
+  assert.match(reasoningHtml, /Collapsed summary text/);
 });
 
 test('rendered tool-call components cover collapsed summaries, expanded bodies, and subagent metadata', async () => {
@@ -185,14 +186,14 @@ test('rendered tool-call components cover collapsed summaries, expanded bodies, 
     onOpenFile: noop,
   }));
 
-  assert.match(headerHtml, /tool-call-summary-link/);
-  assert.match(headerHtml, /tool-call-file-name/);
+  assert.match(headerHtml, /title="\/repo\/src\/example.ts"/);
+  assert.match(headerHtml, /example\.ts/);
   assert.match(headerHtml, /Failed/);
   assert.match(headerHtml, /role="button"/);
   assert.match(headerHtml, /tabindex="0"/);
   assert.match(headerHtml, /Copy tool-call error detail/);
-  assert.match(headerHtml, /tool-call-size-hint/);
-  assert.match(headerHtml, /tool-call-duration/);
+  assert.match(headerHtml, /\+3 lines/);
+  assert.match(headerHtml, /Tool execution time/);
   assert.match(headerHtml, /1\.5s/);
 
   const expandedToolHtml = renderToString(h(ToolCallItem, {
@@ -645,8 +646,8 @@ test('rendered parallel subagent cards keep per-child summaries and statuses whi
   assert.match(html, /Review output/);
   assert.doesNotMatch(html, /scout: Gather logs/);
   assert.doesNotMatch(html, /reviewer: Review output/);
-  assert.equal((html.match(/tool-call tool-call-subagent running/g) ?? []).length, 1);
-  assert.equal((html.match(/tool-call tool-call-subagent failed/g) ?? []).length, 1);
+  assert.equal((html.match(/tool-call tool-call-legacy-shell tool-call-subagent running/g) ?? []).length, 1);
+  assert.equal((html.match(/tool-call tool-call-legacy-shell tool-call-subagent failed/g) ?? []).length, 1);
   assert.equal((html.match(/status-chip-running/g) ?? []).length, 1);
   assert.equal((html.match(/status-chip-failed/g) ?? []).length, 1);
 });
@@ -683,7 +684,7 @@ test('rendered SystemPromptMessage covers summary fallbacks, suppressed summarie
   assert.match(html, /Plan carefully before editing\. Keep notes\./);
   assert.doesNotMatch(html, /Configured elsewhere\.<\/span>/);
   assert.doesNotMatch(html, />Unavailable<\/span>/);
-  assert.match(html, /message-duration/);
+  assert.match(html, /~12 tokens/);
   assert.match(html, /not included/i);
 
   const zeroTokenHtml = renderToString(h(SystemPromptMessage, {
@@ -697,7 +698,7 @@ test('rendered SystemPromptMessage covers summary fallbacks, suppressed summarie
   }));
 
   assert.match(zeroTokenHtml, /Blank prompt/);
-  assert.doesNotMatch(zeroTokenHtml, /message-duration/);
+  assert.doesNotMatch(zeroTokenHtml, /~\d+ tokens/);
 });
 
 test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap rows', async () => {
@@ -712,7 +713,7 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
 
   const systemPromptHtml = renderToString(h(SystemPromptMessage, { prompts: [prompt] }));
   assert.match(systemPromptHtml, /System prompts/);
-  assert.match(systemPromptHtml, /system-prompt-card/);
+  assert.match(systemPromptHtml, /rounded-lg bg-control\/40/);
   assert.match(systemPromptHtml, /Harness system prompt/);
 
   const hiddenSummaryHtml = renderToString(h(SystemPromptMessage, {
@@ -734,7 +735,7 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
     ],
   }));
   assert.match(hiddenSummaryHtml, /Provider system prompt/);
-  assert.doesNotMatch(hiddenSummaryHtml, /tool-call-summary/);
+  assert.doesNotMatch(hiddenSummaryHtml, /max-w-\[var\(--tool-call-summary-column-width\)\]/);
 
   const topGapHtml = renderToString(h(TranscriptVirtualRow, {
     row: { kind: 'topGap', key: 'top-gap' },
@@ -902,8 +903,7 @@ test('rendered assistant pruning header shows compact counts and expanded diagno
     pruningHeaderState: { kind: 'result', details },
   }));
 
-  assert.match(messageHtml, /assistant-pruning-chip/);
-  assert.match(messageHtml, /message-head-actions"><button[^>]*assistant-pruning-chip/);
+  assert.match(messageHtml, /aria-label="Pruned: Kept 3\/14 skills, Kept 5\/13 tools · Saved ~2080 tokens"/);
   assert.match(messageHtml, /Pruned: Kept 3\/14 skills, Kept 5\/13 tools · Saved ~2080 tokens/);
   assert.doesNotMatch(messageHtml, /Skills pruned/);
 
@@ -919,7 +919,8 @@ test('rendered assistant pruning header shows compact counts and expanded diagno
   }));
   assert.match(chipHtml, /aria-expanded="true"/);
   assert.match(chipHtml, /Pruned: Kept 3\/14 skills/);
-  assert.match(pendingChipHtml, /assistant-pruning-chip pending/);
+  assert.match(pendingChipHtml, /role="status"/);
+  assert.match(pendingChipHtml, /aria-live="polite"/);
   assert.match(pendingChipHtml, /agent-activity-text">pruning skills\/tools<\/span>/);
   assert.doesNotMatch(pendingChipHtml, /aria-expanded=/);
 
@@ -959,9 +960,8 @@ test('rendered MessageItem keeps pruning pending state in the header without an 
     pruningHeaderState: { kind: 'pending', label: 'pruning skills/tools' },
   }));
 
-  assert.match(html, /assistant-pruning-chip pending/);
-  assert.match(html, /message-time/);
-  assert.match(html, /assistant-reply-hint">gpt-5\.4 max<\/span>/);
+  assert.match(html, /role="status"/);
+  assert.match(html, /gpt-5\.4 max/);
   assert.match(html, /agent-activity-text">pruning skills\/tools<\/span>/);
   assert.doesNotMatch(html, /message-typing-indicator/);
 });
@@ -1123,13 +1123,13 @@ test('rendered PruningInlineCard uses real buttons and shows at-a-glance counts'
   }));
 
   // Message wrapper and head
-  assert.match(html, /class="message role-assistant pruning-inline"/);
+  assert.match(html, /data-role="assistant"/);
   assert.match(html, /PI/);
   assert.match(html, /skill-pruner/);
   assert.match(html, /via gpt-5\.4-mini 45ms/);
 
   // Accessible disclosure button
-  assert.match(html, /<button[^>]*class="pruning-banner-summary"[^>]*>/);
+  assert.match(html, /<button[^>]*aria-expanded="false"[^>]*>/);
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /role="button"/);
 

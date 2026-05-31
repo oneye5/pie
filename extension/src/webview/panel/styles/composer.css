@@ -1,138 +1,11 @@
-﻿.composer-area {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 12px 10px;
-  border-top: 1px solid var(--panel-border);
-  background: var(--vscode-sideBar-background, var(--panel-surface));
-  flex-shrink: 0;
-}
-
-.composer-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-  width: 100%;
-  container-type: inline-size;
-  container-name: toolbar;
-}
-
-.composer-toolbar-left {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-  flex: 1;
-  min-width: 0;
-}
-
-.composer-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: nowrap;
-  justify-content: flex-end;
-  margin-left: auto;
-  flex-shrink: 0;
-  min-width: 0;
-}
+﻿/* MIGRATED: .composer-area, .composer-toolbar*, .composer-meta-chip*, .composer-run-controls, .model-select*, .model-picker-*, .toolbar-settings-trigger* */
+/* REMAINING: settings flyout, run action buttons, context/session token indicators, attachments */
 
 .context-window-indicator-anchor {
   display: inline-flex;
   align-items: center;
   max-width: 100%;
   margin-left: auto;
-}
-
-.composer-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 6px 8px;
-}
-
-.composer-meta-group {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.composer-meta-chip {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  padding: 2px 8px;
-  border: 1px solid var(--panel-border-subtle);
-  border-radius: 999px;
-  background: var(--panel-control-surface);
-  color: var(--panel-muted);
-  font-size: 11px;
-  line-height: 1.35;
-}
-
-button.composer-meta-chip {
-  cursor: pointer;
-  color: var(--vscode-foreground);
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-}
-
-button.composer-meta-chip:hover,
-button.composer-meta-chip:focus {
-  background: var(--panel-control-hover);
-  border-color: var(--panel-border);
-  outline: none;
-}
-
-button.composer-meta-chip:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  filter: none;
-}
-
-.composer-meta-chip.subtle {
-  color: var(--panel-muted);
-}
-
-.composer-meta-chip.warning,
-.composer-meta-chip.pending-score {
-  border-color: color-mix(in srgb, var(--panel-warning) 28%, var(--panel-border));
-  background: color-mix(in srgb, var(--panel-warning-surface) 72%, var(--panel-control-surface));
-  color: var(--panel-warning);
-}
-
-button.composer-meta-chip.warning:hover,
-button.composer-meta-chip.warning:focus,
-button.composer-meta-chip.pending-score:hover,
-button.composer-meta-chip.pending-score:focus {
-  background: color-mix(in srgb, var(--panel-warning-surface) 88%, var(--panel-control-hover));
-  border-color: color-mix(in srgb, var(--panel-warning) 32%, var(--panel-border));
-  color: var(--panel-warning);
-}
-
-.composer-meta-chip.open {
-  border-color: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
-  background: color-mix(in srgb, var(--panel-accent-surface) 72%, var(--panel-control-surface));
-  color: var(--panel-accent);
-}
-
-button.composer-meta-chip.open:hover,
-button.composer-meta-chip.open:focus {
-  background: color-mix(in srgb, var(--panel-accent-surface) 88%, var(--panel-control-hover));
-  border-color: color-mix(in srgb, var(--panel-accent) 32%, var(--panel-border));
-  color: var(--panel-accent);
-}
-
-.composer-run-controls {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-  margin-left: auto;
-  margin-right: 0;
 }
 
 .composer-run-action {
@@ -180,110 +53,9 @@ button.composer-meta-chip.open:focus {
   cursor: not-allowed;
 }
 
-.model-select,
-.model-select-static {
-  min-height: 22px;
-  min-width: 80px;
-  max-width: 180px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  border: 1px solid var(--panel-border-subtle);
-  background: var(--panel-control-surface);
-  color: var(--vscode-foreground);
-  font-size: 11px;
-  transition: border-color 0.12s ease, background 0.12s ease;
-}
-
-.model-select-sm {
-  min-width: 64px;
-  max-width: 110px;
-}
-
-.model-picker-shell {
-  position: relative;
-  display: inline-flex;
-  min-width: 80px;
-  min-height: 22px;
-  max-width: 180px;
-}
-
-.model-picker-sizer,
-.model-picker-value {
-  min-width: 0;
-  max-width: 100%;
-  padding: 2px 24px 2px 8px;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  font-size: 11px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.model-picker-sizer {
-  visibility: hidden;
-  pointer-events: none;
-}
-
-.model-picker-value {
-  position: absolute;
-  inset: 0;
-  display: inline-flex;
-  align-items: center;
-  color: var(--vscode-foreground);
-  pointer-events: none;
-}
-
-.model-picker-shell::after {
-  content: '▾';
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
-  color: var(--vscode-foreground);
-  opacity: 0.72;
-  font-size: 10px;
-  pointer-events: none;
-}
-
-.model-select {
-  cursor: pointer;
-  appearance: auto;
-}
-
-.model-select-picker {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  max-width: 100%;
-  padding-right: 24px;
-  color: transparent;
-  appearance: none;
-}
-
-.model-select:hover,
-.model-select:focus {
-  border-color: var(--panel-border);
-  outline: none;
-}
-
-.model-select option {
-  background: var(--vscode-dropdown-background, var(--vscode-input-background, var(--panel-surface)));
-  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
-}
-
-.model-select option.model-option-ineligible,
 .toolbar-settings-select option.model-option-ineligible {
   color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
   font-style: italic;
-}
-
-.model-select-static {
-  display: inline-flex;
-  align-items: center;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .context-window-indicator {
@@ -362,30 +134,6 @@ button.composer-meta-chip.open:focus {
   position: relative;
   display: inline-flex;
   align-items: center;
-}
-
-.toolbar-settings-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 26px;
-  height: 26px;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid var(--panel-border-subtle);
-  background: var(--panel-control-surface);
-  color: var(--panel-muted);
-  cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-}
-
-.toolbar-settings-trigger:hover,
-.toolbar-settings-trigger:focus,
-.toolbar-settings-trigger.open {
-  background: var(--panel-control-hover);
-  border-color: var(--panel-border);
-  color: var(--vscode-foreground);
-  outline: none;
 }
 
 .toolbar-settings-menu {
@@ -631,18 +379,6 @@ button.composer-meta-chip.open:focus {
   gap: 2px;
   padding: 6px 8px;
   cursor: default;
-}
-
-/* Composer placeholder styling to match activity chips when busy */
-.composer-textarea::placeholder {
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: var(--panel-muted);
-  opacity: 0.6;
 }
 
 .toolbar-settings-keep-picker-label {

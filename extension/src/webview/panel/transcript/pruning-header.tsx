@@ -4,6 +4,7 @@
 import type { JSX } from 'preact';
 
 import type { PruningDetails } from '../../../shared/protocol';
+import { cx } from '../utils/cx';
 import { AGENT_ACTIVITY_LABELS } from './activity';
 import { AgentActivityLabel } from './activity-label';
 import { formatPruningSummary, pruningTotals, type PruningHeaderState } from './pruning';
@@ -26,6 +27,12 @@ interface PruningHeaderPanelProps {
   rawExpanded: boolean;
   onRawToggle: (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => void;
 }
+
+const detailListClass = 'flex flex-col gap-1.5';
+const detailRowClass = 'grid grid-cols-[minmax(82px,auto)_minmax(0,1fr)] items-start gap-x-2.5 gap-y-0.5 min-w-0 max-[520px]:grid-cols-1';
+const detailHintClass = 'text-[10px] font-semibold uppercase tracking-wider text-muted whitespace-nowrap leading-normal';
+const detailTextClass = 'text-[11px] leading-snug text-foreground/70 whitespace-normal break-words';
+const rawPreClass = 'm-0 max-h-[300px] overflow-y-auto whitespace-pre-wrap break-words rounded-sm bg-code px-2 py-1.5 font-mono text-[10.5px] leading-normal text-foreground/80';
 
 function diagnosticText(value: string | undefined, emptyLabel: string): string {
   return value && value.trim().length > 0 ? value : emptyLabel;
@@ -78,13 +85,13 @@ export function PruningHeaderChip({ state, expanded, onToggle }: PruningHeaderCh
 
     return (
       <div
-        class="assistant-pruning-chip pending"
+        class="inline-flex h-[18px] max-w-full items-center gap-1.5 rounded-full border border-transparent bg-control px-2 font-mono text-[10px] font-bold uppercase tracking-wider text-muted"
         role="status"
         aria-live="polite"
         aria-label={label}
         title={label}
       >
-        <span class="assistant-pruning-chip-text">
+        <span class="min-w-0 truncate">
           <AgentActivityLabel label={label} />
         </span>
       </div>
@@ -107,16 +114,22 @@ export function PruningHeaderButton({ details, expanded, fallbackText, onToggle 
 
   return (
     <button
-      class={`assistant-pruning-chip${expanded ? ' open' : ''}${failed ? ' error' : ''}`}
+      class={cx(
+        'inline-flex h-[18px] max-w-full cursor-pointer items-center gap-1.5 rounded-full border border-transparent bg-control px-2 font-mono text-[10px] font-bold uppercase tracking-wider text-muted transition-colors duration-150',
+        'hover:border-border-subtle hover:bg-control-hover hover:text-foreground',
+        'focus-visible:outline-1 focus-visible:outline-accent focus-visible:outline-offset-2',
+        expanded && 'border-accent/25 bg-accent/10 text-accent',
+        failed && 'border-danger/25 bg-danger/10 text-danger',
+      )}
       type="button"
       aria-expanded={expanded}
       aria-label={failed ? `Pruning failed: ${details.prepassError}` : summary}
       title={failed && details.prepassError ? details.prepassError : summary}
       onClick={onToggle}
     >
-      {failed && <span class="assistant-pruning-chip-icon" aria-hidden="true">⚠</span>}
-      <span class="assistant-pruning-chip-text">{summary}</span>
-      <span class="assistant-pruning-chip-chevron" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
+      {failed && <span aria-hidden="true">⚠</span>}
+      <span class="max-w-[30ch] min-w-0 truncate">{summary}</span>
+      <span class="shrink-0 text-[9px] opacity-70" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
     </button>
   );
 }
@@ -129,70 +142,73 @@ export function PruningHeaderPanel({ details, rawExpanded, onRawToggle }: Prunin
 
   return (
     <div
-      class={`assistant-pruning-panel${failed ? ' error' : ''}`}
+      class={cx(
+        'mt-2 rounded-lg bg-control/50 p-3 text-xs leading-relaxed',
+        failed && 'border border-danger/15 bg-danger/5',
+      )}
       role="region"
       aria-label="Pruning details"
     >
-      <div class="pruning-banner-detail">
+      <div class={detailListClass}>
         {failed && (
-          <div class="pruning-banner-detail-row">
-            <span class="pruning-banner-hint">Error</span>
-            <span class="pruning-banner-detail-text pruning-banner-error-text">{details.prepassError}</span>
+          <div class={detailRowClass}>
+            <span class={detailHintClass}>Error</span>
+            <span class="text-[11px] leading-snug text-danger whitespace-normal break-words">{details.prepassError}</span>
           </div>
         )}
         {prepass && (
-          <div class="pruning-banner-detail-row">
-            <span class="pruning-banner-hint">Prepass</span>
-            <span class="pruning-banner-detail-text">{prepass}</span>
+          <div class={detailRowClass}>
+            <span class={detailHintClass}>Prepass</span>
+            <span class={detailTextClass}>{prepass}</span>
           </div>
         )}
-        <div class="pruning-banner-detail-row">
-          <span class="pruning-banner-hint">Mode</span>
-          <span class="pruning-banner-detail-text">{modeLabel(details.mode)}</span>
+        <div class={detailRowClass}>
+          <span class={detailHintClass}>Mode</span>
+          <span class={detailTextClass}>{modeLabel(details.mode)}</span>
         </div>
         {savedText && (
-          <div class="pruning-banner-detail-row">
-            <span class="pruning-banner-hint">Saved</span>
-            <span class="pruning-banner-detail-text">{savedText}</span>
+          <div class={detailRowClass}>
+            <span class={detailHintClass}>Saved</span>
+            <span class={detailTextClass}>{savedText}</span>
           </div>
         )}
         {(totals.skillsTotal > 0 || details.excludedSkills.length > 0) && (
           <>
-            <div class="pruning-banner-detail-row">
-              <span class="pruning-banner-hint">Skills pruned</span>
-              <span class="pruning-banner-detail-text">{listText(details.excludedSkills)}</span>
+            <div class={detailRowClass}>
+              <span class={detailHintClass}>Skills pruned</span>
+              <span class={detailTextClass}>{listText(details.excludedSkills)}</span>
             </div>
-            <div class="pruning-banner-detail-row">
-              <span class="pruning-banner-hint">Skills kept</span>
-              <span class="pruning-banner-detail-text">{listText(details.includedSkills)}</span>
+            <div class={detailRowClass}>
+              <span class={detailHintClass}>Skills kept</span>
+              <span class={detailTextClass}>{listText(details.includedSkills)}</span>
             </div>
           </>
         )}
         {(totals.toolsTotal > 0 || details.excludedTools.length > 0) && (
           <>
-            <div class="pruning-banner-detail-row">
-              <span class="pruning-banner-hint">Tools pruned</span>
-              <span class="pruning-banner-detail-text">{listText(details.excludedTools)}</span>
+            <div class={detailRowClass}>
+              <span class={detailHintClass}>Tools pruned</span>
+              <span class={detailTextClass}>{listText(details.excludedTools)}</span>
             </div>
-            <div class="pruning-banner-detail-row">
-              <span class="pruning-banner-hint">Tools kept</span>
-              <span class="pruning-banner-detail-text">{listText(details.includedTools)}</span>
+            <div class={detailRowClass}>
+              <span class={detailHintClass}>Tools kept</span>
+              <span class={detailTextClass}>{listText(details.includedTools)}</span>
             </div>
           </>
         )}
         {details.prepassFailOpenReason && (
-          <div class="pruning-banner-detail-row">
-            <span class="pruning-banner-hint">Fail-open</span>
-            <span class="pruning-banner-detail-text">{details.prepassFailOpenReason}</span>
+          <div class={detailRowClass}>
+            <span class={detailHintClass}>Fail-open</span>
+            <span class={detailTextClass}>{details.prepassFailOpenReason}</span>
           </div>
         )}
-        <div class="pruning-banner-detail-row">
-          <span class="pruning-banner-hint">Reasoning</span>
-          <pre class="assistant-pruning-reasoning">{diagnosticText(details.prepassThinking, '∅ No reasoning returned')}</pre>
+        <div class={detailRowClass}>
+          <span class={detailHintClass}>Reasoning</span>
+          <pre class="mt-1 max-h-[200px] overflow-y-auto whitespace-pre-wrap break-words rounded-md bg-code p-2 font-mono text-[10.5px] leading-snug text-foreground/80">{diagnosticText(details.prepassThinking, '∅ No reasoning returned')}</pre>
         </div>
-        <div class="pruning-banner-raw-toggle">
+        <div class="mt-1 rounded-sm">
           <button
-            class="pruning-banner-raw-toggle-text"
+            class="w-full rounded-sm px-1.5 py-1 text-left text-[10px] font-semibold uppercase tracking-wider text-muted hover:bg-control-hover focus-visible:outline-1 focus-visible:outline-accent focus-visible:outline-offset-1"
             type="button"
             aria-expanded={rawExpanded}
             onClick={onRawToggle}
@@ -200,18 +216,18 @@ export function PruningHeaderPanel({ details, rawExpanded, onRawToggle }: Prunin
             {rawExpanded ? '▲' : '▶'} Prepass prompts and output
           </button>
           {rawExpanded && (
-            <div class="pruning-banner-raw-content">
-              <div class="pruning-banner-raw-section">
-                <span class="pruning-banner-hint">System prompt</span>
-                <pre class="pruning-banner-raw-pre">{diagnosticText(details.prepassSystemPrompt, '∅ No system prompt captured')}</pre>
+            <div class="mt-1.5 flex flex-col gap-2 border-t border-border/60 pt-1.5">
+              <div class="flex flex-col gap-1">
+                <span class={detailHintClass}>System prompt</span>
+                <pre class={rawPreClass}>{diagnosticText(details.prepassSystemPrompt, '∅ No system prompt captured')}</pre>
               </div>
-              <div class="pruning-banner-raw-section">
-                <span class="pruning-banner-hint">User prompt</span>
-                <pre class="pruning-banner-raw-pre">{diagnosticText(details.prepassUserMessage, '∅ No user prompt captured')}</pre>
+              <div class="flex flex-col gap-1">
+                <span class={detailHintClass}>User prompt</span>
+                <pre class={rawPreClass}>{diagnosticText(details.prepassUserMessage, '∅ No user prompt captured')}</pre>
               </div>
-              <div class="pruning-banner-raw-section">
-                <span class="pruning-banner-hint">Raw LLM output</span>
-                <pre class="pruning-banner-raw-pre">{diagnosticText(details.prepassResponse, '∅ Empty response')}</pre>
+              <div class="flex flex-col gap-1">
+                <span class={detailHintClass}>Raw LLM output</span>
+                <pre class={rawPreClass}>{diagnosticText(details.prepassResponse, '∅ Empty response')}</pre>
               </div>
             </div>
           )}

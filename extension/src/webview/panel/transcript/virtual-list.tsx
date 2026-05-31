@@ -8,6 +8,7 @@ import { type ChatMessage, type ChatPrefs, type PruningResult, type PruningSetti
 import { deriveTurnActivityState, type TurnActivityState } from './activity';
 import { ToolCallItem } from './tool-call-item';
 import { useTranscriptScroll } from './use-transcript-scroll';
+import { cx } from '../utils/cx';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import { TranscriptVirtualRow } from './virtual-list-row';
 import { buildTranscriptRows, estimateTranscriptRowSize, type TranscriptRow } from './virtual-list-rows';
@@ -231,12 +232,28 @@ export function TranscriptVirtualList({
             return null;
           }
 
+          const previousRow = rows[virtualRow.index - 1];
+          const previousRole = previousRow?.kind === 'message'
+            ? previousRow.message.role
+            : previousRow?.kind === 'systemPrompts'
+              ? 'system'
+              : null;
+          const currentRole = row.kind === 'message'
+            ? row.message.role
+            : row.kind === 'systemPrompts'
+              ? 'system'
+              : null;
+          const isRoleTransition = !!previousRole && !!currentRole && previousRole !== currentRole;
+
           return (
             <div
               key={row.key}
               data-index={virtualRow.index}
               ref={measureRowElement}
-              class={`transcript-virtual-row transcript-virtual-row-${row.kind}`}
+              class={cx(
+                'absolute start-0 top-0 box-border flex w-full flex-col items-start',
+                isRoleTransition ? 'pb-4' : 'pb-1.5',
+              )}
               style={{ transform: `translateY(${virtualRow.start}px)` }}
             >
               <TranscriptVirtualRow

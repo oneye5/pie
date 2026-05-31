@@ -5,11 +5,13 @@ import { useState } from 'preact/hooks';
 
 import type { SystemPromptEntry } from '../../shared/protocol';
 import { renderMarkdown, reasoningSummary } from './markdown';
+import { cx } from './utils/cx';
 import {
   estimateSystemPromptTokens,
   formatSystemPromptTokenLabel,
   getSystemPromptTokenEstimateTitle,
 } from './system-prompt-tokens';
+import { MessageHeader } from './transcript/message-header';
 import { ToolCallHeader } from './transcript/tool-call-card';
 
 interface SystemPromptCardProps {
@@ -42,7 +44,10 @@ function SystemPromptCard({ prompt }: SystemPromptCardProps) {
 
   return (
     <div
-      class={`tool-call completed system-prompt-card system-prompt-${prompt.availability}`}
+      class={cx(
+        'cursor-pointer select-none overflow-hidden rounded-lg bg-control/40 transition-colors hover:bg-control-hover',
+        'forced-colors:border forced-colors:border-[ButtonText]',
+      )}
       role="button"
       aria-expanded={open}
       tabIndex={0}
@@ -89,17 +94,16 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
 
   return (
     <div
-      class="message role-assistant system-prompts-message"
+      class="flex w-auto min-w-0 self-stretch flex-col gap-1.5 rounded-xl border border-border-subtle/50 bg-surface px-3 py-2"
       data-role="assistant"
       data-scroll-anchor-id="system-prompts"
     >
-      <div class="message-head">
-        <div class="message-head-main">
-          <span class="message-role">PI</span>
-          <span class="message-time">System prompts</span>
-          {tokenLabel && <span class="message-duration" title={tokenTitle}>{tokenLabel}</span>}
-        </div>
-      </div>
+      <MessageHeader
+        label="PI"
+        timestamp="System prompts"
+        duration={tokenLabel}
+        durationTitle={tokenTitle}
+      />
       <div class="tool-call-list">
         {prompts.map((prompt, index) => (
           <SystemPromptCard

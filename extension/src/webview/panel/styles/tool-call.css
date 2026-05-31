@@ -1,20 +1,8 @@
-﻿.thinking-block {
-  border: 1px solid var(--panel-border-subtle);
-  border-radius: var(--panel-radius-sm);
-  background: var(--panel-control-surface);
-  overflow: hidden;
-  opacity: 0.92;
-  cursor: pointer;
-  user-select: none;
-  transition: border-color 0.14s ease, background 0.14s ease;
-}
+﻿/* MIGRATED: .thinking-block*, .tool-call, .tool-call:hover, .tool-call:focus-visible, .tool-call.running, .tool-call.failed, .tool-call.completed, .tool-call.tool-call-variant-skill-load, .tool-call-header, .tool-call-heading*, .tool-call-name*, .tool-call-summary*, .tool-call-file-*, .tool-call-size-hint*, .tool-call-duration, .tool-call-summary-link*, .thinking-block-chevron */
+/* REMAINING: .tool-call-body, .tool-call-pre, .tool-call-list, .tool-call-section*, .subagent-*, .tool-call-legacy-shell */
 
-.thinking-block:hover {
-  border-color: var(--panel-border);
-  background: var(--panel-control-hover);
-}
-
-.tool-call {
+/* TEMPORARY SHIM - delete when subagent UI migrates to Tailwind. */
+.tool-call-legacy-shell {
   border: 1px solid var(--panel-border-subtle);
   border-radius: var(--panel-radius-xl);
   background: var(--panel-card-surface);
@@ -25,39 +13,10 @@
   transition: border-color 0.14s ease, background 0.14s ease, box-shadow 0.14s ease;
 }
 
-.tool-call.tool-call-variant-skill-load {
-  border-color: color-mix(in srgb, var(--panel-skill-border) 82%, var(--panel-border));
-  background: var(--panel-skill-surface);
-}
-
-.thinking-block-header,
-.tool-call-header {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 8px;
-  border-radius: var(--panel-radius-md);
-}
-
-.thinking-block-header {
-  padding: 4px 6px;
-  border-radius: var(--panel-radius-sm) var(--panel-radius-sm) 0 0;
-}
-
-.thinking-block:hover,
-.tool-call:hover {
+.tool-call-legacy-shell:hover {
   border-color: var(--panel-border);
   background: var(--panel-control-hover);
   box-shadow: var(--panel-shadow-md);
-}
-
-.tool-call.tool-call-variant-skill-load:hover {
-  background: color-mix(in srgb, var(--panel-accent-surface) 45%, var(--panel-control-hover));
-}
-
-.thinking-block:hover .thinking-block-header,
-.tool-call:hover .tool-call-header {
-  background: transparent;
 }
 
 .tool-call.tool-call-subagent[aria-expanded="false"] .subagent-header {
@@ -70,32 +29,10 @@
   background: var(--panel-subagent-header-surface-hover);
 }
 
-.thinking-block:focus-visible,
-.tool-call:focus-visible {
-  outline: 1px solid var(--panel-accent);
-  outline-offset: 2px;
-}
-
-.thinking-block-body {
-  user-select: text;
-}
-
 .tool-call-body {
   user-select: text;
 }
 
-.thinking-block-chevron {
-  transition: transform 0.15s ease;
-  flex-shrink: 0;
-  color: var(--panel-muted);
-  display: block;
-}
-
-.thinking-block-chevron.open {
-  transform: rotate(90deg);
-}
-
-.thinking-block-label,
 .tool-call-section-label {
   font-size: 10px;
   line-height: 1;
@@ -104,81 +41,14 @@
   color: var(--panel-muted);
 }
 
-.thinking-block-label {
-  color: var(--vscode-foreground);
-  opacity: 0.72;
-}
-
-.thinking-block-summary {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--vscode-foreground);
-  font-size: 11px;
-}
-
-.thinking-block-body,
 .tool-call-body {
   padding: 0 10px 10px;
-}
-
-.thinking-block-body {
-  font-size: 12px;
-  color: var(--vscode-foreground);
 }
 
 .tool-call-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-}
-
-.system-prompts-message .message-head {
-  margin-bottom: 6px;
-}
-
-.tool-call.running {
-  border-color: color-mix(in srgb, var(--panel-accent) 24%, var(--panel-border));
-}
-
-.tool-call.failed {
-  border-color: color-mix(in srgb, var(--panel-danger) 34%, var(--panel-border));
-}
-
-.tool-call.completed {
-  border-color: color-mix(in srgb, var(--panel-border) 88%, transparent);
-}
-
-.tool-call-heading {
-  min-width: 0;
-  flex: 1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.tool-call-heading.with-summary,
-.tool-call-heading.with-size-hint {
-  gap: 6px;
-}
-
-.tool-call-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.tool-call-name.with-summary {
-  /* Allow the name to expand within the row; the summary is capped and
-     allowed to shrink first so the title stays readable. */
-  max-width: none;
 }
 
 /* ── Subagent header ─────────────────────────────────────── */
@@ -253,122 +123,6 @@
   gap: 2px;
   padding-left: 8px;
   border-left: 2px solid color-mix(in srgb, var(--panel-accent) 16%, var(--panel-border));
-}
-
-.tool-call-summary {
-  display: block;
-  min-width: 0;
-  flex: 0 1 auto;
-  max-width: var(--tool-call-summary-column-width);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--panel-muted);
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 11px;
-}
-
-.tool-call-summary-file {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-.tool-call-file-path {
-  display: block;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  direction: rtl;
-  text-align: left;
-  opacity: 0.68;
-  transition: opacity 0.12s ease, color 0.12s ease;
-}
-
-.tool-call-file-path-text {
-  direction: ltr;
-  unicode-bidi: isolate;
-}
-
-.tool-call-file-path.is-empty {
-  opacity: 0;
-}
-
-.tool-call-file-name {
-  display: inline-flex;
-  align-items: center;
-  flex: 0 0 auto;
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  padding: 1px 7px;
-  border-radius: var(--panel-radius-sm);
-  color: var(--vscode-foreground);
-  background: var(--panel-control-surface);
-  box-shadow: inset 0 0 0 1px var(--panel-border-subtle);
-  transition: background 0.12s ease, box-shadow 0.12s ease, color 0.12s ease;
-}
-
-.tool-call-size-hint {
-  display: block;
-  min-width: 0;
-  flex: 0 0 var(--tool-call-size-column-width);
-  max-width: var(--tool-call-size-column-width);
-  margin-left: auto;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  text-align: right;
-  color: var(--panel-muted);
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  opacity: 0.48;
-}
-
-.tool-call-size-hint.is-empty {
-  display: none;
-}
-
-.tool-call-duration {
-  flex: 0 0 auto;
-  margin-left: auto;
-  color: var(--panel-muted);
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.6;
-  white-space: nowrap;
-}
-
-.tool-call-summary-link {
-  appearance: none;
-  display: block;
-  min-width: 0;
-  flex: 0 1 auto;
-  max-width: var(--tool-call-summary-column-width);
-  border: 0;
-  padding: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 6px;
-}
-
-.tool-call-summary-link:hover .tool-call-file-path,
-.tool-call-summary-link:focus-visible .tool-call-file-path {
-  opacity: 0.82;
-  color: color-mix(in srgb, var(--panel-muted) 74%, var(--vscode-foreground));
-}
-
-.tool-call-summary-link:hover .tool-call-file-name,
-.tool-call-summary-link:focus-visible .tool-call-file-name {
-  color: var(--vscode-foreground);
-  background: var(--panel-control-hover);
-  box-shadow: inset 0 0 0 1px var(--panel-border);
 }
 
 .tool-call-section + .tool-call-section {

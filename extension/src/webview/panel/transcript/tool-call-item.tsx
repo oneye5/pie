@@ -17,7 +17,7 @@ import {
   normalizeTaskScoresForDisplay,
 } from './subagent-score-display';
 import { StatusChip } from './status-chip';
-import { ToolCallCard } from './tool-call-card';
+import { DisclosureChevron, ToolCallCard } from './tool-call-card';
 import { TranscriptMessageList } from './transcript-message-list';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import { useDisclosureOpen } from './use-disclosure-open';
@@ -190,7 +190,7 @@ function SubagentSingleBlock({
 
   return (
     <div
-      class={`tool-call tool-call-subagent ${status}`}
+      class={`tool-call tool-call-legacy-shell tool-call-subagent ${status}`}
       role="button"
       aria-expanded={open}
       tabIndex={0}
@@ -199,9 +199,7 @@ function SubagentSingleBlock({
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
     >
       <div class="subagent-header">
-        <svg class={`thinking-block-chevron${open ? ' open' : ''}`} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
+        <DisclosureChevron open={open} />
         <span class="subagent-agent-name">{singleResult.agent}</span>
         <PrimaryMeta result={singleResult} />
         {!open && summary && <span class="subagent-header-summary">{summary}</span>}

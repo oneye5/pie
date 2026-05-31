@@ -1,3 +1,6 @@
+/* MIGRATED: .composer-input-shell, .composer-input-shell.drag-active, .composer-textarea, .composer-actions */
+/* REMAINING: context menu and attachment card styles */
+
 .context-menu-item {
   display: flex;
   align-items: center;
@@ -173,48 +176,6 @@
 .attachment-card-remove:focus-visible {
   outline: 1px solid var(--vscode-focusBorder, var(--panel-accent));
   outline-offset: 1px;
-}
-
-.composer-input-shell {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 6px 8px 8px;
-  border: 1px solid var(--panel-border);
-  border-radius: var(--panel-radius-xl);
-  background: var(--vscode-input-background, var(--panel-card-surface));
-  transition: border-color 0.12s ease, background 0.12s ease;
-}
-
-.composer-input-shell.drag-active {
-  border-color: color-mix(in srgb, var(--panel-accent) 36%, var(--panel-border));
-  background: color-mix(in srgb, var(--panel-accent-surface) 38%, var(--vscode-input-background, var(--panel-card-surface)));
-}
-
-.composer-textarea {
-  width: 100%;
-  min-height: 40px;
-  max-height: 200px;
-  padding: 0;
-  border: none;
-  resize: none;
-  background: transparent;
-  color: var(--vscode-input-foreground, var(--vscode-foreground));
-  line-height: 1.5;
-  outline: none;
-  overflow-y: auto;
-}
-
-.composer-textarea::placeholder {
-  color: var(--vscode-input-placeholderForeground, var(--panel-muted));
-}
-
-.composer-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
 }
 
 .composer-hint {

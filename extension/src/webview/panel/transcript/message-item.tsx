@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks'
 import type { ChatMessage, ChatPrefs } from '../../../shared/protocol';
 import { useNotice } from '../hooks/notice-context';
 import { renderMarkdown, reasoningSummary } from '../markdown';
+import { cx } from '../utils/cx';
 import {
   assistantReplyMeta,
   formatAssistantMetaTooltip,
@@ -16,6 +17,7 @@ import {
 } from './header';
 import { InlineEditor } from './inline-editor';
 import { shouldOpenUserMessageEditor } from './interactions';
+import { MessageHeader } from './message-header';
 import { PruningHeaderChip, PruningHeaderPanel } from './pruning-header';
 import type { PruningHeaderState } from './pruning';
 import { StatusChip, type StatusTone } from './status-chip';
@@ -53,7 +55,10 @@ export function ReasoningBlock({ text, autoExpand, disclosureKey, onContextMenu 
 
   return (
     <div
-      class={`thinking-block${open ? ' open' : ''}`}
+      class={cx(
+        'cursor-pointer select-none rounded-md transition-colors duration-150 hover:bg-control-hover',
+        open && 'bg-control/60',
+      )}
       role="button"
       aria-expanded={open}
       tabIndex={0}
@@ -61,21 +66,23 @@ export function ReasoningBlock({ text, autoExpand, disclosureKey, onContextMenu 
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
     >
-      <div class="thinking-block-header">
-        <svg class={`thinking-block-chevron${open ? ' open' : ''}`} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+      <div class="flex items-center gap-1.5 px-2 py-1">
+        <svg class={cx('shrink-0 text-muted transition-transform duration-150', open && 'rotate-90')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        <span class="thinking-block-label">Reasoning</span>
+        <span class="text-[10px] font-bold uppercase tracking-wider text-muted">Reasoning</span>
         {!open && (
-          <span class="thinking-block-summary">{reasoningSummary(text)}</span>
+          <span class="min-w-0 truncate text-[11px] text-foreground/70">{reasoningSummary(text)}</span>
         )}
       </div>
       {open && (
-        <div
-          class="thinking-block-body message-body"
-          dangerouslySetInnerHTML={{ __html: html }}
-          aria-live="polite"
-        />
+        <div class="px-2.5 pb-2.5 text-xs leading-relaxed text-foreground select-text">
+          <div
+            class="message-body"
+            dangerouslySetInnerHTML={{ __html: html }}
+            aria-live="polite"
+          />
+        </div>
       )}
     </div>
   );
@@ -278,36 +285,45 @@ function MessageItemView({
         onEditRequest(message.id);
       }
     : undefined;
+  const headerActions = pruningHeaderState || statusLabel
+    ? (
+      <>
+        {pruningHeaderState && (
+          <PruningHeaderChip
+            state={pruningHeaderState}
+            expanded={pruningExpanded}
+            onToggle={() => setPruningExpanded((v) => !v)}
+          />
+        )}
+        {statusLabel && <StatusChip tone={statusTone} label={statusLabel} />}
+      </>
+    )
+    : null;
 
   return (
     <div
-      class={`message role-${message.role}${isClickableUserMsg ? ' editable' : ''}${hasUserImages ? ' has-user-images' : ''}${isCurrentlyStreaming ? ' streaming' : ''}${hasActivityFooter ? ' has-activity' : ''}`}
+      class={cx(
+        'flex w-fit max-w-[88%] min-w-0 flex-col gap-2 self-start rounded-xl bg-card px-3 py-2.5 shadow-sm',
+        'forced-colors:border forced-colors:border-[ButtonText]',
+        message.role === 'user' && 'self-end rounded-br-sm bg-accent/6',
+        message.role === 'assistant' && 'rounded-bl-sm',
+        message.role === 'system' && 'w-auto max-w-none self-stretch bg-control',
+        isCurrentlyStreaming && 'w-[min(var(--message-assistant-width),100%)] max-[340px]:w-[min(var(--message-assistant-width-narrow),100%)]',
+        isClickableUserMsg && 'cursor-pointer hover:ring-1 hover:ring-border-subtle',
+      )}
       data-message-id={message.id}
       data-role={message.role}
       onClick={handleMessageClick}
-      style={isClickableUserMsg ? { cursor: 'pointer' } : undefined}
       title={isClickableUserMsg ? 'Click to edit' : undefined}
     >
-      <div class="message-head">
-        <div class="message-head-main" title={assistantMetaTooltip ?? undefined}>
-          {message.role !== 'user' && <span class="message-role">{roleLabel(message.role)}</span>}
-          {createdAtLabel && <span class="message-time">{createdAtLabel}</span>}
-          {message.role === 'assistant' && !isCurrentlyStreaming && message.durationMs !== undefined && (
-            <span class="message-duration">{formatDuration(message.durationMs)}</span>
-          )}
-          {replyMeta && <span class="assistant-reply-hint">{replyMeta.compactText}</span>}
-        </div>
-        <div class="message-head-actions">
-          {pruningHeaderState && (
-            <PruningHeaderChip
-              state={pruningHeaderState}
-              expanded={pruningExpanded}
-              onToggle={() => setPruningExpanded((v) => !v)}
-            />
-          )}
-          {statusLabel && <StatusChip tone={statusTone} label={statusLabel} />}
-        </div>
-      </div>
+      <MessageHeader
+        label={message.role !== 'user' ? roleLabel(message.role) : null}
+        timestamp={createdAtLabel}
+        duration={message.role === 'assistant' && !isCurrentlyStreaming && message.durationMs !== undefined ? formatDuration(message.durationMs) : null}
+        meta={replyMeta?.compactText ?? null}
+        title={assistantMetaTooltip ?? undefined}
+        actions={headerActions}
+      />
 
       {pruningHeaderState?.kind === 'result' && pruningExpanded && (
         <PruningHeaderPanel
