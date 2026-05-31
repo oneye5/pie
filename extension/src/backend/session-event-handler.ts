@@ -92,13 +92,20 @@ export function handleSdkSessionEvent(
       // Diagnostic: log tool execution start to stderr for debugging file-changes tracking
       process.stderr.write(`[pie:backend] tool_execution_start: ${event.toolName} args=${JSON.stringify(event.args)?.slice(0, 200)}\n`);
 
+      const toolCallId = event.toolCallId ?? '';
+      const startedAt = Date.now();
+      const toolStartTimes = context.activeRequest.toolStartTimes ?? new Map<string, number>();
+      toolStartTimes.set(toolCallId, startedAt);
+      context.activeRequest.toolStartTimes = toolStartTimes;
+
       deps.emit('tool.started', {
         requestId: context.activeRequest.id,
         sessionPath: context.sessionPath,
         messageId: context.activeRequest.lastAssistantMessageId,
-        toolCallId: event.toolCallId ?? '',
+        toolCallId,
         name: event.toolName ?? '',
         input: event.args,
+        startedAt,
       } satisfies ToolStartedPayload);
       deps.emitContextUsageChanged(context);
       return;
@@ -132,6 +139,7 @@ export function handleSdkSessionEvent(
         toolCallId: event.toolCallId ?? '',
         result: event.result,
         status: event.isError ? 'failed' : 'completed',
+        durationMs: resolveToolDurationMs(context, event.toolCallId ?? ''),
       } satisfies ToolFinishedPayload);
       deps.emitContextUsageChanged(context);
       return;
@@ -229,4 +237,18 @@ export function handleSdkSessionEvent(
     default:
       return;
   }
+}
+
+/**
+ * Resolve the wall-clock execution time for a finished tool call using the
+ * start timestamp recorded at `tool_execution_start`. Falls back to 0 when the
+ * start was never seen (e.g. an end event arrives without a matching start).
+ */
+function resolveToolDurationMs(context: SessionContext, toolCallId: string): number {
+  const startedAt = context.activeRequest?.toolStartTimes?.get(toolCallId);
+  context.activeRequest?.toolStartTimes?.delete(toolCallId);
+  if (startedAt === undefined) {
+    return 0;
+  }
+  return Math.max(0, Date.now() - startedAt);
 }

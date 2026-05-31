@@ -1,4 +1,3 @@
-﻿
 .panel-main {
   flex: 1;
   min-height: 0;
@@ -13,8 +12,8 @@
   flex-direction: column;
   align-items: flex-start;
   justify-content: center;
-  gap: 10px;
-  padding: 16px 12px 20px;
+  gap: var(--panel-gap-md);
+  padding: var(--panel-gap-xl) var(--panel-gap-lg) 20px;
   max-width: 360px;
 }
 
@@ -46,7 +45,7 @@
   justify-content: center;
   min-height: 32px;
   padding: 0 12px;
-  border-radius: 8px;
+  border-radius: var(--panel-radius-md);
   border: 1px solid transparent;
   cursor: pointer;
   font-size: 12px;
@@ -66,24 +65,24 @@
 
 .btn.secondary,
 .action-btn.secondary {
-  background: var(--panel-subtle-surface);
-  border-color: var(--panel-border);
-  color: var(--vscode-foreground);
+  background: var(--vscode-button-secondaryBackground, var(--panel-control-surface));
+  border-color: var(--panel-border-subtle);
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
 }
 
 .btn.secondary:hover,
 .action-btn.secondary:hover {
-  background: var(--panel-hover-surface);
+  background: var(--vscode-button-secondaryHoverBackground, var(--panel-control-hover));
 }
 
 .action-btn.danger {
-  background: var(--panel-danger-surface);
-  border-color: rgba(255, 50, 50, 0.18);
+  background: color-mix(in srgb, var(--panel-danger-surface) 72%, var(--panel-control-surface));
+  border-color: color-mix(in srgb, var(--panel-danger) 28%, var(--panel-border));
   color: var(--panel-danger);
 }
 
 .action-btn.danger:hover {
-  background: rgba(255, 50, 50, 0.18);
+  background: color-mix(in srgb, var(--panel-danger-surface) 88%, var(--panel-control-hover));
 }
 
 .action-btn:disabled {
@@ -95,14 +94,14 @@
   min-height: 28px;
   width: 28px;
   padding: 0;
-  border-radius: 8px;
-  background: transparent;
-  border-color: transparent;
+  border-radius: var(--panel-radius-sm);
+  background: var(--panel-control-surface);
+  border-color: var(--panel-border-subtle);
   color: var(--panel-muted);
 }
 
 .action-btn.icon-only:hover {
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
   border-color: var(--panel-border);
   color: var(--vscode-foreground);
 }
@@ -111,4 +110,3 @@
   border-color: var(--vscode-focusBorder, var(--panel-accent));
   opacity: 0.95;
 }
-

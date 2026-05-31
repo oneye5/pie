@@ -21,7 +21,6 @@ import type {
   ThinkingLevel,
   TranscriptWindow,
 } from '../../shared/protocol';
-import type { TurnActivityState } from './transcript/activity';
 import { buildContextWindowBreakdown } from './context-window/breakdown';
 import { buildContextWindowIndicatorState } from './context-window/indicator';
 import { buildSessionTokenIndicator, buildSessionTokenUsage, type TokenRateState } from './session-tabs/token-usage';
@@ -40,18 +39,6 @@ import { getComposerRunControls } from './session-tabs/run-state';
 export { SessionTabs } from './session-tabs';
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
-
-/**
- * Build the busy-state composer placeholder from the current turn activity.
- * Falls back to a generic waiting message when no structured phase is known.
- */
-function composerBusyPlaceholder(activityState?: TurnActivityState | null): string {
-  if (!activityState) {
-    return 'Waiting for a response...';
-  }
-  const detail = activityState.detail ? ` (${activityState.detail})` : '';
-  return `Agent is ${activityState.label}${detail}…`;
-}
 
 function resizeComposerTextarea(textarea: HTMLTextAreaElement): void {
   textarea.style.height = 'auto';
@@ -78,7 +65,6 @@ interface ComposerProps {
   activeRunSummary?: ActiveRunSummary | null;
   focusTrigger?: string;
   tokenRate: TokenRateState | null;
-  activityState?: TurnActivityState | null;
   onSend: (text: string) => void;
   onInterrupt: () => void;
   onOpenFilePicker: () => void;
@@ -110,7 +96,6 @@ function ComposerView({
   activeRunSummary,
   focusTrigger,
   tokenRate,
-  activityState,
   onSend,
   onInterrupt,
   onOpenFilePicker,
@@ -341,9 +326,8 @@ function ComposerView({
     [pendingComposerInputs],
   );
   const showAttachmentSummary = pendingComposerInputs.length > 1;
-  const composerPlaceholder = busy
-    ? composerBusyPlaceholder(activityState)
-    : 'Ask PI anything...';
+  // Composer stays neutral; turn status is surfaced in the transcript activity strip.
+  const composerPlaceholder = '';
 
   return (
     <div class="composer-area" ref={composerAreaRef}>

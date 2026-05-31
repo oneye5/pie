@@ -66,9 +66,9 @@
   align-items: center;
   min-height: 22px;
   padding: 2px 8px;
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--panel-border-subtle);
   border-radius: 999px;
-  background: var(--panel-subtle-surface);
+  background: var(--panel-control-surface);
   color: var(--panel-muted);
   font-size: 11px;
   line-height: 1.35;
@@ -82,7 +82,7 @@ button.composer-meta-chip {
 
 button.composer-meta-chip:hover,
 button.composer-meta-chip:focus {
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
   border-color: var(--panel-border);
   outline: none;
 }
@@ -99,8 +99,8 @@ button.composer-meta-chip:disabled {
 
 .composer-meta-chip.warning,
 .composer-meta-chip.pending-score {
-  border-color: var(--panel-warning);
-  background: var(--panel-warning-surface);
+  border-color: color-mix(in srgb, var(--panel-warning) 28%, var(--panel-border));
+  background: color-mix(in srgb, var(--panel-warning-surface) 72%, var(--panel-control-surface));
   color: var(--panel-warning);
 }
 
@@ -108,24 +108,22 @@ button.composer-meta-chip.warning:hover,
 button.composer-meta-chip.warning:focus,
 button.composer-meta-chip.pending-score:hover,
 button.composer-meta-chip.pending-score:focus {
-  background: var(--panel-warning-surface);
-  border-color: var(--panel-warning);
+  background: color-mix(in srgb, var(--panel-warning-surface) 88%, var(--panel-control-hover));
+  border-color: color-mix(in srgb, var(--panel-warning) 32%, var(--panel-border));
   color: var(--panel-warning);
-  filter: brightness(1.04);
 }
 
 .composer-meta-chip.open {
-  border-color: var(--panel-accent);
-  background: var(--panel-accent-surface);
+  border-color: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
+  background: color-mix(in srgb, var(--panel-accent-surface) 72%, var(--panel-control-surface));
   color: var(--panel-accent);
 }
 
 button.composer-meta-chip.open:hover,
 button.composer-meta-chip.open:focus {
-  background: var(--panel-accent-surface);
-  border-color: var(--panel-accent);
+  background: color-mix(in srgb, var(--panel-accent-surface) 88%, var(--panel-control-hover));
+  border-color: color-mix(in srgb, var(--panel-accent) 32%, var(--panel-border));
   color: var(--panel-accent);
-  filter: brightness(1.04);
 }
 
 .composer-run-controls {
@@ -138,17 +136,16 @@ button.composer-meta-chip.open:focus {
 }
 
 .composer-run-action {
-  --run-action-color: color-mix(in srgb, var(--panel-success) 78%, black);
-  --run-action-foreground: var(--vscode-button-foreground, #fff);
+  --run-action-border: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-height: 32px;
   padding: 0 12px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: var(--run-action-color);
-  color: var(--run-action-foreground);
+  border-radius: var(--panel-radius-md);
+  border: 1px solid var(--run-action-border);
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground, #fff);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -158,17 +155,23 @@ button.composer-meta-chip.open:focus {
 }
 
 .composer-run-action.open {
-  --run-action-color: color-mix(in srgb, var(--panel-success) 78%, black);
-  --run-action-foreground: var(--vscode-button-foreground, #fff);
+  --run-action-border: color-mix(in srgb, var(--panel-success) 24%, var(--panel-border));
+  background: color-mix(in srgb, var(--panel-success-surface) 72%, var(--panel-control-surface));
+  color: var(--panel-success);
 }
 
 .composer-run-action:hover:not(:disabled),
 .composer-run-action:focus-visible:not(:disabled) {
-  background: color-mix(in srgb, var(--run-action-color) 84%, black);
+  background: var(--vscode-button-hoverBackground);
+}
+
+.composer-run-action.open:hover:not(:disabled),
+.composer-run-action.open:focus-visible:not(:disabled) {
+  background: color-mix(in srgb, var(--panel-success-surface) 88%, var(--panel-control-hover));
 }
 
 .composer-run-action:focus-visible {
-  outline: 1px solid var(--run-action-color);
+  outline: 1px solid var(--panel-accent);
   outline-offset: 2px;
 }
 
@@ -184,11 +187,11 @@ button.composer-meta-chip.open:focus {
   max-width: 180px;
   padding: 2px 8px;
   border-radius: 999px;
-  border: 1px solid transparent;
-  background: var(--panel-subtle-surface);
+  border: 1px solid var(--panel-border-subtle);
+  background: var(--panel-control-surface);
   color: var(--vscode-foreground);
   font-size: 11px;
-  transition: border-color 0.12s ease;
+  transition: border-color 0.12s ease, background 0.12s ease;
 }
 
 .model-select-sm {
@@ -369,16 +372,17 @@ button.composer-meta-chip.open:focus {
   height: 26px;
   padding: 0;
   border-radius: 999px;
-  border: 1px solid transparent;
-  background: var(--panel-subtle-surface);
+  border: 1px solid var(--panel-border-subtle);
+  background: var(--panel-control-surface);
   color: var(--panel-muted);
   cursor: pointer;
-  transition: border-color 0.12s ease, color 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .toolbar-settings-trigger:hover,
 .toolbar-settings-trigger:focus,
 .toolbar-settings-trigger.open {
+  background: var(--panel-control-hover);
   border-color: var(--panel-border);
   color: var(--vscode-foreground);
   outline: none;
@@ -396,9 +400,9 @@ button.composer-meta-chip.open:focus {
   max-width: 300px;
   padding: 8px;
   border: 1px solid var(--vscode-menu-border, var(--panel-border));
-  border-radius: 10px;
-  background: var(--vscode-menu-background, var(--vscode-dropdown-background, var(--panel-surface)));
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  border-radius: var(--panel-radius-lg);
+  background: var(--vscode-menu-background, var(--panel-overlay-surface));
+  box-shadow: var(--panel-shadow-overlay);
 }
 
 .toolbar-settings-section {
@@ -447,7 +451,7 @@ button.composer-meta-chip.open:focus {
 
 .toolbar-settings-item:hover,
 .toolbar-settings-item:focus {
-  background: var(--vscode-menu-selectionBackground, var(--panel-hover-surface));
+  background: var(--vscode-menu-selectionBackground, var(--panel-control-hover));
   color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
   outline: none;
 }
@@ -508,7 +512,7 @@ button.composer-meta-chip.open:focus {
 
 .toolbar-settings-ext-chevron:hover {
   color: var(--vscode-foreground);
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
 }
 
 .toolbar-settings-ext-chevron.expanded {
@@ -519,9 +523,9 @@ button.composer-meta-chip.open:focus {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  background: var(--panel-subtle-surface);
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  background: var(--panel-control-surface);
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-sm);
   padding: 8px;
 }
 
@@ -542,10 +546,10 @@ button.composer-meta-chip.open:focus {
 }
 
 .toolbar-settings-select {
-  background: var(--vscode-dropdown-background, var(--panel-surface));
+  background: var(--vscode-dropdown-background, var(--panel-control-surface));
   color: var(--vscode-dropdown-foreground, inherit);
-  border: 1px solid var(--vscode-dropdown-border, var(--panel-border));
-  border-radius: 6px;
+  border: 1px solid var(--vscode-dropdown-border, var(--panel-border-subtle));
+  border-radius: var(--panel-radius-sm);
   padding: 3px 8px;
   font-size: 11px;
   outline: none;
@@ -561,10 +565,10 @@ button.composer-meta-chip.open:focus {
 }
 
 .toolbar-settings-stepper-btn {
-  background: var(--vscode-button-secondaryBackground, var(--panel-subtle-surface));
+  background: var(--vscode-button-secondaryBackground, var(--panel-control-surface));
   color: var(--vscode-button-secondaryForeground, inherit);
-  border: 1px solid var(--panel-border);
-  border-radius: 6px;
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-sm);
   width: 22px;
   height: 22px;
   padding: 0;
@@ -582,7 +586,7 @@ button.composer-meta-chip.open:focus {
 }
 
 .toolbar-settings-stepper-btn:hover:not(:disabled) {
-  background: var(--vscode-button-secondaryHoverBackground, var(--panel-hover));
+  background: var(--vscode-button-secondaryHoverBackground, var(--panel-control-hover));
 }
 
 .toolbar-settings-stepper-value {
@@ -607,7 +611,7 @@ button.composer-meta-chip.open:focus {
 
 .toolbar-settings-test-btn {
   background: none;
-  border: 1px solid var(--vscode-input-border, rgba(255,255,255,0.1));
+  border: 1px solid var(--vscode-input-border, var(--panel-border-subtle));
   border-radius: 3px;
   color: var(--vscode-foreground);
   font-size: 10px;
@@ -617,7 +621,7 @@ button.composer-meta-chip.open:focus {
 }
 
 .toolbar-settings-test-btn:hover:not(:disabled) {
-  background: var(--vscode-list-hoverBackground);
+  background: var(--panel-control-hover);
 }
 
 /* Always-keep picker (skills/tools enum select with chips) */
@@ -659,8 +663,8 @@ button.composer-meta-chip.open:focus {
   gap: 4px;
   padding: 2px 6px 2px 6px;
   border-radius: 999px;
-  background: var(--panel-subtle-surface);
-  border: 1px solid var(--panel-border);
+  background: var(--panel-control-surface);
+  border: 1px solid var(--panel-border-subtle);
   font-size: 11px;
   line-height: 1.4;
   color: var(--vscode-foreground);
@@ -683,7 +687,7 @@ button.composer-meta-chip.open:focus {
 }
 
 .toolbar-settings-keep-chip-remove:hover {
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
   color: var(--vscode-foreground);
 }
 
@@ -707,11 +711,11 @@ button.composer-meta-chip.open:focus {
 
 .block-context-menu {
   z-index: 200;
-  background: var(--vscode-menu-background, var(--vscode-dropdown-background, var(--panel-surface)));
+  background: var(--vscode-menu-background, var(--panel-overlay-surface));
   border: 1px solid var(--vscode-menu-border, var(--panel-border));
-  border-radius: 6px;
+  border-radius: var(--panel-radius-sm);
   padding: 3px 0;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--panel-shadow-overlay);
   min-width: 220px;
 }
 
@@ -738,7 +742,7 @@ button.composer-meta-chip.open:focus {
   align-items: center;
   justify-content: center;
   padding: 18px;
-  background: rgba(0, 0, 0, 0.32);
+  background: var(--panel-overlay-backdrop);
 }
 
 .run-outcome-dialog {
@@ -751,8 +755,8 @@ button.composer-meta-chip.open:focus {
   padding: 16px;
   border: 1px solid var(--panel-border);
   border-radius: 14px;
-  background: var(--vscode-editorWidget-background, var(--panel-surface));
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.34);
+  background: var(--panel-overlay-surface);
+  box-shadow: var(--panel-shadow-overlay);
 }
 
 .run-outcome-header {
@@ -807,40 +811,27 @@ button.composer-meta-chip.open:focus {
   gap: 2px;
   min-height: 56px;
   padding: 6px 8px;
-  border: 1.5px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-subtle-surface);
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-lg);
+  background: var(--panel-control-surface);
   color: var(--vscode-foreground);
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease, transform 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease;
 }
-
-/* Color-coded outlines per rating level (unselected state) */
-.run-outcome-rating.r1 { border-color: rgba(239, 68, 68, 0.35); }
-.run-outcome-rating.r2 { border-color: rgba(249, 115, 22, 0.35); }
-.run-outcome-rating.r3 { border-color: var(--panel-border); }
-.run-outcome-rating.r4 { border-color: rgba(34, 197, 94, 0.3); }
-.run-outcome-rating.r5 { border-color: rgba(34, 197, 94, 0.45); }
-
-/* Color-coded outlines per rating level (selected state) */
-.run-outcome-rating.r1.selected { border-color: #ef4444; }
-.run-outcome-rating.r2.selected { border-color: #f97316; }
-.run-outcome-rating.r3.selected { border-color: var(--panel-accent); }
-.run-outcome-rating.r4.selected { border-color: #22c55e; }
-.run-outcome-rating.r5.selected { border-color: #16a34a; }
 
 .run-outcome-rating:hover,
 .run-outcome-resolution:hover {
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
 }
 
 .run-outcome-rating.selected {
-  background: var(--panel-accent-surface);
+  background: color-mix(in srgb, var(--panel-accent-surface) 72%, var(--panel-control-surface));
+  border-color: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
 }
 
 .run-outcome-resolution.selected {
-  background: var(--panel-accent-surface);
-  border-color: var(--panel-accent);
+  background: color-mix(in srgb, var(--panel-accent-surface) 72%, var(--panel-control-surface));
+  border-color: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
 }
 
 .run-outcome-rating-value {
@@ -875,9 +866,9 @@ button.composer-meta-chip.open:focus {
   gap: 4px;
   width: 100%;
   padding: 10px 12px;
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  background: var(--panel-subtle-surface);
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-lg);
+  background: var(--panel-control-surface);
   color: var(--vscode-foreground);
   text-align: left;
   cursor: pointer;

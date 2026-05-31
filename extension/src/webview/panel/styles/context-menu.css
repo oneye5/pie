@@ -1,4 +1,4 @@
-﻿.context-menu-item {
+.context-menu-item {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -14,7 +14,7 @@
 }
 
 .context-menu-item:hover {
-  background: var(--vscode-menu-selectionBackground, var(--panel-hover-surface));
+  background: var(--vscode-menu-selectionBackground, var(--panel-control-hover));
   color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
 }
 
@@ -48,8 +48,8 @@
   min-height: 18px;
   padding: 0 7px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--panel-border) 90%, transparent);
-  background: color-mix(in srgb, var(--panel-subtle-surface) 78%, transparent);
+  border: 1px solid var(--panel-border-subtle);
+  background: var(--panel-control-surface);
   color: var(--panel-muted);
   font-size: 9px;
   font-weight: 600;
@@ -79,37 +79,29 @@
   max-width: min(100%, 220px);
   flex: 0 1 auto;
   padding: 3px 4px 3px 3px;
-  border-radius: 11px;
-  border: 1px solid color-mix(in srgb, var(--panel-border) 90%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--panel-subtle-surface) 82%, transparent),
-    color-mix(in srgb, var(--panel-code-surface) 66%, transparent)
-  );
+  border-radius: var(--panel-radius-lg);
+  border: 1px solid var(--panel-border-subtle);
+  background: var(--panel-control-surface);
   transition: border-color 0.12s ease, background 0.12s ease;
 }
 
 .attachment-card:hover,
 .attachment-card:focus-within {
   border-color: var(--panel-border);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--panel-hover-surface) 80%, transparent),
-    color-mix(in srgb, var(--panel-subtle-surface) 68%, transparent)
-  );
+  background: var(--panel-control-hover);
 }
 
 .attachment-card-thumb,
 .attachment-card-icon {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--panel-radius-md);
   flex-shrink: 0;
 }
 
 .attachment-card-thumb {
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--panel-border) 88%, transparent);
+  border: 1px solid var(--panel-border-subtle);
   background: var(--panel-code-surface);
 }
 
@@ -125,8 +117,8 @@
   align-items: center;
   justify-content: center;
   color: var(--panel-accent);
-  background: color-mix(in srgb, var(--panel-accent-surface) 72%, var(--panel-subtle-surface));
-  border: 1px solid color-mix(in srgb, var(--panel-accent) 14%, transparent);
+  background: color-mix(in srgb, var(--panel-accent-surface) 68%, var(--panel-control-surface));
+  border: 1px solid color-mix(in srgb, var(--panel-accent) 18%, var(--panel-border));
 }
 
 .attachment-card-meta {
@@ -174,7 +166,7 @@
 
 .attachment-card-remove:hover,
 .attachment-card-remove:focus-visible {
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
   color: var(--vscode-foreground);
 }
 
@@ -189,14 +181,14 @@
   gap: 6px;
   padding: 6px 8px 8px;
   border: 1px solid var(--panel-border);
-  border-radius: 14px;
-  background: var(--vscode-input-background, var(--panel-surface));
+  border-radius: var(--panel-radius-xl);
+  background: var(--vscode-input-background, var(--panel-card-surface));
   transition: border-color 0.12s ease, background 0.12s ease;
 }
 
 .composer-input-shell.drag-active {
-  border-color: var(--panel-accent);
-  background: var(--panel-accent-surface);
+  border-color: color-mix(in srgb, var(--panel-accent) 36%, var(--panel-border));
+  background: color-mix(in srgb, var(--panel-accent-surface) 38%, var(--vscode-input-background, var(--panel-card-surface)));
 }
 
 .composer-textarea {
@@ -268,12 +260,10 @@
 
   50% {
     box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--panel-success) 42%, var(--session-tab-outline)),
-      0 0 0 1px color-mix(in srgb, var(--panel-success) 14%, transparent);
+      inset 0 0 0 1px color-mix(in srgb, var(--panel-success) 28%, var(--session-tab-outline)),
+      0 0 0 1px color-mix(in srgb, var(--panel-success) 10%, transparent);
   }
 }
-
-
 
 @media (prefers-reduced-motion: reduce) {
   .transcript-typing-dot {
@@ -288,5 +278,3 @@
 }
 
 /* ── File Changes Panel ───────────────────────────────────────────────────── */
-
-

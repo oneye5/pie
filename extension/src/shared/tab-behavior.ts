@@ -11,20 +11,23 @@ export function isPendingTabPath(sessionPath: string): boolean {
   return sessionPath.startsWith(PENDING_SESSION_PREFIX);
 }
 
+export function readStoredOpenTabPath(value: unknown): string | null {
+  return typeof value === 'string'
+    ? value
+    : value !== null && typeof value === 'object'
+      ? (typeof (value as Record<string, unknown>)['path'] === 'string'
+          ? ((value as Record<string, unknown>)['path'] as string)
+          : null)
+      : null;
+}
+
 export function normalizeStoredOpenTabPaths(openTabPaths: readonly unknown[]): string[] {
   const seenPaths = new Set<string>();
   const normalizedPaths: string[] = [];
 
   for (const value of openTabPaths) {
     // Accept both old string format and new {path, name?} object format.
-    const path =
-      typeof value === 'string'
-        ? value
-        : value !== null && typeof value === 'object'
-          ? (typeof (value as Record<string, unknown>)['path'] === 'string'
-              ? ((value as Record<string, unknown>)['path'] as string)
-              : null)
-          : null;
+    const path = readStoredOpenTabPath(value);
 
     if (!path || isPendingTabPath(path) || seenPaths.has(path)) {
       continue;

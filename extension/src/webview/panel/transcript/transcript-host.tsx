@@ -25,6 +25,7 @@ interface TranscriptSurfaceProps {
   isActive: boolean;
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
+  transcriptLoaded: boolean;
   busy: boolean;
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;
@@ -49,6 +50,7 @@ function TranscriptSurface({
   isActive,
   transcript,
   transcriptWindow,
+  transcriptLoaded,
   busy,
   prefs,
   pruningSettings,
@@ -82,6 +84,7 @@ function TranscriptSurface({
         sessionKey={sessionPath}
         transcript={transcript}
         transcriptWindow={transcriptWindow}
+        transcriptLoaded={transcriptLoaded}
         busy={busy}
         prefs={prefs}
         pruningSettings={pruningSettings}
@@ -111,6 +114,7 @@ export interface TranscriptHostProps {
   // Per-tab data will come from session stores in later phases.
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
+  transcriptLoaded: boolean;
   busy: boolean;
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;
@@ -133,6 +137,7 @@ export function TranscriptHost({
   activeSessionPath,
   transcript,
   transcriptWindow,
+  transcriptLoaded,
   busy,
   prefs,
   pruningSettings,
@@ -157,6 +162,7 @@ export function TranscriptHost({
           isActive
           transcript={transcript}
           transcriptWindow={transcriptWindow}
+          transcriptLoaded={transcriptLoaded}
           busy={busy}
           prefs={prefs}
           pruningSettings={pruningSettings}

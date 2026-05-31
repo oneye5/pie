@@ -4,7 +4,7 @@ import { BackendClient } from '../backend/client';
 import { shouldFlashFinishedTab } from '../sidebar/completion-notification';
 import { resolveSessionOpenedTranscript } from './session-opened-transcript';
 import { type RunObserver } from '../stats-service';
-import { auditLog } from '../util/audit';
+import { auditLog, bootLog } from '../util/audit';
 import {
   fileChangesActions,
   getSessionByPath,
@@ -82,6 +82,10 @@ export class SessionServiceEvents {
       const notice =
         `PI backend stopped${code !== null ? ` (code ${code})` : ''}` +
         (stderr ? `: ${stderr.slice(0, 300)}` : '');
+      bootLog('session-events', 'backend.exited', {
+        code,
+        notice,
+      });
       store.dispatch(uiActions.setNotice(notice));
       store.dispatch(uiActions.setBackendReady(false));
       store.dispatch(sessionsActions.clearRunningPaths());
@@ -122,6 +126,15 @@ export class SessionServiceEvents {
       shouldActivate,
       shouldOpenTab,
       staleSessionData,
+    });
+
+    bootLog('session-events', 'session.opened', {
+      activeSessionPath: selectActiveSessionPath(state),
+      selectionToken: selectionToken ?? null,
+      sessionPath: session.path,
+      shouldActivate,
+      shouldOpenTab,
+      transcriptLoaded: true,
     });
 
     if (selectionRequest?.pendingPath && selectionRequest.pendingPath !== session.path) {
@@ -345,6 +358,7 @@ export class SessionServiceEvents {
       name: payload.name,
       input: payload.input,
       status: 'running' as const,
+      startedAt: payload.startedAt,
     };
 
     if (this.dispatchArch) {
@@ -400,6 +414,8 @@ export class SessionServiceEvents {
       input: existing?.input,
       result: payload.result,
       status: payload.status,
+      startedAt: existing?.startedAt,
+      durationMs: payload.durationMs,
     };
 
     if (this.dispatchArch) {
@@ -439,6 +455,7 @@ export class SessionServiceEvents {
       input: existing?.input,
       result: payload.partialResult,
       status: 'running' as const,
+      startedAt: existing?.startedAt,
     };
 
     if (this.dispatchArch) {

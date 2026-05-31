@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { BackendClient } from '../backend/client';
-import { assertInvariant, auditLog } from '../util/audit';
+import { assertInvariant, auditLog, bootLog } from '../util/audit';
 import {
   fileChangesActions,
   sessionStateActions,
@@ -22,12 +22,14 @@ import type { ScheduleRender, SelectionRequest } from './types';
 
 const OPEN_TABS_STORAGE_KEY = 'openTabPaths';
 const ACTIVE_SESSION_STORAGE_KEY = 'activeSessionPath';
+const DEFAULT_SELECTION_REQUEST_TIMEOUT_MS = 30_000;
 
 export class SessionServiceState {
   private readonly busySeqMap = new Map<string, number>();
   private lifecycleQueue = Promise.resolve();
   private readonly sessionOperationQueues = new Map<string, Promise<void>>();
   private readonly selectionRequests = new Map<string, SelectionRequest>();
+  private readonly selectionRequestTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly sessionDataEpochs = new Map<string, number>();
   private readonly preloadingSessionPaths = new Set<string>();
   private readonly suppressNextCompletionNotification = new Set<string>();
@@ -43,6 +45,7 @@ export class SessionServiceState {
     private readonly context: vscode.ExtensionContext,
     private readonly backend: BackendClient,
     private readonly scheduleRender: ScheduleRender,
+    private readonly selectionRequestTimeoutMs = DEFAULT_SELECTION_REQUEST_TIMEOUT_MS,
   ) {}
 
   setPreloadedSessionOpenedHandler(handler: (payload: SessionOpenedPayload) => void): void {
@@ -53,6 +56,10 @@ export class SessionServiceState {
     this.busySeqMap.clear();
     this.lifecycleQueue = Promise.resolve();
     this.sessionOperationQueues.clear();
+    for (const timer of this.selectionRequestTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.selectionRequestTimers.clear();
     this.selectionRequests.clear();
     this.sessionDataEpochs.clear();
     this.preloadingSessionPaths.clear();
@@ -91,6 +98,7 @@ export class SessionServiceState {
       requestEpoch,
     });
     this.currentSelectionToken = token;
+    this.armSelectionRequestTimeout(token);
     return token;
   }
 
@@ -110,6 +118,7 @@ export class SessionServiceState {
       return;
     }
 
+    this.clearSelectionRequestTimeout(selectionToken);
     this.selectionRequests.delete(selectionToken);
     if (this.currentSelectionToken === selectionToken) {
       this.currentSelectionToken = null;
@@ -117,22 +126,65 @@ export class SessionServiceState {
   }
 
   clearSelectionRequestsForPath(sessionPath: string): void {
+    const tokensToClear: string[] = [];
     for (const [token, request] of this.selectionRequests) {
       // Either side of the request can match the closing session — both must
       // result in deleting the entry so it can't outlive the session and
       // re-fire later (B4 cross-session bleed).
       if (request.pendingPath === sessionPath || request.requestedPath === sessionPath) {
-        this.selectionRequests.delete(token);
-        if (this.currentSelectionToken === token) {
-          this.currentSelectionToken = null;
-        }
+        tokensToClear.push(token);
       }
     }
+
+    for (const token of tokensToClear) {
+      this.finishSelectionRequest(token);
+    }
+  }
+
+  private armSelectionRequestTimeout(selectionToken: string): void {
+    if (this.selectionRequestTimeoutMs <= 0) {
+      return;
+    }
+
+    this.clearSelectionRequestTimeout(selectionToken);
+    const timer = setTimeout(() => {
+      if (!this.selectionRequests.has(selectionToken)) {
+        return;
+      }
+
+      const request = this.selectionRequests.get(selectionToken);
+      const action = request?.pendingPath ? 'create session' : 'open session';
+      this.handleSelectionFailure(
+        selectionToken,
+        `Timed out waiting to ${action}. Please try again.`,
+      );
+    }, this.selectionRequestTimeoutMs);
+
+    this.selectionRequestTimers.set(selectionToken, timer);
+  }
+
+  private clearSelectionRequestTimeout(selectionToken: string): void {
+    const timer = this.selectionRequestTimers.get(selectionToken);
+    if (!timer) {
+      return;
+    }
+
+    clearTimeout(timer);
+    this.selectionRequestTimers.delete(selectionToken);
   }
 
   handleSelectionFailure(selectionToken: string, notice: string): void {
     const request = this.selectionRequests.get(selectionToken);
     const ownsSelection = this.currentSelectionToken === selectionToken;
+    bootLog('session-state', 'selection.failed', {
+      notice,
+      ownsSelection,
+      pendingPath: request?.pendingPath ?? null,
+      previousActivePath: request?.previousActivePath ?? null,
+      requestedPath: request?.requestedPath ?? null,
+      selectionToken,
+      wasOpenTab: request?.wasOpenTab ?? null,
+    });
     this.finishSelectionRequest(selectionToken);
 
     if (request) {

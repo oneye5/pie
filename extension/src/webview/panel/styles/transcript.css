@@ -4,10 +4,10 @@
   overflow-y: auto;
   overflow-x: hidden;
   overflow-anchor: none;
-  padding: 8px 12px 10px;
+  padding: var(--panel-gap-md) var(--panel-gap-lg) 10px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--panel-gap-sm);
   align-items: flex-start;
 }
 
@@ -52,9 +52,9 @@
 }
 
 .transcript-gap-btn {
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--panel-border-subtle);
   border-radius: 999px;
-  background: var(--panel-subtle-surface);
+  background: var(--panel-control-surface);
   color: var(--vscode-foreground);
   font-size: 11px;
   line-height: 1;
@@ -63,7 +63,7 @@
 }
 
 .transcript-gap-btn:hover {
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
 }
 
 .transcript-gap-btn:disabled {
@@ -83,23 +83,22 @@
   align-items: center;
   justify-content: center;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, var(--vscode-foreground) 6%, var(--panel-border));
-  background: color-mix(in srgb, var(--panel-subtle-surface) 78%, transparent);
+  border: 1px solid var(--panel-border-subtle);
+  background: var(--panel-overlay-surface);
   color: var(--panel-muted);
   font-size: 15px;
   line-height: 1;
   padding: 0;
   cursor: pointer;
   z-index: 280;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, background 0.12s ease, color 0.12s ease;
+  box-shadow: var(--panel-shadow-sm);
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
 .transcript-jump-latest:hover {
-  transform: translateX(-50%) translateY(-2px);
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
+  border-color: var(--panel-border);
   color: var(--vscode-foreground);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
 }
 
 .transcript-jump-latest:focus-visible {
@@ -127,32 +126,10 @@
 
 .activity-status-bar {
   width: 100%;
-  height: 1.5px;
+  height: 1px;
   border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--panel-accent) 50%, transparent) 0%,
-    color-mix(in srgb, var(--panel-accent) 70%, transparent) 50%,
-    transparent 100%
-  );
-  background-size: 200% 100%;
-  animation: activity-bar-slide 2.4s ease-in-out infinite;
+  background: color-mix(in srgb, var(--panel-accent) 22%, transparent);
   opacity: 0.5;
-}
-
-@keyframes activity-bar-slide {
-  0% {
-    background-position: 100% 50%;
-    opacity: 0.3;
-  }
-  50% {
-    background-position: 0% 50%;
-    opacity: 0.6;
-  }
-  100% {
-    background-position: -100% 50%;
-    opacity: 0.3;
-  }
 }
 
 .agent-activity-indicator {
@@ -174,7 +151,6 @@
 }
 
 .agent-activity-label {
-  position: relative;
   display: inline-flex;
   align-items: baseline;
   min-width: 0;
@@ -182,24 +158,7 @@
 }
 
 .agent-activity-label::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 1px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    color-mix(in srgb, var(--panel-accent) 70%, transparent) 50%,
-    transparent 100%
-  );
-  background-size: 180% 100%;
-  background-position: 140% 50%;
-  opacity: 0.18;
-  pointer-events: none;
-  animation: agent-activity-underline-sweep 2.1s ease-in-out infinite;
+  display: none;
 }
 
 .agent-activity-text {
@@ -211,11 +170,11 @@
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 0.9em;
   font-weight: 600;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--panel-muted) 26%);
-  opacity: 0.8;
-  animation: agent-activity-text-breathe 2.1s ease-in-out infinite;
+  color: color-mix(in srgb, var(--vscode-foreground) 68%, var(--panel-muted) 32%);
+  opacity: 0.78;
+  animation: none;
 }
 
 
@@ -263,37 +222,6 @@
   line-height: 1.55;
 }
 
-@keyframes agent-activity-text-breathe {
-  0%,
-  100% {
-    opacity: 0.66;
-    color: color-mix(in srgb, var(--vscode-foreground) 70%, var(--panel-muted) 30%);
-    text-shadow: 0 0 0 transparent;
-  }
-
-  50% {
-    opacity: 1;
-    color: color-mix(in srgb, var(--panel-accent) 20%, var(--vscode-foreground) 80%);
-    text-shadow: 0 0 8px color-mix(in srgb, var(--panel-accent) 18%, transparent);
-  }
-}
-
-@keyframes agent-activity-underline-sweep {
-  0% {
-    background-position: 140% 50%;
-    opacity: 0.12;
-  }
-
-  45% {
-    background-position: 55% 50%;
-    opacity: 0.42;
-  }
-
-  100% {
-    background-position: -40% 50%;
-    opacity: 0.12;
-  }
-}
 
 .message-glow-indicator {
   position: relative;
@@ -302,53 +230,45 @@
   overflow: hidden;
 }
 
+/*
+ * Stable footer slot for the streaming glow indicator and the turn activity
+ * strip. Reserving a constant height means the message does not jump vertically
+ * as the agent alternates between streaming text (1px glow) and paused phases
+ * (taller activity strip) within a single turn.
+ */
+.message-activity-footer {
+  display: flex;
+  align-items: center;
+  min-height: var(--turn-activity-min-height);
+  margin-top: 6px;
+}
+
+.message-activity-footer .message-glow-indicator {
+  margin-top: 0;
+  flex: 1;
+}
+
 .message-glow-indicator::before {
   content: '';
   position: absolute;
   left: 0;
   right: 0;
   height: 100%;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--panel-accent, var(--panel-muted)) 50%,
-    transparent 100%
-  );
-  animation: message-glow-pulse var(--message-glow-duration, 4s) ease-in-out infinite;
-}
-
-@keyframes message-glow-pulse {
-  0%, 100% {
-    opacity: 0.2;
-    transform: scaleX(0.4);
-  }
-  50% {
-    opacity: 0.6;
-    transform: scaleX(1);
-  }
+  background: color-mix(in srgb, var(--panel-accent) 26%, transparent);
+  opacity: 0.55;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .agent-activity-text {
-    animation: none;
-    opacity: 0.9;
-    color: color-mix(in srgb, var(--vscode-foreground) 78%, var(--panel-muted) 22%);
-    text-shadow: none;
-  }
-
-  .agent-activity-label::after {
-    animation: none;
-    background-position: 50% 50%;
-    opacity: 0.18;
+    opacity: 0.82;
+    color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--panel-muted) 26%);
   }
 
   .activity-status-bar {
-    animation: none;
     opacity: 0.35;
   }
 
   .message-glow-indicator::before {
-    animation: none;
     opacity: 0.35;
   }
 }
@@ -394,7 +314,7 @@
 
 .message-retry-btn:hover {
   opacity: 1;
-  background: rgba(128, 128, 128, 0.15);
+  background: var(--panel-control-hover);
 }
 
 .message-retry-btn:disabled {
@@ -412,13 +332,11 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--panel-border) 86%, transparent);
-  border-radius: 12px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--vscode-foreground) 2.5%, transparent), transparent 56px),
-    var(--panel-surface);
-  box-shadow: 0 10px 24px -26px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.28)) 88%, transparent);
+  padding: 10px 12px;
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-xl);
+  background: var(--panel-card-surface);
+  box-shadow: var(--panel-shadow-sm);
   max-width: 88%;
   align-self: flex-start;
   width: fit-content;
@@ -427,15 +345,13 @@
 
 .message.role-user {
   align-self: flex-end;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-accent) 12%, transparent), transparent 64px),
-    var(--panel-accent-surface);
-  border-color: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
-  border-bottom-right-radius: 4px;
+  background: color-mix(in srgb, var(--panel-accent) 6%, var(--panel-card-surface));
+  border-color: color-mix(in srgb, var(--panel-accent) 18%, var(--panel-border));
+  border-bottom-right-radius: var(--panel-radius-sm);
 }
 
 .message.role-assistant {
-  border-bottom-left-radius: 4px;
+  border-bottom-left-radius: var(--panel-radius-sm);
 }
 
 /* Stable width during streaming — prevents horizontal token-by-token growth */
@@ -464,11 +380,8 @@
   align-self: stretch;
   max-width: none;
   width: auto;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-muted) 7%, transparent), transparent 72px),
-    var(--panel-subtle-surface);
-  border-color: color-mix(in srgb, var(--panel-muted) 24%, var(--panel-border));
-  border-style: dashed;
+  background: var(--panel-control-surface);
+  border-color: color-mix(in srgb, var(--panel-muted) 20%, var(--panel-border));
 }
 
 .message-head {
@@ -515,55 +428,12 @@
   opacity: 0.6;
 }
 
-.message-status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: calc(var(--status-chip-height) + 2px);
-  padding: 2px 8px;
-  border: 1px solid var(--status-chip-border-muted);
-  border-radius: var(--status-chip-radius);
-  background: var(--status-chip-surface-muted);
-  color: var(--panel-muted);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.message-status::before {
-  content: '';
-  width: var(--status-chip-dot-size);
-  height: var(--status-chip-dot-size);
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.78;
-  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
-}
-
-.message-status.interrupted {
-  background: var(--panel-warning-surface);
-  border-color: color-mix(in srgb, var(--panel-warning) 34%, transparent);
-  color: var(--panel-warning);
-}
-
-.message-status.error {
-  background: var(--panel-danger-surface);
-  border-color: color-mix(in srgb, var(--panel-danger) 34%, transparent);
-  color: var(--panel-danger);
-}
-
 .message-error-detail {
   margin: 4px 0 6px;
   padding: 6px 10px;
-  border-radius: 6px;
-  background: var(--panel-danger-surface);
-  border: 1px solid var(--panel-danger);
+  border-radius: var(--panel-radius-sm);
+  background: color-mix(in srgb, var(--panel-danger-surface) 72%, var(--panel-control-surface));
+  border: 1px solid color-mix(in srgb, var(--panel-danger) 32%, var(--panel-border));
   font-size: 12px;
   line-height: 1.45;
   color: var(--vscode-foreground);
@@ -598,7 +468,7 @@
 
 .message-error-detail-btn:hover {
   opacity: 1;
-  background: rgba(128, 128, 128, 0.15);
+  background: var(--panel-control-hover);
 }
 
 .assistant-reply-hint {
@@ -631,7 +501,7 @@
 .message-body pre,
 .tool-call-pre {
   background: var(--panel-code-surface);
-  border-radius: 10px;
+  border-radius: var(--panel-radius-lg);
   padding: 10px 12px;
   overflow-x: auto;
   font-family: var(--vscode-editor-font-family, monospace);
@@ -661,8 +531,8 @@
 /* Enhanced code blocks: language label, copy button, long-output collapse */
 .code-block {
   margin: 8px 0;
-  border: 1px solid color-mix(in srgb, var(--panel-border) 70%, transparent);
-  border-radius: 10px;
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-lg);
   overflow: hidden;
   background: var(--panel-code-surface);
 }
@@ -674,7 +544,7 @@
   gap: 8px;
   padding: 3px 8px;
   border-bottom: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
-  background: color-mix(in srgb, var(--panel-subtle-surface) 60%, transparent);
+  background: color-mix(in srgb, var(--panel-control-surface) 72%, transparent);
 }
 
 .code-block-lang {
@@ -704,7 +574,7 @@
 .code-block-copy:hover,
 .code-block-toggle:hover {
   color: var(--vscode-foreground);
-  background: rgba(128, 128, 128, 0.15);
+  background: var(--panel-control-hover);
 }
 
 .code-block-copy.copied {
@@ -807,7 +677,7 @@
   width: min(320px, 100%);
   max-width: 100%;
   max-height: 240px;
-  border-radius: 10px;
+  border-radius: var(--panel-radius-lg);
   border: 1px solid var(--panel-border);
   background: var(--panel-code-surface);
   object-fit: contain;

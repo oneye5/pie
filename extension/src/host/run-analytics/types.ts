@@ -45,6 +45,12 @@ export interface ToolUsageRollup {
   failureCountsByKind: Record<ToolFailureKind, number>;
   failureCountsByNameAndKind: Record<string, Record<ToolFailureKind, number>>;
   failureSamples: ToolFailureSample[];
+  /** Cumulative wall-clock execution time (ms) across all timed tool calls. */
+  totalDurationMs: number;
+  /** Number of completed/failed tool calls that reported an execution duration. */
+  timedCallCount: number;
+  /** Cumulative execution time (ms) per normalized tool name. */
+  durationMsByName: Record<string, number>;
   subagentCallCount: number;
   subagentTaskCount: number;
   subagentAgentNames: string[];

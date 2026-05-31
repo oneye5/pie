@@ -226,6 +226,15 @@ export function mergeAssistantToolCallsPreservingResolvedState(
           : previousToolCall.status,
     };
 
+    const mergedStartedAt = currentToolCall.startedAt ?? previousToolCall.startedAt;
+    if (mergedStartedAt !== undefined) {
+      mergedToolCall.startedAt = mergedStartedAt;
+    }
+    const mergedDurationMs = currentToolCall.durationMs ?? previousToolCall.durationMs;
+    if (mergedDurationMs !== undefined) {
+      mergedToolCall.durationMs = mergedDurationMs;
+    }
+
     upsertAssistantToolCall(target, mergedToolCall);
     currentById.set(mergedToolCall.id, mergedToolCall);
   }

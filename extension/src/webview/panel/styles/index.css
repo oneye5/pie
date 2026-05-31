@@ -1,6 +1,7 @@
 /* CSS shards — plain concatenation (no @layer to avoid conflicts with
    VS Code's unlayered webview styles overriding our rules). */
 @import './tokens.css';
+@import './status-chip.css';
 @import './tabs.css';
 @import './layout.css';
 @import './transcript.css';

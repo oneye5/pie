@@ -34,7 +34,7 @@ import { EffectRunner } from './core/effect-runner';
 import type { SyncEffect } from './core/effects';
 import { reducer, initialArchState, type ArchState } from './core/reducer';
 import type { Event } from './core/events';
-import { auditLog } from './util/audit';
+import { auditLog, bootLog } from './util/audit';
 import { buildOptimisticUserParts, buildPromptText } from './session-service/composer';
 import { deriveSessionNameFromText } from '../shared/session-name';
 import { isPendingTabPath } from '../shared/tab-behavior';
@@ -351,6 +351,9 @@ export class PieExtension implements vscode.Disposable {
       vscode.commands.registerCommand('pie.openChat', () => {
         this.sidebarProvider.reveal();
       }),
+      vscode.commands.registerCommand('pie.dumpDebugState', async () => {
+        return await this.dumpDebugState();
+      }),
       vscode.commands.registerCommand('pie.newSession', async () => {
         this.service.createNewSession();
         this.sidebarProvider.reveal();
@@ -455,7 +458,28 @@ export class PieExtension implements vscode.Disposable {
     }
   }
 
+  private async dumpDebugState(): Promise<string> {
+    const dumpPath = path.join(this.context.globalStorageUri.fsPath, 'pie-debug-state.json');
+    const payload = {
+      capturedAt: new Date().toISOString(),
+      sidebar: this.sidebarProvider.getDebugState(),
+      viewState: selectViewState(store.getState()),
+    };
+
+    await fs.mkdir(path.dirname(dumpPath), { recursive: true });
+    await fs.writeFile(dumpPath, JSON.stringify(payload, null, 2), 'utf8');
+    return dumpPath;
+  }
+
   private scheduleRender(): void {
+    const viewState = selectViewState(store.getState());
+    bootLog('extension-host', 'render.schedule', {
+      activeSessionPath: viewState.activeSession?.path ?? null,
+      backendReady: viewState.backendReady,
+      notice: viewState.notice,
+      openTabCount: viewState.openTabPaths.length,
+      transcriptLoaded: viewState.transcriptLoaded,
+    });
     this.sidebarProvider.scheduleState();
     queueMicrotask(() => {
       const state = selectViewState(store.getState());
@@ -471,6 +495,14 @@ export class PieExtension implements vscode.Disposable {
    * and the first streaming event of a turn so feedback is instant.
    */
   private flushRender(): void {
+    const viewState = selectViewState(store.getState());
+    bootLog('extension-host', 'render.flush', {
+      activeSessionPath: viewState.activeSession?.path ?? null,
+      backendReady: viewState.backendReady,
+      notice: viewState.notice,
+      openTabCount: viewState.openTabPaths.length,
+      transcriptLoaded: viewState.transcriptLoaded,
+    });
     this.sidebarProvider.postState();
     const state = selectViewState(store.getState());
     this.updateStatusBar(
@@ -698,6 +730,17 @@ export class PieExtension implements vscode.Disposable {
     this.scheduleRender();
   }
   private async handleWebviewMessage(msg: WebviewToHostMessage): Promise<void> {
+    if (msg.type === 'ready' || msg.type === 'refreshState' || msg.type === 'requestSnapshot') {
+      const viewState = selectViewState(store.getState());
+      bootLog('extension-host', `webview.${msg.type}`, {
+        activeSessionPath: viewState.activeSession?.path ?? null,
+        backendReady: viewState.backendReady,
+        notice: viewState.notice,
+        openTabCount: viewState.openTabPaths.length,
+        transcriptLoaded: viewState.transcriptLoaded,
+      });
+    }
+
     switch (msg.type) {
       case 'ready':
         this.sidebarProvider.postState();
@@ -708,7 +751,7 @@ export class PieExtension implements vscode.Disposable {
         if (activeSessionPath) {
           await this.service.hydrateModelState(activeSessionPath);
         }
-        this.scheduleRender();
+        this.sidebarProvider.postState();
         return;
       }
 
@@ -1020,6 +1063,10 @@ export class PieExtension implements vscode.Disposable {
       case 'closeOutcomeDialog':
         store.dispatch(uiActions.setShowOutcomeDialog(false));
         this.scheduleRender();
+        return;
+
+      case 'stateApplied':
+        bootLog('webview', 'state.applied', { ...msg.payload });
         return;
 
       case 'extensionUiResponse': {

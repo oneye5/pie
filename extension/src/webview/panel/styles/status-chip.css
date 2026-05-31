@@ -1,0 +1,121 @@
+/**
+ * Shared status chip primitive.
+ *
+ * Used by message headers, tool-call headers, and subagent headers so that
+ * runtime status always renders identically. Tones map to semantic colors
+ * defined in tokens.css. Layout-specific width/alignment is layered on via
+ * additional classes (e.g. `.status-chip-fixed`).
+ */
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: var(--status-chip-height);
+  padding: 1px var(--status-chip-padding-inline);
+  border: 1px solid var(--status-chip-border-muted);
+  border-radius: var(--status-chip-radius);
+  background: var(--status-chip-surface-muted);
+  color: var(--panel-muted);
+  overflow: hidden;
+  white-space: nowrap;
+  text-align: center;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.status-chip::before {
+  content: '';
+  width: var(--status-chip-dot-size);
+  height: var(--status-chip-dot-size);
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.78;
+  flex: 0 0 auto;
+}
+
+/* Fixed-width column variant — keeps tool/subagent header status aligned. */
+.status-chip-fixed {
+  min-width: var(--tool-call-status-column-width);
+  max-width: var(--tool-call-status-column-width);
+  flex: 0 0 var(--tool-call-status-column-width);
+  margin-inline-start: auto;
+}
+
+/* --- Tones --------------------------------------------------------------- */
+.status-chip-running {
+  background: var(--panel-accent-surface);
+  border-color: color-mix(in srgb, var(--panel-accent) 34%, transparent);
+  color: var(--panel-accent);
+}
+
+.status-chip-running::before {
+  animation: status-chip-pulse 1.6s ease-in-out infinite;
+}
+
+.status-chip-completed {
+  background: var(--panel-success-surface);
+  border-color: color-mix(in srgb, var(--panel-success) 34%, transparent);
+  color: var(--panel-success);
+}
+
+.status-chip-failed,
+.status-chip-error {
+  background: var(--panel-danger-surface);
+  border-color: color-mix(in srgb, var(--panel-danger) 34%, transparent);
+  color: var(--panel-danger);
+}
+
+.status-chip-interrupted {
+  background: var(--panel-warning-surface);
+  border-color: color-mix(in srgb, var(--panel-warning) 34%, transparent);
+  color: var(--panel-warning);
+}
+
+/* --- Interactive (copy error detail) ------------------------------------- */
+.status-chip.has-error-detail {
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.status-chip.has-error-detail:hover {
+  background: color-mix(in srgb, var(--panel-danger) 18%, transparent);
+  border-color: color-mix(in srgb, var(--panel-danger) 46%, transparent);
+}
+
+.status-chip.has-error-detail:focus-visible {
+  outline: 1px solid currentColor;
+  outline-offset: 2px;
+}
+
+.status-chip.has-error-detail[data-copied] {
+  color: var(--panel-success);
+  background: var(--panel-success-surface);
+  border-color: color-mix(in srgb, var(--panel-success) 38%, transparent);
+  pointer-events: none;
+}
+
+.status-chip.has-error-detail[data-copied] .status-chip-label {
+  display: none;
+}
+
+.status-chip.has-error-detail[data-copied]::after {
+  content: 'Copied!';
+}
+
+@keyframes status-chip-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.96); }
+  50% { opacity: 0.9; transform: scale(1.08); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status-chip-running::before {
+    animation: none;
+    opacity: 0.9;
+    transform: none;
+  }
+}

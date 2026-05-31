@@ -181,6 +181,7 @@ test('rendered tool-call components cover collapsed summaries, expanded bodies, 
     summaryPath: '/repo/src/example.ts',
     sizeHint: '+3 lines',
     errorDetail: 'boom',
+    durationMs: 1500,
     onOpenFile: noop,
   }));
 
@@ -191,6 +192,8 @@ test('rendered tool-call components cover collapsed summaries, expanded bodies, 
   assert.match(headerHtml, /tabindex="0"/);
   assert.match(headerHtml, /Copy tool-call error detail/);
   assert.match(headerHtml, /tool-call-size-hint/);
+  assert.match(headerHtml, /tool-call-duration/);
+  assert.match(headerHtml, /1\.5s/);
 
   const expandedToolHtml = renderToString(h(ToolCallItem, {
     toolCall: toolCall(),
@@ -269,8 +272,8 @@ test('rendered tool-call components cover collapsed summaries, expanded bodies, 
     onContextMenu: noopContextMenu,
     renderToolCall: () => null,
   }));
-  assert.match(runningSubagentHtml, /subagent-status-running/);
-  assert.match(runningSubagentHtml, /subagent-status-label">Running/);
+  assert.match(runningSubagentHtml, /status-chip-running/);
+  assert.match(runningSubagentHtml, /status-chip-label">Running/);
   assert.match(runningSubagentHtml, /subagent-running-tool/);
 
   const parallelSubagentHtml = renderToString(h(ToolCallItem, {
@@ -426,7 +429,7 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
   assert.match(inferredSubagentHtml, /planner/);
   assert.doesNotMatch(inferredSubagentHtml, /subagent-primary-meta/);
   assert.doesNotMatch(inferredSubagentHtml, /subagent-secondary-meta/);
-  assert.doesNotMatch(inferredSubagentHtml, /subagent-status/);
+  assert.doesNotMatch(inferredSubagentHtml, /status-chip-running|status-chip-failed/);
 
   const failedParentHtml = renderToString(h(ToolCallItem, {
     toolCall: toolCall({
@@ -453,7 +456,7 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
     renderToolCall: () => null,
   }));
 
-  assert.match(failedParentHtml, /subagent-status-failed/);
+  assert.match(failedParentHtml, /status-chip-failed/);
   assert.doesNotMatch(failedParentHtml, /has-error-detail/);
 
   const runningParentHtml = renderToString(h(ToolCallItem, {
@@ -482,7 +485,7 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
     renderToolCall: () => null,
   }));
 
-  assert.match(runningParentHtml, /aria-label="Running"/);
+  assert.match(runningParentHtml, /status-chip-label">Running/);
   assert.doesNotMatch(runningParentHtml, /subagent-model-tag/);
   assert.match(runningParentHtml, /gpt-4\.1/);  // model now shown in header
 
@@ -513,7 +516,7 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
     renderToolCall: () => null,
   }));
 
-  assert.match(abortedHtml, /subagent-status-failed has-error-detail/);
+  assert.match(abortedHtml, /status-chip-failed has-error-detail/);
   assert.match(abortedHtml, /role="button"/);
   assert.match(abortedHtml, /tabindex="0"/);
   assert.match(abortedHtml, /Copy subagent error detail/);
@@ -587,8 +590,8 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
 
   assert.match(parallelHtml, /subagent-parallel-group/);
   assert.match(parallelHtml, /subagent-running-tool">bash…/);
-  assert.match(parallelHtml, /aria-label="Running"/);
-  assert.match(parallelHtml, /subagent-status-failed has-error-detail/);
+  assert.match(parallelHtml, /status-chip-label">Running/);
+  assert.match(parallelHtml, /status-chip-failed has-error-detail/);
   assert.match(parallelHtml, /Error: spawn EPERM: permission denied/);
 });
 
@@ -644,8 +647,8 @@ test('rendered parallel subagent cards keep per-child summaries and statuses whi
   assert.doesNotMatch(html, /reviewer: Review output/);
   assert.equal((html.match(/tool-call tool-call-subagent running/g) ?? []).length, 1);
   assert.equal((html.match(/tool-call tool-call-subagent failed/g) ?? []).length, 1);
-  assert.equal((html.match(/subagent-status-running/g) ?? []).length, 1);
-  assert.equal((html.match(/subagent-status-failed/g) ?? []).length, 1);
+  assert.equal((html.match(/status-chip-running/g) ?? []).length, 1);
+  assert.equal((html.match(/status-chip-failed/g) ?? []).length, 1);
 });
 
 test('rendered SystemPromptMessage covers summary fallbacks, suppressed summaries, and token estimate branches', async () => {

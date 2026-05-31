@@ -7,13 +7,11 @@ import {
   type ComposerInput,
   type ContextWindowUsage,
   type ExtensionInfo,
-  type ExtensionUIRequestPayload,
   type FileChangeEntry,
   type ModelInfo,
   type PruningCatalog,
   type PruningDetails,
   type PruningResult,
-  type PruningSettings,
   type SessionSummary,
   type SystemPromptEntry,
   type TranscriptWindow,
@@ -108,6 +106,12 @@ const selectActiveTranscriptWindow = (state: RootState): TranscriptWindow => {
   return state.transcript.windowBySession[path] ?? EMPTY_WINDOW;
 };
 
+const selectActiveTranscriptLoaded = (state: RootState): boolean => {
+  const path = selectActiveSessionPath(state);
+  if (!path) return false;
+  return Object.prototype.hasOwnProperty.call(state.transcript.windowBySession, path);
+};
+
 const selectActiveAvailableModels = (state: RootState): ModelInfo[] => {
   const path = selectActiveSessionPath(state);
   if (!path) return EMPTY_AVAILABLE_MODELS;
@@ -129,11 +133,7 @@ const selectActivePendingComposerInputs = (state: RootState): ComposerInput[] =>
 const selectActiveFileChanges = (state: RootState): FileChangeEntry[] => {
   const path = selectActiveSessionPath(state);
   if (!path) return EMPTY_FILE_CHANGES;
-  const changes = state.fileChanges.bySession[path] ?? EMPTY_FILE_CHANGES;
-  if (changes.length > 0) {
-    console.log('[pie:fileChanges] selectActiveFileChanges found', changes.length, 'changes for', path);
-  }
-  return changes;
+  return state.fileChanges.bySession[path] ?? EMPTY_FILE_CHANGES;
 };
 
 const selectAvailableExtensions = (state: RootState): ExtensionInfo[] => {
@@ -252,6 +252,7 @@ export const selectViewState = createSelector(
     (s: RootState) => s.sessions.workspaceCwd,
     selectActiveTranscript,
     selectActiveTranscriptWindow,
+    selectActiveTranscriptLoaded,
     selectActivePendingComposerInputs,
     selectActiveRunSummary,
     (s: RootState) => s.sessionState.activeRunSummaryBySession,
@@ -281,6 +282,7 @@ export const selectViewState = createSelector(
     workspaceCwd,
     transcript,
     transcriptWindow,
+    transcriptLoaded,
     pendingComposerInputs,
     activeRunSummary,
     runSummariesBySession,
@@ -309,6 +311,7 @@ export const selectViewState = createSelector(
       activeSession,
       transcript,
       transcriptWindow,
+      transcriptLoaded,
       pendingComposerInputs,
       activeRunSummary,
       runSummariesBySession,

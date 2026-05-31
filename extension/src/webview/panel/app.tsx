@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useState, useCallback, useEffect, useMemo } from 'preact/hooks';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'preact/hooks';
 
 import type {
   ChatPrefs,
@@ -12,7 +12,6 @@ import type {
   ViewState,
   WebviewToHostMessage,
 } from '../../shared/protocol';
-import { deriveTurnActivityState, type TurnActivityState } from './transcript/activity';
 import { createLocalMessageId } from '../../shared/local-message-id';
 import { warmupCompletionSoundContext } from './completion-sound';
 import { FileChangesPanel } from './file-changes-panel';
@@ -27,6 +26,7 @@ import { RunOutcomeDialog } from './run-outcome-dialog';
 import { NoticeBanner } from './components/notice-banner';
 import { NoticeContext } from './hooks/notice-context';
 import { useHostSync, EMPTY_VIEW_STATE } from './hooks/use-host-sync';
+import { isPendingTabPath } from '../../shared/tab-behavior';
 
 export { EMPTY_VIEW_STATE };
 
@@ -143,15 +143,22 @@ export function App({ adapter }: { adapter: AppAdapter }) {
   // ─── Derived state ───────────────────────────────────────────────────────
 
   const { sessions, openTabPaths, runningSessionPaths, unreadFinishedSessionPaths,
-    activeSession, transcript, transcriptWindow, pendingComposerInputs, activeRunSummary,
+    activeSession, transcript, transcriptWindow, transcriptLoaded, pendingComposerInputs, activeRunSummary,
     busy, notice, backendReady, workspaceCwd, modelSettings, availableModels, contextUsage,
     prefs, systemPrompts, fileChanges, pruningResult, pruningSettings, pruningCatalog, availableExtensions,
     editingMessageId, showOutcomeDialog, pendingExtensionUIRequest } = viewState;
+
+  const recoveryRequestRef = useRef<{ path: string | null; lastSentAt: number }>({
+    path: null,
+    lastSentAt: 0,
+  });
 
   const panelSurface = resolvePanelSurface({ backendReady, notice, openTabPaths });
   const hasActiveTabs = panelSurface === 'session';
   const showSessionChrome = panelSurface !== 'loading';
   const activeSessionPath = activeSession?.path ?? null;
+  const recoverySessionPath = openTabPaths.find((p) => !isPendingTabPath(p)) ?? sessions[0]?.path ?? null;
+  const needsSessionRecovery = hasActiveTabs && activeSession === null && recoverySessionPath !== null;
   const {
     selectedModel: pendingAssistantModelId,
     selectedLevel: pendingAssistantThinkingLevel,
@@ -162,14 +169,33 @@ export function App({ adapter }: { adapter: AppAdapter }) {
     availableModels,
   }), [activeSession?.modelId, activeSession?.thinkingLevel, availableModels, modelSettings]);
 
-  const activityState = useMemo(() => deriveTurnActivityState({
-    busy,
-    transcript,
-    prefs,
-    pruningSettings,
-    pendingAssistantModelId: activeSession?.modelId,
-    pendingAssistantThinkingLevel: activeSession?.thinkingLevel,
-  }), [busy, transcript, prefs, pruningSettings, activeSession?.modelId, activeSession?.thinkingLevel]);
+  useEffect(() => {
+    if (!backendReady || !needsSessionRecovery || !recoverySessionPath || notice) {
+      recoveryRequestRef.current = {
+        path: null,
+        lastSentAt: 0,
+      };
+      return;
+    }
+
+    const sendRecoveryRequest = () => {
+      const now = Date.now();
+      const { path, lastSentAt } = recoveryRequestRef.current;
+      if (path === recoverySessionPath && now - lastSentAt < 2500) {
+        return;
+      }
+
+      recoveryRequestRef.current = {
+        path: recoverySessionPath,
+        lastSentAt: now,
+      };
+      postMessage({ type: 'openSession', sessionPath: recoverySessionPath });
+    };
+
+    sendRecoveryRequest();
+    const retryId = window.setInterval(sendRecoveryRequest, 2500);
+    return () => window.clearInterval(retryId);
+  }, [backendReady, needsSessionRecovery, recoverySessionPath, notice, postMessage]);
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
@@ -235,12 +261,19 @@ export function App({ adapter }: { adapter: AppAdapter }) {
             </div>
             <button class="btn" onClick={handleNewSession}>New Session</button>
           </div>
+        ) : needsSessionRecovery ? (
+          <div class="empty-state">
+            <div class="loading-wheel" aria-hidden="true" />
+            <div class="empty-state-title">Restoring session</div>
+            <div class="empty-state-sub">Reopening your active tab.</div>
+          </div>
         ) : (
           <TranscriptHost
             openTabPaths={openTabPaths}
             activeSessionPath={activeSessionPath}
             transcript={mergedTranscript}
             transcriptWindow={transcriptWindow}
+            transcriptLoaded={transcriptLoaded}
             busy={busy}
             prefs={prefs}
             pruningSettings={pruningSettings}
@@ -260,11 +293,11 @@ export function App({ adapter }: { adapter: AppAdapter }) {
         )}
       </div>
 
-      {hasActiveTabs && pendingExtensionUIRequest && activeSessionPath && (
+      {hasActiveTabs && !needsSessionRecovery && pendingExtensionUIRequest && activeSessionPath && (
         <ExtensionUIPrompt sessionPath={activeSessionPath} request={pendingExtensionUIRequest} postMessage={postMessage} />
       )}
 
-      {hasActiveTabs && (
+      {hasActiveTabs && !needsSessionRecovery && (
         <Composer
           busy={busy}
           activeModelId={activeSession?.modelId}
@@ -294,7 +327,6 @@ export function App({ adapter }: { adapter: AppAdapter }) {
           onSetPruningSettings={handleSetPruningSettings}
           onMarkComplete={handleMarkComplete}
           tokenRate={tokenRateState}
-          activityState={activityState}
         />
       )}
     </div>

@@ -4,8 +4,10 @@ import assert from 'node:assert/strict';
 import {
   buildPatchEnvelope,
   buildStateEnvelope,
+  canPostSnapshotToWebview,
   createSidebarSyncState,
   flushDirtySnapshot,
+  reconcilePostedMessageDelivery,
 } from '../src/host/sidebar/sync';
 import { DEFAULT_CHAT_PREFS, type ViewState } from '../src/shared/protocol';
 
@@ -25,6 +27,7 @@ const baseViewState: ViewState = {
     isPartial: false,
     hasUserMessages: false,
   },
+  transcriptLoaded: false,
   pendingComposerInputs: [],
   activeRunSummary: null,
   runSummariesBySession: {},
@@ -170,4 +173,39 @@ test('background_stream_preserved: flushDirtySnapshot fires when a non-active se
   assert.equal(flushed.message?.type, 'state', 'snapshot must recover dirty session');
   // After snapshot, per-session entries reset.
   assert.equal(flushed.nextSyncState.sessions['/bg'], undefined);
+});
+
+test('canPostSnapshotToWebview allows a full snapshot whenever the view exists', () => {
+  assert.equal(canPostSnapshotToWebview(true, true), true);
+  assert.equal(canPostSnapshotToWebview(true, false), true);
+  assert.equal(canPostSnapshotToWebview(false, true), false);
+});
+
+test('reconcilePostedMessageDelivery marks global snapshots dirty when delivery fails', () => {
+  const syncState = createSidebarSyncState('host-1');
+
+  const next = reconcilePostedMessageDelivery(syncState, {
+    type: 'state',
+    protocolVersion: 1,
+    hostInstanceId: 'host-1',
+    revision: 1,
+    state: baseViewState,
+  }, false);
+
+  assert.equal(next.globalDirty, true);
+});
+
+test('reconcilePostedMessageDelivery marks patch streams dirty when delivery fails', () => {
+  const syncState = createSidebarSyncState('host-1');
+
+  const next = reconcilePostedMessageDelivery(syncState, {
+    type: 'patch',
+    protocolVersion: 1,
+    hostInstanceId: 'host-1',
+    sessionPath: '/a',
+    revision: 2,
+    op: { kind: 'messageDelta', messageId: 'm1', delta: 'x' },
+  }, false);
+
+  assert.equal(next.sessions['/a']?.dirty, true);
 });

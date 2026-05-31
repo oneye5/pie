@@ -23,6 +23,7 @@ import type {
   ComposerInputDraft,
   PruningSettings,
   RunOutcome,
+  StateAppliedPayload,
   ThinkingLevel,
   WebviewToHostMessage,
 } from './protocol';
@@ -49,6 +50,20 @@ function isOptionalString(value: unknown): value is string | undefined {
 
 function isFiniteNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isFinite(value);
+}
+
+function validateStateAppliedPayload(value: unknown): value is StateAppliedPayload {
+  return (
+    isObject(value)
+    && isFiniteNumber(value.revision)
+    && typeof value.backendReady === 'boolean'
+    && typeof value.transcriptLoaded === 'boolean'
+    && isFiniteNumber(value.openTabCount)
+    && isFiniteNumber(value.transcriptCount)
+    && isFiniteNumber(value.systemPromptCount)
+    && typeof value.domTranscriptLoaderPresent === 'boolean'
+    && typeof value.domTabsConnectingPresent === 'boolean'
+  );
 }
 
 const THINKING_LEVELS: readonly ThinkingLevel[] = [
@@ -182,7 +197,11 @@ export function validateWebviewToHostMessage(
   switch (type) {
     case 'ready':
     case 'refreshState':
+      if (!isOptionalString(value.assetVersion)) return fail(`${type}: invalid \`assetVersion\``);
+      return { ok: true, value: value as WebviewToHostMessage };
+
     case 'requestSnapshot':
+      if (!isOptionalString(value.assetVersion)) return fail('requestSnapshot: invalid `assetVersion`');
     case 'openFilePicker':
     case 'newSession':
       return { ok: true, value: value as WebviewToHostMessage };
@@ -218,6 +237,7 @@ export function validateWebviewToHostMessage(
 
     case 'openSession':
     case 'closeSession':
+    case 'duplicateSession':
       if (!isString(value.sessionPath)) return fail(`${type}: missing string \`sessionPath\``);
       return { ok: true, value: value as WebviewToHostMessage };
 
@@ -271,6 +291,10 @@ export function validateWebviewToHostMessage(
     case 'dismissNotice':
     case 'openOutcomeDialog':
     case 'closeOutcomeDialog':
+      return { ok: true, value: value as WebviewToHostMessage };
+
+    case 'stateApplied':
+      if (!validateStateAppliedPayload(value.payload)) return fail('stateApplied: invalid `payload`');
       return { ok: true, value: value as WebviewToHostMessage };
 
     case 'extensionUiResponse':

@@ -156,6 +156,15 @@ export class SessionRunTracker {
 
     const normalizedName = normalizeToolCallName(toolCall.name) || toolCall.name || '(unknown)';
     const analysis = analyzeToolCall(toolCall);
+
+    if (typeof toolCall.durationMs === 'number' && Number.isFinite(toolCall.durationMs) && toolCall.durationMs >= 0) {
+      const durationMs = Math.trunc(toolCall.durationMs);
+      run.toolUsage.totalDurationMs += durationMs;
+      run.toolUsage.timedCallCount += 1;
+      run.toolUsage.durationMsByName[normalizedName] =
+        (run.toolUsage.durationMsByName[normalizedName] ?? 0) + durationMs;
+    }
+
     if (toolCall.status === 'failed') {
       run.toolUsage.failureCount += 1;
       incrementNamedCount(run.toolUsage.failureCountsByName, normalizedName);

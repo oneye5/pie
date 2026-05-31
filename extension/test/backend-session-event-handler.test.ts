@@ -168,7 +168,9 @@ test('tool execution events emit progress only when an active assistant message 
     toolCallId: 'tool-1',
     name: 'bash',
     input: { command: 'npm test' },
+    startedAt: (emitted[0]?.payload as { startedAt: number }).startedAt,
   });
+  assert.equal(typeof (emitted[0]?.payload as { startedAt: number }).startedAt, 'number');
   assert.deepEqual(emitted[1]?.payload, {
     requestId: 'req-2',
     sessionPath: '/workspace/session.jsonl',
@@ -183,7 +185,9 @@ test('tool execution events emit progress only when an active assistant message 
     toolCallId: 'tool-1',
     result: { ok: true },
     status: 'failed',
+    durationMs: (emitted[2]?.payload as { durationMs: number }).durationMs,
   });
+  assert.equal(typeof (emitted[2]?.payload as { durationMs: number }).durationMs, 'number');
   assert.equal(getContextUsageChangedCount(), 3);
 });
 
@@ -504,6 +508,7 @@ test('tool execution and message end events cover completed payloads and fallbac
     toolCallId: '',
     result: { ok: true },
     status: 'completed',
+    durationMs: 0,
   });
   assert.equal((emitted[1]?.payload as any).message.id, 'req-7b:last');
   assert.equal((emitted[1]?.payload as any).message.status, 'completed');

@@ -98,4 +98,22 @@ export default tseslint.config(
       }],
     },
   },
+
+  // ─── Protocol boundary integrity: shared types must not use unsafe casts ──
+  // Prevent `as any` and `@ts-ignore` in shared protocol and state projection
+  // code. These suppress the exact type errors that cause runtime render crashes.
+  {
+    files: [
+      'src/shared/**/*.ts',
+      'src/host/store/index.ts',
+      'src/webview/panel/hooks/use-host-sync.ts',
+    ],
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'error',
+      '@typescript-eslint/ban-ts-comment': ['error', {
+        'ts-ignore': true,
+        'ts-expect-error': 'allow-with-description',
+      }],
+    },
+  },
 );

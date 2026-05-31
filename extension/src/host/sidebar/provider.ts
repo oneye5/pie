@@ -2,13 +2,14 @@ import * as crypto from 'node:crypto';
 
 import * as vscode from 'vscode';
 
-import { assertInvariant, auditLog } from '../util/audit';
+import { assertInvariant, auditLog, bootLog } from '../util/audit';
 import {
   buildStateEnvelope,
-  canPostToWebview,
+  canPostSnapshotToWebview,
   clearSessionSync,
   createSidebarSyncState,
   flushDirtySnapshot,
+  reconcilePostedMessageDelivery,
   type SidebarSyncState,
 } from './sync';
 import {
@@ -16,7 +17,7 @@ import {
   getWebviewAssetDir,
   isHotReloadAssetFileName,
 } from '../webview/hot-reload';
-import { renderWebviewHtml, getWebviewRoots } from '../webview/assets';
+import { getWebviewAssetVersion, renderWebviewHtml, getWebviewRoots } from '../webview/assets';
 import type {
   HostToWebviewMessage,
   ViewState,
@@ -28,6 +29,12 @@ import { validateWebviewToHostMessage } from '../../shared/protocol-validation';
 const SCHEDULE_DEBOUNCE_MS = 50;
 /** Debounce window for coalescing multiple asset writes into one webview reload. */
 const HOT_RELOAD_DEBOUNCE_MS = 120;
+/** Max wait for the webview to acknowledge a posted state revision. */
+const STATE_APPLIED_TIMEOUT_MS = 2_500;
+/** Limit forced webview reloads when state acknowledgements are missing. */
+const STATE_APPLIED_RELOAD_LIMIT = 2;
+/** Rolling window for missing-ack reload throttling. */
+const STATE_APPLIED_RELOAD_WINDOW_MS = 30_000;
 
 /**
  * Implements the VS Code WebviewView for the pie sidebar.
@@ -52,6 +59,15 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private messageDisposable?: vscode.Disposable;
   private assetWatcher?: vscode.FileSystemWatcher;
   private webviewReady = false;
+  private currentAssetVersion: string | null = null;
+  private reloadingForAssetMismatch = false;
+  private reloadingForStateAppliedTimeout = false;
+  private stateAppliedTimer?: ReturnType<typeof setTimeout>;
+  private pendingStateAppliedRevision: number | null = null;
+  private lastStateAppliedRevision = -1;
+  private lastStateAppliedAt = 0;
+  private stateAppliedReloadWindowStartedAt = 0;
+  private stateAppliedReloadAttempts = 0;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -75,6 +91,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.visibilityDisposable?.dispose();
     this.messageDisposable?.dispose();
     this.assetWatcher?.dispose();
+    this.currentAssetVersion = null;
+    this.reloadingForAssetMismatch = false;
+    this.reloadingForStateAppliedTimeout = false;
+    this.clearStateAppliedWatchdog();
+    this.lastStateAppliedRevision = -1;
+    this.lastStateAppliedAt = 0;
+    this.stateAppliedReloadWindowStartedAt = 0;
+    this.stateAppliedReloadAttempts = 0;
   }
 
   async resolveWebviewView(
@@ -84,24 +108,55 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   ): Promise<void> {
     this.view = webviewView;
     this.webviewReady = false;
+    this.reloadingForAssetMismatch = false;
+    this.reloadingForStateAppliedTimeout = false;
+    this.clearStateAppliedWatchdog();
 
     webviewView.webview.options = {
       enableScripts: true,
       localResourceRoots: getWebviewRoots(this.context),
     };
 
-    this.ensureAssetWatcher();
-    webviewView.webview.html = await renderWebviewHtml(this.context, webviewView.webview);
+    this.currentAssetVersion = await getWebviewAssetVersion(this.context);
 
-    this.visibilityDisposable?.dispose();
-    this.visibilityDisposable = webviewView.onDidChangeVisibility(() => {
-      if (webviewView.visible) {
-        this.flushDirtyState();
-      }
+    bootLog('sidebar-provider', 'view.resolved', {
+      hostInstanceId: this.hostInstanceId,
+      visible: webviewView.visible,
+      webviewReady: this.webviewReady,
     });
 
     this.messageDisposable?.dispose();
     this.messageDisposable = webviewView.webview.onDidReceiveMessage((msg: WebviewToHostMessage) => {
+      const incomingAssetVersion = this.getIncomingAssetVersion(msg);
+      if (this.shouldReloadForAssetMismatch(msg, incomingAssetVersion)) {
+        bootLog('sidebar-provider', 'assetVersion.mismatch', {
+          actualAssetVersion: incomingAssetVersion ?? null,
+          expectedAssetVersion: this.currentAssetVersion,
+          hostInstanceId: this.hostInstanceId,
+          type: msg.type,
+          visible: this.view?.visible ?? false,
+        });
+        void this.reloadForAssetMismatch();
+        return;
+      }
+
+      if (msg.type === 'stateApplied') {
+        const payload = msg.payload as any;
+        if (payload.renderError) {
+          bootLog('sidebar-provider', 'webview.renderError', { error: payload.renderError });
+        }
+        this.recordStateApplied(msg.payload.revision);
+      }
+
+      if (!this.webviewReady) {
+        this.webviewReady = true;
+        bootLog('sidebar-provider', 'message.bridgeReady', {
+          hostInstanceId: this.hostInstanceId,
+          type: msg.type,
+          visible: this.view?.visible ?? false,
+        });
+      }
+
       // Audit-only validation: log invalid envelopes but still pass through so
       // unrecognised future additions don't break older host builds. Promote
       // to rejection once the audit log is clean.
@@ -113,15 +168,71 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         });
       }
       if (msg.type === 'ready') {
-        this.webviewReady = true;
+        bootLog('sidebar-provider', 'message.ready', {
+          hostInstanceId: this.hostInstanceId,
+          visible: this.view?.visible ?? false,
+        });
+      } else if (msg.type === 'refreshState' || msg.type === 'requestSnapshot') {
+        bootLog('sidebar-provider', `message.${msg.type}`, {
+          hostInstanceId: this.hostInstanceId,
+          visible: this.view?.visible ?? false,
+          webviewReady: this.webviewReady,
+        });
       }
       this.onMessage(msg);
     });
+
+    this.visibilityDisposable?.dispose();
+    this.visibilityDisposable = webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this.flushDirtyState();
+      }
+    });
+
+    this.ensureAssetWatcher();
+    webviewView.webview.html = await renderWebviewHtml(
+      this.context,
+      webviewView.webview,
+      this.currentAssetVersion ?? undefined,
+    );
+
+    // Cold-start restore can accumulate a fully loaded dirty snapshot before
+    // the view is resolved. Flush it as soon as the HTML is assigned so the
+    // fresh webview does not depend on an inbound handshake to escape the
+    // initial loading shell.
+    this.flushDirtyState();
   }
 
   /** Show the sidebar panel, preserving editor focus. */
   reveal(): void {
-    this.view?.show(true);
+    if (this.view) {
+      this.view.show(true);
+      return;
+    }
+
+    void vscode.commands.executeCommand('workbench.view.extension.pie');
+  }
+
+  getDebugState(): {
+    hasView: boolean;
+    visible: boolean;
+    webviewReady: boolean;
+    globalDirty: boolean;
+    globalRevision: number;
+    lastStateAppliedRevision: number;
+    pendingStateAppliedRevision: number | null;
+    hostInstanceId: string;
+  } {
+    return {
+      hasView: !!this.view,
+      visible: this.view?.visible ?? false,
+      webviewReady: this.webviewReady,
+      globalDirty: this.syncState.globalDirty,
+      globalRevision: this.syncState.globalRevision,
+      lastStateAppliedRevision: this.lastStateAppliedRevision,
+      pendingStateAppliedRevision: this.pendingStateAppliedRevision,
+      hostInstanceId: this.hostInstanceId,
+    };
   }
 
   /**
@@ -138,15 +249,30 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     const result = buildStateEnvelope(
       this.syncState,
       this.getViewState(),
-      this.canPostToView(),
+      this.canPostSnapshotToView(),
     );
     this.syncState = result.nextSyncState;
+
+    const viewState = this.getViewState();
 
     auditLog(this.context, 'sidebar-provider', 'snapshot.postState', {
       globalDirty: this.syncState.globalDirty,
       posted: !!result.message,
       ready: this.webviewReady,
       revision: this.syncState.globalRevision,
+      visible: this.view?.visible ?? false,
+    });
+
+    bootLog('sidebar-provider', 'snapshot.postState', {
+      activeSessionPath: viewState.activeSession?.path ?? null,
+      backendReady: viewState.backendReady,
+      globalDirty: this.syncState.globalDirty,
+      notice: viewState.notice,
+      openTabCount: viewState.openTabPaths.length,
+      posted: !!result.message,
+      ready: this.webviewReady,
+      revision: this.syncState.globalRevision,
+      transcriptLoaded: viewState.transcriptLoaded,
       visible: this.view?.visible ?? false,
     });
 
@@ -159,7 +285,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     );
 
     if (result.message && this.view) {
-      void this.view.webview.postMessage(result.message);
+      this.postToWebview(result.message);
     }
   }
 
@@ -168,10 +294,21 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
    * debounce window are collapsed into a single post.
    */
   scheduleState(): void {
-    if (!this.canPostToView()) {
+    if (!this.canPostSnapshotToView()) {
       this.syncState = { ...this.syncState, globalDirty: true };
       auditLog(this.context, 'sidebar-provider', 'snapshot.markDirty', {
         reason: 'scheduleState',
+        ready: this.webviewReady,
+        revision: this.syncState.globalRevision,
+        visible: this.view?.visible ?? false,
+      });
+      const viewState = this.getViewState();
+      bootLog('sidebar-provider', 'snapshot.markDirty', {
+        activeSessionPath: viewState.activeSession?.path ?? null,
+        backendReady: viewState.backendReady,
+        globalDirty: this.syncState.globalDirty,
+        notice: viewState.notice,
+        openTabCount: viewState.openTabPaths.length,
         ready: this.webviewReady,
         revision: this.syncState.globalRevision,
         visible: this.view?.visible ?? false,
@@ -200,16 +337,18 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
    */
   postImperative(msg: HostToWebviewMessage): void {
     if (!this.view || !this.webviewReady) return;
-    void this.view.webview.postMessage(msg);
+    this.postToWebview(msg);
   }
 
-  private canPostToView(): boolean {
-    return this.webviewReady && canPostToWebview(!!this.view, this.view?.visible ?? false);
+  private canPostSnapshotToView(): boolean {
+    return canPostSnapshotToWebview(!!this.view, this.webviewReady);
   }
 
   private flushDirtyState(): void {
-    const result = flushDirtySnapshot(this.syncState, this.getViewState(), this.canPostToView());
+    const result = flushDirtySnapshot(this.syncState, this.getViewState(), this.canPostSnapshotToView());
     this.syncState = result.nextSyncState;
+
+    const viewState = this.getViewState();
 
     auditLog(this.context, 'sidebar-provider', 'snapshot.flushDirty', {
       globalDirty: this.syncState.globalDirty,
@@ -219,9 +358,143 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       visible: this.view?.visible ?? false,
     });
 
+    bootLog('sidebar-provider', 'snapshot.flushDirty', {
+      activeSessionPath: viewState.activeSession?.path ?? null,
+      backendReady: viewState.backendReady,
+      globalDirty: this.syncState.globalDirty,
+      notice: viewState.notice,
+      openTabCount: viewState.openTabPaths.length,
+      posted: !!result.message,
+      ready: this.webviewReady,
+      revision: this.syncState.globalRevision,
+      transcriptLoaded: viewState.transcriptLoaded,
+      visible: this.view?.visible ?? false,
+    });
+
     if (result.message && this.view) {
-      void this.view.webview.postMessage(result.message);
+      this.postToWebview(result.message);
     }
+  }
+
+  private postToWebview(message: HostToWebviewMessage): void {
+    const view = this.view;
+    if (!view) {
+      return;
+    }
+
+    void view.webview.postMessage(message)
+      .then((delivered) => {
+        this.syncState = reconcilePostedMessageDelivery(this.syncState, message, delivered);
+        if (delivered && message.type === 'state') {
+          this.armStateAppliedWatchdog(message.revision);
+        }
+        if (!delivered) {
+          bootLog('sidebar-provider', 'message.deliveryFailed', {
+            hostInstanceId: this.hostInstanceId,
+            messageType: message.type,
+            revision: message.type === 'state' || message.type === 'patch' ? message.revision : null,
+            sessionPath: message.type === 'patch' ? message.sessionPath : null,
+            visible: this.view?.visible ?? false,
+            webviewReady: this.webviewReady,
+          });
+        }
+      })
+      .catch((error) => {
+        this.syncState = reconcilePostedMessageDelivery(this.syncState, message, false);
+        console.warn(`[pie] Failed to post ${message.type} message to webview: ${(error as Error).message}`);
+      });
+  }
+
+  private recordStateApplied(revision: number): void {
+    this.lastStateAppliedRevision = Math.max(this.lastStateAppliedRevision, revision);
+    this.lastStateAppliedAt = Date.now();
+
+    if (this.pendingStateAppliedRevision !== null && revision >= this.pendingStateAppliedRevision) {
+      this.clearStateAppliedWatchdog();
+      this.stateAppliedReloadAttempts = 0;
+      this.stateAppliedReloadWindowStartedAt = 0;
+    }
+  }
+
+  private clearStateAppliedWatchdog(): void {
+    if (this.stateAppliedTimer !== undefined) {
+      clearTimeout(this.stateAppliedTimer);
+      this.stateAppliedTimer = undefined;
+    }
+    this.pendingStateAppliedRevision = null;
+  }
+
+  private armStateAppliedWatchdog(revision: number): void {
+    if (!this.webviewReady || !this.view?.visible) {
+      return;
+    }
+
+    this.pendingStateAppliedRevision = revision;
+    if (this.stateAppliedTimer !== undefined) {
+      clearTimeout(this.stateAppliedTimer);
+    }
+
+    this.stateAppliedTimer = setTimeout(() => {
+      void this.handleStateAppliedTimeout(revision);
+    }, STATE_APPLIED_TIMEOUT_MS);
+  }
+
+  private shouldThrottleStateAppliedReload(now: number): boolean {
+    if (
+      this.stateAppliedReloadWindowStartedAt === 0
+      || now - this.stateAppliedReloadWindowStartedAt > STATE_APPLIED_RELOAD_WINDOW_MS
+    ) {
+      this.stateAppliedReloadWindowStartedAt = now;
+      this.stateAppliedReloadAttempts = 0;
+    }
+
+    if (this.stateAppliedReloadAttempts >= STATE_APPLIED_RELOAD_LIMIT) {
+      return true;
+    }
+
+    this.stateAppliedReloadAttempts += 1;
+    return false;
+  }
+
+  private async handleStateAppliedTimeout(revision: number): Promise<void> {
+    this.stateAppliedTimer = undefined;
+
+    if (this.pendingStateAppliedRevision === null || revision !== this.pendingStateAppliedRevision) {
+      return;
+    }
+
+    if (this.lastStateAppliedRevision >= revision) {
+      this.clearStateAppliedWatchdog();
+      return;
+    }
+
+    if (!this.webviewReady || !this.view?.visible) {
+      return;
+    }
+
+    const now = Date.now();
+    if (this.shouldThrottleStateAppliedReload(now)) {
+      bootLog('sidebar-provider', 'stateApplied.timeout.throttled', {
+        hostInstanceId: this.hostInstanceId,
+        lastStateAppliedRevision: this.lastStateAppliedRevision,
+        pendingRevision: revision,
+        visible: this.view.visible,
+        webviewReady: this.webviewReady,
+      });
+      return;
+    }
+
+    bootLog('sidebar-provider', 'stateApplied.timeout', {
+      hostInstanceId: this.hostInstanceId,
+      lastStateAppliedAt: this.lastStateAppliedAt || null,
+      lastStateAppliedRevision: this.lastStateAppliedRevision,
+      pendingRevision: revision,
+      visible: this.view.visible,
+      webviewReady: this.webviewReady,
+    });
+
+    this.clearStateAppliedWatchdog();
+    await this.reloadForStateAppliedTimeout(revision);
   }
 
   private ensureAssetWatcher(): void {
@@ -270,14 +543,19 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     }
 
     try {
-      const nextHtml = await renderWebviewHtml(this.context, view.webview);
+      const nextAssetVersion = await getWebviewAssetVersion(this.context);
+      const nextHtml = await renderWebviewHtml(this.context, view.webview, nextAssetVersion);
       if (this.view !== view) {
         return;
       }
 
+      this.currentAssetVersion = nextAssetVersion;
       this.webviewReady = false;
       this.syncState = { ...this.syncState, globalDirty: true };
+      this.clearStateAppliedWatchdog();
       view.webview.html = nextHtml;
+      this.reloadingForAssetMismatch = false;
+      this.reloadingForStateAppliedTimeout = false;
 
       auditLog(this.context, 'sidebar-provider', 'hotReload.apply', {
         changedPath,
@@ -285,7 +563,54 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         visible: view.visible,
       });
     } catch (error) {
+      this.reloadingForAssetMismatch = false;
+      this.reloadingForStateAppliedTimeout = false;
       console.warn(`[pie] Failed to hot reload webview assets after ${changedPath}: ${(error as Error).message}`);
     }
+  }
+
+  private getIncomingAssetVersion(msg: WebviewToHostMessage): string | null {
+    if (msg.type === 'ready' || msg.type === 'refreshState' || msg.type === 'requestSnapshot') {
+      return msg.assetVersion ?? null;
+    }
+
+    return null;
+  }
+
+  private shouldReloadForAssetMismatch(
+    msg: WebviewToHostMessage,
+    assetVersion: string | null,
+  ): boolean {
+    if (!this.currentAssetVersion) {
+      return false;
+    }
+
+    if (msg.type !== 'ready' && msg.type !== 'refreshState' && msg.type !== 'requestSnapshot') {
+      return false;
+    }
+
+    return assetVersion !== this.currentAssetVersion;
+  }
+
+  private async reloadForAssetMismatch(): Promise<void> {
+    if (this.reloadingForAssetMismatch || this.reloadingForStateAppliedTimeout) {
+      return;
+    }
+
+    this.reloadingForAssetMismatch = true;
+    this.webviewReady = false;
+    this.syncState = { ...this.syncState, globalDirty: true };
+    await this.reloadWebviewAssets('assetVersionMismatch');
+  }
+
+  private async reloadForStateAppliedTimeout(revision: number): Promise<void> {
+    if (this.reloadingForAssetMismatch || this.reloadingForStateAppliedTimeout) {
+      return;
+    }
+
+    this.reloadingForStateAppliedTimeout = true;
+    this.webviewReady = false;
+    this.syncState = { ...this.syncState, globalDirty: true };
+    await this.reloadWebviewAssets(`stateAppliedTimeout:${revision}`);
   }
 }

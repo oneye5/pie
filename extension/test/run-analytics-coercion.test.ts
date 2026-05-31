@@ -141,6 +141,9 @@ test('rollup coercers normalize invalid nested records and preserve valid values
       { toolName: 'bash', failureKind: 'timeout', exitCode: 7.9, errorExcerpt: 9, verificationKinds: ['test', 'bogus'], occurredAt: '2026-01-01T00:00:00.000Z' },
       { toolName: 9, failureKind: 'timeout', occurredAt: '2026-01-01T00:00:00.000Z' },
     ],
+    totalDurationMs: 1234.9,
+    timedCallCount: 2.6,
+    durationMsByName: { bash: 900.7, read: -5, invalid: 'x' },
     subagentCallCount: 1,
     subagentTaskCount: 2,
     subagentAgentNames: ['worker', 3],
@@ -167,6 +170,9 @@ test('rollup coercers normalize invalid nested records and preserve valid values
   assert.equal(toolUsage.failureSamples[0]?.errorExcerpt, '');
   assert.deepEqual(toolUsage.failureSamples[0]?.verificationKinds, ['test']);
   assert.deepEqual(toolUsage.subagentAgentNames, ['worker']);
+  assert.equal(toolUsage.totalDurationMs, 1234);
+  assert.equal(toolUsage.timedCallCount, 2);
+  assert.deepEqual(toolUsage.durationMsByName, { bash: 900 });
   assert.equal(toolUsage.subagentScoredTaskCount, 1);
   assert.equal(toolUsage.subagentTaskScores.precision.sum, 3);
   assert.equal(toolUsage.subagentTaskScores.creativity.sum, 0);

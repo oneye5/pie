@@ -1,36 +1,45 @@
-﻿.pruning-banner-wrapper {
+.pruning-banner-wrapper {
   margin-bottom: 6px;
 }
 
 .pruning-banner {
   padding: 6px 10px;
-  border: 1px solid color-mix(in srgb, var(--panel-border) 90%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--panel-subtle-surface) 64%, var(--panel-raised-surface));
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-lg);
+  background: var(--panel-control-surface);
   color: var(--vscode-foreground);
   font-size: 12px;
   line-height: 1.4;
-  cursor: pointer;
-  user-select: none;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
 
 .pruning-banner:hover {
-  background: color-mix(in srgb, var(--panel-hover-surface) 72%, var(--panel-raised-surface));
+  background: var(--panel-control-hover);
 }
 
-.pruning-banner:focus-visible {
+.pruning-banner-summary:focus-visible {
   outline: 1px solid var(--panel-accent);
   outline-offset: 2px;
+  border-radius: var(--panel-radius-sm);
 }
 
 .pruning-banner-collapsed {
-  /* Single-row layout */
   display: flex;
   align-items: center;
 }
 
 .pruning-banner-summary {
+  appearance: none;
+  background: none;
+  border: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  user-select: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -122,7 +131,8 @@
 }
 .message.pruning-inline .pruning-banner {
   margin-top: 4px;
-  border-color: color-mix(in srgb, var(--panel-border) 82%, var(--panel-accent) 18%);
+  border-color: color-mix(in srgb, var(--panel-accent) 18%, var(--panel-border));
+  background: color-mix(in srgb, var(--panel-accent-surface) 45%, var(--panel-control-surface));
 }
 
 /* "Edited" indicator on the System Prompts header */
@@ -131,7 +141,7 @@
   color: var(--panel-muted);
   background: transparent;
   border: 1px solid var(--panel-border);
-  border-radius: 8px;
+  border-radius: var(--panel-radius-md);
   padding: 0 6px;
   line-height: 16px;
   cursor: help;
@@ -153,8 +163,8 @@
   font-size: 10.5px;
   line-height: 1.5;
   color: color-mix(in srgb, var(--vscode-foreground) 80%, var(--panel-muted) 20%);
-  background: color-mix(in srgb, var(--panel-subtle-surface) 50%, transparent);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel-control-surface) 72%, transparent);
+  border-radius: var(--panel-radius-sm);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 200px;
@@ -164,22 +174,33 @@
 /* Nested raw LLM output dropdown */
 .pruning-banner-raw-toggle {
   margin-top: 4px;
-  padding: 4px 6px;
-  border-radius: 6px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.pruning-banner-raw-toggle:hover {
-  background: color-mix(in srgb, var(--panel-subtle-surface) 80%, transparent);
+  border-radius: var(--panel-radius-sm);
 }
 
 .pruning-banner-raw-toggle-text {
+  appearance: none;
+  background: none;
+  border: none;
+  width: 100%;
+  text-align: left;
+  padding: 4px 6px;
+  border-radius: var(--panel-radius-sm);
+  cursor: pointer;
+  user-select: none;
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--panel-muted);
+}
+
+.pruning-banner-raw-toggle-text:hover {
+  background: var(--panel-control-hover);
+}
+
+.pruning-banner-raw-toggle-text:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: 1px;
 }
 
 .pruning-banner-raw-content {
@@ -204,8 +225,8 @@
   font-size: 10.5px;
   line-height: 1.5;
   color: color-mix(in srgb, var(--vscode-foreground) 80%, var(--panel-muted) 20%);
-  background: color-mix(in srgb, var(--panel-subtle-surface) 50%, transparent);
-  border-radius: 6px;
+  background: color-mix(in srgb, var(--panel-control-surface) 72%, transparent);
+  border-radius: var(--panel-radius-sm);
   white-space: pre-wrap;
   word-break: break-word;
   max-height: 300px;

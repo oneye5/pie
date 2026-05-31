@@ -4,6 +4,8 @@
 import type { ToolCall } from '../../../shared/protocol';
 import { getToolCallPresentation } from '../tool-call-summary';
 
+import { formatDuration } from './header';
+import { StatusChip } from './status-chip';
 import { useDisclosureOpen } from './use-disclosure-open';
 
 interface ToolCallCardProps {
@@ -24,6 +26,7 @@ interface ToolCallHeaderProps {
   summaryPath?: string;
   sizeHint?: string;
   errorDetail?: string;
+  durationMs?: number;
   onOpenFile: (path: string) => void;
 }
 
@@ -78,7 +81,11 @@ export function splitSummaryPath(summary: string): { pathSection: string | null;
   };
 }
 
-export function ToolCallHeader({ open, name, nameTitle, status, summary, summaryPath, sizeHint, errorDetail, onOpenFile }: ToolCallHeaderProps) {
+export function ToolCallHeader({ open, name, nameTitle, status, summary, summaryPath, sizeHint, errorDetail, durationMs, onOpenFile }: ToolCallHeaderProps) {
+  const statusTone =
+    status === 'running' ? 'running'
+    : status === 'failed' ? 'failed'
+    : null;
   const statusLabel =
     status === 'running' ? 'Running'
     : status === 'failed' ? 'Failed'
@@ -86,25 +93,10 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
   const showSummary = !open && !!summary;
   const showSizeHint = !open && !!sizeHint;
   const pathSummary = summaryPath && summary ? splitSummaryPath(summary) : null;
-
-  const copyErrorDetail = (target: HTMLElement) => {
-    if (!errorDetail) return;
-    navigator.clipboard.writeText(errorDetail);
-    target.dataset.copied = '';
-    setTimeout(() => { delete target.dataset.copied; }, 1200);
-  };
-
-  const handleStatusClick = (e: MouseEvent) => {
-    e.stopPropagation();
-    copyErrorDetail(e.currentTarget as HTMLElement);
-  };
-
-  const handleStatusKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    e.stopPropagation();
-    copyErrorDetail(e.currentTarget as HTMLElement);
-  };
+  const durationLabel =
+    status !== 'running' && typeof durationMs === 'number' && durationMs >= 0
+      ? formatDuration(durationMs)
+      : null;
 
   return (
     <div class="tool-call-header">
@@ -137,16 +129,16 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
         ) : null}
         {showSizeHint && <span class="tool-call-size-hint">{sizeHint}</span>}
       </div>
-      <span
-        class={`tool-call-status${statusLabel ? ` ${status}` : ' is-empty'}${errorDetail ? ' has-error-detail' : ''}`}
-        aria-hidden={statusLabel ? undefined : 'true'}
-        title={errorDetail ?? undefined}
-        role={errorDetail ? 'button' : undefined}
-        tabIndex={errorDetail ? 0 : undefined}
-        aria-label={errorDetail ? 'Copy tool-call error detail' : undefined}
-        onClick={errorDetail ? handleStatusClick : undefined}
-        onKeyDown={errorDetail ? handleStatusKeyDown : undefined}
-      ><span class="tool-call-status-label">{statusLabel ?? ''}</span></span>
+      {durationLabel && <span class="tool-call-duration" title="Tool execution time">{durationLabel}</span>}
+      {statusTone && statusLabel && (
+        <StatusChip
+          tone={statusTone}
+          label={statusLabel}
+          className="status-chip-fixed"
+          copyText={errorDetail}
+          copyAriaLabel={errorDetail ? 'Copy tool-call error detail' : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -183,6 +175,7 @@ export function ToolCallCard({
         summaryPath={presentation.summaryPath}
         sizeHint={presentation.sizeHint}
         errorDetail={errorDetail}
+        durationMs={toolCall.durationMs}
         onOpenFile={onOpenFile}
       />
       {open && (

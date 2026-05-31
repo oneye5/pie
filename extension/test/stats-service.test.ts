@@ -702,6 +702,7 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
       input: { command: 'npm test -- --runInBand' },
       result: { exitCode: 1 },
       status: 'failed' as const,
+      durationMs: 100,
     };
     stats.onToolStarted(sessionPath, { ...failedVerificationTool, result: undefined, status: 'running' });
     stats.onToolFinished(sessionPath, failedVerificationTool);
@@ -717,6 +718,7 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
       },
       result: 'done',
       status: 'completed' as const,
+      durationMs: 250,
     };
     stats.onToolStarted(sessionPath, { ...subagentTool, result: undefined, status: 'running' });
     stats.onToolFinished(sessionPath, subagentTool);
@@ -733,6 +735,7 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
       },
       result: 'patched',
       status: 'completed' as const,
+      durationMs: 50,
     };
     stats.onToolStarted(sessionPath, { ...mutationTool, result: undefined, status: 'running' });
     stats.onToolFinished(sessionPath, mutationTool);
@@ -763,6 +766,9 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
           subagentTaskCount: number;
           subagentAgentNames: string[];
           subagentScoredTaskCount: number;
+          totalDurationMs: number;
+          timedCallCount: number;
+          durationMsByName: Record<string, number>;
           subagentTaskScores: {
             precision:    { sum: number; count: number; max: number };
             creativity:   { sum: number; count: number; max: number };
@@ -799,6 +805,11 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
     assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskCount, 2);
     assert.deepEqual(snapshotEntries[0].run.toolUsage.subagentAgentNames, ['scout', 'reviewer']);
     assert.equal(snapshotEntries[0].run.toolUsage.subagentScoredTaskCount, 2);
+    assert.equal(snapshotEntries[0].run.toolUsage.totalDurationMs, 400);
+    assert.equal(snapshotEntries[0].run.toolUsage.timedCallCount, 3);
+    assert.equal(snapshotEntries[0].run.toolUsage.durationMsByName['bash'], 100);
+    assert.equal(snapshotEntries[0].run.toolUsage.durationMsByName['subagent'], 250);
+    assert.equal(snapshotEntries[0].run.toolUsage.durationMsByName['edit'], 50);
     assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.precision.sum, 9);
     assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.precision.count, 2);
     assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskScores.precision.max, 5);

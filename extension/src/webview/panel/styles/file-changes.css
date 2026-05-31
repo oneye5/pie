@@ -1,26 +1,22 @@
-﻿.file-changes-panel {
+.file-changes-panel {
   position: absolute;
   top: -1px;
   right: 16px;
   z-index: 260;
   max-width: min(420px, calc(100% - 32px));
-  border: 1px solid color-mix(in srgb, var(--panel-border) 88%, var(--vscode-foreground) 12%);
+  border: 1px solid var(--panel-border);
   border-top: none;
-  border-radius: 0 0 6px 6px;
-  background: var(--session-tabs-strip-surface);
+  border-radius: 0 0 var(--panel-radius-lg) var(--panel-radius-lg);
+  background: var(--panel-overlay-surface);
   overflow: hidden;
-  box-shadow:
-    0 1px 0 color-mix(in srgb, var(--vscode-foreground) 8%, transparent),
-    0 8px 20px -18px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.28)) 100%, transparent);
+  box-shadow: var(--panel-shadow-overlay);
   transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 .file-changes-panel:not(.expanded) {
-  background: var(--session-tabs-strip-surface);
-  border-color: var(--panel-border);
-  box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--panel-border) 72%, transparent),
-    0 7px 16px -12px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36)) 100%, transparent);
+  background: var(--panel-overlay-surface);
+  border-color: var(--panel-border-subtle);
+  box-shadow: var(--panel-shadow-sm);
 }
 
 .file-changes-panel.expanded {
@@ -50,11 +46,11 @@
 }
 
 .file-changes-header:hover {
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
 }
 
 .file-changes-panel:not(.expanded) .file-changes-header:hover {
-  background: color-mix(in srgb, var(--panel-hover-surface) 76%, var(--vscode-foreground) 24%);
+  background: var(--panel-control-hover);
 }
 
 .file-changes-chevron {
@@ -94,9 +90,9 @@
   height: 17px;
   padding: 0 6px;
   border-radius: 999px;
-  background: color-mix(in srgb, var(--vscode-foreground) 12%, var(--panel-subtle-surface));
+  background: var(--panel-control-surface);
   color: color-mix(in srgb, var(--vscode-foreground) 82%, var(--panel-muted));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--vscode-foreground) 10%, transparent);
+  box-shadow: inset 0 0 0 1px var(--panel-border-subtle);
   font-size: 10px;
   font-weight: 650;
   line-height: 1;
@@ -121,7 +117,7 @@
 }
 
 .file-change-item:hover {
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
 }
 
 .file-change-icon {
@@ -134,20 +130,25 @@
   font-size: 11px;
   font-weight: 700;
   line-height: 1;
-  color: #fff;
+  background: var(--panel-control-surface);
+  border: 1px solid var(--panel-border-subtle);
+  color: var(--panel-muted);
   flex-shrink: 0;
 }
 
 .file-change-icon.created {
-  background: var(--panel-success);
+  color: var(--panel-success);
+  border-color: color-mix(in srgb, var(--panel-success) 24%, var(--panel-border));
 }
 
 .file-change-icon.modified {
-  background: var(--panel-warning);
+  color: var(--panel-warning);
+  border-color: color-mix(in srgb, var(--panel-warning) 24%, var(--panel-border));
 }
 
 .file-change-icon.deleted {
-  background: var(--panel-danger);
+  color: var(--panel-danger);
+  border-color: color-mix(in srgb, var(--panel-danger) 24%, var(--panel-border));
 }
 
 .file-change-path {
@@ -192,7 +193,7 @@
   width: 20px;
   height: 20px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--panel-radius-sm);
   background: transparent;
   color: var(--panel-muted);
   cursor: pointer;
@@ -208,9 +209,9 @@
 
 .file-change-revert:hover {
   opacity: 1 !important;
-  background: var(--panel-danger-surface);
+  background: color-mix(in srgb, var(--panel-danger-surface) 72%, var(--panel-control-surface));
   color: var(--panel-danger);
-  border-color: var(--panel-danger);
+  border-color: color-mix(in srgb, var(--panel-danger) 28%, var(--panel-border));
 }
 
 /* ── Line stats ──────────────────────────────────────────────────────────── */
@@ -237,13 +238,11 @@
 }
 
 .stat-additions {
-  color: var(--panel-success, #3fb950);
+  color: var(--panel-success);
 }
 
 .stat-deletions {
-  color: var(--panel-danger, #f85149);
+  color: var(--panel-danger);
 }
 
 /* ── Pruning Banner ──────────────────────────────────────────────────────── */
-
-

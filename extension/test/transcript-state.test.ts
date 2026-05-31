@@ -25,13 +25,17 @@ function providerPrompt(): SystemPromptEntry {
 }
 
 test('isTranscriptHydrating returns true before transcript and system prompts arrive', () => {
-  assert.equal(isTranscriptHydrating({ transcript: [], systemPrompts: [] }), true);
+  assert.equal(isTranscriptHydrating({ transcript: [], systemPrompts: [], transcriptLoaded: false }), true);
 });
 
 test('isTranscriptHydrating returns false once system prompts have loaded', () => {
-  assert.equal(isTranscriptHydrating({ transcript: [], systemPrompts: [providerPrompt()] }), false);
+  assert.equal(isTranscriptHydrating({ transcript: [], systemPrompts: [providerPrompt()], transcriptLoaded: true }), false);
 });
 
 test('isTranscriptHydrating returns false once transcript rows exist', () => {
-  assert.equal(isTranscriptHydrating({ transcript: [userMessage('hello')], systemPrompts: [] }), false);
+  assert.equal(isTranscriptHydrating({ transcript: [userMessage('hello')], systemPrompts: [], transcriptLoaded: true }), false);
+});
+
+test('isTranscriptHydrating returns false once an empty transcript has loaded', () => {
+  assert.equal(isTranscriptHydrating({ transcript: [], systemPrompts: [], transcriptLoaded: true }), false);
 });

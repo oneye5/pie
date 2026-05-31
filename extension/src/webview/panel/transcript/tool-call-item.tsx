@@ -6,7 +6,6 @@ import { summarizeSubagentToolCallInput } from '../../../shared/tool-call-analys
 import { shouldOpenSubagentContextMenu } from './interactions';
 import { getToolCallContextType } from '../chat-prefs';
 
-import { MessageItem } from './message-item';
 import {
   getRenderableSubagentResultFromToolCall,
   subagentSingleResultToChatMessages,
@@ -17,7 +16,9 @@ import {
   DISPLAY_SCORE_DIMS,
   normalizeTaskScoresForDisplay,
 } from './subagent-score-display';
+import { StatusChip } from './status-chip';
 import { ToolCallCard } from './tool-call-card';
+import { TranscriptMessageList } from './transcript-message-list';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import { useDisclosureOpen } from './use-disclosure-open';
 
@@ -122,42 +123,17 @@ function PrimaryMeta({ result }: { result: SubagentSingleResult }) {
 function StatusIndicator({ status, errorDetail }: { status: 'running' | 'failed' | 'completed'; errorDetail?: string }) {
   if (status === 'completed') return null;
   if (status === 'running') {
-    return (
-      <span class="subagent-status subagent-status-running" aria-label="Running">
-        <span class="subagent-status-label">Running</span>
-      </span>
-    );
+    return <StatusChip tone="running" label="Running" className="status-chip-fixed" />;
   }
 
-  const copyErrorDetail = (target: HTMLElement) => {
-    if (!errorDetail) return;
-    navigator.clipboard.writeText(errorDetail);
-    target.dataset.copied = '';
-    setTimeout(() => { delete target.dataset.copied; }, 1200);
-  };
-
-  const handleClick = (e: MouseEvent) => {
-    e.stopPropagation();
-    copyErrorDetail(e.currentTarget as HTMLElement);
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key !== 'Enter' && e.key !== ' ') return;
-    e.preventDefault();
-    e.stopPropagation();
-    copyErrorDetail(e.currentTarget as HTMLElement);
-  };
-
   return (
-    <span
-      class={`subagent-status subagent-status-failed${errorDetail ? ' has-error-detail' : ''}`}
-      title={errorDetail ?? undefined}
-      role={errorDetail ? 'button' : undefined}
-      tabIndex={errorDetail ? 0 : undefined}
-      aria-label={errorDetail ? 'Copy subagent error detail' : undefined}
-      onClick={errorDetail ? handleClick : undefined}
-      onKeyDown={errorDetail ? handleKeyDown : undefined}
-    ><span class="subagent-status-label">Failed</span></span>
+    <StatusChip
+      tone="failed"
+      label="Failed"
+      className="status-chip-fixed"
+      copyText={errorDetail}
+      copyAriaLabel="Copy subagent error detail"
+    />
   );
 }
 
@@ -273,23 +249,16 @@ function SubagentSingleBlock({
               ))}
             </div>
           )}
-          {messages.map((message) => (
-            <MessageItem
-              key={`${message.id}-${nestedDisclosureDefaultsKey}`}
-              message={message}
-              isStreaming={false}
-              prefs={prefs}
-              readonly
-              workingDirectory={workingDirectory}
-              editingId={null}
-              onEditRequest={() => {}}
-              onEditConfirm={() => {}}
-              onEditCancel={() => {}}
-              onOpenFile={onOpenFile}
-              onContextMenu={onNestedContextMenu}
-              renderToolCall={renderToolCall}
-            />
-          ))}
+          <TranscriptMessageList
+            messages={messages}
+            prefs={prefs}
+            workingDirectory={workingDirectory}
+            onOpenFile={onOpenFile}
+            onContextMenu={onNestedContextMenu}
+            renderToolCall={renderToolCall}
+            readonly
+            disclosureKey={nestedDisclosureDefaultsKey}
+          />
         </div>
       )}
     </div>

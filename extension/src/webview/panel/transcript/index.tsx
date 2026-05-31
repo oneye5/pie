@@ -44,6 +44,7 @@ interface TranscriptViewProps {
   sessionKey: string | null;
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
+  transcriptLoaded: boolean;
   busy: boolean;
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;
@@ -67,6 +68,7 @@ export function TranscriptView({
   sessionKey,
   transcript,
   transcriptWindow,
+  transcriptLoaded,
   busy,
   prefs,
   pruningSettings,
@@ -85,7 +87,7 @@ export function TranscriptView({
   onLoadNewer,
   onJumpToLatest,
 }: TranscriptViewProps) {
-  const transcriptHydrating = isTranscriptHydrating({ transcript, systemPrompts });
+  const transcriptHydrating = isTranscriptHydrating({ transcript, systemPrompts, transcriptLoaded });
 
   if (transcriptHydrating) {
     return (

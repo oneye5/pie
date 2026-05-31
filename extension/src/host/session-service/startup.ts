@@ -3,9 +3,8 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { BackendClient } from '../backend/client';
-import { buildRestoredSessionPlan } from './restored-session-plan';
+import { buildRestoredSessionPlan, filterRestorableStoredTabs } from './restored-session-plan';
 import { sessionsActions, settingsActions, store, uiActions } from '../store';
-import { normalizeStoredOpenTabPaths, isPendingTabPath } from '../../shared/tab-behavior';
 import { createCommandExecutor } from '../../shared/exec-command';
 import { resolveChatPrefs } from '../../shared/protocol';
 import { readPruningSettings } from './pruning-settings';
@@ -13,6 +12,9 @@ import { resolveNodePath, resolveSdkPath } from '../../shared/runtime-resolution
 import type { ChatPrefs, SessionSummary } from '../../shared/protocol';
 import { SessionServiceEvents } from './events';
 import { SessionServiceState } from './state';
+import { buildRestoredSessionSummaries } from './restored-session-summaries';
+import { bootLog } from '../util/audit';
+import { publishBackendReady } from './backend-ready';
 
 const PREFS_STORAGE_KEY = 'chatPrefs';
 const SDK_PATH_CACHE_KEY = 'resolvedSdkPath';
@@ -47,36 +49,45 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
     () => { /* defaults remain in store */ },
   );
 
-  const rawTabs = options.context.globalState.get<unknown[]>(
+  const storedRawTabs = options.context.globalState.get<unknown[]>(
     'openTabPaths',
   ) ?? [];
-  const restoredTabs = normalizeStoredOpenTabPaths(rawTabs);
+  // Skip fs.existsSync checks during restore — session files may be temporarily
+  // inaccessible during rapid extension host restarts (Windows file locks, race
+  // conditions). Missing sessions are handled gracefully when the backend tries
+  // to open them. Dropping tabs here permanently destroys saved tab state.
+  const { rawTabs, openTabPaths: restoredTabs, droppedPaths } = filterRestorableStoredTabs(
+    storedRawTabs,
+    () => true,
+  );
   const preferredStartupPath = options.context.globalState.get<string>('activeSessionPath') ?? null;
   const restoredSessionPlan = buildRestoredSessionPlan(restoredTabs, preferredStartupPath);
+  const { startupPath: restoredStartupPath, preloadPaths } = restoredSessionPlan;
   store.dispatch(sessionsActions.setOpenTabPaths(restoredTabs));
 
-  const cachedSessions: SessionSummary[] = rawTabs.flatMap((value) => {
-    if (value === null || typeof value !== 'object') {
-      return [];
-    }
-    const obj = value as Record<string, unknown>;
-    const sessionPath = typeof obj['path'] === 'string' ? (obj['path'] as string) : null;
-    if (!sessionPath || isPendingTabPath(sessionPath)) {
-      return [];
-    }
-    const name = typeof obj['name'] === 'string' ? (obj['name'] as string) : 'New Session';
-    return [{
-      path: sessionPath,
-      name,
-      isPlaceholder: name === 'New Session',
-      cwd: workspaceCwd,
-      modifiedAt: new Date().toISOString(),
-      messageCount: 0,
-    }];
-  });
+  if (
+    rawTabs.length !== storedRawTabs.length
+    || preferredStartupPath !== (restoredStartupPath ?? undefined)
+  ) {
+    void options.context.globalState.update('openTabPaths', rawTabs);
+    void options.context.globalState.update('activeSessionPath', restoredStartupPath ?? undefined);
+  }
+
+  const cachedSessions = buildRestoredSessionSummaries(rawTabs, restoredTabs, workspaceCwd);
   if (cachedSessions.length > 0) {
     store.dispatch(sessionsActions.replaceSessionSummaries(cachedSessions));
   }
+  if (restoredStartupPath) {
+    store.dispatch(sessionsActions.setActiveSessionPath(restoredStartupPath));
+  }
+
+  bootLog('session-startup', 'restore.prepared', {
+    activeSessionPath: restoredStartupPath,
+    cachedSessionCount: cachedSessions.length,
+    droppedTabCount: droppedPaths.length,
+    openTabCount: restoredTabs.length,
+    preloadCount: preloadPaths.length,
+  });
 
   let nodePath: string;
   let sdkPath: string;
@@ -135,36 +146,76 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
   options.events.attach(options.backend);
 
   try {
+    bootLog('session-startup', 'backend.starting', {
+      backendPath,
+      cwd: workspaceCwd,
+      restoredStartupPath,
+    });
     await options.backend.start({ nodePath, sdkPath, backendPath, cwd: workspaceCwd });
+    bootLog('session-startup', 'backend.started', {
+      restoredStartupPath,
+    });
   } catch (err) {
     store.dispatch(
       uiActions.setNotice(`Failed to start PI backend: ${(err as Error).message}`),
     );
+    bootLog('session-startup', 'backend.startFailed', {
+      message: (err as Error).message,
+    });
     options.events.detach();
     options.scheduleRender();
     return;
   }
 
   try {
+    bootLog('session-startup', 'runtimePrefs.set.requested', {
+      backendReady: store.getState().ui.backendReady,
+      restoredStartupPath,
+    });
     await options.backend.request('runtimePrefs.set', {
       providerToggles: store.getState().ui.prefs.providerToggles,
       extensionToggles: store.getState().ui.prefs.extensionToggles,
     });
+    bootLog('session-startup', 'runtimePrefs.set.completed', {
+      backendReady: store.getState().ui.backendReady,
+      restoredStartupPath,
+    });
   } catch {
     // Non-fatal: older/failed backends simply won't expose provider toggles to pi extensions.
+    bootLog('session-startup', 'runtimePrefs.set.failed', {
+      backendReady: store.getState().ui.backendReady,
+      restoredStartupPath,
+    });
   }
 
-  const { startupPath: restoredStartupPath, preloadPaths } = restoredSessionPlan;
+  const restoreError = publishBackendReady({
+    scheduleRender: options.scheduleRender,
+    openSession: options.openSession,
+    preloadSessions: (sessionPaths) => options.state.preloadSessions(sessionPaths),
+    restoredStartupPath,
+    preloadPaths,
+  });
 
-  if (restoredStartupPath) {
-    options.openSession(restoredStartupPath);
-    options.state.preloadSessions(preloadPaths);
+  bootLog('session-startup', 'backend.readyDispatched', {
+    activeSessionPath: store.getState().sessions.activeSessionPath,
+    backendReady: store.getState().ui.backendReady,
+    notice: store.getState().ui.notice,
+    openTabCount: store.getState().sessions.openTabPaths.length,
+  });
+
+  if (restoreError) {
+    bootLog('session-startup', 'restore.failed', {
+      activeSessionPath: restoredStartupPath,
+      message: restoreError.message,
+    });
+    return;
   }
 
-  store.dispatch(uiActions.setBackendReady(true));
-  options.scheduleRender();
-
   if (restoredStartupPath) {
+    bootLog('session-startup', 'restore.openRequested', {
+      activeSessionPath: restoredStartupPath,
+      preloadCount: preloadPaths.length,
+    });
     return;
   }
 

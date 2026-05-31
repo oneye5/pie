@@ -1166,7 +1166,7 @@ test('ViewState: all fields are present in initial state', () => {
   // Spot-check all top-level fields are present (not undefined)
   const requiredKeys = [
     'sessions', 'openTabPaths', 'runningSessionPaths', 'unreadFinishedSessionPaths',
-    'activeSession', 'transcript', 'transcriptWindow', 'pendingComposerInputs',
+    'activeSession', 'transcript', 'transcriptWindow', 'transcriptLoaded', 'pendingComposerInputs',
     'activeRunSummary', 'runSummariesBySession', 'busy', 'notice', 'backendReady',
     'workspaceCwd', 'systemPrompts', 'modelSettings', 'availableModels', 'contextUsage',
     'prefs', 'fileChanges', 'availableExtensions', 'pruningResult', 'pruningSettings',
@@ -1186,6 +1186,7 @@ test('ViewState: all fields are present in initial state', () => {
   assert.deepEqual(vs.runningSessionPaths, []);
   assert.equal(vs.activeSession, null);
   assert.deepEqual(vs.transcript, []);
+  assert.equal(vs.transcriptLoaded, false);
   assert.equal(vs.busy, false);
   assert.equal(vs.notice, null);
   assert.equal(vs.backendReady, false);

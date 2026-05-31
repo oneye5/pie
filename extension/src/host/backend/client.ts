@@ -90,10 +90,6 @@ export class BackendClient implements vscode.Disposable {
       this.appendStderr(chunk);
     });
 
-    this.detachReader = attachJsonlLineReader(proc.stdout, (line) => {
-      this.handleLine(line);
-    });
-
     proc.on('exit', (code) => {
       this.detachReader?.();
       this.detachReader = undefined;
@@ -174,6 +170,13 @@ export class BackendClient implements vscode.Disposable {
       const timeout = setTimeout(() => {
         finishReject(new Error('Timed out waiting for the pie backend to become ready.'));
       }, READY_TIMEOUT_MS);
+
+      // Attach stdout after the ready/exit/error listeners are armed. A fast
+      // backend can emit `backend.ready` immediately on startup; attaching the
+      // line reader earlier can drop that event before `start()` subscribes.
+      this.detachReader = attachJsonlLineReader(proc.stdout, (line) => {
+        this.handleLine(line);
+      });
     });
   }
 

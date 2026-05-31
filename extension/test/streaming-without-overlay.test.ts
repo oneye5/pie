@@ -315,6 +315,44 @@ test('MessageItem renders streaming content from message.parts without overlay',
   assert.match(html, /Agent is responding/, 'streaming indicator should show');
 });
 
+test('MessageItem stabilizes layout during streaming via class hooks and footer slot', async () => {
+  const MessageItem = await loadMessageItem();
+
+  const message: ChatMessage = {
+    id: 'render-stream-stable',
+    role: 'assistant',
+    createdAt: '2026-01-01T00:00:00Z',
+    markdown: '',
+    status: 'streaming',
+    parts: [{ kind: 'text', text: 'Streaming text' }],
+  };
+
+  const html = renderToString(h(MessageItem, {
+    message,
+    isStreaming: true,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: true,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: () => null,
+    isLastAssistantMessage: true,
+    transcript: [message],
+    transcriptIndex: 0,
+    hasOlder: false,
+  }));
+
+  // `streaming` activates the fixed-width rule (prevents horizontal token growth).
+  assert.match(html, /class="message role-assistant[^"]*\bstreaming\b/, 'streaming class should be applied');
+  // `has-activity` + the footer slot reserve a constant footer height for the turn.
+  assert.match(html, /class="message role-assistant[^"]*\bhas-activity\b/, 'has-activity class should be applied');
+  assert.match(html, /message-activity-footer/, 'activity footer slot should render');
+});
+
 test('MessageItem renders completed content after messageFinished', async () => {
   const MessageItem = await loadMessageItem();
 

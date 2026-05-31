@@ -32,8 +32,8 @@ export function createSidebarSyncState(hostInstanceId: string): SidebarSyncState
   };
 }
 
-export function canPostToWebview(hasView: boolean, isVisible: boolean): boolean {
-  return hasView && isVisible;
+export function canPostSnapshotToWebview(hasView: boolean, _webviewReady: boolean): boolean {
+  return hasView;
 }
 
 function anySessionDirty(syncState: SidebarSyncState): boolean {
@@ -152,4 +152,36 @@ export function clearSessionSync(
   if (!(sessionPath in syncState.sessions)) return syncState;
   const { [sessionPath]: _removed, ...rest } = syncState.sessions;
   return { ...syncState, sessions: rest };
+}
+
+/**
+ * A host->webview post can fail even after we've decided the view is ready
+ * enough to attempt delivery. Treat that as dropped state and force snapshot
+ * recovery on the next explicit resync or visibility transition.
+ */
+export function reconcilePostedMessageDelivery(
+  syncState: SidebarSyncState,
+  message: HostToWebviewMessage,
+  delivered: boolean,
+): SidebarSyncState {
+  if (delivered) {
+    return syncState;
+  }
+
+  if (message.type === 'state') {
+    return { ...syncState, globalDirty: true };
+  }
+
+  if (message.type === 'patch') {
+    const existing = syncState.sessions[message.sessionPath] ?? { revision: 0, dirty: false };
+    return {
+      ...syncState,
+      sessions: {
+        ...syncState.sessions,
+        [message.sessionPath]: { ...existing, dirty: true },
+      },
+    };
+  }
+
+  return syncState;
 }

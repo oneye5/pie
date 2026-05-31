@@ -9,6 +9,7 @@ import { useNotice } from '../hooks/notice-context';
 import { renderMarkdown, reasoningSummary } from '../markdown';
 import {
   assistantReplyMeta,
+  formatAssistantMetaTooltip,
   formatDuration,
   formatTimestamp,
   roleLabel,
@@ -17,6 +18,7 @@ import { InlineEditor } from './inline-editor';
 import { shouldOpenUserMessageEditor } from './interactions';
 import { PruningHeaderChip, PruningHeaderPanel } from './pruning-header';
 import type { PruningHeaderState } from './pruning';
+import { StatusChip, type StatusTone } from './status-chip';
 import type { TurnActivityState } from './activity';
 import {
   TurnActivityStrip,
@@ -230,11 +232,12 @@ function MessageItemView({
     message.status === 'interrupted' ? 'Interrupted'
     : message.status === 'error' ? 'Error'
     : null;
-  const statusTone =
+  const statusTone: StatusTone =
     message.status === 'interrupted' ? 'interrupted'
     : message.status === 'error' ? 'error'
-    : '';
+    : 'neutral';
   const replyMeta = assistantReplyMeta(message);
+  const assistantMetaTooltip = formatAssistantMetaTooltip(message);
 
   const html = useMemo(() => renderMarkdown(combinedMarkdown), [combinedMarkdown]);
   const getMessageRaw = useCallback(() => JSON.stringify({
@@ -266,6 +269,7 @@ function MessageItemView({
     && !isEditing
     && !isCurrentlyStreaming
     && !readonly;
+  const hasActivityFooter = isLastAssistantMessage && message.role === 'assistant';
   const handleMessageClick = isClickableUserMsg
     ? (event: MouseEvent) => {
         if (!shouldOpenUserMessageEditor(event.target)) {
@@ -277,7 +281,7 @@ function MessageItemView({
 
   return (
     <div
-      class={`message role-${message.role}${isClickableUserMsg ? ' editable' : ''}${hasUserImages ? ' has-user-images' : ''}`}
+      class={`message role-${message.role}${isClickableUserMsg ? ' editable' : ''}${hasUserImages ? ' has-user-images' : ''}${isCurrentlyStreaming ? ' streaming' : ''}${hasActivityFooter ? ' has-activity' : ''}`}
       data-message-id={message.id}
       data-role={message.role}
       onClick={handleMessageClick}
@@ -285,7 +289,7 @@ function MessageItemView({
       title={isClickableUserMsg ? 'Click to edit' : undefined}
     >
       <div class="message-head">
-        <div class="message-head-main">
+        <div class="message-head-main" title={assistantMetaTooltip ?? undefined}>
           {message.role !== 'user' && <span class="message-role">{roleLabel(message.role)}</span>}
           {createdAtLabel && <span class="message-time">{createdAtLabel}</span>}
           {message.role === 'assistant' && !isCurrentlyStreaming && message.durationMs !== undefined && (
@@ -301,7 +305,7 @@ function MessageItemView({
               onToggle={() => setPruningExpanded((v) => !v)}
             />
           )}
-          {statusLabel && <span class={`message-status ${statusTone}`}>{statusLabel}</span>}
+          {statusLabel && <StatusChip tone={statusTone} label={statusLabel} />}
         </div>
       </div>
 
@@ -398,17 +402,20 @@ function MessageItemView({
             />
           )}
 
-          {isLastAssistantMessage && message.role === 'assistant' && isCurrentlyStreaming && (
-            <div class="message-glow-indicator" aria-label="Agent is responding" role="status" />
-          )}
-          {isLastAssistantMessage && message.role === 'assistant' && !isCurrentlyStreaming && activityState && (
-            <TurnActivityStrip
-              label={activityState.label}
-              detail={activityState.detail}
-              tone={activityToneToStripTone(activityState.tone)}
-              runningDot={activityPhaseHasRunningDot(activityState.phase)}
-              ariaLabel={activityState.ariaLabel}
-            />
+          {hasActivityFooter && (
+            <div class="message-activity-footer">
+              {isCurrentlyStreaming ? (
+                <div class="message-glow-indicator" aria-label="Agent is responding" role="status" />
+              ) : activityState ? (
+                <TurnActivityStrip
+                  label={activityState.label}
+                  detail={activityState.detail}
+                  tone={activityToneToStripTone(activityState.tone)}
+                  runningDot={activityPhaseHasRunningDot(activityState.phase)}
+                  ariaLabel={activityState.ariaLabel}
+                />
+              ) : null}
+            </div>
           )}
 
           {recovery && (

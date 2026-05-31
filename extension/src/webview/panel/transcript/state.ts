@@ -3,6 +3,7 @@ import type { ChatMessage, SystemPromptEntry } from '../../../shared/protocol';
 interface TranscriptHydrationState {
   transcript: readonly ChatMessage[];
   systemPrompts: readonly SystemPromptEntry[];
+  transcriptLoaded: boolean;
 }
 
 /**
@@ -10,6 +11,6 @@ interface TranscriptHydrationState {
  * asynchronously. Until either arrives, keep the transcript surface quiet and
  * render a lightweight loader instead of onboarding copy.
  */
-export function isTranscriptHydrating({ transcript, systemPrompts }: TranscriptHydrationState): boolean {
-  return transcript.length === 0 && systemPrompts.length === 0;
+export function isTranscriptHydrating({ transcript, systemPrompts, transcriptLoaded }: TranscriptHydrationState): boolean {
+  return !transcriptLoaded && transcript.length === 0 && systemPrompts.length === 0;
 }

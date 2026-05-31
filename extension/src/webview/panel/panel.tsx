@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { render } from 'preact';
+import { options, render } from 'preact';
 
 import type { WebviewToHostMessage } from '../../shared/protocol';
 import { App } from './app';
@@ -16,9 +16,67 @@ declare function acquireVsCodeApi(): {
 
 const vscodeApi = acquireVsCodeApi();
 
+function getAssetVersion(): string | undefined {
+  return document.querySelector('meta[name="pie-asset-version"]')?.getAttribute('content') ?? undefined;
+}
+
 function postMessage(msg: WebviewToHostMessage): void {
+  if (msg.type === 'ready' || msg.type === 'refreshState' || msg.type === 'requestSnapshot') {
+    vscodeApi.postMessage({
+      ...msg,
+      assetVersion: getAssetVersion(),
+    });
+    return;
+  }
+
   vscodeApi.postMessage(msg);
 }
+
+// ─── Error handling ──────────────────────────────────────────────────────────
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function showRenderErrorOverlay(error: unknown) {
+  if (document.getElementById('pie-render-error-overlay')) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'pie-render-error-overlay';
+  overlay.style.cssText = `
+    position: fixed; inset: 0; z-index: 99999;
+    background: var(--vscode-editorWidget-background, #1e1e1e);
+    color: var(--vscode-errorForeground, #f48771);
+    padding: 16px; overflow: auto; font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px; line-height: 1.5;
+  `;
+  const stack = (error as any)?.stack || String(error);
+  overlay.innerHTML = `
+    <h2 style="margin:0 0 8px; font-size:14px; color: var(--vscode-errorForeground, #f48771);">Render Crash</h2>
+    <p style="margin:0 0 12px; color: var(--vscode-foreground, #ccc);">
+      The webview crashed during render. This is usually caused by a missing field in the state contract.
+      Check <code>protocol.ts</code> interfaces match the component expectations.
+    </p>
+    <pre style="white-space:pre-wrap; word-break:break-all; margin:0; padding:12px; background:var(--vscode-editor-background, #111); border-radius:4px;">${escapeHtml(String(stack))}</pre>
+    <p style="margin:12px 0 0; font-size:11px; color: var(--vscode-descriptionForeground, #888);">
+      Run <code>npm run typecheck</code> in extension/ to find type mismatches.
+      Check %TEMP%/pie-boot-trace.jsonl for full trace.
+    </p>
+  `;
+  document.body.appendChild(overlay);
+}
+
+const prevCatchError = (options as any).__e;
+(options as any).__e = (error: any, vnode: any, oldVNode: any) => {
+  console.error('[pie] Preact render error:', error);
+  postMessage({ type: 'stateApplied', payload: { revision: -999, backendReady: false, transcriptLoaded: false, openTabCount: 0, transcriptCount: 0, systemPromptCount: 0, domTranscriptLoaderPresent: false, domTabsConnectingPresent: false, renderError: String(error?.stack || error) } } as any);
+  showRenderErrorOverlay(error);
+  if (prevCatchError) prevCatchError(error, vnode, oldVNode);
+};
+
+window.addEventListener('error', (e) => {
+  console.error('[pie] Uncaught error:', e.error);
+});
 
 // ─── Mount ───────────────────────────────────────────────────────────────────
 

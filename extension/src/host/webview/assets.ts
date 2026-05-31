@@ -13,12 +13,14 @@ import {
 export async function renderWebviewHtml(
   context: vscode.ExtensionContext,
   webview: vscode.Webview,
+  assetVersionOverride?: string,
 ): Promise<string> {
   const viewName = DEFAULT_WEBVIEW_VIEW_NAME;
   const baseDir = getWebviewAssetDir(context.extensionPath, viewName);
   const nonce = crypto.randomBytes(16).toString('hex');
   const html = await fs.readFile(path.join(baseDir, 'index.html'), 'utf8');
-  const assetVersion = encodeURIComponent(await readWebviewAssetVersion(baseDir, viewName));
+  const assetVersionRaw = assetVersionOverride ?? await readWebviewAssetVersion(baseDir, viewName);
+  const assetVersion = encodeURIComponent(assetVersionRaw);
 
   const scriptUri = webview.asWebviewUri(vscode.Uri.file(path.join(baseDir, `${viewName}.js`))).with({
     query: `v=${assetVersion}`,
@@ -28,10 +30,17 @@ export async function renderWebviewHtml(
   });
 
   return html
+    .replaceAll('{{assetVersion}}', assetVersionRaw)
     .replaceAll('{{cspSource}}', webview.cspSource)
     .replaceAll('{{nonce}}', nonce)
     .replaceAll('{{scriptUri}}', scriptUri.toString())
     .replaceAll('{{styleUri}}', styleUri.toString());
+}
+
+export async function getWebviewAssetVersion(context: vscode.ExtensionContext): Promise<string> {
+  const viewName = DEFAULT_WEBVIEW_VIEW_NAME;
+  const baseDir = getWebviewAssetDir(context.extensionPath, viewName);
+  return await readWebviewAssetVersion(baseDir, viewName);
 }
 
 export function getWebviewRoots(context: vscode.ExtensionContext): vscode.Uri[] {

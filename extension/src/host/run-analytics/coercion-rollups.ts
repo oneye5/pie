@@ -9,6 +9,18 @@ import type {
 } from './types';
 import { coerceStringArray, isObjectRecord, toNonNegativeInteger } from './coercion-utils';
 
+/** Coerce an unknown value into a `Record<string, number>` of non-negative integers. */
+function coerceNonNegativeIntegerRecord(value: unknown): Record<string, number> {
+  if (!isObjectRecord(value)) {
+    return {};
+  }
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([, count]) => typeof count === 'number' && Number.isFinite(count) && count >= 0)
+      .map(([name, count]) => [name, Math.trunc(count as number)]),
+  );
+}
+
 const VERIFICATION_COMMAND_KINDS: VerificationCommandKind[] = [
   'test',
   'build',
@@ -103,6 +115,9 @@ export function createEmptyToolUsageRollup(): ToolUsageRollup {
     failureCountsByKind: createEmptyToolFailureKindRecord(),
     failureCountsByNameAndKind: {},
     failureSamples: [],
+    totalDurationMs: 0,
+    timedCallCount: 0,
+    durationMsByName: {},
     subagentCallCount: 0,
     subagentTaskCount: 0,
     subagentAgentNames: [],
@@ -229,6 +244,9 @@ export function coerceToolUsageRollup(value: unknown): ToolUsageRollup {
     failureSamples: Array.isArray(value.failureSamples)
       ? value.failureSamples.map(coerceToolFailureSample).filter((sample): sample is ToolFailureSample => sample !== null)
       : [],
+    totalDurationMs: toNonNegativeInteger(value.totalDurationMs),
+    timedCallCount: toNonNegativeInteger(value.timedCallCount),
+    durationMsByName: coerceNonNegativeIntegerRecord(value.durationMsByName),
     subagentCallCount: toNonNegativeInteger(value.subagentCallCount),
     subagentTaskCount: toNonNegativeInteger(value.subagentTaskCount),
     subagentAgentNames: coerceStringArray(value.subagentAgentNames),

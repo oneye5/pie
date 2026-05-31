@@ -60,6 +60,7 @@ function sessionViewState(overrides: Partial<ViewState> = {}): ViewState {
       } as ChatMessage,
     ],
     transcriptWindow: { ...EMPTY_TRANSCRIPT_WINDOW, hasNewer: false, hasOlder: false },
+    transcriptLoaded: true,
     ...overrides,
   };
 }
@@ -102,6 +103,34 @@ test('App renders transcript area when session is active', () => {
   assert.ok(panelMain, 'Should render panel-main container');
 });
 
+test('App does not keep the transcript loader for a loaded empty session', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState({
+    activeSession: {
+      path: '/session/a',
+      name: 'Session A',
+      cwd: '/workspace',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+      messageCount: 0,
+    },
+    transcript: [],
+    transcriptWindow: { ...EMPTY_TRANSCRIPT_WINDOW },
+    transcriptLoaded: true,
+    systemPrompts: [],
+  });
+
+  act(() => {
+    render(h(App, { adapter }), container);
+  });
+
+  assert.equal(
+    container.querySelector('.transcript-loading'),
+    null,
+    'Should stop showing the transcript loader once an empty session has loaded',
+  );
+  assert.ok(container.querySelector('textarea'), 'Composer should remain available for an empty session');
+});
+
 test('App posts ready message on mount', () => {
   const adapter = makeAdapter();
   adapter.initialState = sessionViewState();
@@ -113,6 +142,10 @@ test('App posts ready message on mount', () => {
   assert.ok(
     adapter.messages.some((m) => m.type === 'ready'),
     'Should post ready message on mount',
+  );
+  assert.ok(
+    adapter.messages.some((m) => m.type === 'refreshState'),
+    'Should request a fresh host snapshot on mount',
   );
 });
 
@@ -151,36 +184,6 @@ test('App posts send message when composer submits', () => {
   assert.ok(true, 'Composer submit did not crash');
 });
 
-test('App busy composer shows a specific activity placeholder', () => {
-  const adapter = makeAdapter();
-  adapter.initialState = sessionViewState({
-    busy: true,
-    transcript: [
-      {
-        id: 'user-1',
-        role: 'user',
-        createdAt: '2026-01-01T12:00:00.000Z',
-        markdown: 'Do the thing',
-        status: 'completed',
-      } as ChatMessage,
-    ],
-  });
-
-  act(() => {
-    render(h(App, { adapter }), container);
-  });
-
-  const textarea = container.querySelector('textarea');
-  assert.ok(textarea, 'Composer textarea should render while busy');
-  const placeholder = textarea!.getAttribute('placeholder') ?? '';
-  assert.notEqual(placeholder, 'Ask PI anything...', 'busy composer must not show idle placeholder');
-  assert.match(
-    placeholder,
-    /Agent is .+…|Waiting for a response\.\.\./,
-    'busy placeholder should describe activity or fall back to waiting copy',
-  );
-});
-
 test('App renders loading state when backend not ready', () => {
   const adapter = makeAdapter();
   adapter.initialState = { ...EMPTY_VIEW_STATE };
@@ -203,6 +206,123 @@ test('App renders empty state when no tabs open', () => {
 
   const html = container.innerHTML;
   assert.ok(html.includes('Start a session'), 'Should show empty state');
+});
+
+test('App recovers when tabs exist but no active session is projected', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = {
+    ...EMPTY_VIEW_STATE,
+    backendReady: true,
+    sessions: [{
+      path: '/session/a',
+      name: 'Session A',
+      cwd: '/workspace',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+      messageCount: 2,
+    }],
+    openTabPaths: ['/session/a'],
+    activeSession: null,
+  };
+
+  act(() => {
+    render(h(App, { adapter }), container);
+  });
+
+  const html = container.innerHTML;
+  assert.ok(html.includes('Restoring session'), 'Should show recovery state instead of a blank panel');
+  assert.ok(
+    adapter.messages.some((m) => m.type === 'openSession' && m.sessionPath === '/session/a'),
+    'Should request reopening the first available tab',
+  );
+});
+
+test('App waits for backend readiness before requesting session recovery', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = {
+    ...EMPTY_VIEW_STATE,
+    backendReady: false,
+    sessions: [{
+      path: '/session/a',
+      name: 'Session A',
+      cwd: '/workspace',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+      messageCount: 2,
+    }],
+    openTabPaths: ['/session/a'],
+    activeSession: null,
+  };
+
+  act(() => {
+    render(h(App, { adapter }), container);
+  });
+
+  assert.ok(container.innerHTML.includes('Restoring session'));
+  assert.equal(
+    adapter.messages.some((m) => m.type === 'openSession'),
+    false,
+    'Should not ask the host to open a restored tab before backend startup finishes',
+  );
+});
+
+test('App retries session recovery request when projection stays unresolved', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = {
+    ...EMPTY_VIEW_STATE,
+    backendReady: true,
+    sessions: [{
+      path: '/session/a',
+      name: 'Session A',
+      cwd: '/workspace',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+      messageCount: 2,
+    }],
+    openTabPaths: ['/session/a'],
+    activeSession: null,
+    notice: null,
+  };
+
+  const originalSetInterval = window.setInterval;
+  const originalClearInterval = window.clearInterval;
+  const originalDateNow = Date.now;
+  let intervalCallback: (() => void) | null = null;
+  let nowMs = 1_000;
+
+  Date.now = () => nowMs;
+
+  window.setInterval = ((callback: TimerHandler) => {
+    intervalCallback = callback as () => void;
+    return 1 as unknown as number;
+  }) as typeof window.setInterval;
+
+  window.clearInterval = (() => {
+    intervalCallback = null;
+  }) as typeof window.clearInterval;
+
+  try {
+    act(() => {
+      render(h(App, { adapter }), container);
+    });
+
+    const firstRecoveryRequests = adapter.messages.filter(
+      (m) => m.type === 'openSession' && m.sessionPath === '/session/a',
+    );
+    assert.equal(firstRecoveryRequests.length, 1, 'Should send initial recovery request');
+    assert.ok(intervalCallback, 'Should arm a retry timer while recovery is unresolved');
+
+    nowMs += 3_000;
+    act(() => {
+      intervalCallback?.();
+    });
+
+    const allRecoveryRequests = adapter.messages.filter(
+      (m) => m.type === 'openSession' && m.sessionPath === '/session/a',
+    );
+    assert.equal(allRecoveryRequests.length, 2, 'Should retry recovery request when state stays unresolved');
+  } finally {
+    window.setInterval = originalSetInterval;
+    window.clearInterval = originalClearInterval;
+    Date.now = originalDateNow;
+  }
 });
 
 test('App handles host state message', () => {
@@ -231,4 +351,51 @@ test('App handles host state message', () => {
   // Composer should appear
   const textarea = container.querySelector('textarea');
   assert.ok(textarea, 'Composer should render after state message');
+});
+
+test('stateApplied telemetry samples DOM after render commit', async () => {
+  const adapter = makeAdapter();
+  adapter.initialState = {
+    ...EMPTY_VIEW_STATE,
+    backendReady: false,
+    openTabPaths: ['/session/a'],
+    activeSession: {
+      path: '/session/a',
+      name: 'Session A',
+      cwd: '/workspace',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+      messageCount: 0,
+    },
+    transcript: [],
+    transcriptWindow: { ...EMPTY_TRANSCRIPT_WINDOW },
+    transcriptLoaded: false,
+    systemPrompts: [],
+  };
+
+  act(() => {
+    render(h(App, { adapter }), container);
+  });
+
+  const loadedStateMsg: HostToWebviewMessage = {
+    type: 'state',
+    hostInstanceId: 'host-1',
+    revision: 2,
+    state: sessionViewState(),
+  } as any;
+
+  await act(async () => {
+    window.dispatchEvent(new MessageEvent('message', { data: loadedStateMsg }));
+    await Promise.resolve();
+  });
+
+  const applied = adapter.messages
+    .filter((m) => m.type === 'stateApplied')
+    .at(-1);
+
+  assert.ok(applied, 'Should emit stateApplied after applying host state');
+  assert.equal(applied.payload.revision, 2);
+  assert.equal(applied.payload.backendReady, true);
+  assert.equal(applied.payload.transcriptLoaded, true);
+  assert.equal(applied.payload.domTranscriptLoaderPresent, false);
+  assert.equal(applied.payload.domTabsConnectingPresent, false);
 });

@@ -34,24 +34,19 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
     return (
       <div
         class={`pruning-banner pruning-banner-error${expanded ? ' pruning-banner-expanded' : ' pruning-banner-collapsed'}`}
-        role="button"
-        tabIndex={0}
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
-            setExpanded((v) => !v);
-          }
-        }}
       >
-        <div class="pruning-banner-summary">
+        <button
+          type="button"
+          class="pruning-banner-summary"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((v) => !v)}
+        >
           <span class="pruning-banner-icon" aria-hidden="true">⚠</span>
           <span class="pruning-banner-text">Pruning failed</span>
           <span class="pruning-banner-chevron" aria-hidden="true">
             {expanded ? '▲' : '▼'}
           </span>
-        </div>
+        </button>
         {expanded && (
           <div class="pruning-banner-detail">
             <div class="pruning-banner-detail-row">
@@ -76,24 +71,19 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
   return (
     <div
       class={`pruning-banner${expanded ? ' pruning-banner-expanded' : ' pruning-banner-collapsed'}`}
-      role="button"
-      tabIndex={0}
-      aria-expanded={expanded}
-      onClick={() => setExpanded((v) => !v)}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          setExpanded((v) => !v);
-        }
-      }}
     >
-      <div class="pruning-banner-summary">
+      <button
+        type="button"
+        class="pruning-banner-summary"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((v) => !v)}
+      >
         <span class="pruning-banner-icon" aria-hidden="true">✂</span>
         <span class="pruning-banner-text">{summaryText}</span>
         <span class="pruning-banner-chevron" aria-hidden="true">
           {expanded ? '▲' : '▼'}
         </span>
-      </div>
+      </button>
       {expanded && (
         <div class="pruning-banner-detail">
           {details ? (
@@ -117,22 +107,15 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
                 </div>
               )}
               {(details.prepassSystemPrompt || details.prepassResponse) && (
-                <div
-                  class={`pruning-banner-raw-toggle${rawExpanded ? ' pruning-banner-raw-expanded' : ''}`}
-                  role="button"
-                  tabIndex={0}
-                  onClick={(e) => { e.stopPropagation(); setRawExpanded((v) => !v); }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' || e.key === ' ') {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      setRawExpanded((v) => !v);
-                    }
-                  }}
-                >
-                  <span class="pruning-banner-raw-toggle-text">
+                <div class={`pruning-banner-raw-toggle${rawExpanded ? ' pruning-banner-raw-expanded' : ''}`}>
+                  <button
+                    type="button"
+                    class="pruning-banner-raw-toggle-text"
+                    aria-expanded={rawExpanded}
+                    onClick={() => setRawExpanded((v) => !v)}
+                  >
                     {rawExpanded ? '▲' : '▶'} Raw LLM output
-                  </span>
+                  </button>
                   {rawExpanded && (
                     <div class="pruning-banner-raw-content">
                       {details.prepassSystemPrompt && (

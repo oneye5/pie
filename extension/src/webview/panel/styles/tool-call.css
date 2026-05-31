@@ -1,24 +1,24 @@
 ﻿.thinking-block {
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-sm);
+  background: var(--panel-control-surface);
   overflow: hidden;
-  opacity: 0.8;
+  opacity: 0.92;
   cursor: pointer;
   user-select: none;
+  transition: border-color 0.14s ease, background 0.14s ease;
 }
 
 .thinking-block:hover {
-  opacity: 0.92;
+  border-color: var(--panel-border);
+  background: var(--panel-control-hover);
 }
 
 .tool-call {
-  border: 1px solid color-mix(in srgb, var(--panel-border) 88%, transparent);
-  border-radius: 12px;
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--vscode-foreground) 3%, transparent), transparent 44px),
-    var(--panel-raised-surface);
-  box-shadow: 0 10px 24px -26px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.28)) 88%, transparent);
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-xl);
+  background: var(--panel-card-surface);
+  box-shadow: var(--panel-shadow-sm);
   overflow: hidden;
   cursor: pointer;
   user-select: none;
@@ -26,10 +26,8 @@
 }
 
 .tool-call.tool-call-variant-skill-load {
-  border-color: color-mix(in srgb, var(--panel-skill-border) 78%, var(--panel-accent) 22%);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-accent) 5%, transparent), transparent 48px),
-    var(--panel-skill-surface);
+  border-color: color-mix(in srgb, var(--panel-skill-border) 82%, var(--panel-border));
+  background: var(--panel-skill-surface);
 }
 
 .thinking-block-header,
@@ -38,27 +36,23 @@
   align-items: center;
   gap: 7px;
   padding: 5px 8px;
-  border-radius: 8px;
+  border-radius: var(--panel-radius-md);
 }
 
 .thinking-block-header {
   padding: 4px 6px;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--panel-radius-sm) var(--panel-radius-sm) 0 0;
 }
 
 .thinking-block:hover,
 .tool-call:hover {
-  border-color: color-mix(in srgb, var(--panel-border) 72%, var(--vscode-foreground) 16%);
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--vscode-foreground) 4.5%, transparent), transparent 48px),
-    var(--panel-hover-surface);
-  box-shadow: 0 14px 30px -28px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.32)) 100%, transparent);
+  border-color: var(--panel-border);
+  background: var(--panel-control-hover);
+  box-shadow: var(--panel-shadow-md);
 }
 
 .tool-call.tool-call-variant-skill-load:hover {
-  background:
-    linear-gradient(180deg, color-mix(in srgb, var(--panel-accent) 7%, transparent), transparent 48px),
-    var(--panel-hover-surface);
+  background: color-mix(in srgb, var(--panel-accent-surface) 45%, var(--panel-control-hover));
 }
 
 .thinking-block:hover .thinking-block-header,
@@ -68,10 +62,8 @@
 
 .tool-call.tool-call-subagent[aria-expanded="false"] .subagent-header {
   background: var(--panel-subagent-header-surface);
-  box-shadow:
-    inset 0 0 0 1px var(--panel-subagent-header-border),
-    inset 0 1px 0 color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
-  border-radius: 8px;
+  box-shadow: inset 0 0 0 1px var(--panel-subagent-header-border);
+  border-radius: var(--panel-radius-md);
 }
 
 .tool-call.tool-call-subagent[aria-expanded="false"]:hover .subagent-header {
@@ -254,110 +246,13 @@
 .subagent-score-dim[data-score="4"] { opacity: 0.85; color: var(--panel-accent); }
 .subagent-score-dim[data-score="5"] { opacity: 1.0; color: var(--panel-accent); font-weight: 700; }
 
-/* Status indicator: compact instrumentation chips shared with tool calls. */
-.subagent-status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: var(--status-chip-height);
-  min-width: var(--tool-call-status-column-width);
-  max-width: var(--tool-call-status-column-width);
-  margin-inline-start: auto;
-  padding: 1px var(--status-chip-padding-inline);
-  border: 1px solid var(--status-chip-border-muted);
-  border-radius: var(--status-chip-radius);
-  background: var(--status-chip-surface-muted);
-  color: var(--panel-muted);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
-  flex: 0 0 var(--tool-call-status-column-width);
-  overflow: hidden;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.subagent-status::before {
-  content: '';
-  width: var(--status-chip-dot-size);
-  height: var(--status-chip-dot-size);
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.78;
-  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
-  flex: 0 0 auto;
-}
-
-.subagent-status-running {
-  background: var(--panel-accent-surface);
-  border-color: color-mix(in srgb, var(--panel-accent) 34%, transparent);
-  color: var(--panel-accent);
-}
-
-.subagent-status-running::before {
-  animation: subagent-pulse 1.6s ease-in-out infinite;
-}
-
-.subagent-status-failed {
-  background: var(--panel-danger-surface);
-  border-color: color-mix(in srgb, var(--panel-danger) 34%, transparent);
-  color: var(--panel-danger);
-}
-
-.subagent-status-failed.has-error-detail {
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.subagent-status-failed.has-error-detail:hover {
-  background: color-mix(in srgb, var(--panel-danger) 18%, transparent);
-  border-color: color-mix(in srgb, var(--panel-danger) 46%, transparent);
-}
-
-.subagent-status-failed.has-error-detail:focus-visible {
-  outline: 1px solid currentColor;
-  outline-offset: 2px;
-}
-
-.subagent-status-failed.has-error-detail[data-copied] {
-  color: var(--panel-success);
-  background: var(--panel-success-surface);
-  border-color: color-mix(in srgb, var(--panel-success) 38%, transparent);
-  pointer-events: none;
-}
-
-.subagent-status-failed.has-error-detail[data-copied] .subagent-status-label {
-  display: none;
-}
-
-.subagent-status-failed.has-error-detail[data-copied]::after {
-  content: 'Copied!';
-}
-
-@keyframes subagent-pulse {
-  0%, 100% { opacity: 0.45; transform: scale(0.92); }
-  50% { opacity: 1; transform: scale(1.18); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .subagent-status-running::before {
-    animation: none;
-    opacity: 0.9;
-    transform: none;
-  }
-}
-
 /* Parallel group wrapper: subtle left accent border to visually connect independent agent blocks */
 .subagent-parallel-group {
   display: flex;
   flex-direction: column;
   gap: 2px;
   padding-left: 8px;
-  border-left: 2px solid color-mix(in srgb, var(--panel-accent) 22%, var(--panel-border));
+  border-left: 2px solid color-mix(in srgb, var(--panel-accent) 16%, var(--panel-border));
 }
 
 .tool-call-summary {
@@ -411,10 +306,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   padding: 1px 7px;
-  border-radius: 6px;
+  border-radius: var(--panel-radius-sm);
   color: var(--vscode-foreground);
-  background: color-mix(in srgb, var(--panel-subtle-surface) 85%, var(--vscode-sideBar-background, transparent));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--panel-border) 88%, var(--vscode-foreground) 12%);
+  background: var(--panel-control-surface);
+  box-shadow: inset 0 0 0 1px var(--panel-border-subtle);
   transition: background 0.12s ease, box-shadow 0.12s ease, color 0.12s ease;
 }
 
@@ -436,6 +331,17 @@
 
 .tool-call-size-hint.is-empty {
   display: none;
+}
+
+.tool-call-duration {
+  flex: 0 0 auto;
+  margin-left: auto;
+  color: var(--panel-muted);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.6;
+  white-space: nowrap;
 }
 
 .tool-call-summary-link {
@@ -461,110 +367,8 @@
 .tool-call-summary-link:hover .tool-call-file-name,
 .tool-call-summary-link:focus-visible .tool-call-file-name {
   color: var(--vscode-foreground);
-  background: color-mix(in srgb, var(--panel-hover-surface) 74%, var(--panel-subtle-surface));
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--panel-border) 84%, var(--vscode-foreground) 16%);
-}
-
-.tool-call-status {
-  min-width: var(--tool-call-status-column-width);
-  max-width: var(--tool-call-status-column-width);
-  flex: 0 0 var(--tool-call-status-column-width);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  min-height: var(--status-chip-height);
-  padding: 1px var(--status-chip-padding-inline);
-  border: 1px solid var(--status-chip-border-muted);
-  border-radius: var(--status-chip-radius);
-  background: var(--status-chip-surface-muted);
-  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
-  overflow: hidden;
-  text-overflow: clip;
-  white-space: nowrap;
-  text-align: center;
-  font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.11em;
-  line-height: 1;
-  color: var(--panel-muted);
-}
-
-.tool-call-status::before {
-  content: '';
-  width: var(--status-chip-dot-size);
-  height: var(--status-chip-dot-size);
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.78;
-  box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 14%, transparent);
-  flex: 0 0 auto;
-}
-
-.tool-call-status.is-empty {
-  display: none;
-}
-
-.tool-call-status.running {
-  background: var(--panel-accent-surface);
-  border-color: color-mix(in srgb, var(--panel-accent) 34%, transparent);
-  color: var(--panel-accent);
-}
-
-.tool-call-status.running::before {
-  animation: subagent-pulse 1.6s ease-in-out infinite;
-}
-
-.tool-call-status.completed {
-  background: var(--panel-success-surface);
-  border-color: color-mix(in srgb, var(--panel-success) 34%, transparent);
-  color: var(--panel-success);
-}
-
-.tool-call-status.failed {
-  background: var(--panel-danger-surface);
-  border-color: color-mix(in srgb, var(--panel-danger) 34%, transparent);
-  color: var(--panel-danger);
-}
-
-.tool-call-status.has-error-detail {
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-
-.tool-call-status.has-error-detail:hover {
-  background: color-mix(in srgb, var(--panel-danger) 18%, transparent);
-  border-color: color-mix(in srgb, var(--panel-danger) 46%, transparent);
-}
-
-.tool-call-status.has-error-detail:focus-visible {
-  outline: 1px solid currentColor;
-  outline-offset: 2px;
-}
-
-.tool-call-status.has-error-detail[data-copied] {
-  color: var(--panel-success);
-  background: var(--panel-success-surface);
-  border-color: color-mix(in srgb, var(--panel-success) 38%, transparent);
-  pointer-events: none;
-}
-
-.tool-call-status.has-error-detail[data-copied] .tool-call-status-label {
-  display: none;
-}
-
-.tool-call-status.has-error-detail[data-copied]::after {
-  content: 'Copied!';
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tool-call-status.running::before {
-    animation: none;
-    opacity: 0.9;
-    transform: none;
-  }
+  background: var(--panel-control-hover);
+  box-shadow: inset 0 0 0 1px var(--panel-border);
 }
 
 .tool-call-section + .tool-call-section {
@@ -579,11 +383,11 @@
   padding: 4px var(--subagent-thread-gutter) 4px 0;
   display: flex;
   flex-direction: column;
+  /* Match the main transcript's inter-message rhythm (6px) for visual parity. */
+  gap: 6px;
   cursor: default;
   user-select: text;
-  background:
-    linear-gradient(180deg, var(--panel-accent-surface) 0%, transparent 120px),
-    var(--panel-subtle-surface);
+  background: var(--panel-control-surface);
 }
 
 .subagent-running-tools {
@@ -596,7 +400,7 @@
 .subagent-running-tool {
   font-size: 11px;
   color: var(--panel-muted);
-  background: var(--panel-hover-surface);
+  background: var(--panel-control-hover);
   border-radius: 3px;
   padding: 1px 6px;
 }
@@ -621,9 +425,9 @@
   gap: 4px;
   padding: 6px 8px;
   margin-bottom: 6px;
-  background: color-mix(in srgb, var(--panel-subtle-surface) 50%, transparent);
-  border-radius: 6px;
-  border: 1px solid color-mix(in srgb, var(--panel-border) 70%, transparent);
+  background: var(--panel-control-surface);
+  border-radius: var(--panel-radius-sm);
+  border: 1px solid var(--panel-border-subtle);
 }
 
 .subagent-model-selection-title {
@@ -648,15 +452,15 @@
   border-radius: 4px;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 10.5px;
-  background: color-mix(in srgb, var(--panel-hover-surface) 60%, transparent);
+  background: var(--panel-control-hover);
   color: var(--panel-muted);
   border: 1px solid transparent;
 }
 
 .subagent-pool-candidate.chosen {
   color: var(--panel-accent);
-  background: color-mix(in srgb, var(--panel-accent) 10%, transparent);
-  border-color: color-mix(in srgb, var(--panel-accent) 30%, transparent);
+  background: color-mix(in srgb, var(--panel-accent-surface) 72%, var(--panel-control-surface));
+  border-color: color-mix(in srgb, var(--panel-accent) 24%, var(--panel-border));
   font-weight: 600;
 }
 

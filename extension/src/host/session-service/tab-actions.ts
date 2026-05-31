@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { BackendClient } from '../backend/client';
 import { type RunObserver } from '../stats-service';
-import { auditLog } from '../util/audit';
+import { auditLog, bootLog } from '../util/audit';
 import {
   getSessionByPath,
   sessionsActions,
@@ -98,6 +98,13 @@ export class SessionTabActions {
       sessionPath,
     });
 
+    bootLog('session-tabs', 'session.open.requested', {
+      selectionToken,
+      sessionPath,
+      wasOpenTab,
+      hadExistingSummary: !!existing,
+    });
+
     if (!existing) {
       store.dispatch(
         sessionsActions.upsertSession({
@@ -120,6 +127,11 @@ export class SessionTabActions {
     void this.state.enqueueLifecycle(async () => {
       await this.backend.request('session.open', { sessionPath, selectionToken });
     }).catch((err) => {
+      bootLog('session-tabs', 'session.open.failed', {
+        selectionToken,
+        sessionPath,
+        message: (err as Error).message,
+      });
       this.state.handleSelectionFailure(
         selectionToken,
         `Failed to open session: ${(err as Error).message}`,

@@ -1,31 +1,45 @@
-﻿:root {
+:root {
   --panel-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.22));
+  --panel-border-subtle: color-mix(in srgb, var(--panel-border) 74%, transparent);
   --panel-muted: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.86));
   --panel-surface: var(--vscode-editor-background, rgba(127, 127, 127, 0.04));
   --panel-subtle-surface: var(--vscode-sideBarSectionHeader-background, rgba(127, 127, 127, 0.07));
-  --panel-raised-surface: rgba(127, 127, 127, 0.06);
   --panel-raised-surface: color-mix(in srgb, var(--vscode-editor-background, transparent) 86%, var(--vscode-foreground) 14%);
+  --panel-card-surface: color-mix(in srgb, var(--vscode-editor-background, var(--panel-surface)) 92%, var(--vscode-foreground) 8%);
+  --panel-control-surface: color-mix(in srgb, var(--panel-subtle-surface) 78%, transparent);
+  --panel-control-hover: color-mix(in srgb, var(--panel-hover-surface) 72%, var(--panel-control-surface));
+  --panel-overlay-surface: var(--vscode-editorWidget-background, var(--panel-card-surface));
+  --panel-overlay-backdrop: color-mix(in srgb, black 32%, transparent);
   --panel-hover-surface: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.1));
-  --panel-skill-surface: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.12));
-  --panel-skill-border: rgba(127, 127, 127, 0.28);
+  --panel-skill-surface: color-mix(in srgb, var(--panel-accent) 6%, var(--panel-control-surface));
+  --panel-skill-border: color-mix(in srgb, var(--panel-accent) 18%, var(--panel-border));
   --panel-accent: var(--vscode-focusBorder, var(--vscode-button-background, #007acc));
-  --panel-accent-surface: rgba(0, 122, 204, 0.1);
   --panel-accent-surface: color-mix(in srgb, var(--panel-accent) 11%, transparent);
-  --panel-subagent-header-surface: rgba(0, 122, 204, 0.14);
-  --panel-subagent-header-surface: color-mix(in srgb, var(--panel-accent) 16%, transparent);
-  --panel-subagent-header-surface-hover: rgba(0, 122, 204, 0.2);
-  --panel-subagent-header-surface-hover: color-mix(in srgb, var(--panel-accent) 22%, transparent);
-  --panel-subagent-header-border: rgba(0, 122, 204, 0.24);
-  --panel-subagent-header-border: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
+  --panel-subagent-header-surface: color-mix(in srgb, var(--panel-accent) 9%, var(--panel-control-surface));
+  --panel-subagent-header-surface-hover: color-mix(in srgb, var(--panel-accent) 12%, var(--panel-control-hover));
+  --panel-subagent-header-border: color-mix(in srgb, var(--panel-accent) 20%, var(--panel-border));
   --panel-code-surface: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
-  --session-tabs-strip-surface: color-mix(in srgb, var(--vscode-sideBar-background, var(--panel-surface)) 74%, var(--panel-subtle-surface) 26%);
-  --session-tab-active-surface: color-mix(in srgb, var(--vscode-editor-background, var(--panel-surface)) 82%, var(--vscode-foreground) 18%);
-  --session-tab-inactive-surface: color-mix(in srgb, var(--panel-subtle-surface) 82%, transparent 18%);
-  --session-tab-hover-surface: color-mix(in srgb, var(--panel-hover-surface) 68%, var(--panel-subtle-surface) 32%);
+  --panel-shadow-xs: 0 6px 16px -16px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.24)) 92%, transparent);
+  --panel-shadow-sm: 0 10px 24px -24px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.28)) 100%, transparent);
+  --panel-shadow-md: 0 16px 32px -28px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.32)) 100%, transparent);
+  --panel-shadow-overlay: 0 18px 36px -26px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36)) 100%, transparent);
+  --panel-radius-sm: 6px;
+  --panel-radius-md: 8px;
+  --panel-radius-lg: 10px;
+  --panel-radius-xl: 12px;
+  --panel-gap-xs: 4px;
+  --panel-gap-sm: 6px;
+  --panel-gap-md: 8px;
+  --panel-gap-lg: 12px;
+  --panel-gap-xl: 16px;
+  --session-tabs-strip-surface: color-mix(in srgb, var(--vscode-sideBar-background, var(--panel-surface)) 82%, var(--panel-subtle-surface) 18%);
+  --session-tab-active-surface: color-mix(in srgb, var(--vscode-editor-background, var(--panel-surface)) 88%, var(--vscode-foreground) 12%);
+  --session-tab-inactive-surface: color-mix(in srgb, var(--panel-control-surface) 88%, transparent 12%);
+  --session-tab-hover-surface: color-mix(in srgb, var(--panel-hover-surface) 62%, var(--panel-control-surface) 38%);
   --session-tab-outline: color-mix(in srgb, var(--panel-border) 82%, transparent 18%);
-  --session-tab-active-outline: color-mix(in srgb, var(--panel-accent) 34%, var(--panel-border));
-  --session-tab-shadow: 0 10px 22px -22px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.24)) 85%, transparent);
-  --session-tab-drag-shadow: 0 18px 30px -20px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.28)) 100%, transparent);
+  --session-tab-active-outline: color-mix(in srgb, var(--panel-accent) 26%, var(--panel-border));
+  --session-tab-shadow: var(--panel-shadow-xs);
+  --session-tab-drag-shadow: var(--panel-shadow-md);
   /* Maximum width for summary content when a summary is present.
      We prefer to give the name/title priority and let the summary be
      constrained first, so long titles aren't cut off. */
@@ -40,10 +54,6 @@
   --status-chip-border-muted: color-mix(in srgb, var(--panel-muted) 20%, transparent);
   --status-chip-surface-muted: color-mix(in srgb, var(--panel-muted) 8%, transparent);
   --status-chip-motion-duration: 2.1s;
-  --message-assistant-width: 88%;
-  --message-assistant-width-narrow: 94%;
-  --turn-activity-min-height: 22px;
-  --message-glow-duration: 4s;
   /* Stable assistant message width to prevent horizontal growth during streaming */
   --message-assistant-width: 88%;
   --message-assistant-width-narrow: 92%;

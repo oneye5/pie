@@ -2,6 +2,7 @@ import { watch as fsWatch } from 'node:fs';
 import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import esbuild from 'esbuild';
@@ -11,6 +12,7 @@ const srcDir = path.join(rootDir, 'src');
 const outDir = path.join(rootDir, 'out');
 
 const watchMode = process.argv.includes('--watch');
+const skipTypecheck = process.argv.includes('--skip-typecheck');
 const webviewViewName = 'panel';
 const webviewRelativeDir = path.join('webview', webviewViewName);
 const sourceWebviewAssetFileNames = new Set([
@@ -238,6 +240,21 @@ async function copyStaticAssets() {
 async function buildOnce() {
   await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
+
+  // Gate on typecheck: catch interface/usage mismatches before bundling.
+  // This prevents silent runtime crashes from fields missing in shared types.
+  // Use --skip-typecheck to bypass temporarily during iterative development.
+  if (!skipTypecheck) {
+    try {
+      execSync('npx tsc --noEmit -p tsconfig.json', { cwd: rootDir, stdio: 'pipe' });
+    } catch (err) {
+      const output = err.stdout?.toString() || err.stderr?.toString() || '';
+      console.error('[build] TypeScript errors detected — fix before building:\n');
+      console.error(output);
+      console.error('\n[build] Use --skip-typecheck to bypass (not recommended).');
+      process.exit(1);
+    }
+  }
 
   await Promise.all(createBuildConfigurations().map((config) => esbuild.build(config)));
   await copyStaticAssets();

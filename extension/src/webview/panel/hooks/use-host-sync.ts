@@ -1,9 +1,10 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'preact/hooks';
 
 import { playCompletionSound } from '../completion-sound';
+import { validateViewState } from '../state-validator';
 
 import type {
   ChatMessage,
@@ -13,6 +14,20 @@ import type {
 } from '../../../shared/protocol';
 import { DEFAULT_CHAT_PREFS, EMPTY_TRANSCRIPT_WINDOW } from '../../../shared/protocol';
 
+/**
+ * Fill gaps in host-delivered state with safe defaults and log violations.
+ * Prevents render crashes when the host omits newly-added nested fields.
+ */
+function hydrateViewState(raw: ViewState): ViewState {
+  validateViewState(raw);
+  return {
+    ...raw,
+    pruningSettings: { ...EMPTY_VIEW_STATE.pruningSettings, ...raw.pruningSettings },
+    pruningCatalog: { ...EMPTY_VIEW_STATE.pruningCatalog, ...raw.pruningCatalog },
+    prefs: { ...EMPTY_VIEW_STATE.prefs, ...raw.prefs },
+  };
+}
+
 export const EMPTY_VIEW_STATE: ViewState = {
   sessions: [],
   openTabPaths: [],
@@ -21,6 +36,7 @@ export const EMPTY_VIEW_STATE: ViewState = {
   activeSession: null,
   transcript: [],
   transcriptWindow: { ...EMPTY_TRANSCRIPT_WINDOW },
+  transcriptLoaded: false,
   pendingComposerInputs: [],
   activeRunSummary: null,
   runSummariesBySession: {},
@@ -87,6 +103,14 @@ export function useHostSync(
   const [viewState, setViewState] = useState<ViewState>(initialState ?? EMPTY_VIEW_STATE);
   const [draftRestore, setDraftRestore] = useState<{ text: string; nonce: number } | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
+  const [pendingStateApplied, setPendingStateApplied] = useState<{
+    revision: number;
+    backendReady: boolean;
+    transcriptLoaded: boolean;
+    openTabCount: number;
+    transcriptCount: number;
+    systemPromptCount: number;
+  } | null>(null);
 
   const revisionMapRef = useRef<Map<string, number>>(new Map());
   const tokenRateRef = useRef<{ tokens: number; timestamp: number }[]>([]);
@@ -99,6 +123,7 @@ export function useHostSync(
   const hostInstanceIdRef = useRef('');
   const activeSessionPathRef = useRef<string | null>(null);
   const committedSessionPathRef = useRef<string | null>(null);
+  const sentStateAppliedRevisionRef = useRef<number>(-1);
   const pendingDraftRestoreRef = useRef(new Map<string, { text: string }>());
 
   const clearTransientUi = useCallback(() => {
@@ -190,7 +215,15 @@ export function useHostSync(
           pendingDraftRestoreRef.current.delete(nextActiveSessionPath);
           setDraftRestore({ text: queuedDraftRestore.text, nonce: Date.now() });
         }
-        setViewState(msg.state);
+        setViewState(hydrateViewState(msg.state));
+        setPendingStateApplied({
+          revision: msg.revision,
+          backendReady: msg.state.backendReady,
+          transcriptLoaded: msg.state.transcriptLoaded,
+          openTabCount: msg.state.openTabPaths.length,
+          transcriptCount: msg.state.transcript.length,
+          systemPromptCount: msg.state.systemPrompts.length,
+        });
         return;
       }
 
@@ -218,8 +251,35 @@ export function useHostSync(
 
     window.addEventListener('message', handleMessage);
     postMessage({ type: 'ready' });
+    postMessage({ type: 'refreshState' });
     return () => window.removeEventListener('message', handleMessage);
   }, [clearTransientUi, postMessage, resetPerSessionState]);
+
+  // Emit state-applied diagnostics after the corresponding DOM commit so
+  // loader/connecting selectors reflect what the user actually sees.
+  useLayoutEffect(() => {
+    if (!pendingStateApplied) {
+      return;
+    }
+    if (pendingStateApplied.revision === sentStateAppliedRevisionRef.current) {
+      return;
+    }
+
+    sentStateAppliedRevisionRef.current = pendingStateApplied.revision;
+    postMessage({
+      type: 'stateApplied',
+      payload: {
+        revision: pendingStateApplied.revision,
+        backendReady: pendingStateApplied.backendReady,
+        transcriptLoaded: pendingStateApplied.transcriptLoaded,
+        openTabCount: pendingStateApplied.openTabCount,
+        transcriptCount: pendingStateApplied.transcriptCount,
+        systemPromptCount: pendingStateApplied.systemPromptCount,
+        domTranscriptLoaderPresent: document.querySelector('.transcript-loading') !== null,
+        domTabsConnectingPresent: document.querySelector('.session-tabs-connecting') !== null,
+      },
+    });
+  }, [pendingStateApplied, postMessage]);
 
   useEffect(() => {
     const refreshState = () => postMessage({ type: 'refreshState' });

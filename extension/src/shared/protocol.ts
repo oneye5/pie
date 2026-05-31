@@ -132,6 +132,10 @@ export interface ToolCall {
   input: unknown;
   result?: unknown;
   status: 'running' | 'completed' | 'failed';
+  /** Epoch milliseconds when the backend began executing this tool call. */
+  startedAt?: number;
+  /** Wall-clock execution time in milliseconds, set when the call resolves. */
+  durationMs?: number;
 }
 
 export interface FilesystemPathComposerInput {
@@ -382,6 +386,8 @@ export interface ToolStartedPayload {
   toolCallId: string;
   name: string;
   input: unknown;
+  /** Epoch milliseconds when the backend began executing the tool call. */
+  startedAt: number;
 }
 
 export interface ToolFinishedPayload {
@@ -391,6 +397,8 @@ export interface ToolFinishedPayload {
   toolCallId: string;
   result: unknown;
   status: Extract<ToolCall['status'], 'completed' | 'failed'>;
+  /** Wall-clock execution time in milliseconds for this tool call. */
+  durationMs: number;
 }
 
 export interface ToolProgressPayload {
@@ -517,12 +525,21 @@ export interface PruningSettings {
   mode: PruningMode;
   skillCeiling: number;
   toolCeiling: number;
+  /** Skills that should never be pruned. */
+  skillAlwaysKeep: string[];
+  /** Tools that should never be pruned. */
+  toolAlwaysKeep: string[];
   /** Model used for the pruning prepass LLM call. */
   model: string;
   /** Provider for the pruning prepass model. */
   provider: string;
   /** Thinking level for the pruning prepass. */
   thinkingLevel: ThinkingLevel;
+}
+
+export interface PruningCatalog {
+  skills: string[];
+  tools: string[];
 }
 
 export interface ChatPrefs {
@@ -575,6 +592,8 @@ export const DEFAULT_PRUNING_SETTINGS: PruningSettings = {
   mode: 'auto',
   skillCeiling: 5,
   toolCeiling: 5,
+  skillAlwaysKeep: [],
+  toolAlwaysKeep: [],
   model: 'gpt-5.4-mini',
   provider: 'github-copilot',
   thinkingLevel: 'minimal',
@@ -629,6 +648,17 @@ export interface ExtensionUIResponsePayload {
   cancelled?: boolean;
 }
 
+export interface StateAppliedPayload {
+  revision: number;
+  backendReady: boolean;
+  transcriptLoaded: boolean;
+  openTabCount: number;
+  transcriptCount: number;
+  systemPromptCount: number;
+  domTranscriptLoaderPresent: boolean;
+  domTabsConnectingPresent: boolean;
+}
+
 /** The full view state sent from the extension host to the webview. */
 export interface ViewState {
   sessions: SessionSummary[];
@@ -638,6 +668,8 @@ export interface ViewState {
   activeSession: SessionSummary | null;
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
+  /** True once the active session's initial transcript snapshot has been received. */
+  transcriptLoaded: boolean;
   /** Host-owned pending inputs for the active session. */
   pendingComposerInputs: ComposerInput[];
   /** Most recent run summary for the active session, including recently completed runs. */
@@ -662,6 +694,8 @@ export interface ViewState {
   pruningResult: PruningResult | null;
   /** Current pruning configuration from settings.json. */
   pruningSettings: PruningSettings;
+  /** Active pruning choices surfaced to the composer/settings UI. */
+  pruningCatalog: PruningCatalog;
   /** Message ID currently being edited, or null. */
   editingMessageId: string | null;
   /** Whether the run-outcome dialog is open. */
@@ -710,8 +744,8 @@ export type HostToWebviewMessage =
 
 /** Messages the webview can send back to the host. */
 export type WebviewToHostMessage =
-  | { type: 'ready' }
-  | { type: 'refreshState' }
+  | { type: 'ready'; assetVersion?: string }
+  | { type: 'refreshState'; assetVersion?: string }
   | {
       /**
        * Request a state snapshot. When `sessionPath` is provided the host MAY
@@ -721,6 +755,7 @@ export type WebviewToHostMessage =
        * through so per-session snapshot recovery can land without a protocol bump.
        */
       type: 'requestSnapshot';
+      assetVersion?: string;
       sessionPath?: string;
     }
   | { type: 'openFilePicker' }
@@ -742,6 +777,7 @@ export type WebviewToHostMessage =
   | { type: 'newSession' }
   | { type: 'openSession'; sessionPath: string }
   | { type: 'closeSession'; sessionPath: string }
+  | { type: 'duplicateSession'; sessionPath: string }
   | { type: 'moveSessionTab'; sessionPath?: string; fromIndex: number; toIndex: number }
   | { type: 'loadOlderTranscript'; sessionPath?: string }
   | { type: 'loadNewerTranscript'; sessionPath?: string }
@@ -764,4 +800,5 @@ export type WebviewToHostMessage =
   | { type: 'closeOutcomeDialog' }
   | { type: 'openFileDiff'; sessionPath: string; filePath: string }
   | { type: 'revertFile'; sessionPath: string; filePath: string }
+  | { type: 'stateApplied'; payload: StateAppliedPayload }
   | { type: 'extensionUiResponse'; sessionPath: string; response: ExtensionUIResponsePayload };

@@ -449,6 +449,18 @@ test('selectViewState.busy is false when activeSession is null', () => {
   assert.equal(selectViewState(store.getState()).busy, false);
 });
 
+test('selectViewState marks the active transcript as loaded once a snapshot arrives', () => {
+  const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
+  const store = createAppStore();
+
+  store.dispatch(sessionsActions.upsertSession(session1));
+  store.dispatch(sessionsActions.setActiveSession(session1));
+  assert.equal(selectViewState(store.getState()).transcriptLoaded, false);
+
+  store.dispatch(transcriptActions.setTranscript({ sessionPath: session1.path, transcript: [] }));
+  assert.equal(selectViewState(store.getState()).transcriptLoaded, true);
+});
+
 // ---------------------------------------------------------------------------
 // Lifecycle sequence: startup with session restore
 // ---------------------------------------------------------------------------
@@ -561,12 +573,14 @@ test('lifecycle: tool.started → tool.finished', () => {
   assert.equal(msg?.toolCalls?.[0]?.status, 'running');
 
   // tool.finished
-  const tcDone = { ...tc, result: 'const x = 1;', status: 'completed' as const };
+  const tcDone = { ...tc, result: 'const x = 1;', status: 'completed' as const, startedAt: 1000, durationMs: 1500 };
   store.dispatch(transcriptActions.upsertToolCall({ sessionPath: session1.path, messageId: 'msg-4', toolCall: tcDone }));
 
   msg = store.getState().transcript.bySession[session1.path].find((m) => m.id === 'msg-4');
   assert.equal(msg?.toolCalls?.[0]?.status, 'completed');
   assert.equal(msg?.toolCalls?.[0]?.result, 'const x = 1;');
+  assert.equal(msg?.toolCalls?.[0]?.startedAt, 1000);
+  assert.equal(msg?.toolCalls?.[0]?.durationMs, 1500);
 });
 
 test('upsertMessage preserves resolved tool failures already captured from tool.finished', () => {

@@ -5,6 +5,8 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
   minute: '2-digit',
 });
 
+const tokenFormatter = new Intl.NumberFormat(undefined);
+
 export interface AssistantReplyMeta {
   model: string | null;
   reasoning: string | null;
@@ -28,6 +30,32 @@ export function roleLabel(role: ChatMessage['role']): string {
   if (role === 'user') return 'You';
   if (role === 'assistant') return 'PI';
   return 'System';
+}
+
+/**
+ * Compact, human-readable summary of an assistant turn's token usage and
+ * duration, intended for a hover tooltip (`title`) rather than visible text.
+ * Returns null when there is nothing meaningful to show.
+ */
+export function formatAssistantMetaTooltip(message: ChatMessage): string | null {
+  if (message.role !== 'assistant') return null;
+
+  const lines: string[] = [];
+
+  if (message.usage) {
+    const { inputTokens, outputTokens, totalTokens, cacheReadTokens, cacheWriteTokens } = message.usage;
+    const fmt = (n: number) => tokenFormatter.format(n);
+    lines.push(`Tokens — in ${fmt(inputTokens)} · out ${fmt(outputTokens)} · total ${fmt(totalTokens)}`);
+    if (cacheReadTokens > 0 || cacheWriteTokens > 0) {
+      lines.push(`Cache — read ${fmt(cacheReadTokens)} · write ${fmt(cacheWriteTokens)}`);
+    }
+  }
+
+  if (message.durationMs !== undefined) {
+    lines.push(`Duration — ${formatDuration(message.durationMs)}`);
+  }
+
+  return lines.length > 0 ? lines.join('\n') : null;
 }
 
 export function formatThinkingLevelLabel(level: ThinkingLevel | undefined): string | null {

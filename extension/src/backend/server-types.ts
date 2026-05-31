@@ -12,6 +12,8 @@ export interface ActiveRequest {
   lastAssistantMessageId?: string;
   currentMessageStartedAt?: number;
   customMessageIndex?: number;
+  /** Epoch ms when each in-flight tool call began, keyed by toolCallId. */
+  toolStartTimes?: Map<string, number>;
   aborted: boolean;
 }
 
