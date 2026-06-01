@@ -6,6 +6,7 @@ export const AGENT_ACTIVITY_LABELS = {
   pruning: 'pruning skills/tools',
   preparing: 'preparing response',
   startingModel: 'starting model',
+  responding: 'responding',
   runningTools: 'running tools',
   thinking: 'thinking',
 } as const;
@@ -86,7 +87,7 @@ function formatModelLabel(modelId?: string, thinkingLevel?: ChatMessage['thinkin
 
 /**
  * Derive structured in-flight activity state for the current turn.
- * Returns null when not busy or when streaming is active (streaming state is handled by message UI).
+ * Returns null when not busy.
  */
 export function deriveTurnActivityState({
   busy,
@@ -115,9 +116,14 @@ export function deriveTurnActivityState({
   const assistant = lastAssistantMessage(currentTurnMessages);
 
   if (assistant) {
-    // Streaming state is handled by message UI, not activity strip
     if (assistant.status === 'streaming') {
-      return null;
+      return {
+        phase: 'streaming',
+        label: AGENT_ACTIVITY_LABELS.responding,
+        tone: 'active',
+        ariaLabel: 'Agent is responding',
+        pendingModelLabel: formatModelLabel(assistant.modelId || pendingAssistantModelId, assistant.thinkingLevel || pendingAssistantThinkingLevel),
+      };
     }
 
     const toolCalls = toolCallsFromAssistant(assistant);

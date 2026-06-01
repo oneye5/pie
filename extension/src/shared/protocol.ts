@@ -398,7 +398,13 @@ export interface ToolFinishedPayload {
   result: unknown;
   status: Extract<ToolCall['status'], 'completed' | 'failed'>;
   /** Wall-clock execution time in milliseconds for this tool call. */
-  durationMs: number;
+  durationMs?: number;
+}
+
+export interface CustomMessagePayload {
+  requestId: string;
+  sessionPath: string;
+  message: ChatMessage;
 }
 
 export interface ToolProgressPayload {
@@ -452,6 +458,8 @@ export interface FileChangeEntry {
   messageId: string;
   description: string;
   timestamp: string;
+  additions?: number;
+  deletions?: number;
 }
 
 export function isEventEnvelope(value: unknown): value is EventEnvelope {
@@ -489,6 +497,11 @@ export interface PruningResult {
   tokensSaved: number;
   hasSkillPruning: boolean;
   hasToolPruning: boolean;
+  /** Legacy convenience aliases retained for older settings/menu call sites. */
+  includedSkills?: string[];
+  excludedSkills?: string[];
+  includedTools?: string[];
+  excludedTools?: string[];
   /** Error message if the pruning prepass failed. */
   error?: string;
   /** Full pruning details for expanded view in the banner. */
@@ -501,13 +514,17 @@ export interface PruningDetails {
   excludedSkills: string[];
   includedTools: string[];
   excludedTools: string[];
-  mode: 'auto' | 'shadow' | 'off';
+  mode: PruningMode;
   skillTokensSaved: number;
   toolTokensSaved: number;
   /** Model used for the prepass LLM call. */
   prepassModel?: string;
   /** Thinking level of the prepass call. */
   prepassThinkingLevel?: string;
+  /** User prompt sent to the pruning prepass model. */
+  prepassUserMessage?: string;
+  /** Reasoning text returned by the pruning prepass model. */
+  prepassThinking?: string;
   /** Raw LLM response text (the reasoning/JSON output). */
   prepassResponse?: string;
   /** System prompt sent to the pruning LLM. */
@@ -516,9 +533,11 @@ export interface PruningDetails {
   prepassLatencyMs?: number;
   /** Error message if pruning prepass failed. */
   prepassError?: string;
+  /** Explanation for fail-open behavior when pruning intentionally skipped exclusions. */
+  prepassFailOpenReason?: string;
 }
 
-export type PruningMode = 'auto' | 'shadow' | 'off';
+export type PruningMode = 'auto' | 'shadow' | 'off' | 'custom';
 
 /** Subset of pruning config exposed in the settings UI. */
 export interface PruningSettings {
@@ -548,6 +567,7 @@ export interface ChatPrefs {
   autoExpandSubagentCalls: boolean;
   suppressCompletionNotifications: boolean;
   showPruningMessages: boolean;
+  completionSoundVolume: number;
   /** Per-extension enabled/disabled toggles. Keys are extension IDs. */
   extensionToggles: Record<string, boolean>;
   /** Per-provider enabled/disabled toggles. Keys are provider names. */
@@ -584,6 +604,7 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   autoExpandSubagentCalls: false,
   suppressCompletionNotifications: false,
   showPruningMessages: true,
+  completionSoundVolume: 50,
   extensionToggles: {},
   providerToggles: {},
 };
@@ -740,6 +761,10 @@ export type HostToWebviewMessage =
       /** Local ID of the rejected optimistic message, so the webview can
        * remove it from its local overlay. */
       localId?: string;
+    }
+  | {
+      type: 'playCompletionSound';
+      volume: number;
     };
 
 /** Messages the webview can send back to the host. */

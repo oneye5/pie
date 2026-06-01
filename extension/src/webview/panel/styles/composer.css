@@ -1,5 +1,5 @@
-﻿/* MIGRATED: .composer-area, .composer-toolbar*, .composer-meta-chip*, .composer-run-controls, .model-select*, .model-picker-*, .toolbar-settings-trigger* */
-/* REMAINING: settings flyout, run action buttons, context/session token indicators, attachments */
+/* ── Run action button ───────────────────────────────────────────────────── */
+/* Primary CTA in the composer toolbar */
 
 .context-window-indicator-anchor {
   display: inline-flex;
@@ -27,6 +27,7 @@
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
 }
 
+/* Open-run state: switches to a success-toned stop button */
 .composer-run-action.open {
   --run-action-border: color-mix(in srgb, var(--panel-success) 24%, var(--panel-border));
   background: color-mix(in srgb, var(--panel-success-surface) 72%, var(--panel-control-surface));
@@ -53,10 +54,25 @@
   cursor: not-allowed;
 }
 
+/* Style ineligible models in the model select dropdown */
 .toolbar-settings-select option.model-option-ineligible {
   color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
   font-style: italic;
 }
+
+/* The toolbar model select uses transparent text so the overlay span can
+   render the chip label; this keeps the actual <option> text visible when
+   the native dropdown opens. */
+.toolbar-model-select option {
+  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+}
+
+.toolbar-model-select option.model-option-ineligible {
+  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  font-style: italic;
+}
+
+/* ── Context window & token indicators ───────────────────────────────────── */
 
 .context-window-indicator {
   justify-content: center;
@@ -129,6 +145,8 @@
     display: none;
   }
 }
+
+/* ── Settings flyout ─────────────────────────────────────────────────────── */
 
 .toolbar-settings {
   position: relative;
@@ -204,6 +222,7 @@
   outline: none;
 }
 
+/* Checkbox icon inside a settings item */
 .toolbar-settings-item-check {
   display: inline-flex;
   align-items: center;
@@ -226,7 +245,9 @@
   min-width: 0;
 }
 
-/* Extension settings: row with toggle + chevron */
+/* ── Extension settings group ────────────────────────────────────────────── */
+/* Row with toggle + chevron to expand per-extension options */
+
 .toolbar-settings-ext-group {
   display: flex;
   flex-direction: column;
@@ -277,7 +298,9 @@
   padding: 8px;
 }
 
-/* Pruning settings: mode select and stepper rows */
+/* ── Pruning settings ────────────────────────────────────────────────────── */
+/* Mode select and numeric stepper rows */
+
 .toolbar-settings-mode-row,
 .toolbar-settings-stepper-row {
   display: flex;
@@ -344,6 +367,8 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Sound settings ──────────────────────────────────────────────────────── */
+
 .toolbar-settings-sound-controls {
   display: flex;
   align-items: center;
@@ -372,7 +397,14 @@
   background: var(--panel-control-hover);
 }
 
-/* Always-keep picker (skills/tools enum select with chips) */
+.toolbar-settings-test-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* ── Always-keep picker ──────────────────────────────────────────────────── */
+/* Multi-chip select for skills/tools that are never pruned */
+
 .toolbar-settings-keep-picker {
   display: flex;
   flex-direction: column;
@@ -436,14 +468,12 @@
   max-width: 100%;
 }
 
-.toolbar-settings-test-btn:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
+/* Legacy preference toggles (hidden; kept for backward compat) */
 .pref-toggle,
 .pref-toggle-icon,
 .pref-toggle-check { display: none; }
+
+/* ── Block context menu ───────────────────────────────────────────────────── */
 
 .block-context-menu {
   z-index: 200;
@@ -469,6 +499,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* ── Run outcome dialog ───────────────────────────────────────────────────── */
+/* Modal for rating and resolving completed runs */
 
 .run-outcome-backdrop {
   position: fixed;
@@ -560,11 +593,7 @@
   background: var(--panel-control-hover);
 }
 
-.run-outcome-rating.selected {
-  background: color-mix(in srgb, var(--panel-accent-surface) 72%, var(--panel-control-surface));
-  border-color: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
-}
-
+.run-outcome-rating.selected,
 .run-outcome-resolution.selected {
   background: color-mix(in srgb, var(--panel-accent-surface) 72%, var(--panel-control-surface));
   border-color: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
@@ -627,5 +656,3 @@
   justify-content: flex-end;
   gap: 8px;
 }
-
-

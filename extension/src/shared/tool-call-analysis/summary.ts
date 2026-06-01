@@ -1,6 +1,6 @@
 import type { ToolCall } from '../protocol';
 
-const TOOL_CALL_SUMMARY_MAX_LENGTH = 80;
+const TOOL_CALL_SUMMARY_MAX_LENGTH = 300;
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
@@ -46,7 +46,7 @@ function summarizeTaskEntries(value: unknown): string | null {
   const first = value[0];
   if (!isRecord(first)) return null;
 
-  const task = typeof first.task === 'string' ? summarizeText(first.task, 48) : null;
+  const task = typeof first.task === 'string' ? summarizeText(first.task, 180) : null;
   if (!task) return null;
 
   const agent = typeof first.agent === 'string' ? normalizeText(first.agent) : '';
@@ -122,7 +122,7 @@ export function summarizeSubagentToolCallInput(input: unknown): string | null {
   const multiTaskSummary = summarizeTaskEntries(input.tasks ?? input.chain);
   if (multiTaskSummary) return multiTaskSummary;
 
-  const task = typeof input.task === 'string' ? summarizeText(input.task, 64) : null;
+  const task = typeof input.task === 'string' ? summarizeText(input.task, 240) : null;
   if (task) {
     const agent = typeof input.agent === 'string' ? summarizeText(input.agent, 24) : null;
     return agent ? summarizeText(`${agent}: ${task}`) : task;

@@ -382,7 +382,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       return;
     }
 
-    void view.webview.postMessage(message)
+    void Promise.resolve(view.webview.postMessage(message))
       .then((delivered) => {
         this.syncState = reconcilePostedMessageDelivery(this.syncState, message, delivered);
         if (delivered && message.type === 'state') {
@@ -399,7 +399,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           });
         }
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         this.syncState = reconcilePostedMessageDelivery(this.syncState, message, false);
         console.warn(`[pie] Failed to post ${message.type} message to webview: ${(error as Error).message}`);
       });

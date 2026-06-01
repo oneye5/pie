@@ -133,6 +133,9 @@ test('rendered MessageItem covers assistant, editable user, and image-user branc
   assert.match(editingHtml, /inline-editor-textarea/);
   assert.match(editingHtml, />Save</);
   assert.match(editingHtml, />Cancel</);
+  assert.match(editingHtml, /self-end/);
+  assert.match(editingHtml, /justify-end/);
+  assert.match(editingHtml, /text-right/);
 
   const imageHtml = renderToString(h(MessageItem, {
     message: userMessage({
@@ -273,9 +276,9 @@ test('rendered tool-call components cover collapsed summaries, expanded bodies, 
     onContextMenu: noopContextMenu,
     renderToolCall: () => null,
   }));
-  assert.match(runningSubagentHtml, /status-chip-running/);
-  assert.match(runningSubagentHtml, /status-chip-label">Running/);
-  assert.match(runningSubagentHtml, /subagent-running-tool/);
+  assert.doesNotMatch(runningSubagentHtml, /status-chip-running/);
+  assert.doesNotMatch(runningSubagentHtml, /status-chip-label">Running/);
+  assert.doesNotMatch(runningSubagentHtml, /subagent-running-tool/);
 
   const parallelSubagentHtml = renderToString(h(ToolCallItem, {
     toolCall: toolCall({
@@ -486,7 +489,7 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
     renderToolCall: () => null,
   }));
 
-  assert.match(runningParentHtml, /status-chip-label">Running/);
+  assert.doesNotMatch(runningParentHtml, /status-chip-label">Running/);
   assert.doesNotMatch(runningParentHtml, /subagent-model-tag/);
   assert.match(runningParentHtml, /gpt-4\.1/);  // model now shown in header
 
@@ -590,8 +593,8 @@ test('rendered ToolCallItem covers collapsed, inferred, and parallel subagent br
   }));
 
   assert.match(parallelHtml, /subagent-parallel-group/);
-  assert.match(parallelHtml, /subagent-running-tool">bash…/);
-  assert.match(parallelHtml, /status-chip-label">Running/);
+  assert.doesNotMatch(parallelHtml, /subagent-running-tool">bash…/);
+  assert.doesNotMatch(parallelHtml, /status-chip-label">Running/);
   assert.match(parallelHtml, /status-chip-failed has-error-detail/);
   assert.match(parallelHtml, /Error: spawn EPERM: permission denied/);
 });
@@ -640,15 +643,15 @@ test('rendered parallel subagent cards keep per-child summaries and statuses whi
     renderToolCall: () => null,
   }));
 
-  assert.match(html, /<span class="subagent-agent-name">scout<\/span>/);
-  assert.match(html, /<span class="subagent-agent-name">reviewer<\/span>/);
+  assert.match(html, /subagent-agent-name[^>]*>scout<\/span>/);
+  assert.match(html, /subagent-agent-name[^>]*>reviewer<\/span>/);
   assert.match(html, /Gather logs/);
   assert.match(html, /Review output/);
   assert.doesNotMatch(html, /scout: Gather logs/);
   assert.doesNotMatch(html, /reviewer: Review output/);
   assert.equal((html.match(/tool-call tool-call-legacy-shell tool-call-subagent running/g) ?? []).length, 1);
   assert.equal((html.match(/tool-call tool-call-legacy-shell tool-call-subagent failed/g) ?? []).length, 1);
-  assert.equal((html.match(/status-chip-running/g) ?? []).length, 1);
+  assert.equal((html.match(/status-chip-running/g) ?? []).length, 0);
   assert.equal((html.match(/status-chip-failed/g) ?? []).length, 1);
 });
 
@@ -681,7 +684,9 @@ test('rendered SystemPromptMessage covers summary fallbacks, suppressed summarie
 
   const html = renderToString(h(SystemPromptMessage, { prompts }));
 
-  assert.match(html, /Plan carefully before editing\. Keep notes\./);
+  // The collapsed group shows a count and summary, not full markdown content
+  assert.match(html, /3 system prompts/);
+  assert.match(html, /Harness system prompt/);
   assert.doesNotMatch(html, /Configured elsewhere\.<\/span>/);
   assert.doesNotMatch(html, />Unavailable<\/span>/);
   assert.match(html, /~12 tokens/);
@@ -697,7 +702,7 @@ test('rendered SystemPromptMessage covers summary fallbacks, suppressed summarie
     }],
   }));
 
-  assert.match(zeroTokenHtml, /Blank prompt/);
+  assert.match(zeroTokenHtml, /1 system prompt/);
   assert.doesNotMatch(zeroTokenHtml, /~\d+ tokens/);
 });
 
@@ -712,8 +717,10 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
   };
 
   const systemPromptHtml = renderToString(h(SystemPromptMessage, { prompts: [prompt] }));
-  assert.match(systemPromptHtml, /System prompts/);
-  assert.match(systemPromptHtml, /rounded-lg bg-control\/40/);
+  assert.match(systemPromptHtml, /1 system prompt/);
+  assert.match(systemPromptHtml, /self-stretch.*flex-col.*rounded-xl.*bg-card/);
+  assert.match(systemPromptHtml, /data-scroll-anchor-id="system-prompts"/);
+  // Prompt title appears in collapsed summary line
   assert.match(systemPromptHtml, /Harness system prompt/);
 
   const hiddenSummaryHtml = renderToString(h(SystemPromptMessage, {
@@ -734,7 +741,9 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
       },
     ],
   }));
-  assert.match(hiddenSummaryHtml, /Provider system prompt/);
+  assert.match(hiddenSummaryHtml, /2 system prompts/);
+  // Titles only visible in expanded content, which SSR doesn't render (groupOpen defaults to false)
+  assert.doesNotMatch(hiddenSummaryHtml, /Provider system prompt/);
   assert.doesNotMatch(hiddenSummaryHtml, /max-w-\[var\(--tool-call-summary-column-width\)\]/);
 
   const topGapHtml = renderToString(h(TranscriptVirtualRow, {
@@ -808,7 +817,7 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
     onRequestNewer: noop,
     renderToolCall: () => null,
   }));
-  assert.match(typingRowHtml, /activity-status-indicator/);
+  assert.match(typingRowHtml, /activity-status-row/);
   assert.match(typingRowHtml, /aria-label="Agent is pruning skills and tools"/);
   assert.match(typingRowHtml, /turn-activity-strip warning standalone/);
   assert.match(typingRowHtml, /turn-activity-strip-label">pruning skills\/tools</);
@@ -822,7 +831,7 @@ test('rendered SystemPromptMessage and TranscriptVirtualRow cover prompt and gap
   };
 
   const messageRowHtml = renderToString(h(TranscriptVirtualRow, {
-    row: { kind: 'message', key: 'message-row', message: assistantMessage([{ kind: 'text', text: 'Rendered row' }], { status: 'completed' }), activityState: thinkingActivityState }, 
+    row: { kind: 'message', key: 'message-row', message: assistantMessage([{ kind: 'text', text: 'Rendered row' }], { status: 'completed' }), activityState: thinkingActivityState },
     busy: true,
     prefs: DEFAULT_CHAT_PREFS,
     systemPrompts: [prompt],

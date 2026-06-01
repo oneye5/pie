@@ -1,27 +1,51 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import type { TurnActivityState } from './activity';
+import { cx } from '../utils/cx';
 
-export type TurnActivityTone = 'neutral' | 'accent' | 'warning' | 'error' | 'success';
+export type TurnActivityStripTone = 'neutral' | 'accent' | 'warning' | 'error' | 'success';
+
+export type TurnActivityPhase =
+  | 'streaming'
+  | 'thinking'
+  | 'runningTool'
+  | 'preparing'
+  | 'pruning'
+  | 'startingModel';
 
 export interface TurnActivityStripProps {
   label: string;
   detail?: string;
-  tone?: TurnActivityTone;
+  tone?: TurnActivityStripTone;
   runningDot?: boolean;
   standalone?: boolean;
+  phase?: TurnActivityPhase;
   ariaLabel?: string;
 }
 
-/** Map the derived activity tone hint onto the strip's visual tone class. */
-export function activityToneToStripTone(tone: TurnActivityState['tone']): TurnActivityTone {
-  return tone === 'active' ? 'accent' : tone === 'processing' ? 'warning' : 'neutral';
+export function activityToneToStripTone(
+  tone: 'neutral' | 'active' | 'processing',
+): TurnActivityStripTone {
+  switch (tone) {
+    case 'active':
+      return 'accent';
+    case 'processing':
+      return 'warning';
+    case 'neutral':
+    default:
+      return 'neutral';
+  }
 }
 
-/** Phases that should show the pulsing running dot. */
-export function activityPhaseHasRunningDot(phase: TurnActivityState['phase']): boolean {
-  return phase === 'runningTool' || phase === 'thinking';
+export function activityPhaseHasRunningDot(phase: TurnActivityPhase): boolean {
+  return phase === 'streaming'
+    || phase === 'thinking'
+    || phase === 'runningTool'
+    || phase === 'startingModel';
+}
+
+function defaultAriaLabel(label: string, detail?: string): string {
+  return detail ? `Activity status: ${label}, ${detail}` : `Activity status: ${label}`;
 }
 
 export function TurnActivityStrip({
@@ -30,17 +54,21 @@ export function TurnActivityStrip({
   tone = 'neutral',
   runningDot = false,
   standalone = false,
+  phase = 'preparing',
   ariaLabel,
 }: TurnActivityStripProps) {
-  const className = ['turn-activity-strip', tone !== 'neutral' ? tone : '', standalone ? 'standalone' : '']
-    .filter(Boolean)
-    .join(' ');
-
-  const resolvedAriaLabel = ariaLabel ?? `Activity status: ${label}${detail ? `, ${detail}` : ''}`;
-
   return (
-    <div class={className} role="status" aria-label={resolvedAriaLabel}>
-      <div class={`turn-activity-strip-dot${runningDot ? ' running' : ''}`} aria-hidden="true" />
+    <div
+      class={cx(
+        'turn-activity-strip',
+        tone !== 'neutral' && tone,
+        standalone && 'standalone',
+      )}
+      data-phase={phase}
+      role="status"
+      aria-label={ariaLabel ?? defaultAriaLabel(label, detail)}
+    >
+      <span class={cx('turn-activity-strip-dot', runningDot && 'running')} aria-hidden="true" />
       <span class="turn-activity-strip-label">{label}</span>
       {detail && <span class="turn-activity-strip-detail">{detail}</span>}
     </div>

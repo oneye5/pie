@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -43,4 +43,26 @@ test('readWebviewAssetVersion changes when a built asset changes', async () => {
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
+});
+
+test('build script removes stale installed output before syncing rebuilt assets', async () => {
+  const buildScript = await readFile(new URL('../scripts/build.mjs', import.meta.url), 'utf8');
+
+  assert.match(buildScript, /await rm\(dest, \{ recursive: true, force: true \}\);/);
+  assert.match(buildScript, /await cp\(outDir, dest, \{ recursive: true, force: true \}\);/);
+  assert.ok(
+    buildScript.indexOf('await rm(dest, { recursive: true, force: true });')
+      < buildScript.indexOf('await cp(outDir, dest, { recursive: true, force: true });'),
+    'installed out directory must be cleared before copying rebuilt output',
+  );
+});
+
+test('build watch touches Tailwind CSS entry after webview TS source changes', async () => {
+  const buildScript = await readFile(new URL('../scripts/build.mjs', import.meta.url), 'utf8');
+
+  assert.match(buildScript, /function createTailwindSourceWatcher\(\)/);
+  assert.match(buildScript, /fsWatch\(sourceDir, \{ recursive: true \}/);
+  assert.match(buildScript, /function isTailwindSourceFile\(fileName\)/);
+  assert.match(buildScript, /normalized\.endsWith\('\.ts'\) \|\| normalized\.endsWith\('\.tsx'\)/);
+  assert.match(buildScript, /await utimes\(cssEntry, now, now\);/);
 });

@@ -320,11 +320,9 @@ test('buildTranscriptRows shows a pending pruning header in a stable assistant p
   assert.equal(assistantRow?.kind === 'message' ? assistantRow.message.createdAt : null, '2026-05-16T00:00:00.000Z');
   assert.equal(assistantRow?.kind === 'message' ? assistantRow.message.modelId : null, 'gpt-5.4');
   assert.equal(assistantRow?.kind === 'message' ? assistantRow.message.thinkingLevel : null, 'xhigh');
-  assert.deepEqual(
-    assistantRow?.kind === 'message' ? assistantRow.pruningHeaderState : null,
-    { kind: 'pending', label: 'pruning skills/tools' },
-  );
-  assert.equal(assistantRow?.kind === 'message' ? assistantRow.activityState : null, undefined);
+  assert.equal(assistantRow?.kind === 'message' ? assistantRow.pruningHeaderState : null, undefined);
+  assert.equal(assistantRow?.kind === 'message' && assistantRow.activityState ? assistantRow.activityState.phase : null, 'pruning');
+  assert.equal(assistantRow?.kind === 'message' && assistantRow.activityState ? assistantRow.activityState.label : null, 'pruning skills/tools');
 });
 
 test('buildTranscriptRows suppresses standalone typingIndicator when busy and last message is assistant', () => {
@@ -356,22 +354,37 @@ test('buildTranscriptRows suppresses standalone typingIndicator when busy and la
 
 test('buildTranscriptRows suppresses standalone typingIndicator when assistant is streaming', () => {
   const streamingMsg = { ...makeMessage('assistant-1', 'assistant'), status: 'streaming' as const };
+  const transcript = [
+    makeMessage('user-1', 'user'),
+    streamingMsg,
+  ];
+  const activityState = deriveTurnActivityState({
+    busy: true,
+    transcript,
+    prefs: { extensionToggles: {} },
+    pruningSettings: { mode: 'auto' },
+  });
   const rows = buildTranscriptRows({
-    transcript: [
-      makeMessage('user-1', 'user'),
-      streamingMsg,
-    ],
+    transcript,
     systemPromptCount: 0,
     hasOlder: false,
     hasNewer: false,
     busy: true,
     hasPruningResult: false,
+    activityState,
   });
 
   assert.deepEqual(rows.map((row) => row.kind), ['message', 'message']);
+  assert.equal(rows[1]?.kind === 'message' && rows[1].activityState ? rows[1].activityState.phase : null, 'streaming');
 });
 
 test('buildTranscriptRows shows standalone typingIndicator when busy with empty transcript', () => {
+  const activityState = deriveTurnActivityState({
+    busy: true,
+    transcript: [],
+    prefs: { extensionToggles: {} },
+    pruningSettings: { mode: 'auto' },
+  });
   const rows = buildTranscriptRows({
     transcript: [],
     systemPromptCount: 0,
@@ -379,6 +392,7 @@ test('buildTranscriptRows shows standalone typingIndicator when busy with empty 
     hasNewer: false,
     busy: true,
     hasPruningResult: false,
+    activityState,
   });
 
   assert.deepEqual(rows.map((row) => row.kind), ['typingIndicator']);

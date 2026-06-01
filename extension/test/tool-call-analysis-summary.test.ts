@@ -67,10 +67,10 @@ test('summarizeSubagentToolCallInput falls back through object fields and nested
 });
 
 test('summarizeSubagentToolCallInput truncates long previews to the summary limit', () => {
-  const summary = summarizeSubagentToolCallInput({ description: 'x'.repeat(160) });
+  const summary = summarizeSubagentToolCallInput({ description: 'x'.repeat(320) });
   assert.ok(summary);
   assert.ok(summary!.endsWith('...'));
-  assert.ok(summary!.length <= 80);
+  assert.ok(summary!.length <= 300);
 });
 
 test('getSkillNameFromToolCall extracts names from supported read path fields only', () => {

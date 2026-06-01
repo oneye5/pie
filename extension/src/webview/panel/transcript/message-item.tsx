@@ -21,7 +21,7 @@ import { MessageHeader } from './message-header';
 import { PruningHeaderChip, PruningHeaderPanel } from './pruning-header';
 import type { PruningHeaderState } from './pruning';
 import { StatusChip, type StatusTone } from './status-chip';
-import type { TurnActivityState } from './activity';
+import { AGENT_ACTIVITY_LABELS, type TurnActivityState } from './activity';
 import {
   TurnActivityStrip,
   activityPhaseHasRunningDot,
@@ -70,9 +70,9 @@ export function ReasoningBlock({ text, autoExpand, disclosureKey, onContextMenu 
         <svg class={cx('shrink-0 text-muted transition-transform duration-150', open && 'rotate-90')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
           <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
         </svg>
-        <span class="text-[10px] font-bold uppercase tracking-wider text-muted">Reasoning</span>
+        <span class="transcript-header-label">Reasoning</span>
         {!open && (
-          <span class="min-w-0 truncate text-[11px] text-foreground/70">{reasoningSummary(text)}</span>
+          <span class="transcript-header-summary min-w-0 truncate">{reasoningSummary(text)}</span>
         )}
       </div>
       {open && (
@@ -276,7 +276,17 @@ function MessageItemView({
     && !isEditing
     && !isCurrentlyStreaming
     && !readonly;
-  const hasActivityFooter = isLastAssistantMessage && message.role === 'assistant';
+  const footerActivityState = activityState ?? (
+    isLastAssistantMessage && message.role === 'assistant' && isCurrentlyStreaming
+      ? {
+        phase: 'streaming' as const,
+        label: AGENT_ACTIVITY_LABELS.responding,
+        tone: 'active' as const,
+        ariaLabel: 'Agent is responding',
+      }
+      : null
+  );
+  const hasActivityFooter = isLastAssistantMessage && message.role === 'assistant' && !!footerActivityState;
   const handleMessageClick = isClickableUserMsg
     ? (event: MouseEvent) => {
         if (!shouldOpenUserMessageEditor(event.target)) {
@@ -303,11 +313,11 @@ function MessageItemView({
   return (
     <div
       class={cx(
-        'flex w-fit max-w-[88%] min-w-0 flex-col gap-2 self-start rounded-xl bg-card px-3 py-2.5 shadow-sm',
+        'flex w-fit max-w-[88%] min-w-0 flex-col gap-2 rounded-xl px-3 py-2.5',
         'forced-colors:border forced-colors:border-[ButtonText]',
-        message.role === 'user' && 'self-end rounded-br-sm bg-accent/6',
-        message.role === 'assistant' && 'rounded-bl-sm',
-        message.role === 'system' && 'w-auto max-w-none self-stretch bg-control',
+        message.role === 'assistant' && 'self-start rounded-bl-sm bg-card shadow-sm',
+        message.role === 'user' && 'self-end rounded-tl-xl rounded-tr-xl rounded-bl-xl rounded-br-sm bg-accent/15 shadow-none',
+        message.role === 'system' && 'w-auto max-w-none self-stretch bg-surface shadow-none',
         isCurrentlyStreaming && 'w-[min(var(--message-assistant-width),100%)] max-[340px]:w-[min(var(--message-assistant-width-narrow),100%)]',
         isClickableUserMsg && 'cursor-pointer hover:ring-1 hover:ring-border-subtle',
       )}
@@ -323,6 +333,7 @@ function MessageItemView({
         meta={replyMeta?.compactText ?? null}
         title={assistantMetaTooltip ?? undefined}
         actions={headerActions}
+        align={message.role === 'user' ? 'end' : 'start'}
       />
 
       {pruningHeaderState?.kind === 'result' && pruningExpanded && (
@@ -420,15 +431,14 @@ function MessageItemView({
 
           {hasActivityFooter && (
             <div class="message-activity-footer">
-              {isCurrentlyStreaming ? (
-                <div class="message-glow-indicator" aria-label="Agent is responding" role="status" />
-              ) : activityState ? (
+              {footerActivityState ? (
                 <TurnActivityStrip
-                  label={activityState.label}
-                  detail={activityState.detail}
-                  tone={activityToneToStripTone(activityState.tone)}
-                  runningDot={activityPhaseHasRunningDot(activityState.phase)}
-                  ariaLabel={activityState.ariaLabel}
+                  label={footerActivityState.label}
+                  detail={footerActivityState.detail}
+                  tone={activityToneToStripTone(footerActivityState.tone)}
+                  runningDot={activityPhaseHasRunningDot(footerActivityState.phase)}
+                  phase={footerActivityState.phase}
+                  ariaLabel={footerActivityState.ariaLabel}
                 />
               ) : null}
             </div>

@@ -1,5 +1,5 @@
 import type { ChatMessage } from '../../../shared/protocol';
-import { AGENT_ACTIVITY_LABELS, type TurnActivityState } from './activity';
+import { type TurnActivityState } from './activity';
 import { isPruningResultMessage, pruningDetailsFromMessage, type PruningHeaderState } from './pruning';
 
 export type TranscriptRow =
@@ -28,23 +28,6 @@ interface BuildTranscriptRowsOptions {
 }
 
 type ResultPruningHeaderState = Extract<PruningHeaderState, { kind: 'result' }>;
-
-function shouldSuppressInlineActivity(
-  row: Extract<TranscriptRow, { kind: 'message' }>,
-  activityState: TurnActivityState | null,
-): boolean {
-  if (!row.pruningHeaderState) {
-    return false;
-  }
-
-  // Only suppress when pruning is still in progress (pending state animates its own label).
-  // Once pruning completes (result), allow the next activity label through.
-  if (row.pruningHeaderState.kind === 'result') {
-    return activityState?.phase === 'pruning';
-  }
-
-  return activityState?.phase === 'pruning' || activityState?.phase === 'startingModel';
-}
 
 export function buildTranscriptRows({
   transcript,
@@ -132,28 +115,23 @@ export function buildTranscriptRows({
     rows.push({ kind: 'message', key: `message:${message.id}`, message, transcriptIndex: i });
   }
 
-  const placeholderPruningHeaderState: PruningHeaderState | null = pendingPruning?.state ?? (
-    showPruningMessages && latestUserMessage && activityState?.phase === 'pruning'
-      ? { kind: 'pending', label: AGENT_ACTIVITY_LABELS.pruning }
-      : null
-  );
+  const placeholderPruningHeaderState: PruningHeaderState | null = pendingPruning?.state ?? null;
   const placeholderAssistantId = placeholderPruningHeaderState
     ? latestUserMessage
       ? `assistant-placeholder:${latestUserMessage.id}`
       : pendingPruning
         ? `assistant-placeholder:${pendingPruning.message.id}`
         : null
-    : null;
+    : latestUserMessage
+      ? `assistant-placeholder:${latestUserMessage.id}`
+      : null;
   const placeholderCreatedAt = latestUserMessage?.createdAt || pendingPruning?.message.createdAt || '';
 
-  // Keep a single assistant header shell visible through pruning pending →
-  // pruning result, so the transcript does not jump between a standalone
-  // activity bubble and a later header chip in a different location.
-  let hasPlaceholderAssistant = false;
-  const shouldRenderPlaceholderAssistant = !!placeholderPruningHeaderState
-    && !!placeholderAssistantId
+  // Keep a single assistant shell visible through pre-assistant phases so
+  // users always find busy status in the same footer location.
+  const shouldRenderPlaceholderAssistant = !!placeholderAssistantId
     && lastAssistantRowIndexSinceUser === null
-    && (busy || placeholderPruningHeaderState.kind === 'result');
+    && (busy || placeholderPruningHeaderState?.kind === 'result');
   if (shouldRenderPlaceholderAssistant && placeholderPruningHeaderState && placeholderAssistantId) {
     rows.push({
       kind: 'message',
@@ -171,25 +149,33 @@ export function buildTranscriptRows({
       },
       pruningHeaderState: placeholderPruningHeaderState,
     });
-    hasPlaceholderAssistant = busy;
+  } else if (shouldRenderPlaceholderAssistant && placeholderAssistantId) {
+    rows.push({
+      kind: 'message',
+      key: `message:${placeholderAssistantId}`,
+      message: {
+        id: placeholderAssistantId,
+        role: 'assistant',
+        createdAt: placeholderCreatedAt,
+        markdown: '',
+        modelId: pendingAssistantModelId,
+        thinkingLevel: pendingAssistantThinkingLevel,
+        status: 'completed',
+        parts: [],
+        toolCalls: [],
+      },
+    });
   }
 
-  // Show an activity indicator when the backend is processing but hasn't started
-  // streaming a response yet. When an assistant row is visible, activity text
-  // renders inline at the end of that row unless pruning already owns the
-  // header state for this waiting phase.
-  if (busy) {
-    const hasStreamingAssistant = transcript.some(
-      (message) => message.role === 'assistant' && message.status === 'streaming',
-    );
-    if (!hasStreamingAssistant) {
-      const lastVisibleRow = rows[rows.length - 1];
-      const lastVisibleIsAssistant = lastVisibleRow?.kind === 'message' && lastVisibleRow.message.role === 'assistant';
-      if (!lastVisibleIsAssistant) {
-        rows.push({ kind: 'typingIndicator', key: 'typing-indicator', activityState });
-      } else if (lastVisibleRow?.kind === 'message' && !shouldSuppressInlineActivity(lastVisibleRow, activityState)) {
-        rows[rows.length - 1] = { ...lastVisibleRow, activityState };
-      }
+  // Keep in-flight activity attached to the visible assistant shell whenever
+  // possible. Only fall back to a standalone indicator when there is no
+  // assistant shell to anchor to yet.
+  if (busy && activityState) {
+    const lastVisibleRow = rows[rows.length - 1];
+    if (lastVisibleRow?.kind === 'message' && lastVisibleRow.message.role === 'assistant') {
+      rows[rows.length - 1] = { ...lastVisibleRow, activityState };
+    } else {
+      rows.push({ kind: 'typingIndicator', key: 'typing-indicator', activityState });
     }
   }
 
@@ -207,7 +193,7 @@ export function estimateTranscriptRowSize(row: TranscriptRow): number {
     return 56;
   }
   if (row.kind === 'typingIndicator') {
-    return 64;
+    return 40;
   }
   if (row.message.role === 'user') return 120;
   return row.pruningHeaderState?.kind === 'result' ? 220 : 180;

@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import type { PruningConfig } from "./types.js";
 
 export interface SkillCandidate {
@@ -10,9 +12,15 @@ export interface ToolCandidate {
 	description: string;
 }
 
+export interface RecentConversationMessage {
+	role: string;
+	text: string;
+}
+
 export interface LlmPruningInput {
 	userPrompt: string;
 	contextFile?: string;
+	recentConversation?: RecentConversationMessage[];
 	skills: SkillCandidate[];
 	tools: ToolCandidate[];
 	config: PruningConfig;
@@ -22,35 +30,70 @@ export interface LlmPruningOutput {
 	selectedSkills: string[];
 	selectedTools: string[];
 	rawResponse: string;
+	rawThinking: string;
 	systemPrompt: string;
+	userMessage: string;
 	latencyMs: number;
+	stopReason?: string;
+	errorMessage?: string;
+}
+
+export interface CompleteSimpleResult {
+	text: string;
+	thinking?: string;
+	stopReason?: string;
+	errorMessage?: string;
+}
+
+const DEFAULT_PROMPT_TEMPLATE = loadPromptTemplate();
+let promptTemplateOverride: string | null = null;
+
+function loadPromptTemplate(): string {
+	try {
+		return readFileSync(path.join(import.meta.dirname, "pruning-system-prompt.md"), "utf-8").trim();
+	} catch {
+		return [
+			"You are a relevance classifier for a coding agent prompt-pruning prepass.",
+			"Your job is to reduce prompt/tool noise while keeping the skills and tools that are likely to help with the user's current request, interpreted in conversation context.",
+			"",
+			"Respond with ONLY a valid JSON object in this exact shape:",
+			'{"reasoning":"1-2 short sentences explaining the classification for debugging","skills":["skill-name"],"tools":["tool-name"]}',
+			"Do not wrap in markdown. Do not include names that are not in the candidate lists.",
+			"",
+			"{{STRATEGY_INSTRUCTION}}",
+		].join("\n");
+	}
+}
+
+function resolvePromptTemplate(): string {
+	return promptTemplateOverride ?? DEFAULT_PROMPT_TEMPLATE;
+}
+
+function buildStrategyInstruction(config: PruningConfig): string {
+	if (config.skills.strategy === "topK") {
+		return `Rank by relevance and select at most ${config.skills.ceiling} skills and ${config.tools?.ceiling ?? 10} tools.`;
+	}
+	return "Use discretion. Keep plausibly useful items, but prune clearly unrelated skills and tools.";
 }
 
 /** Build the system prompt for the pruning LLM call. */
 export function buildPruningSystemPrompt(config: PruningConfig): string {
-	const lines = [
-		"You are a relevance classifier. Given a user request and a list of available skills and tools, identify items that are relevant or plausibly useful for the task.",
-		"",
-		"Rules:",
-		"- For skills: include any skill that could plausibly help with the request. Only exclude skills that are clearly unrelated to the task domain.",
-		"- For tools: include all tools the agent might reasonably need. Always include core tools (read, edit, write, bash) unless the task clearly won't need them. Only exclude tools that are irrelevant to the task.",
-		"- When uncertain about a skill or tool, lean toward keeping it. Pruning is costly; keeping is cheap.",
-		"- Respond with ONLY a JSON object: {\"skills\": [\"name1\", ...], \"tools\": [\"name1\", ...]}",
-		"- Do not explain. Do not add commentary.",
-	];
-
-	if (config.skills.strategy === "topK") {
-		lines.push("", `Select up to ${config.skills.ceiling} skills and ${config.tools?.ceiling ?? 10} tools, ranked by relevance.`);
-	} else {
-		lines.push("", "Include items that are relevant or plausibly useful. When uncertain, lean toward keeping a skill or tool rather than pruning it.");
-	}
-
-	return lines.join("\n");
+	return resolvePromptTemplate()
+		.replace(/\{\{SKILL_CEILING\}\}/g, String(config.skills.ceiling))
+		.replace(/\{\{TOOL_CEILING\}\}/g, String(config.tools?.ceiling ?? 10))
+		.replace(/\{\{STRATEGY_INSTRUCTION\}\}/g, buildStrategyInstruction(config));
 }
 
 /** Build the user message for the pruning LLM call. */
 export function buildPruningUserMessage(input: LlmPruningInput): string {
 	const lines = [`User request: "${input.userPrompt}"`];
+
+	if (input.recentConversation && input.recentConversation.length > 0) {
+		lines.push("", "Recent conversation (use this to interpret follow-up requests):");
+		for (const message of input.recentConversation) {
+			lines.push(`- ${message.role}: ${message.text}`);
+		}
+	}
 
 	if (input.contextFile) {
 		lines.push("", `Context file: ${input.contextFile}`);
@@ -115,7 +158,7 @@ export type CompleteSimpleFn = (
 	model: unknown,
 	context: Array<{ role: string; content: string }>,
 	options: Record<string, unknown>,
-) => Promise<{ text: string }>;
+) => Promise<CompleteSimpleResult>;
 
 /**
  * Run the LLM pruning call. Accepts a `completeFn` parameter for testability.
@@ -146,7 +189,16 @@ export async function runLlmPruning(
 		selectedSkills: parsed.skills,
 		selectedTools: parsed.tools,
 		rawResponse: response.text,
+		rawThinking: response.thinking ?? "",
 		systemPrompt,
+		userMessage,
 		latencyMs,
+		stopReason: response.stopReason,
+		errorMessage: response.errorMessage,
 	};
+}
+
+/** internal: test seam — overrides the prompt template. */
+export function __setPromptTemplate(template: string | null): void {
+	promptTemplateOverride = template;
 }

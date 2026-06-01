@@ -12,13 +12,14 @@ interface MessageHeaderProps {
   metaTitle?: string;
   title?: string;
   actions?: ComponentChildren;
+  align?: 'start' | 'end';
 }
 
-export function MessageHeader({ label, timestamp, duration, durationTitle, meta, metaTitle, title, actions }: MessageHeaderProps) {
+export function MessageHeader({ label, timestamp, duration, durationTitle, meta, metaTitle, title, actions, align = 'start' }: MessageHeaderProps) {
   return (
-    <div class="flex items-start justify-between gap-3">
-      <div class="flex min-w-0 flex-wrap items-center gap-[5px]" title={title}>
-        {label && <span class="text-[10px] font-bold uppercase tracking-wider text-muted">{label}</span>}
+    <div class={align === 'end' ? 'flex items-start justify-end gap-3' : 'flex items-start justify-between gap-3'}>
+      <div class={align === 'end' ? 'flex min-w-0 flex-wrap items-center justify-end gap-[5px] text-right' : 'flex min-w-0 flex-wrap items-center gap-[5px]'} title={title}>
+        {label && <span class="transcript-header-label">{label}</span>}
         {timestamp && <span class="text-[11px] text-muted">{timestamp}</span>}
         {duration && <span class="text-[10px] text-muted/60" title={durationTitle}>{duration}</span>}
         {meta && <span class="min-w-0 break-words font-mono text-[10px] text-muted/60" title={metaTitle}>{meta}</span>}

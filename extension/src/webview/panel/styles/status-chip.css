@@ -3,80 +3,88 @@
  *
  * Used by message headers, tool-call headers, and subagent headers so that
  * runtime status always renders identically. Tones map to semantic colors
- * defined in tokens.css. Layout-specific width/alignment is layered on via
+ * defined in index.css. Layout-specific width/alignment is layered on via
  * additional classes (e.g. `.status-chip-fixed`).
  */
+
+/* ── Base chip ───────────────────────────────────────────────────────────── */
+
 .status-chip {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 3px;
   min-height: var(--status-chip-height);
   padding: 1px var(--status-chip-padding-inline);
-  border: 1px solid var(--status-chip-border-muted);
+  border: 1px solid transparent;
   border-radius: var(--status-chip-radius);
-  background: var(--status-chip-surface-muted);
+  background: transparent;
   color: var(--panel-muted);
   overflow: hidden;
   white-space: nowrap;
   text-align: center;
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 9px;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
+/* Status dot: pulsed for running states, hidden for terminal states */
 .status-chip::before {
   content: '';
   width: var(--status-chip-dot-size);
   height: var(--status-chip-dot-size);
   border-radius: 50%;
   background: currentColor;
-  opacity: 0.78;
+  opacity: 0.45;
   flex: 0 0 auto;
+  transition: opacity 0.3s ease;
 }
 
-/* Fixed-width column variant — keeps tool/subagent header status aligned. */
+/* Hide dot for non-running states to reduce visual clutter */
+.status-chip-completed::before,
+.status-chip-failed::before,
+.status-chip-error::before,
+.status-chip-interrupted::before {
+  display: none;
+}
+
+/* Fixed-width column variant — kept for legacy subagent headers */
 .status-chip-fixed {
-  min-width: var(--tool-call-status-column-width);
+  min-width: auto;
   max-width: var(--tool-call-status-column-width);
-  flex: 0 0 var(--tool-call-status-column-width);
   margin-inline-start: auto;
 }
 
-/* --- Tones --------------------------------------------------------------- */
+/* ── Tone modifiers ──────────────────────────────────────────────────────── */
+
 .status-chip-running {
-  background: var(--panel-accent-surface);
-  border-color: color-mix(in srgb, var(--panel-accent) 34%, transparent);
-  color: var(--panel-accent);
+  background: color-mix(in srgb, var(--panel-accent) 6%, transparent);
+  border-color: transparent;
+  color: color-mix(in srgb, var(--panel-accent) 72%, var(--panel-muted) 28%);
 }
 
 .status-chip-running::before {
-  animation: status-chip-pulse 1.6s ease-in-out infinite;
+  animation: status-chip-pulse var(--status-chip-motion-duration) cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 .status-chip-completed {
-  background: var(--panel-success-surface);
-  border-color: color-mix(in srgb, var(--panel-success) 34%, transparent);
-  color: var(--panel-success);
+  color: color-mix(in srgb, var(--panel-success) 70%, var(--panel-muted));
 }
 
 .status-chip-failed,
 .status-chip-error {
-  background: var(--panel-danger-surface);
-  border-color: color-mix(in srgb, var(--panel-danger) 34%, transparent);
   color: var(--panel-danger);
 }
 
 .status-chip-interrupted {
-  background: var(--panel-warning-surface);
-  border-color: color-mix(in srgb, var(--panel-warning) 34%, transparent);
   color: var(--panel-warning);
 }
 
-/* --- Interactive (copy error detail) ------------------------------------- */
+/* ── Interactive variant (copy error detail) ─────────────────────────────── */
+
 .status-chip.has-error-detail {
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
@@ -92,6 +100,7 @@
   outline-offset: 2px;
 }
 
+/* Copied confirmation state: replaces label text with "Copied!" */
 .status-chip.has-error-detail[data-copied] {
   color: var(--panel-success);
   background: var(--panel-success-surface);
@@ -107,9 +116,11 @@
   content: 'Copied!';
 }
 
+/* ── Animation ───────────────────────────────────────────────────────────── */
+
 @keyframes status-chip-pulse {
-  0%, 100% { opacity: 0.5; transform: scale(0.96); }
-  50% { opacity: 0.9; transform: scale(1.08); }
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.15); }
 }
 
 @media (prefers-reduced-motion: reduce) {

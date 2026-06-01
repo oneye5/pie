@@ -1,5 +1,4 @@
-﻿/* MIGRATED: .transcript-virtual-row, .message, .message.role-user, .message.role-assistant, .message.role-system, .message.role-assistant.streaming, .message-head, .message-head-main, .message-head-actions, .message-role, .message-time, .message-duration, .assistant-reply-hint */
-/* REMAINING: transcript shell, activity indicators, message body markdown, error/recovery UI, user images */
+/* ── Transcript shell ────────────────────────────────────────────────────── */
 
 .transcript {
   flex: 1;
@@ -19,6 +18,7 @@
   position: relative;
 }
 
+/* Hidden while virtual scroll measures item heights to avoid flash */
 .transcript.transcript-positioning {
   opacity: 0;
 }
@@ -28,6 +28,144 @@
   width: 100%;
   min-height: 100%;
 }
+
+/* ── Collapsed header typography system ─────────────────────────────────── */
+/* Shared hierarchy used by reasoning, tool, subagent, and prompt dropdowns */
+
+.transcript-header-label {
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--panel-muted);
+}
+
+.transcript-header-title-mono {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.2;
+  color: color-mix(in srgb, var(--vscode-foreground) 90%, var(--panel-muted) 10%);
+}
+
+.transcript-header-summary {
+  font-size: 11px;
+  line-height: 1.3;
+  color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--panel-muted) 26%);
+}
+
+.transcript-header-summary-mono,
+.transcript-header-summary-emphasis,
+.transcript-header-summary-subtle,
+.transcript-header-summary-command {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.transcript-header-summary-mono {
+  color: color-mix(in srgb, var(--vscode-foreground) 72%, var(--panel-muted) 28%);
+}
+
+.transcript-header-summary-emphasis {
+  font-weight: 500;
+  color: color-mix(in srgb, var(--vscode-foreground) 84%, var(--panel-muted) 16%);
+}
+
+.transcript-header-summary-subtle {
+  color: var(--panel-muted);
+  opacity: 0.66;
+}
+
+.transcript-header-summary-command {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--vscode-foreground);
+}
+
+.transcript-header-summary-link {
+  display: block;
+  min-width: 0;
+  max-width: var(--tool-call-summary-column-width);
+  flex: 0 1 auto;
+  cursor: pointer;
+  border: 0;
+  border-radius: var(--panel-radius-sm);
+  background: transparent;
+  padding: 0;
+  text-align: left;
+}
+
+.transcript-header-summary-link:hover .transcript-header-summary-subtle,
+.transcript-header-summary-link:focus-visible .transcript-header-summary-subtle {
+  opacity: 0.84;
+}
+
+.transcript-header-summary-link:hover .transcript-header-summary-emphasis,
+.transcript-header-summary-link:focus-visible .transcript-header-summary-emphasis {
+  color: var(--vscode-foreground);
+}
+
+.transcript-header-path-preview {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.transcript-header-path-prefix {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+}
+
+.transcript-header-path-target {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcript-header-command-preview {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  max-width: var(--tool-call-summary-column-width);
+  flex: 0 1 auto;
+  overflow: hidden;
+}
+
+.transcript-header-command-prefix,
+.transcript-header-command-tail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.transcript-header-command-verb {
+  flex: 0 0 auto;
+}
+
+.transcript-header-command-details {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+/* ── Gap rows (virtual scroll navigation) ───────────────────────────────── */
+/* Shown between virtualized message groups to let users load hidden messages */
 
 .transcript-gap-row {
   width: 100%;
@@ -62,8 +200,10 @@
   cursor: progress;
 }
 
+/* ── Jump-to-latest button ───────────────────────────────────────────────── */
+/* Floats above the composer when the user is scrolled away from the bottom */
+
 .transcript-jump-latest {
-  /* Small, subtle, centered above the composer (not inside the input panel) */
   position: fixed;
   left: 50%;
   bottom: calc(var(--composer-height, 64px) + 8px);
@@ -97,7 +237,9 @@
   outline-offset: 2px;
 }
 
-/* Agent activity indicator — standalone status row */
+/* ── Activity indicators ─────────────────────────────────────────────────── */
+/* Standalone status row shown while the agent is working */
+
 .activity-status-indicator {
   display: flex;
   flex-direction: column;
@@ -115,6 +257,7 @@
   max-width: 100%;
 }
 
+/* Thin accent line beneath the activity indicator */
 .activity-status-bar {
   width: 100%;
   height: 1px;
@@ -168,38 +311,76 @@
   animation: none;
 }
 
+.activity-status-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: 1px 12px 2px;
+}
+
+/* ── Turn-activity strip ─────────────────────────────────────────────────── */
+/* Compact inline status line rendered at the bottom of an in-progress turn */
 
 .turn-activity-strip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   min-height: var(--turn-activity-min-height);
-  padding: 4px 8px;
-  border-radius: var(--status-chip-radius);
-  border: 1px solid var(--status-chip-border-muted);
-  background: var(--status-chip-surface-muted);
+  padding: 0;
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  font-weight: 700;
+  font-size: 9px;
+  font-weight: 500;
   line-height: 1;
-  letter-spacing: 0.11em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
-  max-width: var(--activity-chip-max-width);
+  max-width: 100%;
+  color: color-mix(in srgb, var(--vscode-foreground) 48%, var(--panel-muted) 52%);
 }
-.turn-activity-strip.standalone { margin: 4px 0; }
-.turn-activity-strip-dot { width: var(--status-chip-dot-size); height: var(--status-chip-dot-size); border-radius: 50%; background: currentColor; opacity: 0.78; flex-shrink: 0; }
-.turn-activity-strip-dot.running { animation: turn-activity-dot-pulse 1.6s ease-in-out infinite; }
-@keyframes turn-activity-dot-pulse { 0%,100% { opacity:0.4; } 50% { opacity:1; } }
-@media (prefers-reduced-motion: reduce) { .turn-activity-strip-dot.running { animation:none; opacity:0.78; } }
-.turn-activity-strip-label { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.turn-activity-strip-detail { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; opacity:0.65; font-weight:400; }
-.turn-activity-strip.accent { border-color: color-mix(in srgb, var(--panel-accent) 28%, transparent); background: var(--panel-accent-surface); color: var(--panel-accent); }
-.turn-activity-strip.warning { border-color: color-mix(in srgb, var(--panel-warning) 28%, transparent); background: var(--panel-warning-surface); color: var(--panel-warning); }
-.turn-activity-strip.error { border-color: color-mix(in srgb, var(--panel-danger) 28%, transparent); background: var(--panel-danger-surface); color: var(--panel-danger); }
-.turn-activity-strip.success { border-color: color-mix(in srgb, var(--panel-success) 28%, transparent); background: var(--panel-success-surface); color: var(--panel-success); }
 
-/* Inline activity indicator inside a message (between assistant turns/tools) */
+.turn-activity-strip.standalone { margin: 2px 0; }
+
+.turn-activity-strip-dot {
+  width: var(--status-chip-dot-size);
+  height: var(--status-chip-dot-size);
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.42;
+  flex-shrink: 0;
+  transition: opacity 0.3s ease;
+}
+
+.turn-activity-strip-dot.running {
+  animation: turn-activity-dot-pulse var(--status-chip-motion-duration) cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.turn-activity-strip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.turn-activity-strip-detail {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 0.62;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+/* Semantic tone modifiers */
+.turn-activity-strip.accent  { color: color-mix(in srgb, var(--panel-accent)   52%, var(--panel-muted) 48%); }
+.turn-activity-strip.warning { color: color-mix(in srgb, var(--panel-warning)   48%, var(--panel-muted) 52%); }
+.turn-activity-strip.error   { color: color-mix(in srgb, var(--panel-danger)    52%, var(--panel-muted) 48%); }
+.turn-activity-strip.success { color: color-mix(in srgb, var(--panel-success)   52%, var(--panel-muted) 48%); }
+
+/* ── Inline message activity ─────────────────────────────────────────────── */
+/* Typing indicator rendered inside a message between streaming turns */
+
 .message-typing-indicator {
   display: inline-flex;
   align-items: baseline;
@@ -213,20 +394,6 @@
   line-height: 1.55;
 }
 
-
-.message-glow-indicator {
-  position: relative;
-  height: 1px;
-  margin-top: 10px;
-  overflow: hidden;
-}
-
-/*
- * Stable footer slot for the streaming glow indicator and the turn activity
- * strip. Reserving a constant height means the message does not jump vertically
- * as the agent alternates between streaming text (1px glow) and paused phases
- * (taller activity strip) within a single turn.
- */
 .message-activity-footer {
   display: flex;
   align-items: center;
@@ -234,53 +401,22 @@
   margin-top: 6px;
 }
 
-.message-activity-footer .message-glow-indicator {
-  margin-top: 0;
-  flex: 1;
-}
-
-.message-glow-indicator::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  height: 100%;
-  background: color-mix(in srgb, var(--panel-accent) 26%, transparent);
-  opacity: 0.55;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .agent-activity-text {
-    opacity: 0.82;
-    color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--panel-muted) 26%);
-  }
-
-  .activity-status-bar {
-    opacity: 0.35;
-  }
-
-  .message-glow-indicator::before {
-    opacity: 0.35;
-  }
-}
+/* ── Loading wheel ───────────────────────────────────────────────────────── */
+/* Spinner used for transcript-loading state; animation defined in index.css */
 
 .loading-wheel {
   width: 22px;
   height: 22px;
   box-sizing: border-box;
   border-radius: 999px;
-  border: 2px solid color-mix(in srgb, var(--panel-border) 78%, transparent);
+  border: 2px solid color-mix(in srgb, var(--panel-border) 78%, transparent); 
   border-top-color: var(--panel-accent);
   animation: panel-loading-wheel-spin 0.72s linear infinite;
 }
 
-@keyframes panel-loading-wheel-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
+/* ── Message recovery (retry / error detail) ─────────────────────────────── */
+/* Controls shown below failed or interrupted assistant turns */
 
-/* Retry action for failed/interrupted assistant turns */
 .message-recovery {
   display: flex;
   align-items: center;
@@ -349,7 +485,7 @@
 .message-error-detail-btn {
   background: none;
   border: none;
-  color: var(--vscode-foreground);
+  color: var(--vscode-foreground); 
   cursor: pointer;
   font-size: 11px;
   padding: 2px 5px;
@@ -361,6 +497,8 @@
   opacity: 1;
   background: var(--panel-control-hover);
 }
+
+/* ── Message body (markdown prose) ──────────────────────────────────────── */
 
 .message-body {
   font-size: 13px;
@@ -384,7 +522,7 @@
 .message-body pre,
 .tool-call-pre {
   background: var(--panel-code-surface);
-  border-radius: var(--panel-radius-lg);
+  border-radius: var(--panel-radius-lg); 
   padding: 10px 12px;
   overflow-x: auto;
   font-family: var(--vscode-editor-font-family, monospace);
@@ -411,7 +549,9 @@
   padding: 0;
 }
 
-/* Enhanced code blocks: language label, copy button, long-output collapse */
+/* ── Enhanced code blocks ────────────────────────────────────────────────── */
+/* Adds a language label, copy button, and optional long-output collapse */
+
 .code-block {
   margin: 8px 0;
   border: 1px solid var(--panel-border-subtle);
@@ -464,11 +604,12 @@
   color: var(--panel-success);
 }
 
+/* Toggle spans full width at the bottom of the block */
 .code-block .code-block-toggle {
   display: block;
   width: 100%;
   text-align: center;
-  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent); 
   padding: 3px 6px;
 }
 
@@ -478,12 +619,15 @@
   border: none;
 }
 
+/* Collapsed: clip long output to a scrollable window */
 .code-block.code-block-collapsed > pre {
   max-height: 320px;
   overflow-y: auto;
 }
 
-/* Horizontal scroll wrapper for GFM tables in narrow sidebar widths */
+/* ── GFM tables ──────────────────────────────────────────────────────────── */
+/* Scroll wrapper prevents table overflow from expanding the sidebar */
+
 .md-table-wrap {
   width: 100%;
   overflow-x: auto;
@@ -493,6 +637,8 @@
 .md-table-wrap > table {
   margin: 0;
 }
+
+/* ── Prose list / blockquote / heading styles ────────────────────────────── */
 
 .message-body ul,
 .message-body ol {
@@ -548,6 +694,8 @@
   text-decoration: underline;
 }
 
+/* ── User image attachments ──────────────────────────────────────────────── */
+
 .message-user-image {
   margin: 0;
   display: flex;
@@ -561,7 +709,7 @@
   max-width: 100%;
   max-height: 240px;
   border-radius: var(--panel-radius-lg);
-  border: 1px solid var(--panel-border);
+  border: 1px solid var(--panel-border); 
   background: var(--panel-code-surface);
   object-fit: contain;
 }
@@ -571,4 +719,49 @@
   color: var(--panel-muted);
 }
 
+/* ── Transcript-specific animations ─────────────────────────────────────── */
 
+@keyframes turn-activity-dot-pulse {
+  0%, 100% { opacity: 0.25; transform: scale(0.85); }
+  50%      { opacity: 0.9;  transform: scale(1.1);  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-activity-text {
+    opacity: 0.82;
+    color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--panel-muted) 26%);
+  }
+
+  .activity-status-bar {
+    opacity: 0.35;
+  }
+
+  .turn-activity-strip-dot.running {
+    animation: none;
+    opacity: 0.78;
+  }
+
+  .transcript-typing-dot {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
+/* ── System prompt card ──────────────────────────────────────────────────── */
+
+.system-prompt-card {
+  border-radius: var(--panel-radius-md);
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.12s ease;
+}
+
+.system-prompt-card:hover {
+  background: var(--panel-control-hover);
+}
+
+@media (forced-colors: active) {
+  .system-prompt-card {
+    border: 1px solid ButtonText;
+  }
+}

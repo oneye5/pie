@@ -41,9 +41,10 @@ class FakeChildProcess extends EventEmitter {
 }
 
 test('BackendClient.start resolves when backend.ready arrives immediately as stdout listener attaches', async () => {
-  const originalLoad = (Module as typeof Module & { _load: typeof Module._load })._load;
+  const moduleWithLoad = Module as typeof Module & { _load: (...args: any[]) => unknown };
+  const originalLoad = moduleWithLoad._load;
   const fakeProc = new FakeChildProcess() as unknown as cp.ChildProcess;
-  (Module as typeof Module & { _load: typeof Module._load })._load = function patchedLoad(request, parent, isMain) {
+  moduleWithLoad._load = function patchedLoad(request: string, parent: unknown, isMain: boolean) {
     if (request === 'vscode') {
       return {
         EventEmitter: class<TValue> {
@@ -89,6 +90,6 @@ test('BackendClient.start resolves when backend.ready arrives immediately as std
     assert.equal(payload.sdkPath, '/mock/sdk');
   } finally {
     client.dispose();
-    (Module as typeof Module & { _load: typeof Module._load })._load = originalLoad;
+    moduleWithLoad._load = originalLoad;
   }
 });

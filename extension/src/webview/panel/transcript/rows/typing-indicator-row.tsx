@@ -6,6 +6,7 @@ import {
   TurnActivityStrip,
   activityPhaseHasRunningDot,
   activityToneToStripTone,
+  type TurnActivityPhase,
 } from '../turn-activity-strip';
 import { registerRowRenderer, type RowRendererProps } from '../registry';
 
@@ -13,19 +14,18 @@ function renderTypingIndicator({ row }: RowRendererProps) {
   if (row.kind !== 'typingIndicator') return null;
 
   const activityState = row.activityState;
-  const label = activityState?.label || AGENT_ACTIVITY_LABELS.preparing;
-  const ariaLabel = activityState?.ariaLabel || 'Agent is preparing response';
-  const tone = activityState ? activityToneToStripTone(activityState.tone) : 'neutral';
-  const runningDot = activityState ? activityPhaseHasRunningDot(activityState.phase) : false;
+  const label = activityState?.label ?? AGENT_ACTIVITY_LABELS.preparing;
+  const ariaLabel = activityState?.ariaLabel ?? 'Agent is preparing response';
+  const phase = (activityState?.phase as TurnActivityPhase | undefined) ?? 'preparing';
 
   return (
-    <div class="activity-status-indicator">
+    <div class="activity-status-row">
       <TurnActivityStrip
         label={label}
-        detail={activityState?.detail}
-        tone={tone}
-        runningDot={runningDot}
-        standalone={true}
+        tone={activityToneToStripTone(activityState?.tone ?? 'neutral')}
+        runningDot={activityPhaseHasRunningDot(phase)}
+        phase={phase}
+        standalone
         ariaLabel={ariaLabel}
       />
     </div>

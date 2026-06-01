@@ -101,13 +101,14 @@ function config(overrides: Partial<PruningConfig["skills"]> = {}, mode: PruningC
 		model: "gpt-5.4-mini",
 		provider: "github-copilot",
 		thinkingLevel: "minimal",
-		skills: { strategy: "discretion", ceiling: 8, pinned: [], ...overrides },
+		skills: { strategy: "discretion", ceiling: 8, pinned: [], alwaysKeep: [], ...overrides },
 	};
 	if (toolsOverrides) {
 		result.tools = {
 			strategy: toolsOverrides.strategy ?? "discretion",
 			ceiling: toolsOverrides.ceiling ?? 10,
 			dependencies: { edit: ["read"], subagent: ["bash"], ...(toolsOverrides?.dependencies ?? {}) },
+			alwaysKeep: toolsOverrides.alwaysKeep ?? [],
 		};
 	}
 	return result;
@@ -256,6 +257,90 @@ test("pinned skills always included regardless of LLM output", async () => {
 	}
 });
 
+test("alwaysKeep skills and tools are preserved even when the LLM omits them", async () => {
+	const setActiveToolsCalls: string[][] = [];
+	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: ["read"] }));
+	try {
+		const { handlers } = register(config(
+			{ alwaysKeep: ["frontend-design"] },
+			"auto",
+			{ ceiling: 2, alwaysKeep: ["web_search"] },
+		));
+		__setToolSeams({
+			getAllTools: () => mockToolInfo as any[],
+			getActiveTools: () => mockToolInfo.map((t) => t.name),
+			setActiveTools: (names: string[]) => { setActiveToolsCalls.push(names); },
+		});
+
+		const result = await runBeforeAgentStart(handlers, "refactor code", realisticSkills) as { systemPrompt?: string } | undefined;
+		assert.ok(result?.systemPrompt);
+		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
+		assert.ok(setActiveToolsCalls.length > 0);
+		assert.ok(setActiveToolsCalls[0].includes("web_search"));
+	} finally {
+		__setCompleteFn(null);
+		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
+	}
+});
+
+test("empty prepass response retries with minimal reasoning before failing open", async () => {
+	const reasoningLevels: unknown[] = [];
+	const setActiveToolsCalls: string[][] = [];
+	__setCompleteFn(async (_model, _context, options) => {
+		reasoningLevels.push(options.reasoning);
+		if (reasoningLevels.length === 1) {
+			return { text: "", stopReason: "aborted", errorMessage: "timeout" };
+		}
+		return { text: '{"skills":["code-simplification"],"tools":["read","edit"]}', stopReason: "stop" };
+	});
+	try {
+		const cfg = config({}, "auto", { ceiling: 10 });
+		cfg.thinkingLevel = "high";
+		const { handlers } = register(cfg);
+		__setToolSeams({
+			getAllTools: () => mockToolInfo as any[],
+			getActiveTools: () => mockToolInfo.map((t) => t.name),
+			setActiveTools: (names: string[]) => { setActiveToolsCalls.push(names); },
+		});
+
+		const result = await runBeforeAgentStart(handlers, "refactor code", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
+		assert.deepEqual(reasoningLevels, ["high", "minimal"]);
+		assert.ok(result?.systemPrompt);
+		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
+		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+		assert.equal(result?.message?.content.startsWith("Pruned:"), true);
+		assert.ok(setActiveToolsCalls[0].includes("read"));
+		assert.ok(setActiveToolsCalls[0].includes("edit"));
+		assert.ok(!setActiveToolsCalls[0].includes("web_search"));
+	} finally {
+		__setCompleteFn(null);
+		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
+	}
+});
+
+test("thrown prepass errors also retry with minimal reasoning", async () => {
+	const reasoningLevels: unknown[] = [];
+	__setCompleteFn(async (_model, _context, options) => {
+		reasoningLevels.push(options.reasoning);
+		if (reasoningLevels.length === 1) {
+			throw new Error("timeout");
+		}
+		return { text: '{"skills":["code-simplification"],"tools":[]}' };
+	});
+	try {
+		const cfg = config();
+		cfg.thinkingLevel = "high";
+		const { handlers } = register(cfg);
+		const result = await runBeforeAgentStart(handlers, "refactor code", realisticSkills) as { systemPrompt?: string } | undefined;
+		assert.deepEqual(reasoningLevels, ["high", "minimal"]);
+		assert.ok(result?.systemPrompt);
+		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
+		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+	} finally {
+		__setCompleteFn(null);
+	}
+});
+
 test("LLM failure → graceful fallback (all skills included)", async () => {
 	__setCompleteFn(async () => { throw new Error("model unavailable"); });
 	const origWarn = console.warn;
@@ -298,11 +383,11 @@ test("regex no-match case fails open with original prompt unchanged", async () =
 	}
 });
 
-test("tool dependencies honored", async () => {
+test("tool dependencies honored even when they expand beyond the configured ceiling", async () => {
 	const setActiveToolsCalls: string[][] = [];
 	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: ["edit", "subagent"] }));
 	try {
-		const { handlers } = register(config({}, "auto", { ceiling: 10, dependencies: { edit: ["read"], subagent: ["bash"] } }));
+		const { handlers } = register(config({}, "auto", { ceiling: 2, dependencies: { edit: ["read"], subagent: ["bash"] } }));
 		__setToolSeams({
 			getAllTools: () => mockToolInfo as any[],
 			getActiveTools: () => mockToolInfo.map((t) => t.name),
@@ -334,6 +419,7 @@ test("shadow mode leaves prompt unchanged and logs decision", async () => {
 
 		const lines = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 		assert.equal(lines[0].mode, "shadow");
+		assert.equal(typeof lines[0].sessionPath, "string");
 		assert.ok(lines[0].excluded.includes("duckdb-query-optimization"));
 	} finally {
 		__setCompleteFn(null);

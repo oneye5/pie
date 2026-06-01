@@ -7,7 +7,7 @@ import {
 } from '../../shared/tool-call-analysis';
 import { DIRECT_FILE_PATH_KEYS, GENERIC_PATH_KEYS } from '../../shared/tool-call-analysis/mutation-tools';
 
-const TOOL_CALL_SUMMARY_MAX_LENGTH = 80;
+const TOOL_CALL_SUMMARY_MAX_LENGTH = 300;
 const TOOL_CALL_PATH_SUMMARY_MAX_LENGTH = 240;
 
 export interface ToolCallPresentation {
@@ -283,7 +283,7 @@ function summarizeTaskEntries(value: unknown): string | null {
   const first = value[0];
   if (!isRecord(first)) return null;
 
-  const task = typeof first.task === 'string' ? summarizeText(first.task, 48) : null;
+  const task = typeof first.task === 'string' ? summarizeText(first.task, 180) : null;
   if (!task) return null;
 
   const agent = typeof first.agent === 'string' ? normalizeText(first.agent) : '';

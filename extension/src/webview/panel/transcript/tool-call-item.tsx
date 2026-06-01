@@ -99,7 +99,7 @@ function ModelLabel({ result }: { result: SubagentSingleResult }) {
     ? `${model} (thinking: ${result.thinkingLevel})`
     : model;
   return (
-    <span class="subagent-model-label" title={title}>
+    <span class="subagent-model-label transcript-header-summary-subtle" title={title}>
       {short}{result.thinkingLevel && result.thinkingLevel !== 'off' ? ` · ${result.thinkingLevel}` : ''}
     </span>
   );
@@ -121,10 +121,7 @@ function PrimaryMeta({ result }: { result: SubagentSingleResult }) {
 
 /** Status indicator chip at the right side of the header. */
 function StatusIndicator({ status, errorDetail }: { status: 'running' | 'failed' | 'completed'; errorDetail?: string }) {
-  if (status === 'completed') return null;
-  if (status === 'running') {
-    return <StatusChip tone="running" label="Running" className="status-chip-fixed" />;
-  }
+  if (status !== 'failed') return null;
 
   return (
     <StatusChip
@@ -200,9 +197,9 @@ function SubagentSingleBlock({
     >
       <div class="subagent-header">
         <DisclosureChevron open={open} />
-        <span class="subagent-agent-name">{singleResult.agent}</span>
+        <span class="subagent-agent-name transcript-header-title-mono">{singleResult.agent}</span>
         <PrimaryMeta result={singleResult} />
-        {!open && summary && <span class="subagent-header-summary">{summary}</span>}
+        {!open && summary && <span class="subagent-header-summary transcript-header-summary-mono">{summary}</span>}
         <StatusIndicator status={status} errorDetail={errorDetail} />
       </div>
       {open && (
@@ -238,13 +235,6 @@ function SubagentSingleBlock({
               {singleResult.retryCount != null && singleResult.retryCount > 0 && (
                 <span class="subagent-model-retries">Retries: {singleResult.retryCount}</span>
               )}
-            </div>
-          )}
-          {singleResult.runningTools && singleResult.runningTools.length > 0 && (
-            <div class="subagent-running-tools">
-              {singleResult.runningTools.map((runningTool, runningIndex) => (
-                <span key={runningIndex} class="subagent-running-tool">{runningTool}…</span>
-              ))}
             </div>
           )}
           <TranscriptMessageList

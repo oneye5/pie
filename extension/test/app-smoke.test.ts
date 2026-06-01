@@ -89,6 +89,25 @@ test('App renders composer when session is active', () => {
   assert.ok(textarea, 'Composer textarea should be rendered');
 });
 
+test('App composer keeps the quiet prompt-box focus treatment', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState();
+
+  act(() => {
+    render(h(App, { adapter }), container);
+  });
+
+  const textarea = container.querySelector('textarea');
+  assert.ok(textarea, 'Composer textarea should be rendered');
+  assert.match(textarea.className, /outline-none/);
+
+  const composerShell = textarea.parentElement;
+  assert.ok(composerShell, 'Composer shell should wrap the textarea');
+  assert.match(composerShell.className, /border-transparent/);
+  assert.match(composerShell.className, /focus-within:border-border-subtle\/80/);
+  assert.doesNotMatch(composerShell.className, /focus-within:border-accent/);
+});
+
 test('App renders transcript area when session is active', () => {
   const adapter = makeAdapter();
   adapter.initialState = sessionViewState();

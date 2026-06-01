@@ -8,7 +8,11 @@ async function readToolCallCss() {
   return readFile(new URL('../src/webview/panel/styles/tool-call.css', import.meta.url), 'utf8');
 }
 
-test('collapsed tool-call headers keep titles ahead of summary text', async () => {
+async function readTranscriptCss() {
+  return readFile(new URL('../src/webview/panel/styles/transcript.css', import.meta.url), 'utf8');
+}
+
+test('collapsed tool-call headers use the shared path hierarchy', async () => {
   const { ToolCallHeader } = await import('../src/webview/panel/transcript/tool-call-card.tsx');
   const html = renderToString(h(ToolCallHeader, {
     open: false,
@@ -23,11 +27,57 @@ test('collapsed tool-call headers keep titles ahead of summary text', async () =
 
   assert.match(html, /flex min-w-0 flex-1 items-center/);
   assert.doesNotMatch(html, /grid-template-columns:/);
-  assert.match(html, /min-w-0 flex-auto truncate font-mono text-xs font-semibold/);
-  assert.match(html, /max-w-\[var\(--tool-call-summary-column-width\)\]/);
-  assert.match(html, /flex-\[0_1_auto\]/);
+  assert.match(html, /transcript-header-title-mono/);
+  assert.match(html, /transcript-header-summary-link/);
+  assert.match(html, /transcript-header-path-prefix/);
+  assert.match(html, /transcript-header-path-target/);
+  assert.match(html, /transcript-header-summary-link group/);
   assert.match(html, /flex-\[0_0_var\(--tool-call-size-column-width\)\]/);
   assert.match(html, /ml-auto/);
+});
+
+test('collapsed bash headers emphasize the shell verb over the path context', async () => {
+  const { ToolCallHeader } = await import('../src/webview/panel/transcript/tool-call-card.tsx');
+  const html = renderToString(h(ToolCallHeader, {
+    open: false,
+    name: 'bash',
+    status: 'completed',
+    summary: 'rm somepath/somefile.txt',
+    sizeHint: '+3 lines',
+    onOpenFile: () => {},
+  }));
+
+  assert.match(html, /transcript-header-summary-command">rm</);
+  assert.match(html, /transcript-header-path-prefix/);
+  assert.match(html, />somepath\//);
+  assert.match(html, /transcript-header-path-target">somefile\.txt</);
+});
+
+test('collapsed bash headers keep surrounding quotes separate from the emphasized path', async () => {
+  const { ToolCallHeader } = await import('../src/webview/panel/transcript/tool-call-card.tsx');
+  const html = renderToString(h(ToolCallHeader, {
+    open: false,
+    name: 'bash',
+    status: 'completed',
+    summary: 'rm "some dir/file name.txt"',
+    onOpenFile: () => {},
+  }));
+
+  assert.doesNotMatch(html, /transcript-header-path-prefix[^>]*>&quot;some dir\//);
+  assert.doesNotMatch(html, /transcript-header-path-target[^>]*>file name\.txt&quot;</);
+  assert.match(html, /transcript-header-path-prefix/);
+  assert.match(html, /some dir\//);
+  assert.match(html, /transcript-header-path-target[^>]*>file name\.txt</);
+});
+
+test('shared collapsed-header typography is defined in transcript.css', async () => {
+  const css = await readTranscriptCss();
+
+  assert.match(css, /\.transcript-header-label\s*\{/);
+  assert.match(css, /\.transcript-header-title-mono\s*\{/);
+  assert.match(css, /\.transcript-header-summary-command\s*\{/);
+  assert.match(css, /\.transcript-header-path-preview\s*\{/);
+  assert.match(css, /\.transcript-header-command-details\s*\{/);
 });
 
 test('subagent headers keep score badges ahead of summary text without extra model or thinking chrome', async () => {

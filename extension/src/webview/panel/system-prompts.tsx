@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useState } from 'preact/hooks';
+import { useState, useMemo } from 'preact/hooks';
 
 import type { SystemPromptEntry } from '../../shared/protocol';
 import { renderMarkdown, reasoningSummary } from './markdown';
@@ -11,14 +11,11 @@ import {
   formatSystemPromptTokenLabel,
   getSystemPromptTokenEstimateTitle,
 } from './system-prompt-tokens';
-import { MessageHeader } from './transcript/message-header';
-import { ToolCallHeader } from './transcript/tool-call-card';
+import { DisclosureChevron } from './transcript/tool-call-card';
 
 interface SystemPromptCardProps {
   prompt: SystemPromptEntry;
 }
-
-function ignoreOpenFile(_path: string): void {}
 
 function getCollapsedSummary(prompt: SystemPromptEntry): string {
   const summary = prompt.summary || reasoningSummary(prompt.text);
@@ -44,27 +41,22 @@ function SystemPromptCard({ prompt }: SystemPromptCardProps) {
 
   return (
     <div
-      class={cx(
-        'cursor-pointer select-none overflow-hidden rounded-lg bg-control/40 transition-colors hover:bg-control-hover',
-        'forced-colors:border forced-colors:border-[ButtonText]',
-      )}
+      class="system-prompt-card"
       role="button"
       aria-expanded={open}
       tabIndex={0}
       onClick={() => setOpen((value) => !value)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((value) => !value); } }}
     >
-      <ToolCallHeader
-        open={open}
-        name={prompt.title}
-        nameTitle={prompt.tooltip ?? prompt.title}
-        status="completed"
-        summary={showSummary ? summary : null}
-        sizeHint={undefined}
-        onOpenFile={ignoreOpenFile}
-      />
+      <div class="flex items-center gap-[7px] px-2 py-[5px]">
+        <DisclosureChevron open={open} />
+        <span class="transcript-header-title-mono min-w-0 flex-1 truncate">{prompt.title}</span>
+        {showSummary && (
+          <span class="transcript-header-summary-mono min-w-0 max-w-[var(--tool-call-summary-column-width)] flex-[0_1_auto] truncate">{summary}</span>
+        )}
+      </div>
       {open && (
-        <div class="tool-call-body">
+        <div class="px-2.5 pb-2.5 pt-1 text-xs leading-relaxed text-foreground select-text">
           <div
             class="message-body"
             dangerouslySetInnerHTML={{ __html: html }}
@@ -84,6 +76,8 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
     return null;
   }
 
+  const [groupOpen, setGroupOpen] = useState(false);
+
   const estimatedTokenCount = estimateSystemPromptTokens(prompts);
   const tokenLabel = estimatedTokenCount > 0
     ? formatSystemPromptTokenLabel(estimatedTokenCount)
@@ -92,26 +86,57 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
     ? getSystemPromptTokenEstimateTitle(prompts)
     : undefined;
 
+  const label = prompts.length === 1
+    ? `1 system prompt`
+    : `${prompts.length} system prompts`;
+
+  const collapsedSummary = useMemo(() => {
+    const available = prompts.filter((p) => getCollapsedSummary(p));
+    if (available.length === 0) return null;
+    if (available.length <= 2) {
+      return available.map((p) => p.title).join(' · ');
+    }
+    return `${available[0].title} + ${available.length - 1} more`;
+  }, [prompts]);
+
   return (
     <div
-      class="flex w-auto min-w-0 self-stretch flex-col gap-1.5 rounded-xl border border-border-subtle/50 bg-surface px-3 py-2"
-      data-role="assistant"
+      class="flex w-auto min-w-0 self-stretch flex-col rounded-xl bg-card shadow-sm forced-colors:border forced-colors:border-[ButtonText]"
+      data-role="system"
       data-scroll-anchor-id="system-prompts"
     >
-      <MessageHeader
-        label="PI"
-        timestamp="System prompts"
-        duration={tokenLabel}
-        durationTitle={tokenTitle}
-      />
-      <div class="tool-call-list">
-        {prompts.map((prompt, index) => (
-          <SystemPromptCard
-            key={`${prompt.source}:${prompt.title}:${prompt.summary}:${index}`}
-            prompt={prompt}
-          />
-        ))}
+      <div
+        class={cx(
+          'flex cursor-pointer select-none items-center gap-1.5 rounded-xl px-3 py-2 transition-colors duration-150 hover:bg-control-hover',
+          groupOpen && 'bg-control/60',
+        )}
+        role="button"
+        aria-expanded={groupOpen}
+        tabIndex={0}
+        onClick={() => setGroupOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setGroupOpen((v) => !v); } }}
+      >
+        <svg class={cx('shrink-0 text-muted transition-transform duration-150', groupOpen && 'rotate-90')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+          <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+        <span class="transcript-header-label">{label}</span>
+        {!groupOpen && collapsedSummary && (
+          <span class="transcript-header-summary min-w-0 truncate">{collapsedSummary}</span>
+        )}
+        {tokenLabel && (
+          <span class="ml-auto flex-none whitespace-nowrap font-mono text-[10px] text-muted/60" title={tokenTitle}>{tokenLabel}</span>
+        )}
       </div>
+      {groupOpen && (
+        <div class="flex flex-col gap-0.5 px-2 pb-2">
+          {prompts.map((prompt, index) => (
+            <SystemPromptCard
+              key={`${prompt.source}:${prompt.title}:${prompt.summary}:${index}`}
+              prompt={prompt}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }

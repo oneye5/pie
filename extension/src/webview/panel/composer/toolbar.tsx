@@ -88,7 +88,7 @@ export function ComposerToolbar({
           <div class="relative inline-flex min-h-[22px] min-w-[80px] max-w-[180px]">
             <span class="invisible min-w-0 max-w-full overflow-hidden truncate whitespace-nowrap rounded-full border border-transparent py-0.5 pl-2 pr-6 text-[11px]" aria-hidden="true">{selectedModelLabel}</span>
             <select
-              class={cx(selectChipClass, 'absolute inset-0 w-full max-w-full appearance-none pr-6 text-transparent')}
+              class={cx(selectChipClass, 'toolbar-model-select absolute inset-0 w-full max-w-full appearance-none pr-6 text-transparent')}
               value={selectedModel}
               onChange={(e) => {
                 const target = e.target as HTMLSelectElement;

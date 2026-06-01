@@ -27,6 +27,7 @@ import { settingsReducer } from '../src/host/store/settings-slice';
 import { uiReducer } from '../src/host/store/ui-slice';
 import { sessionStateReducer } from '../src/host/store/session-state-slice';
 import { fileChangesReducer } from '../src/host/store/file-changes-slice';
+import type { ModelInfo } from '../src/shared/protocol';
 import { CHAT_PREF_MENU_SECTIONS } from '../src/webview/panel/chat-prefs';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -799,7 +800,7 @@ test('ui: setShowOutcomeDialog toggles the recording dialog visibility', () => {
 });
 
 test('ui: setPendingExtensionUIRequest stores and clears extension UI requests', () => {
-  const request = { id: 'req-1', extensionId: 'test-ext', title: 'Confirm', message: 'Proceed?', options: [{ label: 'OK', value: 'ok' }] };
+  const request = { id: 'req-1', method: 'confirm' as const, extensionId: 'test-ext', title: 'Confirm', message: 'Proceed?' };
 
   let state = uiReducer(undefined, { type: '@@init' });
   state = uiReducer(state, uiActions.setPendingExtensionUIRequest(request));
@@ -811,8 +812,8 @@ test('ui: setPendingExtensionUIRequest stores and clears extension UI requests',
 
 test('ui: setAvailableExtensions stores extension metadata', () => {
   const extensions = [
-    { id: 'subagent', name: 'Subagent', version: '1.0.0' },
-    { id: 'cwd-skills', name: 'CWD Skills', version: '2.0.0' },
+    { id: 'subagent', label: 'Subagent', description: 'Delegate work to subagents.' },
+    { id: 'cwd-skills', label: 'CWD Skills', description: 'Load workspace-local skills.' },
   ];
 
   let state = uiReducer(undefined, { type: '@@init' });
@@ -868,7 +869,7 @@ test('settings: clearContextUsage removes the session entry', () => {
 });
 
 test('settings: setAvailableModels does not replace non-empty models with empty array', () => {
-  const models = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false, inputKinds: ['text'] as const }];
+  const models: ModelInfo[] = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false, inputKinds: ['text'] }];
 
   let state = settingsReducer(undefined, { type: '@@init' });
   state = settingsReducer(state, settingsActions.setAvailableModels({
@@ -883,7 +884,7 @@ test('settings: setAvailableModels does not replace non-empty models with empty 
 });
 
 test('settings: setAvailableModels replaces empty with populated models', () => {
-  const models = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false, inputKinds: ['text'] as const }];
+  const models: ModelInfo[] = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false, inputKinds: ['text'] }];
 
   let state = settingsReducer(undefined, { type: '@@init' });
   // No models for session yet
@@ -895,7 +896,7 @@ test('settings: setAvailableModels replaces empty with populated models', () => 
 });
 
 test('settings: setModelAndAvailable with empty availableModels preserves the non-empty existing', () => {
-  const models = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false, inputKinds: ['text'] as const }];
+  const models: ModelInfo[] = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false, inputKinds: ['text'] }];
 
   let state = settingsReducer(undefined, { type: '@@init' });
   state = settingsReducer(state, settingsActions.setAvailableModels({
@@ -990,7 +991,7 @@ test('selectViewState: editingMessageId, showOutcomeDialog, pendingExtensionUIRe
 
 test('selectViewState: availableExtensions propagates from store', () => {
   const { store } = require('../src/host/store') as typeof import('../src/host/store');
-  const extensions = [{ id: 'ext1', name: 'Ext 1', version: '1.0.0' }];
+  const extensions = [{ id: 'ext1', label: 'Ext 1', description: 'Extension 1' }];
   store.dispatch(uiActions.setAvailableExtensions(extensions));
 
   const vs = selectViewState(store.getState());
@@ -1090,8 +1091,8 @@ test('selectViewState: multi-session isolation — transcript for one session do
 test('selectViewState: availableModels is session-scoped', () => {
   const { createAppStore } = require('../src/host/store') as typeof import('../src/host/store');
   const store = createAppStore();
-  const modelsA = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false, inputKinds: ['text'] as const }];
-  const modelsB = [{ id: 'claude', name: 'Claude', provider: 'anthropic', reasoning: true, inputKinds: ['text'] as const }];
+  const modelsA: ModelInfo[] = [{ id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', reasoning: false, inputKinds: ['text'] }];
+  const modelsB: ModelInfo[] = [{ id: 'claude', name: 'Claude', provider: 'anthropic', reasoning: true, inputKinds: ['text'] }];
 
   store.dispatch(settingsActions.setAvailableModels({ sessionPath: '/a', availableModels: modelsA }));
   store.dispatch(settingsActions.setAvailableModels({ sessionPath: '/b', availableModels: modelsB }));

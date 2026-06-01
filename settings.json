@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.73.0",
   "defaultProvider": "github-copilot",
-  "defaultModel": "gpt-5.4",
-  "defaultThinkingLevel": "high",
+  "defaultModel": "gpt-5.5",
+  "defaultThinkingLevel": "low",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
     {

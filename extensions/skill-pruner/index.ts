@@ -11,8 +11,13 @@ import type {
 	ToolInfo,
 } from "@mariozechner/pi-coding-agent";
 import { Box, Text } from "@mariozechner/pi-tui";
-import { DEFAULT_CONFIG, loadConfig } from "./config.js";
-import { runLlmPruning, type CompleteSimpleFn, type LlmPruningInput } from "./llm-scorer.js";
+import { loadConfig } from "./config.js";
+import {
+	runLlmPruning,
+	__setPromptTemplate as __setPruningPromptTemplate,
+	type CompleteSimpleFn,
+	type LlmPruningInput,
+} from "./llm-scorer.js";
 import { appendDecision, estimateTokens, recordKnownSkills, recordSkillRead } from "./logger.js";
 import type { PruningConfig, PruningDecision, PruningResult } from "./types.js";
 
@@ -24,11 +29,17 @@ const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..");
 
 const SKILLS_BLOCK_RE = /\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
 const PROCESS_SESSION_ID = randomUUID();
-const LLM_TIMEOUT_MS = 10_000;
+const LLM_TIMEOUT_MS_BY_THINKING_LEVEL: Record<string, number> = {
+	minimal: 10_000,
+	low: 10_000,
+	medium: 15_000,
+	high: 20_000,
+	xhigh: 25_000,
+};
 /** Minimum prompt length (in characters) to justify running the LLM prepass. Shorter prompts skip pruning. */
 const MIN_PROMPT_LENGTH = 8;
 
-let config: PruningConfig | null = null;
+let configOverrideForTesting: PruningConfig | null = null;
 let formatSkillsForPromptImpl: (skills: Skill[]) => string = formatSkillsForPrompt;
 /** Test seam: overrides getAllTools / getActiveTools / setActiveTools. */
 let getAllToolsOverride: (() => ToolInfo[]) | null = null;
@@ -175,6 +186,7 @@ export default function (pi: ExtensionAPI) {
 
 		const activeConfig = getConfig();
 		const sessionId = getSessionId(ctx);
+		const sessionPath = getSessionPath(ctx);
 		const skills = event.systemPromptOptions.skills ?? [];
 		const allSkillPaths = skills.map((s) => s.filePath);
 
@@ -197,7 +209,10 @@ export default function (pi: ExtensionAPI) {
 		let toolResult: ToolPruningResult | null = null;
 		let pruningError: string | null = null;
 		let rawResponse = "";
+		let rawThinking = "";
 		let rawSystemPrompt = "";
+		let rawUserMessage = "";
+		let prepassThinkingLevel = activeConfig.thinkingLevel;
 		let latencyMs = 0;
 
 		if (skills.length > 0) {
@@ -207,10 +222,13 @@ export default function (pi: ExtensionAPI) {
 				skills.filter((s) => s.disableModelInvocation).map((s) => s.name),
 			);
 
-			// Pinned names that resolve to a disabled skill → warn + skip.
-			const effectivePinned = activeConfig.skills.pinned.filter((name) => {
+			// Forced-include names that resolve to a disabled skill → warn + skip.
+			const effectivePinned = [...new Set([
+				...(activeConfig.skills.pinned ?? []),
+				...(activeConfig.skills.alwaysKeep ?? []),
+			])].filter((name) => {
 				if (disabledNames.has(name)) {
-					console.warn(`[skill-pruner] pinned skill '${name}' is disabled (disableModelInvocation); skipping`);
+					console.warn(`[skill-pruner] forced-include skill '${name}' is disabled (disableModelInvocation); skipping`);
 					return false;
 				}
 				return true;
@@ -241,29 +259,16 @@ export default function (pi: ExtensionAPI) {
 				recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
 				// Fall through to emit status message
 			} else {
-				try {
-					const model = resolveModel(ctx, activeConfig);
-					if (!model) {
-						pruningError = `Model '${activeConfig.model}' (provider: ${activeConfig.provider}) not found in registry`;
-					} else {
-						// Fetch auth from model registry
-						const auth = await resolveAuth(ctx, model);
-						const options: Record<string, unknown> = {
-							reasoning: activeConfig.thinkingLevel,
-							signal: AbortSignal.timeout(LLM_TIMEOUT_MS),
-							...auth,
-						};
-						const result = await runLlmPruning(llmInput, model, options, completeFn);
-						llmSelectedSkills = result.selectedSkills;
-						llmSelectedTools = result.selectedTools;
-						rawResponse = result.rawResponse;
-						rawSystemPrompt = result.systemPrompt;
-						latencyMs = result.latencyMs;
-					}
-				} catch (error) {
-					pruningError = `LLM pruning failed: ${error instanceof Error ? error.message : String(error)}`;
-					console.warn(`[skill-pruner] ${pruningError}`);
-				}
+				const prepassResult = await runPruningPrepass(ctx, llmInput, activeConfig, completeFn);
+				llmSelectedSkills = prepassResult.selectedSkills;
+				llmSelectedTools = prepassResult.selectedTools;
+				pruningError = prepassResult.error;
+				rawResponse = prepassResult.rawResponse;
+				rawThinking = prepassResult.rawThinking;
+				rawSystemPrompt = prepassResult.rawSystemPrompt;
+				rawUserMessage = prepassResult.rawUserMessage;
+				prepassThinkingLevel = prepassResult.thinkingLevel;
+				latencyMs = prepassResult.latencyMs;
 			}
 
 			if (!pruningError || pruningError.startsWith("Model") || pruningError.startsWith("LLM pruning failed")) {
@@ -286,14 +291,15 @@ export default function (pi: ExtensionAPI) {
 				let excludedSkillNames: string[];
 
 				if (llmSelectedSkills !== null) {
-					// Union LLM selections with pinned
-					const selectedSet = new Set(llmSelectedSkills);
-					for (const name of effectivePinned) {
-						selectedSet.add(name);
-					}
-					// Apply ceiling
-					const allSelected = [...selectedSet].slice(0, activeConfig.skills.ceiling);
-					const finalSet = new Set(allSelected);
+					// Union LLM selections with pinned/always-keep skills while ensuring
+					// the forced-include skills survive the ceiling.
+					const forcedSet = new Set(effectivePinned);
+					const orderedSelection = [
+						...effectivePinned,
+						...llmSelectedSkills.filter((name) => !forcedSet.has(name)),
+					];
+					const ceiling = Math.max(activeConfig.skills.ceiling, effectivePinned.length);
+					const finalSet = new Set(orderedSelection.slice(0, ceiling));
 
 					includedSkillNames = visibleSkills.filter((s) => finalSet.has(s.name)).map((s) => s.name);
 					excludedSkillNames = visibleSkills.filter((s) => !finalSet.has(s.name)).map((s) => s.name);
@@ -324,11 +330,12 @@ export default function (pi: ExtensionAPI) {
 					const skillModified = event.systemPrompt.replace(SKILLS_BLOCK_RE, replacement);
 					const decision = buildDecision({
 						sessionId,
+						sessionPath,
 						mode: activeConfig.mode,
 						query: event.prompt,
 						contextFilePath: contextFile?.path,
 						llmModel: activeConfig.model,
-						llmThinkingLevel: activeConfig.thinkingLevel,
+						llmThinkingLevel: prepassThinkingLevel,
 						llmResponse: rawResponse,
 						llmLatencyMs: latencyMs,
 						included: includedSkillNames,
@@ -367,12 +374,18 @@ export default function (pi: ExtensionAPI) {
 					let excludedToolNames: string[];
 
 					if (llmSelectedTools !== null) {
-						const selectedSet = new Set(llmSelectedTools);
+						const alwaysKeepTools = activeConfig.tools.alwaysKeep ?? [];
+						const forcedToolSet = new Set(alwaysKeepTools);
+						const orderedTools = [
+							...alwaysKeepTools,
+							...llmSelectedTools.filter((name) => !forcedToolSet.has(name)),
+						];
+						const seedTools = orderedTools.slice(0, Math.max(activeConfig.tools.ceiling, alwaysKeepTools.length));
 
 						// Expand dependencies
 						const dependencies = activeConfig.tools.dependencies;
-						const queue = [...selectedSet];
-						const expanded = new Set(selectedSet);
+						const queue = [...seedTools];
+						const expanded = new Set(seedTools);
 						while (queue.length > 0) {
 							const tool = queue.shift()!;
 							const deps = dependencies[tool] ?? [];
@@ -384,8 +397,8 @@ export default function (pi: ExtensionAPI) {
 							}
 						}
 
-						// Apply ceiling
-						includedToolNames = [...expanded].slice(0, activeConfig.tools.ceiling);
+						// Apply ceiling to the seed set, then retain expanded dependencies.
+						includedToolNames = [...expanded];
 						const includedSet = new Set(includedToolNames);
 						excludedToolNames = allTools.map((t) => t.name).filter((name) => !includedSet.has(name));
 
@@ -422,9 +435,11 @@ export default function (pi: ExtensionAPI) {
 		// --- Build pruning status (integrated into system prompts section) ---
 		const feedbackMessage = buildFeedbackMessage(skillResult, toolResult, activeConfig.mode, {
 			model: activeConfig.model,
-			thinkingLevel: activeConfig.thinkingLevel,
+			thinkingLevel: prepassThinkingLevel,
 			response: rawResponse,
+			thinking: rawThinking,
 			systemPrompt: rawSystemPrompt,
+			userMessage: rawUserMessage,
 			latencyMs,
 			error: pruningError,
 		});
@@ -493,9 +508,32 @@ function isExtensionDisabledByToggle(extensionId: string): boolean {
 	}
 }
 
+function clonePruningConfig(input: PruningConfig): PruningConfig {
+	return {
+		mode: input.mode,
+		model: input.model,
+		provider: input.provider,
+		thinkingLevel: input.thinkingLevel,
+		skills: {
+			strategy: input.skills.strategy,
+			ceiling: input.skills.ceiling,
+			pinned: [...(input.skills.pinned ?? [])],
+			alwaysKeep: [...(input.skills.alwaysKeep ?? [])],
+		},
+		tools: input.tools ? {
+			strategy: input.tools.strategy,
+			ceiling: input.tools.ceiling,
+			dependencies: Object.fromEntries(Object.entries(input.tools.dependencies).map(([k, v]) => [k, [...v]])),
+			alwaysKeep: [...(input.tools.alwaysKeep ?? [])],
+		} : undefined,
+	};
+}
+
 function getConfig(): PruningConfig {
-	config = loadConfig(path.join(CONFIG_ROOT, "settings.json"));
-	return config;
+	if (configOverrideForTesting) {
+		return clonePruningConfig(configOverrideForTesting);
+	}
+	return loadConfig(path.join(CONFIG_ROOT, "settings.json"));
 }
 
 function getSessionId(ctx: unknown): string {
@@ -503,6 +541,13 @@ function getSessionId(ctx: unknown): string {
 	const sessionManager = ctxObj?.sessionManager as { getSessionId?: () => string } | undefined;
 	const sessionId = sessionManager?.getSessionId?.();
 	return typeof sessionId === "string" && sessionId.length > 0 ? sessionId : PROCESS_SESSION_ID;
+}
+
+function getSessionPath(ctx: unknown): string {
+	const ctxObj = ctx as Record<string, unknown>;
+	const sessionManager = ctxObj?.sessionManager as { getSessionFile?: () => string | undefined } | undefined;
+	const sessionPath = sessionManager?.getSessionFile?.();
+	return typeof sessionPath === "string" && sessionPath.length > 0 ? sessionPath : getSessionId(ctx);
 }
 
 /** Resolve the completion function — uses test seam or falls back to pi-ai's completeSimple. */
@@ -535,12 +580,26 @@ function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 			})),
 		};
 		const result = await _piCompleteSimple(model, piContext, options);
-		// Extract text from content blocks
-		const text = (result as { content?: Array<{ type: string; text?: string }> })
-			?.content?.filter((b: { type: string }) => b.type === "text")
-			.map((b: { text?: string }) => b.text ?? "")
-			.join("") ?? "";
-		return { text };
+		const assistantMessage = result as {
+			content?: Array<{ type: string; text?: string; thinking?: string }>;
+			stopReason?: string;
+			errorMessage?: string;
+		};
+		const content = assistantMessage.content ?? [];
+		const text = content
+			.filter((block) => block.type === "text")
+			.map((block) => block.text ?? "")
+			.join("");
+		const thinking = content
+			.filter((block) => block.type === "thinking")
+			.map((block) => block.thinking ?? "")
+			.join("");
+		return {
+			text,
+			thinking,
+			stopReason: assistantMessage.stopReason,
+			errorMessage: assistantMessage.errorMessage,
+		};
 	};
 	return adapter;
 }
@@ -573,6 +632,138 @@ async function resolveAuth(ctx: unknown, model: unknown): Promise<{ apiKey?: str
 	return {};
 }
 
+interface PrepassRunResult {
+	selectedSkills: string[] | null;
+	selectedTools: string[] | null;
+	error: string | null;
+	rawResponse: string;
+	rawThinking: string;
+	rawSystemPrompt: string;
+	rawUserMessage: string;
+	latencyMs: number;
+	thinkingLevel: string;
+}
+
+function prepassTimeoutMs(thinkingLevel: string): number {
+	return LLM_TIMEOUT_MS_BY_THINKING_LEVEL[thinkingLevel] ?? LLM_TIMEOUT_MS_BY_THINKING_LEVEL.minimal;
+}
+
+function buildPrepassThinkingAttempts(thinkingLevel: string): string[] {
+	if (thinkingLevel === "minimal") {
+		return [thinkingLevel];
+	}
+	return [...new Set([thinkingLevel, "minimal"])];
+}
+
+function hasUsablePrepassResponse(result: Awaited<ReturnType<typeof runLlmPruning>>): boolean {
+	return result.rawResponse.trim().length > 0;
+}
+
+function formatEmptyPrepassError(result: Awaited<ReturnType<typeof runLlmPruning>>): string {
+	const diagnostics: string[] = [];
+	if (result.stopReason) {
+		diagnostics.push(`stopReason=${result.stopReason}`);
+	}
+	if (result.errorMessage) {
+		diagnostics.push(result.errorMessage);
+	}
+	if (diagnostics.length === 0) {
+		return "LLM pruning failed: returned no text response";
+	}
+	return `LLM pruning failed: returned no text response (${diagnostics.join("; ")})`;
+}
+
+async function runPruningPrepass(
+	ctx: unknown,
+	llmInput: LlmPruningInput,
+	activeConfig: PruningConfig,
+	completeFn: CompleteSimpleFn,
+): Promise<PrepassRunResult> {
+	const emptyResult = (thinkingLevel: string, error: string | null): PrepassRunResult => ({
+		selectedSkills: null,
+		selectedTools: null,
+		error,
+		rawResponse: "",
+		rawThinking: "",
+		rawSystemPrompt: "",
+		rawUserMessage: "",
+		latencyMs: 0,
+		thinkingLevel,
+	});
+
+	const model = resolveModel(ctx, activeConfig);
+	if (!model) {
+		return emptyResult(activeConfig.thinkingLevel, `Model '${activeConfig.model}' (provider: ${activeConfig.provider}) not found in registry`);
+	}
+
+	const auth = await resolveAuth(ctx, model);
+	const attempts = buildPrepassThinkingAttempts(activeConfig.thinkingLevel);
+	let latestResult = emptyResult(activeConfig.thinkingLevel, null);
+
+	for (let index = 0; index < attempts.length; index++) {
+		const thinkingLevel = attempts[index];
+		try {
+			const result = await runLlmPruning(llmInput, model, {
+				reasoning: thinkingLevel,
+				signal: AbortSignal.timeout(prepassTimeoutMs(thinkingLevel)),
+				...auth,
+			}, completeFn);
+
+			latestResult = {
+				selectedSkills: result.selectedSkills,
+				selectedTools: result.selectedTools,
+				error: null,
+				rawResponse: result.rawResponse,
+				rawThinking: result.rawThinking,
+				rawSystemPrompt: result.systemPrompt,
+				rawUserMessage: result.userMessage,
+				latencyMs: result.latencyMs,
+				thinkingLevel,
+			};
+
+			if (hasUsablePrepassResponse(result)) {
+				return latestResult;
+			}
+
+			latestResult.error = formatEmptyPrepassError(result);
+			if (index < attempts.length - 1) {
+				console.warn(`[skill-pruner] ${latestResult.error}; retrying with minimal reasoning`);
+			}
+		} catch (error) {
+			const errorMessage = `LLM pruning failed: ${error instanceof Error ? error.message : String(error)}`;
+			if (index < attempts.length - 1) {
+				latestResult = {
+					...latestResult,
+					selectedSkills: null,
+					selectedTools: null,
+					error: errorMessage,
+					thinkingLevel,
+				};
+				console.warn(`[skill-pruner] ${errorMessage}; retrying with minimal reasoning`);
+				continue;
+			}
+			console.warn(`[skill-pruner] ${errorMessage}`);
+			return {
+				...latestResult,
+				selectedSkills: null,
+				selectedTools: null,
+				error: errorMessage,
+				thinkingLevel,
+			};
+		}
+	}
+
+	if (latestResult.error) {
+		console.warn(`[skill-pruner] ${latestResult.error}`);
+		return latestResult;
+	}
+
+	return {
+		...latestResult,
+		error: "LLM pruning failed: returned no text response",
+	};
+}
+
 /** internal: test seam — overrides the SKILLS block formatter. */
 export function __setFormatter(fn: ((skills: Skill[]) => string) | null): void {
 	formatSkillsForPromptImpl = fn ?? formatSkillsForPrompt;
@@ -600,6 +791,7 @@ function buildReplacement(newBlock: string, hint: string): string {
 
 function buildDecision(input: {
 	sessionId: string;
+	sessionPath: string;
 	mode: PruningConfig["mode"];
 	query: string;
 	contextFilePath?: string;
@@ -616,6 +808,7 @@ function buildDecision(input: {
 	return {
 		timestamp: new Date().toISOString(),
 		sessionId: input.sessionId,
+		sessionPath: input.sessionPath,
 		mode: input.mode,
 		query: input.query,
 		contextFile: input.contextFilePath,
@@ -647,7 +840,9 @@ interface PrepassDiagnostics {
 	model: string;
 	thinkingLevel: string;
 	response: string;
+	thinking: string;
 	systemPrompt: string;
+	userMessage: string;
 	latencyMs: number;
 	error?: string | null;
 }
@@ -663,7 +858,16 @@ function buildFeedbackMessage(
 
 	// Handle error case — always show error to user
 	if (prepass?.error) {
-		const details: PruningResult & { prepassModel?: string; prepassThinkingLevel?: string; prepassError?: string } = {
+		const details: PruningResult & {
+			prepassModel?: string;
+			prepassThinkingLevel?: string;
+			prepassError?: string;
+			prepassResponse?: string;
+			prepassThinking?: string;
+			prepassSystemPrompt?: string;
+			prepassUserMessage?: string;
+			prepassLatencyMs?: number;
+		} = {
 			includedSkills: skillResult?.included ?? [],
 			excludedSkills: skillResult?.excluded ?? [],
 			includedTools: toolResult?.included ?? [],
@@ -675,6 +879,11 @@ function buildFeedbackMessage(
 			prepassThinkingLevel: prepass.thinkingLevel,
 			prepassError: prepass.error,
 		};
+		if (prepass.response) details.prepassResponse = prepass.response;
+		if (prepass.thinking) details.prepassThinking = prepass.thinking;
+		if (prepass.systemPrompt) details.prepassSystemPrompt = prepass.systemPrompt;
+		if (prepass.userMessage) details.prepassUserMessage = prepass.userMessage;
+		details.prepassLatencyMs = prepass.latencyMs;
 		return {
 			customType: "pruning-result",
 			content: `Pruning error: ${prepass.error}`,
@@ -688,7 +897,15 @@ function buildFeedbackMessage(
 	}
 
 	const parts: string[] = [];
-	const details: PruningResult & { prepassModel?: string; prepassThinkingLevel?: string; prepassResponse?: string; prepassSystemPrompt?: string; prepassLatencyMs?: number } = {
+	const details: PruningResult & {
+		prepassModel?: string;
+		prepassThinkingLevel?: string;
+		prepassResponse?: string;
+		prepassThinking?: string;
+		prepassSystemPrompt?: string;
+		prepassUserMessage?: string;
+		prepassLatencyMs?: number;
+	} = {
 		includedSkills: skillResult?.included ?? [],
 		excludedSkills: skillResult?.excluded ?? [],
 		includedTools: toolResult?.included ?? [],
@@ -698,11 +915,13 @@ function buildFeedbackMessage(
 		toolTokensSaved: toolResult?.tokensSaved ?? 0,
 	};
 
-	if (prepass && prepass.response) {
+	if (prepass) {
 		details.prepassModel = prepass.model;
 		details.prepassThinkingLevel = prepass.thinkingLevel;
-		details.prepassResponse = prepass.response;
-		details.prepassSystemPrompt = prepass.systemPrompt;
+		if (prepass.response) details.prepassResponse = prepass.response;
+		if (prepass.thinking) details.prepassThinking = prepass.thinking;
+		if (prepass.systemPrompt) details.prepassSystemPrompt = prepass.systemPrompt;
+		if (prepass.userMessage) details.prepassUserMessage = prepass.userMessage;
 		details.prepassLatencyMs = prepass.latencyMs;
 	}
 
@@ -733,22 +952,12 @@ function buildFeedbackMessage(
 }
 
 export function setConfigForTesting(nextConfig: PruningConfig | null): void {
-	config = nextConfig ? {
-		mode: nextConfig.mode,
-		model: nextConfig.model,
-		provider: nextConfig.provider,
-		thinkingLevel: nextConfig.thinkingLevel,
-		skills: { ...nextConfig.skills, pinned: [...nextConfig.skills.pinned] },
-		tools: nextConfig.tools ? {
-			strategy: nextConfig.tools.strategy,
-			ceiling: nextConfig.tools.ceiling,
-			dependencies: Object.fromEntries(Object.entries(nextConfig.tools.dependencies).map(([k, v]) => [k, [...v]])),
-		} : undefined,
-	} : null;
+	configOverrideForTesting = nextConfig ? clonePruningConfig(nextConfig) : null;
 }
 
 export function resetForTesting(): void {
-	config = null;
+	configOverrideForTesting = null;
+	__setPruningPromptTemplate(null);
 	formatSkillsForPromptImpl = formatSkillsForPrompt;
 	getAllToolsOverride = null;
 	getActiveToolsOverride = null;

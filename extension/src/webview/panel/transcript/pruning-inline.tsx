@@ -63,7 +63,7 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
     >
       <div class="flex items-start justify-between gap-3">
         <div class="flex min-w-0 flex-wrap items-center gap-[5px]" title="skill-pruner diagnostics">
-          <span class="text-[10px] font-bold uppercase tracking-wider text-muted">PI</span>
+          <span class="transcript-header-label">PI</span>
           {timeLabel && <span class="text-[11px] text-muted">{timeLabel}</span>}
           <span class="font-mono text-[10px] text-muted/60">
             skill-pruner{modeBadge}{prepassLabel}
@@ -78,7 +78,7 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
           onClick={() => setExpanded((v) => !v)}
         >
           <span class="shrink-0 text-[10px] text-muted" aria-hidden="true">✂</span>
-          <span class="min-w-0 flex-1 truncate text-[11px] text-foreground/90">{summary}</span>
+          <span class="transcript-header-summary min-w-0 flex-1 truncate">{summary}</span>
           <span class="shrink-0 text-[9px] text-muted" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
         </button>
         {expanded && (

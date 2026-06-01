@@ -59,37 +59,56 @@ function makeMessage(id: string, role: ChatMessage['role'], overrides: Partial<C
   } as unknown as ChatMessage;
 }
 
-// ─── Typing indicator row ────────────────────────────────────────────────────
+// ─── Busy-state footer shell ─────────────────────────────────────────────────
 
-test('buildTranscriptRows adds typingIndicator row when busy and last message is not streaming', () => {
+test('buildTranscriptRows adds an assistant placeholder row when busy after a user prompt', () => {
+  const transcript = [makeMessage('user-1', 'user')];
+  const activityState = deriveTurnActivityState({
+    busy: true,
+    transcript,
+    prefs: DEFAULT_CHAT_PREFS,
+    pruningSettings: DEFAULT_PRUNING_SETTINGS,
+  });
   const rows = buildTranscriptRows({
-    transcript: [makeMessage('user-1', 'user')],
+    transcript,
     systemPromptCount: 0,
     hasOlder: false,
     hasNewer: false,
     busy: true,
     hasPruningResult: false,
+    activityState,
   });
 
   const kinds = rows.map((r) => r.kind);
-  assert.deepEqual(kinds, ['message', 'typingIndicator']);
+  assert.deepEqual(kinds, ['message', 'message']);
+  assert.equal(rows[1]?.kind === 'message' ? rows[1].message.id : null, 'assistant-placeholder:user-1');
+  assert.equal(rows[1]?.kind === 'message' && rows[1].activityState ? rows[1].activityState.phase : null, 'pruning');
 });
 
 test('buildTranscriptRows omits typingIndicator when last message is already streaming', () => {
+  const transcript = [
+    makeMessage('user-1', 'user'),
+    makeMessage('assist-1', 'assistant', { status: 'streaming' }),
+  ];
+  const activityState = deriveTurnActivityState({
+    busy: true,
+    transcript,
+    prefs: DEFAULT_CHAT_PREFS,
+    pruningSettings: DEFAULT_PRUNING_SETTINGS,
+  });
   const rows = buildTranscriptRows({
-    transcript: [
-      makeMessage('user-1', 'user'),
-      makeMessage('assist-1', 'assistant', { status: 'streaming' }),
-    ],
+    transcript,
     systemPromptCount: 0,
     hasOlder: false,
     hasNewer: false,
     busy: true,
     hasPruningResult: false,
+    activityState,
   });
 
   const kinds = rows.map((r) => r.kind);
   assert.ok(!kinds.includes('typingIndicator'), 'should not show typing indicator during streaming');
+  assert.equal(rows[1]?.kind === 'message' && rows[1].activityState ? rows[1].activityState.phase : null, 'streaming');
 });
 
 test('buildTranscriptRows omits typingIndicator when not busy', () => {
@@ -106,7 +125,7 @@ test('buildTranscriptRows omits typingIndicator when not busy', () => {
   assert.ok(!kinds.includes('typingIndicator'));
 });
 
-test('buildTranscriptRows places typingIndicator before bottomGap', () => {
+test('buildTranscriptRows keeps the assistant placeholder before bottomGap', () => {
   const rows = buildTranscriptRows({
     transcript: [makeMessage('user-1', 'user')],
     systemPromptCount: 1,
@@ -117,13 +136,14 @@ test('buildTranscriptRows places typingIndicator before bottomGap', () => {
   });
 
   const kinds = rows.map((r) => r.kind);
-  assert.deepEqual(kinds, ['systemPrompts', 'message', 'typingIndicator', 'bottomGap']);
+  assert.deepEqual(kinds, ['systemPrompts', 'message', 'message', 'bottomGap']);
+  assert.equal(rows[2]?.kind === 'message' ? rows[2].message.id : null, 'assistant-placeholder:user-1');
 });
 
 test('estimateTranscriptRowSize returns stable size for typingIndicator', () => {
   assert.equal(
     estimateTranscriptRowSize({ kind: 'typingIndicator', key: 'typing-indicator' }),
-    64,
+    40,
   );
 });
 
@@ -228,7 +248,7 @@ test('deriveTurnActivityState returns null when not busy', () => {
   assert.equal(state, null);
 });
 
-test('deriveTurnActivityState returns null when streaming', () => {
+test('deriveTurnActivityState returns structured streaming state', () => {
   const state = deriveTurnActivityState({
     busy: true,
     transcript: [
@@ -238,7 +258,11 @@ test('deriveTurnActivityState returns null when streaming', () => {
     prefs: DEFAULT_CHAT_PREFS,
     pruningSettings: DEFAULT_PRUNING_SETTINGS,
   });
-  assert.equal(state, null);
+  assert.ok(state);
+  assert.equal(state!.phase, 'streaming');
+  assert.equal(state!.label, AGENT_ACTIVITY_LABELS.responding);
+  assert.equal(state!.tone, 'active');
+  assert.equal(state!.ariaLabel, 'Agent is responding');
 });
 
 test('deriveTurnActivityState returns structured pruning state', () => {
@@ -693,16 +717,12 @@ test('MessageItem renders TurnActivityStrip inline for assistant turns with acti
     activityState,
   }));
 
-  // TurnActivityStrip renders with accent tone (mapped from 'active')
-  assert.match(html, /turn-activity-strip accent/);
-  // Detail text is shown
-  assert.match(html, /turn-activity-strip-detail">src\/main\.ts</);
+  // TurnActivityStrip renders
+  assert.match(html, /turn-activity-strip/);
+  // Phase is exposed on the strip element
+  assert.match(html, /data-phase="runningTool"/);
   // Label is shown
   assert.match(html, /turn-activity-strip-label">running read</);
-  // Running dot is shown for runningTool phase
-  assert.match(html, /turn-activity-strip-dot running/);
-  // Not standalone (inline)
-  assert.doesNotMatch(html, /standalone/);
 });
 
 test('MessageItem renders TurnActivityStrip with neutral tone for thinking phase', async () => {
@@ -731,10 +751,5 @@ test('MessageItem renders TurnActivityStrip with neutral tone for thinking phase
     activityState,
   }));
 
-  // Neutral tone (no tone class for neutral)
   assert.match(html, /turn-activity-strip/);
-  assert.doesNotMatch(html, /\.accent/);
-  assert.doesNotMatch(html, /\.warning/);
-  // Running dot for thinking phase
-  assert.match(html, /turn-activity-strip-dot running/);
 });

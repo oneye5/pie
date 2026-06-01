@@ -1,5 +1,4 @@
-/* MIGRATED: .message.pruning-inline, .message.pruning-inline .pruning-banner */
-/* REMAINING: .pruning-banner* settings-menu pruning banner styles */
+/* ── Pruning banner wrapper & base ───────────────────────────────────────── */
 
 .pruning-banner-wrapper {
   margin-bottom: 6px;
@@ -26,11 +25,14 @@
   border-radius: var(--panel-radius-sm);
 }
 
+/* ── Collapsed state ─────────────────────────────────────────────────────── */
+
 .pruning-banner-collapsed {
   display: flex;
   align-items: center;
 }
 
+/* Looks like a <summary> but uses a custom button for consistent cross-browser behavior */
 .pruning-banner-summary {
   appearance: none;
   background: none;
@@ -73,6 +75,8 @@
   color: var(--panel-muted);
   margin-left: 4px;
 }
+
+/* ── Expanded state ──────────────────────────────────────────────────────── */
 
 .pruning-banner-expanded {
   display: flex;
@@ -128,7 +132,8 @@
   }
 }
 
-/* "Edited" indicator on the System Prompts header */
+/* ── System prompts edited indicator ─────────────────────────────────────── */
+
 .system-prompts-edited {
   font-size: 11px;
   color: var(--panel-muted);
@@ -140,7 +145,9 @@
   cursor: help;
 }
 
-/* Prepass reasoning response block */
+/* ── Prepass reasoning response block ────────────────────────────────────── */
+/* Shows the LLM's raw reasoning about which messages to prune */
+
 .pruning-banner-prepass-response {
   display: flex;
   flex-direction: column;
@@ -164,7 +171,9 @@
   overflow-y: auto;
 }
 
-/* Nested raw LLM output dropdown */
+/* ── Raw LLM output toggle ───────────────────────────────────────────────── */
+/* Nested disclosure for the unprocessed LLM response */
+
 .pruning-banner-raw-toggle {
   margin-top: 4px;
   border-radius: var(--panel-radius-sm);

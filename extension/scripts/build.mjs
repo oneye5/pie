@@ -1,5 +1,5 @@
 import { watch as fsWatch } from 'node:fs';
-import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { execSync } from 'node:child_process';
@@ -31,6 +31,7 @@ const copiedAssetRelativePaths = [
 let syncTimer;
 let syncQueue = Promise.resolve();
 let pendingAssetCopyTimer;
+let pendingTailwindTouchTimer;
 const pendingAssetCopies = new Set();
 
 function createNodeBuildOptions(entryPoint, outfile, extraOptions = {}) {
@@ -150,7 +151,8 @@ async function syncToInstalledExtension() {
   }
 
   const dest = path.join(extDir, 'out');
-  await mkdir(dest, { recursive: true });
+  await rm(dest, { recursive: true, force: true });
+  await mkdir(path.dirname(dest), { recursive: true });
   await cp(outDir, dest, { recursive: true, force: true });
   await writeFile(path.join(extDir, 'package.json'), JSON.stringify(pkg, null, 2));
   console.log(`Synced → ${extDir}`);
@@ -196,6 +198,60 @@ function scheduleAssetCopy(relativePath) {
       console.error('[build] Failed to copy watched asset', error);
     });
   }, 40);
+}
+
+async function touchWebviewCssEntry() {
+  const cssEntry = path.join(srcDir, 'webview', webviewViewName, 'styles', 'index.css');
+  const now = new Date();
+  await utimes(cssEntry, now, now);
+}
+
+function scheduleTailwindCssRefresh(changedFile) {
+  if (pendingTailwindTouchTimer !== undefined) {
+    clearTimeout(pendingTailwindTouchTimer);
+  }
+
+  pendingTailwindTouchTimer = setTimeout(() => {
+    pendingTailwindTouchTimer = undefined;
+    void touchWebviewCssEntry()
+      .then(() => {
+        console.log(`Touched -> ${path.join(webviewRelativeDir, 'styles', 'index.css')} (${changedFile})`);
+      })
+      .catch((error) => {
+        console.error('[build] Failed to refresh Tailwind CSS entry after source change', error);
+      });
+  }, 40);
+}
+
+function isTailwindSourceFile(fileName) {
+  if (!fileName) {
+    return false;
+  }
+
+  const normalized = fileName.split(path.sep).join('/');
+  if (normalized.includes('/node_modules/') || normalized.includes('/out/')) {
+    return false;
+  }
+
+  return normalized.endsWith('.ts') || normalized.endsWith('.tsx');
+}
+
+function createTailwindSourceWatcher() {
+  const sourceDir = path.join(srcDir, webviewRelativeDir);
+  const watcher = fsWatch(sourceDir, { recursive: true }, (_eventType, fileName) => {
+    const changedFile = typeof fileName === 'string' ? fileName : fileName?.toString();
+    if (!isTailwindSourceFile(changedFile)) {
+      return;
+    }
+
+    scheduleTailwindCssRefresh(changedFile);
+  });
+
+  watcher.on('error', (error) => {
+    console.error('[build] Tailwind source watcher failed', error);
+  });
+
+  return watcher;
 }
 
 function createSourceAssetWatcher() {
@@ -268,6 +324,7 @@ if (watchMode) {
   await mkdir(path.join(outDir, webviewRelativeDir), { recursive: true });
   const sourceAssetWatcher = createSourceAssetWatcher();
   const builtWebviewWatcher = createBuiltWebviewWatcher();
+  const tailwindSourceWatcher = createTailwindSourceWatcher();
 
   await Promise.all(contexts.map((context) => context.watch()));
   await copyStaticAssets();
@@ -282,9 +339,14 @@ if (watchMode) {
       clearTimeout(pendingAssetCopyTimer);
       pendingAssetCopyTimer = undefined;
     }
+    if (pendingTailwindTouchTimer !== undefined) {
+      clearTimeout(pendingTailwindTouchTimer);
+      pendingTailwindTouchTimer = undefined;
+    }
 
     sourceAssetWatcher.close();
     builtWebviewWatcher.close();
+    tailwindSourceWatcher.close();
     await Promise.all(contexts.map((context) => context.dispose()));
   };
 

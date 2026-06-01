@@ -365,8 +365,10 @@ function ComposerView({
       <div
         ref={composerShellRef}
         class={cx(
-          'flex flex-col gap-1.5 rounded-xl border border-border bg-input px-2 py-1.5 pb-2 transition-colors duration-150',
-          isDragActive && 'border-accent/40 bg-accent/5',
+          'flex flex-col gap-1.5 rounded-xl border border-transparent bg-input px-2 py-1.5 pb-2 shadow-sm transition-[background,border-color,box-shadow] duration-150',
+          'focus-within:border-border-subtle/80 focus-within:shadow-md',
+          'forced-colors:border forced-colors:border-[ButtonText] forced-colors:focus-within:outline-1 forced-colors:focus-within:outline-[Highlight]',
+          isDragActive && 'border-accent/40 bg-accent/5 shadow-md',
         )}
         onDragOver={handleDragOver}
         onDragLeave={handleDragLeave}

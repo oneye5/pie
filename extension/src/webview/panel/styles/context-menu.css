@@ -1,5 +1,4 @@
-/* MIGRATED: .composer-input-shell, .composer-input-shell.drag-active, .composer-textarea, .composer-actions */
-/* REMAINING: context menu and attachment card styles */
+/* ── Context menu item ───────────────────────────────────────────────────── */
 
 .context-menu-item {
   display: flex;
@@ -26,6 +25,7 @@
   cursor: default;
 }
 
+/* Disabled items must not change appearance on hover */
 .context-menu-item:disabled:hover {
   background: transparent;
   color: var(--vscode-menu-foreground, var(--vscode-foreground));
@@ -36,6 +36,8 @@
   color: var(--panel-accent);
 }
 
+/* ── Composer attachments ────────────────────────────────────────────────── */
+
 .composer-attachments {
   display: flex;
   align-items: center;
@@ -45,6 +47,7 @@
   align-self: flex-start;
 }
 
+/* Overflow summary badge when the strip is too narrow to show all cards */
 .composer-attachments-summary {
   display: inline-flex;
   align-items: center;
@@ -73,6 +76,8 @@
   padding-bottom: 1px;
   scrollbar-width: thin;
 }
+
+/* ── Attachment card ─────────────────────────────────────────────────────── */
 
 .attachment-card {
   display: inline-flex;
@@ -178,6 +183,8 @@
   outline-offset: 1px;
 }
 
+/* ── Composer hint ───────────────────────────────────────────────────────── */
+
 .composer-hint {
   display: flex;
   flex-wrap: wrap;
@@ -190,52 +197,3 @@
 .composer-hint-error {
   color: var(--panel-warning);
 }
-
-@keyframes blink {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0;
-  }
-}
-
-@keyframes pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.35;
-  }
-}
-
-@keyframes session-tab-unread-flash {
-  0%,
-  100% {
-    box-shadow: inset 0 0 0 1px var(--session-tab-outline);
-  }
-
-  50% {
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--panel-success) 28%, var(--session-tab-outline)),
-      0 0 0 1px color-mix(in srgb, var(--panel-success) 10%, transparent);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .transcript-typing-dot {
-    animation: none;
-    opacity: 0.7;
-  }
-
-  .session-tab-running,
-  .session-tab.unread-finished:not(.active) .session-tab-shell {
-    animation: none;
-  }
-}
-
-/* ── File Changes Panel ───────────────────────────────────────────────────── */
