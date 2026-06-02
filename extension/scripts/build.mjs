@@ -14,18 +14,23 @@ const outDir = path.join(rootDir, 'out');
 
 const watchMode = process.argv.includes('--watch');
 const skipTypecheck = process.argv.includes('--skip-typecheck');
+const noSync = process.argv.includes('--no-sync');
 const webviewViewName = 'panel';
 const webviewRelativeDir = path.join('webview', webviewViewName);
 const sourceWebviewAssetFileNames = new Set([
   'index.html',
+  'dev.html',
 ]);
 const hotReloadWebviewFileNames = new Set([
+  'dev.html',
   'index.html',
+  'dev.js',
   `${webviewViewName}.css`,
   `${webviewViewName}.js`,
 ]);
 const copiedAssetRelativePaths = [
   path.join(webviewRelativeDir, 'index.html'),
+  path.join(webviewRelativeDir, 'dev.html'),
 ];
 
 let syncTimer;
@@ -47,18 +52,26 @@ function createNodeBuildOptions(entryPoint, outfile, extraOptions = {}) {
   };
 }
 
-function createWebviewBuildOptions() {
+function createWebviewScriptBuildOptions(entryFileName, outFileName) {
   return {
-    entryPoints: [path.join(srcDir, 'webview', webviewViewName, `${webviewViewName}.tsx`)],
+    entryPoints: [path.join(srcDir, 'webview', webviewViewName, entryFileName)],
     bundle: true,
     platform: 'browser',
     format: 'iife',
-    outfile: path.join(outDir, 'webview', webviewViewName, `${webviewViewName}.js`),
+    outfile: path.join(outDir, 'webview', webviewViewName, outFileName),
     sourcemap: true,
     target: 'es2022',
     jsx: 'automatic',
     jsxImportSource: 'preact',
   };
+}
+
+function createWebviewBuildOptions() {
+  return createWebviewScriptBuildOptions(`${webviewViewName}.tsx`, `${webviewViewName}.js`);
+}
+
+function createWebviewDevBuildOptions() {
+  return createWebviewScriptBuildOptions('dev.tsx', 'dev.js');
 }
 
 function createWebviewCssBuildOptions() {
@@ -77,6 +90,7 @@ function createBuildConfigurations() {
     createNodeBuildOptions('extension.ts', 'extension.js', { external: ['vscode'] }),
     createNodeBuildOptions(path.join('backend', 'index.ts'), 'backend.js'),
     createWebviewBuildOptions(),
+    createWebviewDevBuildOptions(),
     createWebviewCssBuildOptions(),
   ];
 }
@@ -140,6 +154,10 @@ async function chooseInstalledExtensionDir(pkg) {
 
 /** Sync runtime output and manifest files to the locally installed extension so GUI-only edits can refresh in-place. */
 async function syncToInstalledExtension() {
+  if (noSync) {
+    return;
+  }
+
   const pkg = JSON.parse(await readFile(path.join(rootDir, 'package.json'), 'utf8'));
   const extDir = await chooseInstalledExtensionDir(pkg);
   if (!extDir) {

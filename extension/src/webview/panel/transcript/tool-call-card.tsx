@@ -332,7 +332,7 @@ function CollapsedSummary({
 }) {
   if (model.kind === 'text') {
     return (
-      <span class="transcript-header-summary-mono block min-w-0 max-w-[var(--tool-call-summary-column-width)] flex-[0_1_auto] truncate" title={model.text}>
+      <span class="transcript-header-summary-mono block min-w-0 max-w-full flex-1 truncate" title={model.text}>
         {model.text}
       </span>
     );
@@ -343,7 +343,7 @@ function CollapsedSummary({
 
     if (!summaryPath) {
       return (
-        <span class="block min-w-0 max-w-[var(--tool-call-summary-column-width)] flex-[0_1_auto]" title={model.title ?? model.text}>
+        <span class="block min-w-0 max-w-full flex-1" title={model.title ?? model.text}>
           {content}
         </span>
       );
@@ -410,7 +410,7 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
     <div class="flex items-center gap-[7px] rounded-md px-2 py-[5px]">
       <DisclosureChevron open={open} />
       <div class={cx('flex min-w-0 flex-1 items-center gap-2', (showSummary || showSizeHint) && 'gap-1.5')}>
-        <span class="transcript-header-title-mono min-w-0 flex-auto truncate" title={nameTitle}>{name}</span>
+        <span class="transcript-header-title-mono min-w-0 flex-[0_1_auto] truncate" title={nameTitle}>{name}</span>
         {showSummary && collapsedSummaryModel ? (
           <CollapsedSummary model={collapsedSummaryModel} summaryPath={summaryPath} onOpenFile={onOpenFile} />
         ) : null}

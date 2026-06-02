@@ -4,6 +4,7 @@ import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 import type { ModelSubagentInfo } from '../shared/protocol';
+import { estimateNormalizedCost, loadModelPricing, type ModelTokenPricing } from './pricing';
 
 /**
  * Raw profile shape as stored in `<agentDir>/model-profiles.{yaml,json}`.
@@ -22,6 +23,7 @@ interface RawSubagentProfile {
 
 interface CacheEntry {
   mtimeMs: number;
+  pricingMtimeMs: number;
   map: Map<string, ModelSubagentInfo>;
 }
 
@@ -78,7 +80,8 @@ function resolveProfilesPath(agentDir: string): { filePath: string; ext: string 
  * Load subagent profiles for the picker, keyed by model id. Returns an empty map
  * when the shared `<agentDir>/model-profiles.{yaml,json}` is missing or unreadable so the
  * picker still renders (and the subagent extension falls back to inheriting the
- * caller's model). Cached by mtime to avoid re-parsing on every `models.list` request.
+ * caller's model). Cached by mtime of both the profiles file and models.json to
+ * avoid re-parsing on every `models.list` request.
  */
 export function loadSubagentProfiles(agentDir: string): Map<string, ModelSubagentInfo> {
   if (!agentDir) return new Map();
@@ -95,12 +98,41 @@ export function loadSubagentProfiles(agentDir: string): Map<string, ModelSubagen
     cache.delete(filePath);
     return new Map();
   }
+
+  // Also track models.json mtime for cache invalidation when pricing changes.
+  const pricingPath = path.join(agentDir, 'models.json');
+  let pricingMtimeMs = 0;
+  try {
+    pricingMtimeMs = fs.statSync(pricingPath).mtimeMs;
+  } catch {
+    // models.json is optional — proceed without pricing
+  }
+
   const cached = cache.get(filePath);
-  if (cached && cached.mtimeMs === stat.mtimeMs) return cached.map;
+  if (cached && cached.mtimeMs === stat.mtimeMs && cached.pricingMtimeMs === pricingMtimeMs) {
+    return cached.map;
+  }
+
   try {
     const raw = fs.readFileSync(filePath, 'utf8');
     const map = parseFile(raw, ext);
-    cache.set(filePath, { mtimeMs: stat.mtimeMs, map });
+
+    // Enrich with pricing data from models.json when available.
+    const pricingRecords = loadModelPricing(pricingPath);
+    if (pricingRecords.size > 0) {
+      for (const [modelId, info] of map) {
+        const records = pricingRecords.get(modelId);
+        if (records && records.length > 0) {
+          const priced = records.find((r) => r.pricing !== undefined);
+          if (priced?.pricing) {
+            info.normalizedCost = estimateNormalizedCost(priced.pricing);
+            info.pricing = { ...priced.pricing };
+          }
+        }
+      }
+    }
+
+    cache.set(filePath, { mtimeMs: stat.mtimeMs, pricingMtimeMs, map });
     return map;
   } catch {
     return new Map();

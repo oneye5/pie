@@ -2,13 +2,13 @@ topK: 2
 profiles:
   # === GITHUB COPILOT MODELS ===
   #
-  # COST SCALE: shared relative ranking heuristic (0–30+), not a literal dollar amount.
-  # - Copilot models use premium-request multipliers:
-  #   0=included/free, 3=0.33x, 10=1x (baseline), 18=3x, 25=7.5x, 30=15x.
-  #   See docs/internal/copilot-model-pricing.md for mapping and billing changes.
-  # - Ollama cloud models reuse the same baseline, but are compute-estimate-scored from
-  #   docs/internal/ollama-pro-cloud-models-ranked.md.
-  # Higher = more costly per request / token budget pressure for selection.
+  # COST: the `cost` field below is a LEGACY fallback selector penalty (0–30+).
+  # Real token pricing is now the authoritative source, stored in `models.json`.
+  # The subagent selector resolves cost in this order:
+  #   1. Real token pricing from models.json → normalized via 10×√(blended/6.00)
+  #   2. Legacy `cost` field below (kept as fallback for models without token pricing)
+  #   3. Capability aggregate (precision+creativity+thoroughness+reasoning)
+  # See docs/internal/model-token-pricing-sources.md for evidence and baseline.
 
   # --- Claude (current gen) ---
   - id: claude-opus-4.7
@@ -261,14 +261,9 @@ profiles:
 
   # === OLLAMA CLOUD MODELS ===
   #
-  # COST METHODOLOGY:
-  # - Anchored to Copilot's cost=10 baseline via deepseek-v3.2:cloud
-  #   (~$0.0617 / 1M tokens in docs/internal/ollama-pro-cloud-models-ranked.md).
-  # - Numeric rows use: round(10 * sqrt(model_cost_usd_per_1m / 0.062)).
-  # - gemini-3-flash-preview:cloud uses the midpoint of its estimated $0.02-$0.08 range.
-  # - qwen3.5:cloud uses the midpoint of its documented $0.0013-$0.0583 variant range
-  #   (~$0.0298 / 1M).
-  # - Source estimates are lower-bound compute-only figures, so scores are intentionally coarse.
+  # COST: legacy fallback values. Real pricing in models.json (compute estimates
+  # from docs/internal/model-token-pricing-sources.md) is the authoritative source.
+  # The `cost` field here is only used when models.json has no pricing for a model.
 
   # --- DeepSeek (current gen) ---
   - id: deepseek-v4-pro:cloud

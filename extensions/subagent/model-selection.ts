@@ -62,8 +62,19 @@ export interface ModelProfile {
 	 * has cost 20, then A is effectively free while B is expensive.
 	 *
 	 * Omit this field to fall back to aggregate(precision, creativity, thoroughness, reasoning).
+	 *
+	 * Legacy field — superseded by {@link normalizedCost} when real token pricing
+	 * is available. Kept as fallback for models without token pricing data.
 	 */
 	cost?: number;
+	/**
+	 * Normalized selector cost (0–30+) derived from real token pricing in models.json.
+	 * Populated by the caller from pricing data before selection.
+	 *
+	 * When present, this replaces {@link cost} as the primary cost input to fitness.
+	 * The fallback order is: normalizedCost → legacy cost → capability aggregate.
+	 */
+	normalizedCost?: number;
 	/** Which thinking levels this model supports. Models that omit this accept all levels. */
 	thinking?: ThinkingLevel[];
 	eligible: boolean;
@@ -179,7 +190,7 @@ export function computeFitness(taskScores: TaskScores, profile: ModelProfile): n
 		fitness -= DEFICIT_WEIGHT * deficit * deficit;   // quadratic penalty for falling short
 	}
 
-	const cost = profile.cost ?? DIMENSIONS.reduce((sum, d) => sum + profile[d], 0);
+	const cost = profile.normalizedCost ?? profile.cost ?? DIMENSIONS.reduce((sum, d) => sum + profile[d], 0);
 	fitness -= COST_WEIGHT * cost;
 
 	return fitness;

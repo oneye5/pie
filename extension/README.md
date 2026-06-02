@@ -69,6 +69,8 @@ The UI lives inside a VS Code sidebar panel and must feel like it belongs there:
 ## Local GUI development
 
 - Run `npm run watch` inside `extension/` while working on the sidebar UI.
+- Run `npm run webview:dev` inside `extension/` to run the panel as a normal browser app at `http://127.0.0.1:8790` backed by the real PI backend, without syncing changes into the installed extension.
+- Browser dev fixtures are still available with `?state=chat`, `busy`, `tools`, `long`, `attachments`, `error`, `files`, `outcome`, or `extension-ui`; add `&theme=light` or `&theme=dark` for theme checks.
 - The composer accepts pasted images and file drops when the selected model reports image support.
 - Screenshot/image paste is wired at the panel level, so pasting anywhere in the pie chat while it is focused attaches the image to the active composer.
 - Changes to `src/webview/panel/panel.tsx`, `panel.css`, and `index.html` rebuild/copy automatically.

@@ -98,6 +98,7 @@
   "scripts": {
     "build": "node ./scripts/build.mjs",
     "watch": "node ./scripts/build.mjs --watch",
+    "webview:dev": "node ./scripts/webview-dev.mjs",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "tsx --test ./test/**/*.test.ts",

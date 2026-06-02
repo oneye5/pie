@@ -1,5 +1,10 @@
 # GitHub Copilot Model Pricing Reference
 
+> **Note (2026-06-01):** Token pricing from this document has been ingested into `models.json`
+> as the authoritative pricing source. See `docs/internal/model-token-pricing-sources.md` for
+> the full evidence ledger. The legacy `cost` field in `model-profiles.yaml` derived from
+> premium-request multipliers is now a fallback only.
+
 Last updated: 2026-05-16
 
 ## Cost Mapping

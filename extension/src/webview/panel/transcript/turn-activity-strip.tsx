@@ -62,14 +62,21 @@ export function TurnActivityStrip({
       class={cx(
         'turn-activity-strip',
         tone !== 'neutral' && tone,
+        runningDot && 'running',
         standalone && 'standalone',
       )}
       data-phase={phase}
       role="status"
       aria-label={ariaLabel ?? defaultAriaLabel(label, detail)}
     >
-      <span class={cx('turn-activity-strip-dot', runningDot && 'running')} aria-hidden="true" />
-      <span class="turn-activity-strip-label">{label}</span>
+      <span class="turn-activity-strip-label">
+        {label}
+        {runningDot && (
+          <span class="turn-activity-strip-ellipsis" aria-hidden="true">
+            <span>.</span><span>.</span><span>.</span>
+          </span>
+        )}
+      </span>
       {detail && <span class="turn-activity-strip-detail">{detail}</span>}
     </div>
   );

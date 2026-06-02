@@ -46,6 +46,7 @@ import {
 	parseProviderToggles,
 	selectModel,
 } from "./model-selection.js";
+import { loadModelPricing, resolveModelCost } from "./pricing.js";
 
 // All helper code lives in the modules listed above.
 
@@ -256,6 +257,22 @@ export default function (pi: ExtensionAPI) {
 				selectionConfig = loadSelectionConfig(selectionConfigPath);
 			} catch {
 				// Missing or invalid config — fall through to normal agent/caller model resolution
+			}
+
+			// Load pricing from models.json and populate normalizedCost on profiles.
+			// Missing or invalid pricing is non-fatal: profiles fall back to legacy cost.
+			if (selectionConfig) {
+				const modelsJsonPath = path.join(CONFIG_ROOT, "models.json");
+				const pricingRecords = loadModelPricing(modelsJsonPath);
+				for (const profile of selectionConfig.profiles) {
+					const dimAggregate = profile.precision + profile.creativity + profile.thoroughness + profile.reasoning;
+					const resolved = resolveModelCost(profile.id, pricingRecords, profile.cost, dimAggregate);
+					// Only set normalizedCost when it comes from real pricing — let legacy cost
+					// handle itself via the existing profile.cost field in ModelProfile.
+					if (resolved.usedSource === "pricing") {
+						profile.normalizedCost = resolved.normalizedCost;
+					}
+				}
 			}
 
 			const disabledProviders = getDisabledProviders(parseProviderToggles(process.env[PROVIDER_TOGGLES_ENV]));

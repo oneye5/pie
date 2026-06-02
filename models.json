@@ -16,21 +16,36 @@
           "name": "Ollama Local: Mistral 7B (Pi, 8K ctx)",
           "contextWindow": 8192,
           "maxTokens": 512,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "llama3.2-3b-pi:latest",
           "name": "Ollama Local: Llama 3.2 3B (Pi, 4K ctx)",
           "contextWindow": 4096,
           "maxTokens": 512,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "gemma4-e2b-pi:latest",
           "name": "Ollama Local: Gemma 4 E2B (Pi, 4K ctx)",
           "contextWindow": 4096,
           "maxTokens": 512,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "cogito-2.1:671b-cloud",
@@ -38,7 +53,12 @@
           "reasoning": true,
           "contextWindow": 163840,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0617,
+            "output": 0.0617,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "deepseek-v3.1:671b-cloud",
@@ -46,7 +66,12 @@
           "reasoning": true,
           "contextWindow": 163840,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0617,
+            "output": 0.0617,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "deepseek-v3.2:cloud",
@@ -54,7 +79,12 @@
           "reasoning": true,
           "contextWindow": 163840,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0617,
+            "output": 0.0617,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "deepseek-v4-flash:cloud",
@@ -62,7 +92,12 @@
           "reasoning": true,
           "contextWindow": 1048576,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0217,
+            "output": 0.0217,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "deepseek-v4-pro:cloud",
@@ -70,64 +105,122 @@
           "reasoning": true,
           "contextWindow": 1048576,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0817,
+            "output": 0.0817,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "devstral-2:123b-cloud",
           "name": "Ollama Cloud: Devstral 2 123B",
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.205,
+            "output": 0.205,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "devstral-small-2:24b-cloud",
           "name": "Ollama Cloud: Devstral Small 2 24B",
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.04,
+            "output": 0.04,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "gemini-3-flash-preview:cloud",
           "name": "Ollama Cloud: Gemini 3 Flash Preview",
           "reasoning": true,
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 1048576,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "gemma3:12b-cloud",
           "name": "Ollama Cloud: Gemma 3 12B",
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 32768,
           "maxTokens": 8192,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.02,
+            "output": 0.02,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "gemma3:27b-cloud",
           "name": "Ollama Cloud: Gemma 3 27B",
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 131072,
           "maxTokens": 16384,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.045,
+            "output": 0.045,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "gemma3:4b-cloud",
           "name": "Ollama Cloud: Gemma 3 4B",
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 32768,
           "maxTokens": 8192,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0067,
+            "output": 0.0067,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "gemma4:31b-cloud",
           "name": "Ollama Cloud: Gemma 4 31B",
           "reasoning": true,
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0517,
+            "output": 0.0517,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "glm-4.6:cloud",
@@ -135,7 +228,12 @@
           "reasoning": true,
           "contextWindow": 202752,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0533,
+            "output": 0.0533,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "glm-4.7:cloud",
@@ -143,7 +241,12 @@
           "reasoning": true,
           "contextWindow": 202752,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0533,
+            "output": 0.0533,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "glm-5:cloud",
@@ -151,7 +254,12 @@
           "reasoning": true,
           "contextWindow": 202752,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0667,
+            "output": 0.0667,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "glm-5.1:cloud",
@@ -159,7 +267,12 @@
           "reasoning": true,
           "contextWindow": 202752,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0667,
+            "output": 0.0667,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "gpt-oss:120b-cloud",
@@ -167,7 +280,12 @@
           "reasoning": true,
           "contextWindow": 131072,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.2,
+            "output": 0.2,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "gpt-oss:20b-cloud",
@@ -175,7 +293,12 @@
           "reasoning": true,
           "contextWindow": 131072,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0333,
+            "output": 0.0333,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "kimi-k2-thinking:cloud",
@@ -183,70 +306,130 @@
           "reasoning": true,
           "contextWindow": 262144,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0533,
+            "output": 0.0533,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "kimi-k2:1t-cloud",
           "name": "Ollama Cloud: Kimi K2 1T",
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0533,
+            "output": 0.0533,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "kimi-k2.5:cloud",
           "name": "Ollama Cloud: Kimi K2.5",
           "reasoning": true,
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0533,
+            "output": 0.0533,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "kimi-k2.6:cloud",
           "name": "Ollama Cloud: Kimi K2.6",
           "reasoning": true,
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0533,
+            "output": 0.0533,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "ministral-3:14b-cloud",
           "name": "Ollama Cloud: Ministral 3 14B",
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0233,
+            "output": 0.0233,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "ministral-3:3b-cloud",
           "name": "Ollama Cloud: Ministral 3 3B",
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 16384,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.005,
+            "output": 0.005,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "ministral-3:8b-cloud",
           "name": "Ollama Cloud: Ministral 3 8B",
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0133,
+            "output": 0.0133,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "minimax-m2:cloud",
           "name": "Ollama Cloud: MiniMax M2",
           "contextWindow": 204800,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0167,
+            "output": 0.0167,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "minimax-m2.1:cloud",
           "name": "Ollama Cloud: MiniMax M2.1",
           "contextWindow": 204800,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0167,
+            "output": 0.0167,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "minimax-m2.5:cloud",
@@ -254,7 +437,12 @@
           "reasoning": true,
           "contextWindow": 204800,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0167,
+            "output": 0.0167,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "minimax-m2.7:cloud",
@@ -262,15 +450,28 @@
           "reasoning": true,
           "contextWindow": 196608,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0167,
+            "output": 0.0167,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "mistral-large-3:675b-cloud",
           "name": "Ollama Cloud: Mistral Large 3 675B",
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0683,
+            "output": 0.0683,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "nemotron-3-nano:30b-cloud",
@@ -278,7 +479,12 @@
           "reasoning": true,
           "contextWindow": 1048576,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.05,
+            "output": 0.05,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "nemotron-3-super:cloud",
@@ -286,21 +492,36 @@
           "reasoning": true,
           "contextWindow": 262144,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.02,
+            "output": 0.02,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "qwen3-coder-next:cloud",
           "name": "Ollama Cloud: Qwen3 Coder Next",
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.005,
+            "output": 0.005,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "qwen3-coder:480b-cloud",
           "name": "Ollama Cloud: Qwen3 Coder 480B",
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0583,
+            "output": 0.0583,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "qwen3-next:80b-cloud",
@@ -308,49 +529,392 @@
           "reasoning": true,
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.005,
+            "output": 0.005,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "qwen3-vl:235b-cloud",
           "name": "Ollama Cloud: Qwen3 VL 235B",
           "reasoning": true,
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0367,
+            "output": 0.0367,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "qwen3-vl:235b-instruct-cloud",
           "name": "Ollama Cloud: Qwen3 VL 235B Instruct",
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0367,
+            "output": 0.0367,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "qwen3.5:397b-cloud",
           "name": "Ollama Cloud: Qwen 3.5 397B",
           "reasoning": true,
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 65536,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0283,
+            "output": 0.0283,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "qwen3.5:cloud",
           "name": "Ollama Cloud: Qwen 3.5",
           "reasoning": true,
-          "input": ["text", "image"],
+          "input": [
+            "text",
+            "image"
+          ],
           "contextWindow": 262144,
           "maxTokens": 32768,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0298,
+            "output": 0.0298,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         },
         {
           "id": "rnj-1:8b-cloud",
           "name": "Ollama Cloud: RNJ-1 8B",
           "contextWindow": 32768,
           "maxTokens": 8192,
-          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+          "cost": {
+            "input": 0.0133,
+            "output": 0.0133,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
+        }
+      ]
+    },
+    "github-copilot": {
+      "api": "openai-completions",
+      "apiKey": "copilot",
+      "compat": {
+        "supportsDeveloperRole": true,
+        "supportsReasoningEffort": true,
+        "supportsUsageInStreaming": true,
+        "maxTokensField": "max_tokens"
+      },
+      "models": [
+        {
+          "id": "claude-haiku-4.5",
+          "name": "Copilot: Claude Haiku 4.5",
+          "reasoning": true,
+          "contextWindow": 200000,
+          "maxTokens": 16384,
+          "cost": {
+            "input": 1,
+            "output": 5,
+            "cacheRead": 0.1,
+            "cacheWrite": 1.25
+          }
+        },
+        {
+          "id": "claude-opus-4.5",
+          "name": "Copilot: Claude Opus 4.5",
+          "reasoning": true,
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cacheRead": 0.5,
+            "cacheWrite": 6.25
+          }
+        },
+        {
+          "id": "claude-opus-4.6",
+          "name": "Copilot: Claude Opus 4.6",
+          "reasoning": true,
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cacheRead": 0.5,
+            "cacheWrite": 6.25
+          }
+        },
+        {
+          "id": "claude-opus-4.7",
+          "name": "Copilot: Claude Opus 4.7",
+          "reasoning": true,
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cacheRead": 0.5,
+            "cacheWrite": 6.25
+          }
+        },
+        {
+          "id": "claude-sonnet-4",
+          "name": "Copilot: Claude Sonnet 4",
+          "reasoning": true,
+          "cost": {
+            "input": 3,
+            "output": 15,
+            "cacheRead": 0.3,
+            "cacheWrite": 3.75
+          }
+        },
+        {
+          "id": "claude-sonnet-4.5",
+          "name": "Copilot: Claude Sonnet 4.5",
+          "reasoning": true,
+          "cost": {
+            "input": 3,
+            "output": 15,
+            "cacheRead": 0.3,
+            "cacheWrite": 3.75
+          }
+        },
+        {
+          "id": "claude-sonnet-4.6",
+          "name": "Copilot: Claude Sonnet 4.6",
+          "reasoning": true,
+          "cost": {
+            "input": 3,
+            "output": 15,
+            "cacheRead": 0.3,
+            "cacheWrite": 3.75
+          }
+        },
+        {
+          "id": "gpt-4o",
+          "name": "Copilot: GPT-4o",
+          "contextWindow": 128000,
+          "maxTokens": 16384,
+          "cost": {
+            "input": 2.5,
+            "output": 10,
+            "cacheRead": 0.25,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-4.1",
+          "name": "Copilot: GPT-4.1",
+          "contextWindow": 1000000,
+          "maxTokens": 32768,
+          "cost": {
+            "input": 2,
+            "output": 8,
+            "cacheRead": 0.5,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5",
+          "name": "Copilot: GPT-5",
+          "reasoning": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14,
+            "cacheRead": 0.175,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5-mini",
+          "name": "Copilot: GPT-5 Mini",
+          "cost": {
+            "input": 0.25,
+            "output": 2,
+            "cacheRead": 0.025,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.1",
+          "name": "Copilot: GPT-5.1",
+          "reasoning": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14,
+            "cacheRead": 0.175,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.1-codex",
+          "name": "Copilot: GPT-5.1 Codex",
+          "reasoning": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14,
+            "cacheRead": 0.175,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.1-codex-max",
+          "name": "Copilot: GPT-5.1 Codex Max",
+          "reasoning": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14,
+            "cacheRead": 0.175,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.1-codex-mini",
+          "name": "Copilot: GPT-5.1 Codex Mini",
+          "reasoning": true,
+          "cost": {
+            "input": 0.75,
+            "output": 4.5,
+            "cacheRead": 0.075,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.2",
+          "name": "Copilot: GPT-5.2",
+          "reasoning": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14,
+            "cacheRead": 0.175,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.2-codex",
+          "name": "Copilot: GPT-5.2 Codex",
+          "reasoning": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14,
+            "cacheRead": 0.175,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.3-codex",
+          "name": "Copilot: GPT-5.3 Codex",
+          "reasoning": true,
+          "cost": {
+            "input": 1.75,
+            "output": 14,
+            "cacheRead": 0.175,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.4",
+          "name": "Copilot: GPT-5.4",
+          "reasoning": true,
+          "cost": {
+            "input": 2.5,
+            "output": 15,
+            "cacheRead": 0.25,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.4-mini",
+          "name": "Copilot: GPT-5.4 Mini",
+          "reasoning": true,
+          "cost": {
+            "input": 0.75,
+            "output": 4.5,
+            "cacheRead": 0.075,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gpt-5.5",
+          "name": "Copilot: GPT-5.5",
+          "reasoning": true,
+          "cost": {
+            "input": 5,
+            "output": 30,
+            "cacheRead": 0.5,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gemini-2.5-pro",
+          "name": "Copilot: Gemini 2.5 Pro",
+          "reasoning": true,
+          "cost": {
+            "input": 1.25,
+            "output": 10,
+            "cacheRead": 0.125,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gemini-3-flash-preview",
+          "name": "Copilot: Gemini 3 Flash Preview",
+          "reasoning": true,
+          "cost": {
+            "input": 0.5,
+            "output": 3,
+            "cacheRead": 0.05,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gemini-3-pro-preview",
+          "name": "Copilot: Gemini 3 Pro Preview",
+          "reasoning": true,
+          "cost": {
+            "input": 2,
+            "output": 12,
+            "cacheRead": 0.2,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "gemini-3.1-pro-preview",
+          "name": "Copilot: Gemini 3.1 Pro Preview",
+          "reasoning": true,
+          "cost": {
+            "input": 2,
+            "output": 12,
+            "cacheRead": 0.2,
+            "cacheWrite": 0
+          }
+        },
+        {
+          "id": "grok-code-fast-1",
+          "name": "Copilot: Grok Code Fast 1",
+          "reasoning": true,
+          "cost": {
+            "input": 0,
+            "output": 0,
+            "cacheRead": 0,
+            "cacheWrite": 0
+          }
         }
       ]
     }

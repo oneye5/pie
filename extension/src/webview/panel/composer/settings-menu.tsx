@@ -27,6 +27,28 @@ const THINKING_LEVEL_OPTIONS: { value: ThinkingLevel; label: string }[] = [
   { value: 'high', label: 'High' },
 ];
 
+/**
+ * Tools contributed by non-extension providers are only visible to the backend
+ * when they are active. After pruning, analytics can therefore contain only the
+ * kept subset, which makes the always-keep picker unable to recover omitted
+ * provider tools. Seed the picker with the stable built-in/provider tools so
+ * users can pin them even when the previous turn pruned them away.
+ */
+export const DEFAULT_TOOL_KEEP_CATALOG = [
+  'bash',
+  'code_search',
+  'edit',
+  'fetch_content',
+  'find',
+  'get_search_content',
+  'grep',
+  'ls',
+  'read',
+  'request_tool',
+  'web_search',
+  'write',
+];
+
 interface ComposerSettingsMenuProps {
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;
@@ -59,6 +81,19 @@ export function computeKeepCatalog(
 export function filterKeepCatalog(catalog: string[], selected: string[]): string[] {
   const selectedSet = new Set(selected);
   return catalog.filter((name) => !selectedSet.has(name));
+}
+
+/** Compute the tool catalog, including provider tools that may be hidden by pruning. */
+export function computeToolKeepCatalog(
+  discoveredNames: string[],
+  fromPruningResult: { included?: string[]; excluded?: string[] } | null,
+  currentlySelected: string[],
+): string[] {
+  return computeKeepCatalog(
+    [...DEFAULT_TOOL_KEEP_CATALOG, ...discoveredNames],
+    fromPruningResult,
+    currentlySelected,
+  );
 }
 
 interface AlwaysKeepPickerProps {
@@ -138,7 +173,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
     [pruningCatalog.skills, pruningResult, pruningSettings.skillAlwaysKeep],
   );
   const toolCatalog = useMemo(
-    () => computeKeepCatalog(
+    () => computeToolKeepCatalog(
       pruningCatalog.tools,
       pruningResult ? { included: pruningResult.includedTools, excluded: pruningResult.excludedTools } : null,
       pruningSettings.toolAlwaysKeep,

@@ -87,8 +87,8 @@
 .transcript-header-summary-link {
   display: block;
   min-width: 0;
-  max-width: var(--tool-call-summary-column-width);
-  flex: 0 1 auto;
+  max-width: 100%;
+  flex: 1 1 0;
   cursor: pointer;
   border: 0;
   border-radius: var(--panel-radius-sm);
@@ -138,8 +138,8 @@
   align-items: baseline;
   gap: 5px;
   min-width: 0;
-  max-width: var(--tool-call-summary-column-width);
-  flex: 0 1 auto;
+  max-width: 100%;
+  flex: 1 1 0;
   overflow: hidden;
 }
 
@@ -323,36 +323,24 @@
 
 .turn-activity-strip {
   display: inline-flex;
-  align-items: center;
-  gap: 5px;
+  align-items: baseline;
+  gap: 4px;
   min-height: var(--turn-activity-min-height);
+  max-width: 100%;
+  min-width: 0;
   padding: 0;
+  overflow: hidden;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 9px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-weight: 400;
+  line-height: 1.25;
+  letter-spacing: 0.02em;
   white-space: nowrap;
-  max-width: 100%;
-  color: color-mix(in srgb, var(--vscode-foreground) 48%, var(--panel-muted) 52%);
+  color: color-mix(in srgb, var(--vscode-foreground) 46%, var(--panel-muted) 54%);
+  opacity: 0.72;
 }
 
 .turn-activity-strip.standalone { margin: 2px 0; }
-
-.turn-activity-strip-dot {
-  width: var(--status-chip-dot-size);
-  height: var(--status-chip-dot-size);
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.42;
-  flex-shrink: 0;
-  transition: opacity 0.3s ease;
-}
-
-.turn-activity-strip-dot.running {
-  animation: turn-activity-dot-pulse var(--status-chip-motion-duration) cubic-bezier(0.4, 0, 0.6, 1) infinite;
-}
 
 .turn-activity-strip-label {
   min-width: 0;
@@ -361,22 +349,34 @@
   white-space: nowrap;
 }
 
+.turn-activity-strip-ellipsis {
+  display: inline-flex;
+  width: 1.6ch;
+  justify-content: flex-start;
+  overflow: hidden;
+  vertical-align: baseline;
+}
+
+.turn-activity-strip-ellipsis span {
+  opacity: 0.16;
+  animation: turn-activity-ellipsis-dot 1.35s ease-in-out infinite;
+}
+
+.turn-activity-strip-ellipsis span:nth-child(2) { animation-delay: 0.18s; }
+.turn-activity-strip-ellipsis span:nth-child(3) { animation-delay: 0.36s; }
+
 .turn-activity-strip-detail {
-  min-width: 0;
+  min-width: min(10ch, 40%);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  opacity: 0.62;
+  opacity: 0.58;
   font-weight: 400;
   letter-spacing: normal;
   text-transform: none;
 }
 
-/* Semantic tone modifiers */
-.turn-activity-strip.accent  { color: color-mix(in srgb, var(--panel-accent)   52%, var(--panel-muted) 48%); }
-.turn-activity-strip.warning { color: color-mix(in srgb, var(--panel-warning)   48%, var(--panel-muted) 52%); }
-.turn-activity-strip.error   { color: color-mix(in srgb, var(--panel-danger)    52%, var(--panel-muted) 48%); }
-.turn-activity-strip.success { color: color-mix(in srgb, var(--panel-success)   52%, var(--panel-muted) 48%); }
+/* Tone classes are retained for semantics, but the compact activity line stays deliberately uncolored. */
 
 /* ── Inline message activity ─────────────────────────────────────────────── */
 /* Typing indicator rendered inside a message between streaming turns */
@@ -721,9 +721,9 @@
 
 /* ── Transcript-specific animations ─────────────────────────────────────── */
 
-@keyframes turn-activity-dot-pulse {
-  0%, 100% { opacity: 0.25; transform: scale(0.85); }
-  50%      { opacity: 0.9;  transform: scale(1.1);  }
+@keyframes turn-activity-ellipsis-dot {
+  0%, 70%, 100% { opacity: 0.16; }
+  35% { opacity: 0.72; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -736,9 +736,9 @@
     opacity: 0.35;
   }
 
-  .turn-activity-strip-dot.running {
+  .turn-activity-strip-ellipsis span {
     animation: none;
-    opacity: 0.78;
+    opacity: 0.42;
   }
 
   .transcript-typing-dot {

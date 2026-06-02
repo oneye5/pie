@@ -48,7 +48,10 @@ When adding a new test, place it in the `test/` directory of the package it test
 cd extension
 npm run build      # build + sync
 npm run watch      # incremental
+npm run webview:dev # browser-hosted panel UI backed by the real PI backend; no installed-extension sync
 npm run test       # unit tests
 npm run typecheck  # type-check only
 npm run package    # produce .vsix
 ```
+
+When editing `extension/src/webview/`, use `npm run webview:dev` to inspect the live browser-hosted panel and obvious layout, overflow, focus, and theme issues before handing off. The default URL uses the real backend; static stress fixtures remain available with `/?state=chat`, `/?state=busy`, `/?state=tools`, `/?state=long`, `/?state=attachments`, `/?state=error`, `/?state=files`, `/?state=outcome`, `/?state=extension-ui`, plus `&theme=light` or `&theme=dark`.

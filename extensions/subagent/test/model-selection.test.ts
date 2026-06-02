@@ -764,3 +764,52 @@ test("selectModel: explicit cost makes expensive model lose to cheaper equivalen
 	assert.ok(result);
 	assert.equal(result!.modelId, "cheap-equivalent", "cheaper model should win at same capability");
 });
+
+// ============================================================
+// normalizedCost (pricing-derived cost)
+// ============================================================
+
+test("computeFitness: normalizedCost takes precedence over legacy cost", () => {
+	const task: TaskScores = { precision: 3, creativity: 3, thoroughness: 3, reasoning: 3 };
+
+	// normalizedCost=5 makes this model cheaper (better) than the legacy cost=30 would suggest
+	const profile = { id: "priced", precision: 3, creativity: 3, thoroughness: 3, reasoning: 3, cost: 30, normalizedCost: 5, eligible: true };
+
+	const fitness = computeFitness(task, profile);
+	// fitness = 36 - 0.5*5 = 33.5 (using normalizedCost)
+	// NOT 36 - 0.5*30 = 21 (ignoring legacy cost)
+	assert.equal(fitness, 33.5);
+});
+
+test("computeFitness: normalizedCost beats capability aggregate fallback", () => {
+	const task: TaskScores = { precision: 3, creativity: 3, thoroughness: 3, reasoning: 3 };
+
+	// No legacy cost, but has normalizedCost
+	const profile = { id: "priced-nolegacy", precision: 4, creativity: 4, thoroughness: 4, reasoning: 4, normalizedCost: 12, eligible: true };
+
+	const fitness = computeFitness(task, profile);
+	// met = 3*3*4 = 36, overkill = 4*1.5 = 6, sum = 30
+	// cost = normalizedCost (12) not aggregate (16)
+	// fitness = 30 - 0.5*12 = 24
+	assert.equal(fitness, 24);
+});
+
+test("computeFitness: zero normalizedCost means free model", () => {
+	const task: TaskScores = { precision: 3, creativity: 3, thoroughness: 3, reasoning: 3 };
+	const profile = { id: "free-via-pricing", precision: 3, creativity: 3, thoroughness: 3, reasoning: 3, cost: 10, normalizedCost: 0, eligible: true };
+
+	// Even though legacy cost=10, normalizedCost=0 takes precedence → no cost penalty
+	const fitness = computeFitness(task, profile);
+	assert.equal(fitness, 36);
+});
+
+test("computeFitness: normalizedCost allows cheap model to beat high-legacy-cost model", () => {
+	const task: TaskScores = { precision: 3, creativity: 3, thoroughness: 3, reasoning: 3 };
+
+	const pricedCheap = { id: "priced-cheap", precision: 3, creativity: 3, thoroughness: 3, reasoning: 3, normalizedCost: 3, eligible: true };
+	const legacyExpensive = { id: "legacy-expensive", precision: 3, creativity: 3, thoroughness: 3, reasoning: 3, cost: 0, eligible: true };
+	// legacyExpensive has cost=0 → fitness = 36. pricedCheap has normalizedCost=3 → fitness = 36-1.5=34.5
+	// legacy is cheaper here
+
+	assert.ok(computeFitness(task, legacyExpensive) > computeFitness(task, pricedCheap));
+});

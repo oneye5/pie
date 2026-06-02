@@ -4,7 +4,7 @@ import test, { describe, it } from 'node:test';
 import { h } from 'preact';
 import renderToString from 'preact-render-to-string';
 
-import { AlwaysKeepPicker, computeKeepCatalog, filterKeepCatalog } from '../src/webview/panel/composer/settings-menu';
+import { AlwaysKeepPicker, computeKeepCatalog, computeToolKeepCatalog, filterKeepCatalog } from '../src/webview/panel/composer/settings-menu';
 
 describe('computeKeepCatalog', () => {
   it('returns empty when no inputs', () => {
@@ -44,6 +44,17 @@ describe('computeKeepCatalog', () => {
 
   it('tolerates missing included/excluded arrays', () => {
     assert.deepEqual(computeKeepCatalog([], {}, ['only-selected']), ['only-selected']);
+  });
+});
+
+describe('computeToolKeepCatalog', () => {
+  it('seeds provider search tools even when pruning analytics only reports kept file tools', () => {
+    const result = computeToolKeepCatalog(['bash', 'edit', 'find', 'grep', 'read'], null, ['bash', 'edit', 'find', 'grep', 'read']);
+
+    assert.ok(result.includes('web_search'));
+    assert.ok(result.includes('code_search'));
+    assert.ok(result.includes('fetch_content'));
+    assert.ok(result.includes('get_search_content'));
   });
 });
 

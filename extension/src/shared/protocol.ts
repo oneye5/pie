@@ -76,6 +76,15 @@ export interface ModelSubagentInfo {
   aggregate: number;
   /** Optional human-readable reason recorded in the profile when ineligible. */
   disabledReason?: string;
+  /** Normalized selector cost on the 0–30+ scale, derived from real token pricing when available. */
+  normalizedCost?: number;
+  /** Real token pricing in USD per 1M tokens, when known. */
+  pricing?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
 }
 
 export interface ModelInfo {
