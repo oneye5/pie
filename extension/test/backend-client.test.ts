@@ -44,9 +44,11 @@ test('BackendClient.start resolves when backend.ready arrives immediately as std
   const moduleWithLoad = Module as typeof Module & { _load: (...args: any[]) => unknown };
   const originalLoad = moduleWithLoad._load;
   const fakeProc = new FakeChildProcess() as unknown as cp.ChildProcess;
+  let spawnOptions: cp.SpawnOptions | undefined;
   moduleWithLoad._load = function patchedLoad(request: string, parent: unknown, isMain: boolean) {
     if (request === 'vscode') {
       return {
+        version: '1.102.3-test',
         EventEmitter: class<TValue> {
           private readonly emitter = new EventEmitter();
 
@@ -69,7 +71,10 @@ test('BackendClient.start resolves when backend.ready arrives immediately as std
     if (request === 'node:child_process' || request === 'child_process') {
       return {
         ...cp,
-        spawn: (() => fakeProc) as typeof cp.spawn,
+        spawn: ((_command: string, _args?: readonly string[], options?: cp.SpawnOptions) => {
+          spawnOptions = options;
+          return fakeProc;
+        }) as typeof cp.spawn,
       };
     }
 
@@ -88,6 +93,7 @@ test('BackendClient.start resolves when backend.ready arrives immediately as std
 
     assert.equal(payload.protocolVersion, PROTOCOL_VERSION);
     assert.equal(payload.sdkPath, '/mock/sdk');
+    assert.equal((spawnOptions?.env as NodeJS.ProcessEnv | undefined)?.PIE_EDITOR_VERSION, '1.102.3-test');
   } finally {
     client.dispose();
     moduleWithLoad._load = originalLoad;

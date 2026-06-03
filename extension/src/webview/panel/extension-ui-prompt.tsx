@@ -88,26 +88,24 @@ function ConfirmPrompt({ id, title, message, timeout, extensionId, onRespond }: 
     return () => document.removeEventListener('keydown', handler);
   }, [id, onRespond]);
 
-  const dismiss = useCallback(() => onRespond({ id, confirmed: false }), [id, onRespond]);
-
   return (
-      <div ref={containerRef} class="extension-ui-prompt" tabIndex={-1} role="alertdialog" aria-label={title}>
-        {extensionId && <div class="extension-ui-prompt-extension-label">{extensionId}</div>}
-        <div class="extension-ui-prompt-header">
-          <span class="extension-ui-prompt-icon">?</span>
-          <span class="extension-ui-prompt-title">{title}</span>
-          {remaining !== null && <span class="extension-ui-prompt-countdown">{remaining}s</span>}
+    <div ref={containerRef} class="ext-prompt" tabIndex={-1} role="alertdialog" aria-label={title}>
+      <div class="ext-prompt-row">
+        <div class="ext-prompt-content">
+          {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
+          <span class="ext-prompt-text">{message || title}</span>
+          {remaining !== null && <span class="ext-prompt-countdown">{remaining}s</span>}
         </div>
-        <div class="extension-ui-prompt-body">{message}</div>
-        <div class="extension-ui-prompt-actions">
-          <button class="action-btn secondary" type="button" onClick={() => onRespond({ id, confirmed: false })}>
+        <div class="ext-prompt-actions">
+          <button class="ext-prompt-btn secondary" type="button" onClick={() => onRespond({ id, confirmed: false })}>
             Deny
           </button>
-          <button class="action-btn primary" type="button" onClick={() => onRespond({ id, confirmed: true })}>
+          <button class="ext-prompt-btn primary" type="button" onClick={() => onRespond({ id, confirmed: true })}>
             Allow
           </button>
         </div>
       </div>
+    </div>
   );
 }
 
@@ -167,33 +165,36 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
     }
   }, [id, customValue, onRespond]);
 
-  const dismiss = useCallback(() => onRespond({ id, cancelled: true }), [id, onRespond]);
-
-  const allOptions = [...options, CUSTOM_SENTINEL];
-
   return (
-      <div ref={containerRef} class="extension-ui-prompt" tabIndex={-1} role="dialog" aria-label={title}>
-        {extensionId && <div class="extension-ui-prompt-extension-label">{extensionId}</div>}
-        <div class="extension-ui-prompt-header">
-          <span class="extension-ui-prompt-icon">?</span>
-          <span class="extension-ui-prompt-title">{title}</span>
-          {remaining !== null && <span class="extension-ui-prompt-countdown">{remaining}s</span>}
+    <div ref={containerRef} class="ext-prompt" tabIndex={-1} role="dialog" aria-label={title}>
+      <div class="ext-prompt-row">
+        <div class="ext-prompt-content">
+          {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
+          <span class="ext-prompt-text">{title}</span>
+          {remaining !== null && <span class="ext-prompt-countdown">{remaining}s</span>}
         </div>
-        <div class="extension-ui-prompt-options">
-          {allOptions.map((option) =>
+        {!showCustomInput && (
+          <button class="ext-prompt-cancel" type="button" onClick={() => onRespond({ id, cancelled: true })}>
+            Cancel
+          </button>
+        )}
+      </div>
+      <div class="ext-prompt-row">
+        <div class="ext-prompt-options">
+          {options.map((option) =>
             option === CUSTOM_SENTINEL ? (
               <button
                 key={option}
-                class="extension-ui-prompt-option custom-sentinel"
+                class="ext-prompt-option custom"
                 type="button"
                 onClick={() => setShowCustomInput(true)}
               >
-                {option}
+                Custom…
               </button>
             ) : (
               <button
                 key={option}
-                class="extension-ui-prompt-option"
+                class="ext-prompt-option"
                 type="button"
                 onClick={() => onRespond({ id, value: option })}
               >
@@ -202,26 +203,24 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
             ),
           )}
         </div>
-        {showCustomInput && (
-          <div class="extension-ui-prompt-input-row">
-            <input
-              ref={customInputRef}
-              class="extension-ui-prompt-input"
-              type="text"
-              value={customValue}
-              placeholder="Type your answer…"
-              onInput={(e) => setCustomValue((e.target as HTMLInputElement).value)}
-              onKeyDown={handleCustomKeyDown}
-            />
-          </div>
-        )}
-        {showCustomInput && (
-          <div class="extension-ui-prompt-actions">
-            <button class="action-btn secondary" type="button" onClick={() => onRespond({ id, cancelled: true })}>
+      </div>
+      {showCustomInput && (
+        <div class="ext-prompt-row">
+          <input
+            ref={customInputRef}
+            class="ext-prompt-input"
+            type="text"
+            value={customValue}
+            placeholder="Type your answer…"
+            onInput={(e) => setCustomValue((e.target as HTMLInputElement).value)}
+            onKeyDown={handleCustomKeyDown}
+          />
+          <div class="ext-prompt-actions">
+            <button class="ext-prompt-btn secondary" type="button" onClick={() => onRespond({ id, cancelled: true })}>
               Cancel
             </button>
             <button
-              class="action-btn primary"
+              class="ext-prompt-btn primary"
               type="button"
               disabled={!customValue.trim()}
               onClick={handleCustomSubmit}
@@ -229,15 +228,9 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
               Submit
             </button>
           </div>
-        )}
-        {!showCustomInput && (
-          <div class="extension-ui-prompt-actions">
-            <button class="action-btn secondary" type="button" onClick={() => onRespond({ id, cancelled: true })}>
-              Cancel
-            </button>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -275,41 +268,38 @@ function InputPrompt({ id, title, placeholder, timeout, extensionId, onRespond }
     }
   }, [id, value, onRespond]);
 
-  const dismiss = useCallback(() => onRespond({ id, cancelled: true }), [id, onRespond]);
-
   return (
-      <div class="extension-ui-prompt" role="dialog" aria-label={title}>
-        {extensionId && <div class="extension-ui-prompt-extension-label">{extensionId}</div>}
-        <div class="extension-ui-prompt-header">
-          <span class="extension-ui-prompt-icon">?</span>
-          <span class="extension-ui-prompt-title">{title}</span>
-          {remaining !== null && <span class="extension-ui-prompt-countdown">{remaining}s</span>}
+    <div class="ext-prompt" role="dialog" aria-label={title}>
+      <div class="ext-prompt-row">
+        <div class="ext-prompt-content">
+          {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
+          <span class="ext-prompt-text">{title}</span>
+          {remaining !== null && <span class="ext-prompt-countdown">{remaining}s</span>}
         </div>
-        <div class="extension-ui-prompt-input-row">
-          <input
-            ref={inputRef}
-            class="extension-ui-prompt-input"
-            type="text"
-            value={value}
-            placeholder={placeholder}
-            onInput={(e) => setValue((e.target as HTMLInputElement).value)}
-            onKeyDown={handleKeyDown}
-          />
-        </div>
-        <div class="extension-ui-prompt-actions">
-          <button class="action-btn secondary" type="button" onClick={() => onRespond({ id, cancelled: true })}>
-            Cancel
-          </button>
-          <button
-            class="action-btn primary"
-            type="button"
-            disabled={!value.trim()}
-            onClick={() => onRespond({ id, value })}
-          >
-            Submit
-          </button>
-        </div>
+        <button class="ext-prompt-cancel" type="button" onClick={() => onRespond({ id, cancelled: true })}>
+          Cancel
+        </button>
       </div>
+      <div class="ext-prompt-row">
+        <input
+          ref={inputRef}
+          class="ext-prompt-input"
+          type="text"
+          value={value}
+          placeholder={placeholder}
+          onInput={(e) => setValue((e.target as HTMLInputElement).value)}
+          onKeyDown={handleKeyDown}
+        />
+        <button
+          class="ext-prompt-btn primary"
+          type="button"
+          disabled={!value.trim()}
+          onClick={() => onRespond({ id, value })}
+        >
+          Submit
+        </button>
+      </div>
+    </div>
   );
 }
 

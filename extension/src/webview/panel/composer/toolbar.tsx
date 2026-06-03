@@ -36,7 +36,7 @@ interface ComposerToolbarProps {
   supportsReasoning: boolean;
   contextIndicator: { label: string | null; ariaLabel: string; severity: string | null } | null;
   contextBreakdownTitle: string | null;
-  sessionTokenIndicator: { label: string; rateLabel: string; ariaLabel: string; tooltip: string };
+  sessionTokenIndicator: { label: string; ariaLabel: string; tooltip: string };
   sessionCostIndicator: { label: string; ariaLabel: string; tooltip: string } | null;
   runStatus: ComposerToolbarStatus | null;
   onModelChange: (model: string, thinkingLevel: ThinkingLevel) => void;
@@ -136,13 +136,6 @@ export function ComposerToolbar({
       </div>
 
       <div class="ml-auto flex min-w-0 shrink-0 flex-nowrap items-center justify-end gap-1.5">
-        <span
-          class={cx(staticChipClass, 'session-token-rate justify-center font-normal tabular-nums text-foreground/75')}
-          aria-label={`Output rate: ${sessionTokenIndicator.rateLabel}`}
-          title="Output token rate"
-        >
-          {sessionTokenIndicator.rateLabel}
-        </span>
         <span
           class={cx(staticChipClass, 'session-token-indicator justify-center font-normal tabular-nums text-foreground/75')}
           aria-label={sessionTokenIndicator.ariaLabel}

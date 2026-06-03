@@ -39,7 +39,7 @@ export interface AppAdapter {
 
 export function App({ adapter }: { adapter: AppAdapter }) {
   const { postMessage } = adapter;
-  const { viewState, mergedTranscript, draftRestore, tokenRateState, activeSessionPathRef, setDraftRestore, addOptimisticMessage } =
+  const { viewState, mergedTranscript, draftRestore, activeSessionPathRef, setDraftRestore, addOptimisticMessage } =
     useHostSync(postMessage, adapter.initialState);
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
@@ -292,42 +292,43 @@ export function App({ adapter }: { adapter: AppAdapter }) {
             postMessage={postMessage}
           />
         )}
-        {hasActiveTabs && !needsSessionRecovery && pendingExtensionUIRequest && activeSessionPath && (
-          <ExtensionUIPrompt sessionPath={activeSessionPath} request={pendingExtensionUIRequest} postMessage={postMessage} />
-        )}
       </div>
 
       {hasActiveTabs && !needsSessionRecovery && (
-        <Composer
-          busy={busy}
-          activeModelId={activeSession?.modelId}
-          activeThinkingLevel={activeSession?.thinkingLevel}
-          modelSettings={modelSettings}
-          availableModels={availableModels}
-          availableExtensions={availableExtensions}
-          contextUsage={contextUsage}
-          prefs={prefs}
-          pruningSettings={pruningSettings}
-          pruningCatalog={pruningCatalog}
-          pruningResult={pruningResult}
-          systemPrompts={systemPrompts}
-          transcript={transcript}
-          transcriptWindow={transcriptWindow}
-          draftRestore={draftRestore}
-          pendingComposerInputs={pendingComposerInputs}
-          activeRunSummary={activeRunSummary}
-          focusTrigger={activeSession?.path}
-          onSend={handleSend}
-          onInterrupt={handleInterrupt}
-          onOpenFilePicker={handleOpenFilePicker}
-          onAddInput={handleAddComposerInput}
-          onRemoveInput={handleRemoveComposerInput}
-          onModelChange={handleModelChange}
-          onSetPrefs={handleSetPrefs}
-          onSetPruningSettings={handleSetPruningSettings}
-          onMarkComplete={handleMarkComplete}
-          tokenRate={tokenRateState}
-        />
+        <>
+          {pendingExtensionUIRequest && activeSessionPath && (
+            <ExtensionUIPrompt sessionPath={activeSessionPath} request={pendingExtensionUIRequest} postMessage={postMessage} />
+          )}
+          <Composer
+            busy={busy}
+            activeModelId={activeSession?.modelId}
+            activeThinkingLevel={activeSession?.thinkingLevel}
+            modelSettings={modelSettings}
+            availableModels={availableModels}
+            availableExtensions={availableExtensions}
+            contextUsage={contextUsage}
+            prefs={prefs}
+            pruningSettings={pruningSettings}
+            pruningCatalog={pruningCatalog}
+            pruningResult={pruningResult}
+            systemPrompts={systemPrompts}
+            transcript={transcript}
+            transcriptWindow={transcriptWindow}
+            draftRestore={draftRestore}
+            pendingComposerInputs={pendingComposerInputs}
+            activeRunSummary={activeRunSummary}
+            focusTrigger={activeSession?.path}
+            onSend={handleSend}
+            onInterrupt={handleInterrupt}
+            onOpenFilePicker={handleOpenFilePicker}
+            onAddInput={handleAddComposerInput}
+            onRemoveInput={handleRemoveComposerInput}
+            onModelChange={handleModelChange}
+            onSetPrefs={handleSetPrefs}
+            onSetPruningSettings={handleSetPruningSettings}
+            onMarkComplete={handleMarkComplete}
+          />
+        </>
       )}
     </div>
     </NoticeContext.Provider>

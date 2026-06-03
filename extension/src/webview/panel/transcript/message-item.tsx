@@ -313,8 +313,8 @@ function MessageItemView({
       class={cx(
         'flex w-fit max-w-[88%] min-w-0 flex-col gap-2 rounded-xl px-3 py-2.5',
         'forced-colors:border forced-colors:border-[ButtonText]',
-        message.role === 'assistant' && 'self-start rounded-bl-sm bg-card shadow-sm',
-        message.role === 'user' && 'self-end rounded-tl-xl rounded-tr-xl rounded-bl-xl rounded-br-sm bg-accent/15 shadow-none',
+        message.role === 'assistant' && 'self-start rounded-xl bg-card shadow-sm',
+        message.role === 'user' && 'self-end rounded-xl bg-accent/15 shadow-none',
         message.role === 'system' && 'w-auto max-w-none self-stretch bg-surface shadow-none',
         isCurrentlyStreaming && 'w-[min(var(--message-assistant-width),100%)] max-[340px]:w-[min(var(--message-assistant-width-narrow),100%)]',
         isClickableUserMsg && 'cursor-pointer hover:ring-1 hover:ring-border-subtle',

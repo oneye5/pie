@@ -55,6 +55,11 @@ import {
 } from './transcript-window';
 import type { SessionEntryLike } from './transcript';
 
+function resolveEditorVersion(): string | undefined {
+  const configured = process.env.PIE_EDITOR_VERSION?.trim();
+  return configured || undefined;
+}
+
 /**
  * Walk up from a file path looking for a `.git` directory. Returns true if the
  * file resides inside a Git working tree.
@@ -202,6 +207,7 @@ export class BackendServer {
         cwd,
         agentDir,
         authStorage: this.authStorage,
+        editorVersion: resolveEditorVersion(),
         resourceLoaderOptions: {
           agentsFilesOverride: (base: { agentsFiles: Array<{ path: string; content: string }> }) => ({
             agentsFiles: prepareContextFiles(base.agentsFiles).map((contextFile) => ({

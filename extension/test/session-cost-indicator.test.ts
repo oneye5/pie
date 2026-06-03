@@ -31,9 +31,8 @@ test('formatCostUsd renders zero, sub-cent, and normal amounts', () => {
 });
 
 test('buildSessionTokenIndicator shows em-dash counts when no usage is reported', () => {
-  const indicator = buildSessionTokenIndicator(makeSummary(), null);
+  const indicator = buildSessionTokenIndicator(makeSummary());
   assert.equal(indicator.label, '\u2191 \u2014 \u2193 \u2014');
-  assert.equal(indicator.rateLabel, '\u2014 t/s');
 });
 
 test('buildSessionTokenIndicator shows real counts once usage is reported', () => {
@@ -50,7 +49,7 @@ test('buildSessionTokenIndicator shows real counts once usage is reported', () =
       totalTokens: 2360,
     },
   });
-  const indicator = buildSessionTokenIndicator(summary, null);
+  const indicator = buildSessionTokenIndicator(summary);
   assert.equal(indicator.label, '\u2191 1.8k \u2193 540');
 });
 

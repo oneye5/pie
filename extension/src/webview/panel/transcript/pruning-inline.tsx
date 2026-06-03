@@ -58,7 +58,7 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
 
   return (
     <div
-      class="flex w-fit max-w-[88%] min-w-0 flex-col gap-2 self-start rounded-xl rounded-bl-sm bg-card px-3 py-2.5 shadow-sm forced-colors:border forced-colors:border-[ButtonText]"
+      class="flex w-fit max-w-[88%] min-w-0 flex-col gap-2 self-start rounded-xl bg-card px-3 py-2.5 shadow-sm forced-colors:border forced-colors:border-[ButtonText]"
       data-role="assistant"
     >
       <div class="flex items-start justify-between gap-3">

@@ -24,7 +24,7 @@ import type {
 } from '../../shared/protocol';
 import { buildContextWindowBreakdown } from './context-window/breakdown';
 import { buildContextWindowIndicatorState } from './context-window/indicator';
-import { buildLiveSessionCostEstimate, buildSessionCostIndicator, buildSessionTokenIndicator, buildSessionTokenUsage, type TokenPricing, type TokenRateState } from './session-tabs/token-usage';
+import { buildLiveSessionCostEstimate, buildSessionCostIndicator, buildSessionTokenIndicator, buildSessionTokenUsage, type TokenPricing } from './session-tabs/token-usage';
 import { shouldHandleGlobalComposerPaste } from './composer/affordances';
 import { describeComposerInputSummary } from './composer/inputs';
 import { resolveComposerModelState } from './composer/model-state';
@@ -66,7 +66,6 @@ interface ComposerProps {
   pendingComposerInputs: ComposerInput[];
   activeRunSummary?: ActiveRunSummary | null;
   focusTrigger?: string;
-  tokenRate: TokenRateState | null;
   onSend: (text: string) => void;
   onInterrupt: () => void;
   onOpenFilePicker: () => void;
@@ -97,7 +96,6 @@ function ComposerView({
   pendingComposerInputs,
   activeRunSummary,
   focusTrigger,
-  tokenRate,
   onSend,
   onInterrupt,
   onOpenFilePicker,
@@ -327,8 +325,8 @@ function ComposerView({
   ), [contextBreakdown]);
   const sessionTokenUsage = useMemo(() => buildSessionTokenUsage(transcript), [transcript]);
   const sessionTokenIndicator = useMemo(
-    () => buildSessionTokenIndicator(sessionTokenUsage, tokenRate),
-    [sessionTokenUsage, tokenRate],
+    () => buildSessionTokenIndicator(sessionTokenUsage),
+    [sessionTokenUsage],
   );
   const liveCostEstimate = useMemo(
     () => buildLiveSessionCostEstimate(transcript, contextUsage, busy),
@@ -380,7 +378,6 @@ function ComposerView({
         contextBreakdownTitle={contextBreakdown?.title ?? null}
         sessionTokenIndicator={{
               label: sessionTokenIndicator.label,
-              rateLabel: sessionTokenIndicator.rateLabel,
               ariaLabel: sessionTokenIndicator.ariaLabel,
               tooltip: sessionTokenIndicator.tooltip,
             }}

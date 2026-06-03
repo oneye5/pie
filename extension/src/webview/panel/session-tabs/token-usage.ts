@@ -78,23 +78,13 @@ export function formatReadableTokens(tokens: number): string {
 export interface SessionTokenIndicatorState {
   /** Compact token counts \u2014 e.g. "\u2191 12.3k \u2193 4.5k". */
   label: string;
-  /** Always-visible rate label \u2014 e.g. "12.3 t/s" or "\u2014 t/s". */
-  rateLabel: string;
   ariaLabel: string;
   /** Multi-line tooltip with totals + last turn + cache breakdown. */
   tooltip: string;
 }
 
-export interface TokenRateState {
-  /** Tokens per second (output), smoothed over the window. */
-  tokensPerSecond: number | null;
-  /** Window size in seconds for the rolling average. */
-  windowSeconds: number;
-}
-
 export function buildSessionTokenIndicator(
   summary: SessionTokenUsageSummary,
-  rate: TokenRateState | null,
 ): SessionTokenIndicatorState {
   // Always show token indicator, even when no usage reported
   const compactIn = summary.reportedTurnCount > 0 ? formatCompactTokens(summary.inputTokens) : '\u2014';
@@ -102,17 +92,6 @@ export function buildSessionTokenIndicator(
 
   // Token counts label (always present)
   const label = `\u2191 ${compactIn} \u2193 ${compactOut}`;
-
-  // Rate label (always visible \u2014 shows dash when idle)
-  let rateLabel: string;
-  if (rate?.tokensPerSecond !== null && rate?.tokensPerSecond !== undefined) {
-    const rateStr = rate.tokensPerSecond >= 100
-      ? Math.round(rate.tokensPerSecond).toString()
-      : rate.tokensPerSecond.toFixed(1);
-    rateLabel = `${rateStr} t/s`;
-  } else {
-    rateLabel = '\u2014 t/s';
-  }
 
   const tooltipLines: string[] = [
     `Session tokens (${summary.reportedTurnCount} assistant turn${summary.reportedTurnCount === 1 ? '' : 's'})`,
@@ -134,16 +113,12 @@ export function buildSessionTokenIndicator(
     );
   }
 
-  let ariaLabel =
+  const ariaLabel =
     `Session token usage: input ${formatReadableTokens(summary.inputTokens)}, `
     + `output ${formatReadableTokens(summary.outputTokens)}.`;
-  if (rate?.tokensPerSecond !== null && rate?.tokensPerSecond !== undefined) {
-    ariaLabel = `Rate: ${rate.tokensPerSecond.toFixed(1)} tokens/s. ${ariaLabel}`;
-  }
 
   return {
     label,
-    rateLabel,
     ariaLabel,
     tooltip: tooltipLines.join('\n'),
   };

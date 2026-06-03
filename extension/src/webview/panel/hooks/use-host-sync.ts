@@ -71,8 +71,6 @@ export const EMPTY_VIEW_STATE: ViewState = {
   pendingExtensionUIRequest: null,
 };
 
-const RATE_WINDOW_SECONDS = 10;
-
 /** An optimistic user message shown instantly before the host confirms it. */
 export interface OptimisticUserMessage {
   localId: string;
@@ -85,7 +83,6 @@ export interface HostSyncState {
   /** Transcript with optimistic user messages merged in. */
   mergedTranscript: ChatMessage[];
   draftRestore: { text: string; nonce: number } | null;
-  tokenRateState: { tokensPerSecond: number | null; windowSeconds: number };
   activeSessionPathRef: { current: string | null };
   setDraftRestore: (v: { text: string; nonce: number } | null) => void;
   /** Add an optimistic user message to be shown instantly. */
@@ -113,11 +110,6 @@ export function useHostSync(
   } | null>(null);
 
   const revisionMapRef = useRef<Map<string, number>>(new Map());
-  const tokenRateRef = useRef<{ tokens: number; timestamp: number }[]>([]);
-  const [tokenRateState, setTokenRateState] = useState<{ tokensPerSecond: number | null; windowSeconds: number }>({
-    tokensPerSecond: null,
-    windowSeconds: RATE_WINDOW_SECONDS,
-  });
 
   const awaitingSnapshotRef = useRef(false);
   const hostInstanceIdRef = useRef('');
@@ -199,8 +191,6 @@ export function useHostSync(
         // Reconcile optimistic messages: remove any that now appear in the host transcript.
         if (hostChanged || sessionChanged) {
           clearTransientUi();
-          tokenRateRef.current = [];
-          setTokenRateState({ tokensPerSecond: null, windowSeconds: RATE_WINDOW_SECONDS });
         } else {
           // Remove optimistic messages whose localId is now present in the host transcript.
           const hostIds = new Set(msg.state.transcript.map((m) => m.id));
@@ -298,9 +288,8 @@ export function useHostSync(
   }, [postMessage]);
 
   // Suppress unused refs (they participate in the transport protocol but
-  // aren't surfaced to the caller yet — will be needed for token-rate).
+  // aren't surfaced to the caller yet).
   void awaitingSnapshotRef;
-  void tokenRateRef;
 
-  return { viewState, mergedTranscript, draftRestore, tokenRateState, activeSessionPathRef, setDraftRestore, addOptimisticMessage };
+  return { viewState, mergedTranscript, draftRestore, activeSessionPathRef, setDraftRestore, addOptimisticMessage };
 }

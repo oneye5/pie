@@ -72,7 +72,7 @@ export class BackendClient implements vscode.Disposable {
       [options.backendPath, '--sdkPath', options.sdkPath, '--cwd', options.cwd],
       {
         cwd: options.cwd,
-        env: { ...process.env },
+        env: { ...process.env, PIE_EDITOR_VERSION: vscode.version },
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: false,
       },
