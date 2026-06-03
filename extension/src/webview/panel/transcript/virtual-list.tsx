@@ -130,6 +130,14 @@ export function TranscriptVirtualList({
       observeElementOffset,
       initialOffset: () => Number.MAX_SAFE_INTEGER,
       overscan: 10,
+      // Batch ResizeObserver-driven re-measurements with the next animation
+      // frame. Without this, content that grows after initial measurement
+      // (streaming markdown, late-loading tables/images) can leave a one-paint
+      // window where the cached row size is smaller than the rendered height,
+      // causing the next absolute-positioned row to overlap the previous one
+      // (visible as a user-message bubble painted over an earlier assistant
+      // message). The animation-frame batching closes that race.
+      useAnimationFrameWithResizeObserver: true,
       onChange: scheduleVirtualRender,
     });
   }
@@ -145,6 +153,7 @@ export function TranscriptVirtualList({
       estimateSize: (index) => estimateTranscriptRowSize(rows[index] ?? fallbackTranscriptRow(rows)),
       getItemKey: (index) => rows[index]?.key ?? index,
       overscan: 10,
+      useAnimationFrameWithResizeObserver: true,
       onChange: scheduleVirtualRender,
     });
     virtualizer._willUpdate();
@@ -175,11 +184,18 @@ export function TranscriptVirtualList({
   ), [onOpenFile, prefs, workingDirectory]);
   renderToolCallRef.current = renderToolCall;
 
-  const measureRowElement = useCallback((element: HTMLDivElement | null) => {
+  // Re-affirm the row element with the virtualizer on every render. A stable
+  // useCallback ref only fires on mount/unmount, so subsequent renders never
+  // re-measure — but the row's content can change height after mount (e.g.,
+  // markdown tables, streaming text, images). Using an unstable ref forces
+  // Preact to invoke it each render, which (a) re-binds tanstack's
+  // ResizeObserver to the node and (b) synchronously re-measures, preventing
+  // stale `virtualRow.start` values from causing visual row overlap.
+  const measureRowElement = (element: HTMLDivElement | null) => {
     if (element) {
       virtualizer.measureElement(element);
     }
-  }, [virtualizer]);
+  };
 
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();

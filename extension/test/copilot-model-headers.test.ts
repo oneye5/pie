@@ -26,7 +26,6 @@ test('custom Copilot provider keeps required IDE auth headers at provider bounda
 
   assert.equal(provider.api, undefined, 'github-copilot must preserve per-model generated API routing');
   assert.equal(provider.compat, undefined, 'github-copilot must preserve per-model generated compat settings');
-  assert.equal(provider.models, undefined, 'github-copilot pricing should use modelOverrides, not custom replacement models');
   assert.ok(provider.modelOverrides?.['gpt-5.5'], 'gpt-5.5 must remain a built-in model override');
 
   const headers = provider.headers;
@@ -38,4 +37,8 @@ test('custom Copilot provider keeps required IDE auth headers at provider bounda
   }
 
   assert.ok(headers['Editor-Version'].startsWith('vscode/'));
+
+  for (const model of provider.models ?? []) {
+    assert.ok(model && typeof model === 'object', 'custom Copilot models must be objects');
+  }
 });

@@ -625,6 +625,25 @@
         "Editor-Plugin-Version": "copilot-chat/0.35.0",
         "Copilot-Integration-Id": "vscode-chat"
       },
+      "models": [
+        {
+          "id": "claude-opus-4.8",
+          "name": "Copilot: Claude Opus 4.8",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 144000,
+          "maxTokens": 64000,
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cacheRead": 0.5,
+            "cacheWrite": 6.25
+          }
+        }
+      ],
       "modelOverrides": {
         "claude-haiku-4.5": {
           "name": "Copilot: Claude Haiku 4.5",
@@ -660,6 +679,16 @@
         },
         "claude-opus-4.7": {
           "name": "Copilot: Claude Opus 4.7",
+          "reasoning": true,
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cacheRead": 0.5,
+            "cacheWrite": 6.25
+          }
+        },
+        "claude-opus-4.8": {
+          "name": "Copilot: Claude Opus 4.8",
           "reasoning": true,
           "cost": {
             "input": 5,

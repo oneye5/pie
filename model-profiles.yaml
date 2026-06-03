@@ -11,6 +11,15 @@ profiles:
   # See docs/internal/model-token-pricing-sources.md for evidence and baseline.
 
   # --- Claude (current gen) ---
+  - id: claude-opus-4.8
+    precision: 5
+    creativity: 4
+    thoroughness: 5
+    reasoning: 5
+    thinking: [medium]
+    eligible: true
+    cost: 30
+
   - id: claude-opus-4.7
     precision: 5
     creativity: 4
