@@ -1,0 +1,323 @@
+/*
+ * Shared panel chip primitive.
+ *
+ * Feature components choose a semantic variant/tone in TSX; sizing, text
+ * overflow, typography, and interaction states stay here so small visual fixes
+ * survive nearby component refactors.
+ */
+
+.panel-chip {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  max-width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--status-chip-radius);
+  background: var(--panel-control-surface);
+  color: var(--panel-foreground);
+  overflow: hidden;
+  white-space: nowrap;
+  transition: background var(--status-chip-transition-duration) ease,
+    border-color var(--status-chip-transition-duration) ease,
+    color var(--status-chip-transition-duration) ease,
+    opacity var(--status-chip-transition-duration) ease;
+}
+
+.panel-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-chip-leading,
+.panel-chip-trailing {
+  flex: 0 0 auto;
+}
+
+.panel-chip-toolbar {
+  height: 22px;
+  min-width: 80px;
+  max-width: 180px;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.panel-chip-reasoning-select {
+  min-width: 64px;
+  max-width: 110px;
+}
+
+.panel-chip-toolbar.panel-chip-select,
+.panel-chip-toolbar.panel-chip-interactive {
+  cursor: pointer;
+}
+
+.panel-chip-toolbar:hover,
+.panel-chip-toolbar:focus-visible,
+.panel-chip-interactive:hover,
+.panel-chip-interactive:focus-visible {
+  border-color: var(--panel-border-subtle);
+  background: var(--panel-control-hover);
+}
+
+.panel-chip:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: 2px;
+}
+
+.panel-chip-muted {
+  color: var(--panel-muted);
+}
+
+.panel-chip-success {
+  border-color: color-mix(in srgb, var(--panel-success) 30%, transparent);
+  background: color-mix(in srgb, var(--panel-success) 10%, transparent);
+  color: var(--panel-success);
+}
+
+.panel-chip-warning {
+  border-color: color-mix(in srgb, var(--panel-warning) 30%, transparent);
+  background: color-mix(in srgb, var(--panel-warning) 10%, transparent);
+  color: var(--panel-warning);
+}
+
+.panel-chip-danger {
+  border-color: color-mix(in srgb, var(--panel-danger) 30%, transparent);
+  background: color-mix(in srgb, var(--panel-danger) 10%, transparent);
+  color: var(--panel-danger);
+}
+
+.panel-chip-accent {
+  border-color: color-mix(in srgb, var(--panel-accent) 25%, transparent);
+  background: color-mix(in srgb, var(--panel-accent) 10%, transparent);
+  color: var(--panel-accent);
+}
+
+.panel-chip-indicator {
+  justify-content: center;
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+  cursor: help;
+  opacity: 0.75;
+}
+
+.panel-chip-run-status {
+  flex: 0 0 auto;
+}
+
+.panel-chip-model-wrap {
+  position: relative;
+  display: inline-flex;
+  min-width: 80px;
+  max-width: 180px;
+  min-height: 22px;
+}
+
+.panel-chip-model-measure {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 24px 2px 8px;
+  border: 1px solid transparent;
+  border-radius: var(--status-chip-radius);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  visibility: hidden;
+}
+
+.panel-chip-model-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  max-width: 100%;
+  appearance: none;
+  padding-right: 24px;
+  color: transparent;
+}
+
+.panel-chip-model-label {
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px 24px 2px 8px;
+  border-radius: var(--status-chip-radius);
+  color: var(--panel-foreground);
+  font-size: 11px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.panel-chip-caret {
+  pointer-events: none;
+  position: absolute;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: color-mix(in srgb, var(--panel-foreground) 70%, transparent);
+  font-size: 10px;
+}
+
+.panel-chip-pruning {
+  height: 18px;
+  gap: 6px;
+  padding: 0 8px;
+  font-family: var(--panel-font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.panel-chip-pruning .panel-chip-label {
+  max-width: min(52ch, 100%);
+}
+
+.panel-chip-pruning.panel-chip-interactive {
+  cursor: pointer;
+}
+
+.panel-chip-pruning.panel-chip-accent,
+.panel-chip-pruning.panel-chip-danger {
+  opacity: 1;
+}
+
+.panel-chip-pruning .panel-chip-trailing {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+.pruning-detail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pruning-diagnostics-panel {
+  margin-top: 8px;
+  padding: 12px;
+  border-radius: var(--panel-radius-lg);
+  background: color-mix(in srgb, var(--panel-control-surface) 50%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.pruning-diagnostics-panel.failed {
+  border: 1px solid color-mix(in srgb, var(--panel-danger) 15%, transparent);
+  background: color-mix(in srgb, var(--panel-danger) 5%, transparent);
+}
+
+.pruning-diagnostics-inline {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
+}
+
+.pruning-detail-row {
+  display: grid;
+  grid-template-columns: minmax(82px, auto) minmax(0, 1fr);
+  align-items: start;
+  min-width: 0;
+  column-gap: 10px;
+  row-gap: 2px;
+}
+
+.pruning-detail-hint {
+  color: var(--panel-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1.45;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.pruning-detail-text {
+  color: color-mix(in srgb, var(--panel-foreground) 70%, transparent);
+  font-size: 11px;
+  line-height: 1.35;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.pruning-detail-text-danger {
+  color: var(--panel-danger);
+}
+
+.pruning-raw-pre {
+  margin: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  padding: 6px 8px;
+  border-radius: var(--panel-radius-sm);
+  background: var(--panel-code-surface);
+  color: color-mix(in srgb, var(--panel-foreground) 80%, transparent);
+  font-family: var(--panel-font-mono);
+  font-size: 10.5px;
+  line-height: 1.35;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.pruning-raw-toggle-button {
+  width: 100%;
+  padding: 4px 6px;
+  border: none;
+  border-radius: var(--panel-radius-sm);
+  background: transparent;
+  color: var(--panel-muted);
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-align: left;
+  text-transform: uppercase;
+}
+
+.pruning-raw-toggle-button:hover {
+  background: var(--panel-control-hover);
+}
+
+.pruning-raw-toggle-button:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: 1px;
+}
+
+.pruning-raw-toggle {
+  margin-top: 4px;
+  border-radius: var(--panel-radius-sm);
+}
+
+.pruning-raw-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
+}
+
+.pruning-raw-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+@media (max-width: 520px) {
+  .pruning-detail-row {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (forced-colors: active) {
+  .panel-chip {
+    border-color: ButtonText;
+  }
+}

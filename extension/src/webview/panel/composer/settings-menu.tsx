@@ -7,7 +7,6 @@ import { playCompletionSound, warmupCompletionSoundContext } from '../completion
 
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningCatalog, PruningMode, PruningResult, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
 import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
-import { cx } from '../utils/cx';
 import { orderModelsForPicker } from './model-list';
 
 /** Extension IDs that have nested settings panels */
@@ -35,6 +34,7 @@ const THINKING_LEVEL_OPTIONS: { value: ThinkingLevel; label: string }[] = [
  * users can pin them even when the previous turn pruned them away.
  */
 export const DEFAULT_TOOL_KEEP_CATALOG = [
+  'ask_user',
   'bash',
   'code_search',
   'edit',
@@ -216,12 +216,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
   return (
     <div ref={menuRef} class="toolbar-settings">
       <button
-        class={cx(
-          'inline-flex h-[26px] w-[26px] cursor-pointer items-center justify-center rounded-full border border-transparent bg-control p-0 text-muted transition-colors duration-150',
-          'hover:border-border-subtle hover:bg-control-hover hover:text-foreground',
-          'focus-visible:outline-1 focus-visible:outline-accent focus-visible:outline-offset-2',
-          open && 'border-border-subtle bg-control-hover text-foreground',
-        )}
+        class={`toolbar-settings-trigger${open ? ' open' : ''}`}
         type="button"
         aria-label="Chat settings"
         aria-haspopup="menu"

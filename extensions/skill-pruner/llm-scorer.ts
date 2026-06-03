@@ -113,14 +113,17 @@ export function buildPruningUserMessage(input: LlmPruningInput): string {
 }
 
 /** Parse the LLM response JSON, with fallback regex extraction. */
-export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownTools: Set<string>): { skills: string[]; tools: string[] } {
+export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownTools: Set<string>): { skills: string[]; tools: string[]; reasoning?: string } {
 	// Try strict JSON parse first
 	try {
 		const parsed = JSON.parse(raw);
 		if (parsed && typeof parsed === "object") {
 			const skills = Array.isArray(parsed.skills) ? parsed.skills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s)) : [];
 			const tools = Array.isArray(parsed.tools) ? parsed.tools.filter((t: unknown) => typeof t === "string" && knownTools.has(t)) : [];
-			return { skills, tools };
+			const reasoning = typeof parsed.reasoning === "string" && parsed.reasoning.length > 0 ? parsed.reasoning : undefined;
+			const result: { skills: string[]; tools: string[]; reasoning?: string } = { skills, tools };
+			if (reasoning) result.reasoning = reasoning;
+			return result;
 		}
 	} catch {
 		// Fall through to regex extraction
@@ -134,7 +137,10 @@ export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownToo
 			if (parsed && typeof parsed === "object") {
 				const skills = Array.isArray(parsed.skills) ? parsed.skills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s)) : [];
 				const tools = Array.isArray(parsed.tools) ? parsed.tools.filter((t: unknown) => typeof t === "string" && knownTools.has(t)) : [];
-				return { skills, tools };
+				const reasoning = typeof parsed.reasoning === "string" && parsed.reasoning.length > 0 ? parsed.reasoning : undefined;
+				const result: { skills: string[]; tools: string[]; reasoning?: string } = { skills, tools };
+				if (reasoning) result.reasoning = reasoning;
+				return result;
 			}
 		} catch {
 			// Fall through
@@ -189,7 +195,7 @@ export async function runLlmPruning(
 		selectedSkills: parsed.skills,
 		selectedTools: parsed.tools,
 		rawResponse: response.text,
-		rawThinking: response.thinking ?? "",
+		rawThinking: response.thinking ?? parsed.reasoning ?? "",
 		systemPrompt,
 		userMessage,
 		latencyMs,

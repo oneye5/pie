@@ -107,14 +107,20 @@
   text-align: left;
 }
 
+.transcript-header-summary-link:hover,
+.transcript-header-summary-link:focus-visible {
+  text-decoration: underline;
+}
+
 .transcript-header-summary-link:hover .transcript-header-summary-subtle,
 .transcript-header-summary-link:focus-visible .transcript-header-summary-subtle {
-  opacity: 0.84;
+  opacity: 1;
+  color: var(--panel-accent);
 }
 
 .transcript-header-summary-link:hover .transcript-header-summary-emphasis,
 .transcript-header-summary-link:focus-visible .transcript-header-summary-emphasis {
-  color: var(--panel-foreground);
+  color: var(--panel-accent);
 }
 
 .transcript-header-path-preview {

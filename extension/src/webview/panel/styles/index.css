@@ -296,6 +296,7 @@
 /* ── Components ─────────────────────────────────────────────────────────── */
 
 @import './status-chip.css';
+@import './panel-chip.css';
 @import './tabs.css';
 @import './layout.css';
 @import './transcript.css';
@@ -305,4 +306,5 @@
 @import './context-menu.css';
 @import './file-changes.css';
 @import './extension-ui-prompt.css';
+@import './ask-user-prompt.css';
 @import './pruning-banner.css';

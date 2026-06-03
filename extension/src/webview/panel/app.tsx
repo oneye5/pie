@@ -25,8 +25,10 @@ import { SessionTabs, Composer } from './ui';
 import { RunOutcomeDialog } from './run-outcome-dialog';
 import { NoticeBanner } from './components/notice-banner';
 import { NoticeContext } from './hooks/notice-context';
+import { AskUserContext } from './hooks/ask-user-context';
 import { useHostSync, EMPTY_VIEW_STATE } from './hooks/use-host-sync';
 import { isPendingTabPath } from '../../shared/tab-behavior';
+import type { ChatMessageToolCallPart } from '../../shared/protocol';
 
 export { EMPTY_VIEW_STATE };
 
@@ -199,8 +201,27 @@ export function App({ adapter }: { adapter: AppAdapter }) {
 
   // ─── Render ──────────────────────────────────────────────────────────────
 
+  // When a pending extension UI request is an ask_user select prompt,
+  // it is handled by the inline prompt in the transcript, so we hide the
+  // bottom-anchored ExtensionUIPrompt bar.
+  const isAskUserHandledInline =
+    !!pendingExtensionUIRequest &&
+    pendingExtensionUIRequest.method === 'select' &&
+    transcript.some((msg) =>
+      msg.parts?.some((p): p is ChatMessageToolCallPart =>
+        p.kind === 'toolCall' && p.toolCall.name === 'ask_user' && p.toolCall.status === 'running'
+      ),
+    );
+
+  const askUserContextValue = useMemo(() => ({
+    sessionPath: activeSessionPath,
+    postMessage,
+    pendingRequest: pendingExtensionUIRequest,
+  }), [activeSessionPath, postMessage, pendingExtensionUIRequest]);
+
   return (
     <NoticeContext.Provider value={notice}>
+    <AskUserContext.Provider value={askUserContextValue}>
     <div id="app">
       {showOutcomeDialog && activeSession && (
         <RunOutcomeDialog
@@ -296,7 +317,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
 
       {hasActiveTabs && !needsSessionRecovery && (
         <>
-          {pendingExtensionUIRequest && activeSessionPath && (
+          {pendingExtensionUIRequest && activeSessionPath && !isAskUserHandledInline && (
             <ExtensionUIPrompt sessionPath={activeSessionPath} request={pendingExtensionUIRequest} postMessage={postMessage} />
           )}
           <Composer
@@ -331,6 +352,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
         </>
       )}
     </div>
+    </AskUserContext.Provider>
     </NoticeContext.Provider>
   );
 }

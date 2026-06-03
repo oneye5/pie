@@ -89,13 +89,7 @@
 /* ── Context window & token indicators ───────────────────────────────────── */
 
 .context-window-indicator {
-  justify-content: center;
-  color: var(--panel-foreground);
-  font-weight: 400;
   cursor: help;
-  opacity: 0.9;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
   max-width: 220px;
   margin-left: auto;
 }
@@ -114,53 +108,10 @@
   color: var(--panel-danger);
 }
 
-.session-token-rate {
-  justify-content: center;
-  color: var(--panel-foreground);
-  font-weight: 400;
-  cursor: help;
-  opacity: 0.75;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  margin-left: 4px;
-  overflow: hidden;
-}
-
-.session-token-indicator {
-  justify-content: center;
-  color: var(--panel-foreground);
-  font-weight: 400;
-  cursor: help;
-  opacity: 0.75;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  margin-left: 4px;
-  overflow: hidden;
-}
-
-.session-cost-indicator {
-  justify-content: center;
-  color: var(--panel-foreground);
-  font-weight: 400;
-  cursor: help;
-  opacity: 0.75;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  margin-left: 4px;
-  overflow: hidden;
-}
-
 /* Progressive hide as toolbar narrows:
-   1st hidden: token rate (least important)
-   2nd hidden: token in/out counts
-   3rd hidden: cost estimate
-   4th hidden: context window indicator (most important, kept longest) */
-@container toolbar (max-width: 440px) {
-  .session-token-rate {
-    display: none;
-  }
-}
-
+   1st hidden: token in/out counts
+   2nd hidden: cost estimate
+   3rd hidden: context window indicator (most important, kept longest) */
 @container toolbar (max-width: 340px) {
   .session-token-indicator {
     display: none;
@@ -185,6 +136,36 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+}
+
+.toolbar-settings-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: var(--status-chip-radius);
+  background: var(--panel-control-surface);
+  color: var(--panel-muted);
+  cursor: pointer;
+  transition: background var(--status-chip-transition-duration) ease,
+    border-color var(--status-chip-transition-duration) ease,
+    color var(--status-chip-transition-duration) ease;
+}
+
+.toolbar-settings-trigger:hover,
+.toolbar-settings-trigger:focus-visible,
+.toolbar-settings-trigger.open {
+  border-color: var(--panel-border-subtle);
+  background: var(--panel-control-hover);
+  color: var(--panel-foreground);
+}
+
+.toolbar-settings-trigger:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: 2px;
 }
 
 .toolbar-settings-menu {

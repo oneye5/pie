@@ -192,6 +192,36 @@ test("parseLlmResponse handles missing skills/tools keys gracefully", () => {
 	assert.deepEqual(result.tools, []);
 });
 
+test("parseLlmResponse extracts reasoning from JSON response", () => {
+	const knownSkills = new Set(["alpha"]);
+	const knownTools = new Set(["read"]);
+	const result = parseLlmResponse(
+		'{"reasoning":"Frontend bug requires UI fixes","skills":["alpha"],"tools":["read"]}',
+		knownSkills,
+		knownTools,
+	);
+	assert.deepEqual(result.skills, ["alpha"]);
+	assert.deepEqual(result.tools, ["read"]);
+	assert.equal(result.reasoning, "Frontend bug requires UI fixes");
+});
+
+test("parseLlmResponse omits reasoning when absent or empty", () => {
+	const knownSkills = new Set(["alpha"]);
+	const knownTools = new Set(["read"]);
+	const withEmpty = parseLlmResponse(
+		'{"reasoning":"","skills":["alpha"],"tools":["read"]}',
+		knownSkills,
+		knownTools,
+	);
+	assert.equal(withEmpty.reasoning, undefined);
+	const without = parseLlmResponse(
+		'{"skills":["alpha"],"tools":["read"]}',
+		knownSkills,
+		knownTools,
+	);
+	assert.equal(without.reasoning, undefined);
+});
+
 // ---------------------------------------------------------------------------
 // runLlmPruning tests
 // ---------------------------------------------------------------------------
@@ -252,4 +282,39 @@ test("runLlmPruning handles invalid JSON from model gracefully", async () => {
 	// Should still extract known names from raw text
 	assert.deepEqual(result.selectedSkills, ["alpha"]);
 	assert.deepEqual(result.selectedTools, ["read"]);
+});
+
+test("runLlmPruning falls back to JSON reasoning when native thinking is absent", async () => {
+	const input = {
+		userPrompt: "refactor code",
+		skills: [{ name: "code-simplification", description: "Simplifies code" }],
+		tools: [{ name: "read", description: "Read files" }],
+		config: makeConfig(),
+	};
+
+	const completeFn = async () => ({
+		text: '{"reasoning":"Refactoring needs code-simplification","skills":["code-simplification"],"tools":["read"]}',
+	});
+
+	const result = await runLlmPruning(input, undefined, {}, completeFn);
+	assert.deepEqual(result.selectedSkills, ["code-simplification"]);
+	assert.deepEqual(result.selectedTools, ["read"]);
+	assert.equal(result.rawThinking, "Refactoring needs code-simplification");
+});
+
+test("runLlmPruning prefers native thinking over JSON reasoning", async () => {
+	const input = {
+		userPrompt: "refactor code",
+		skills: [{ name: "code-simplification", description: "Simplifies code" }],
+		tools: [{ name: "read", description: "Read files" }],
+		config: makeConfig(),
+	};
+
+	const completeFn = async () => ({
+		text: '{"reasoning":"JSON reasoning","skills":["code-simplification"],"tools":["read"]}',
+		thinking: "Native reasoning",
+	});
+
+	const result = await runLlmPruning(input, undefined, {}, completeFn);
+	assert.equal(result.rawThinking, "Native reasoning");
 });

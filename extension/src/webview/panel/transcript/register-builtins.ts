@@ -13,3 +13,4 @@ import './rows/typing-indicator-row';
 // Tool renderers
 import './tools/default-tool';
 import './tools/subagent-tool';
+import './tools/ask-user-tool';

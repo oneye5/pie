@@ -332,6 +332,7 @@ function summarizeObject(value: Record<string, unknown>): string | null {
     value.expression,
     value.commandId,
     value.selector,
+    value.question,
   ];
 
   for (const field of directFields) {

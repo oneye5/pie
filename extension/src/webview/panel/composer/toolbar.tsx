@@ -3,7 +3,7 @@
 
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningCatalog, PruningResult, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
 
-import { cx } from '../utils/cx';
+import { ToolbarChip, ToolbarIndicatorChip, ToolbarModelSelectChip, ToolbarRunStatusChip, ToolbarSelectChip } from '../components/panel-chip';
 import { orderModelsForPicker } from './model-list';
 import { ComposerSettingsMenu } from './settings-menu';
 
@@ -42,10 +42,6 @@ interface ComposerToolbarProps {
   onModelChange: (model: string, thinkingLevel: ThinkingLevel) => void;
 }
 
-const toolbarChipClass = 'inline-flex h-[22px] min-w-[80px] max-w-[180px] items-center overflow-hidden truncate whitespace-nowrap rounded-full border border-transparent bg-control px-2 py-0.5 text-[11px] text-foreground transition-colors duration-150 hover:border-border-subtle hover:bg-control-hover focus-visible:outline-1 focus-visible:outline-accent focus-visible:outline-offset-2 forced-colors:border-[ButtonText]';
-const selectChipClass = `${toolbarChipClass} cursor-pointer`;
-const staticChipClass = `${toolbarChipClass} text-muted`;
-
 export function ComposerToolbar({
   prefs,
   pruningSettings,
@@ -65,7 +61,6 @@ export function ComposerToolbar({
   runStatus,
   onModelChange,
 }: ComposerToolbarProps) {
-  const contextIndicatorClass = contextIndicator?.severity ? ` ${contextIndicator.severity}` : '';
   const filteredModels = availableModels.filter(
     (m) => prefs.providerToggles[m.provider] !== false || m.id === selectedModel,
   );
@@ -73,32 +68,22 @@ export function ComposerToolbar({
   const selectedModelEntry = modelEntries.find((entry) => entry.model.id === selectedModel) ?? null;
   const fallbackModelLabel = modelEntries[0]?.selectedLabel ?? '';
   const selectedModelLabel = selectedModelEntry?.selectedLabel ?? (selectedModel || fallbackModelLabel);
-  const runStatusClass = runStatus
-    ? cx(
-      'inline-flex h-[22px] items-center rounded-full border border-transparent bg-control px-2 text-[11px] leading-snug text-muted transition-colors duration-150 forced-colors:border-[ButtonText]',
-      runStatus.tone === 'open' && 'border-success/30 bg-success/10 text-success',
-      runStatus.tone === 'pending-score' && 'border-warning/30 bg-warning/10 text-warning',
-    )
-    : '';
-
   return (
     <div class="flex w-full flex-nowrap items-center gap-1.5 [container-name:toolbar] [container-type:inline-size]">
       <div class="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5">
         <ComposerSettingsMenu prefs={prefs} pruningSettings={pruningSettings} pruningCatalog={pruningCatalog} pruningResult={pruningResult} availableExtensions={availableExtensions} availableModels={availableModels} onSetPrefs={onSetPrefs} onSetPruningSettings={onSetPruningSettings} />
 
         {filteredModels.length > 0 ? (
-          <div class="relative inline-flex min-h-[22px] min-w-[80px] max-w-[180px]">
-            <span class="invisible min-w-0 max-w-full overflow-hidden truncate whitespace-nowrap rounded-full border border-transparent py-0.5 pl-2 pr-6 text-[11px]" aria-hidden="true">{selectedModelLabel}</span>
-            <select
-              class={cx(selectChipClass, 'toolbar-model-select absolute inset-0 w-full max-w-full appearance-none pr-6 text-transparent')}
-              value={selectedModel}
-              onChange={(e) => {
-                const target = e.target as HTMLSelectElement;
-                onModelChange(target.value, selectedLevel);
-              }}
-              aria-label="Model"
-              title="Select model"
-            >
+          <ToolbarModelSelectChip
+            label={selectedModelLabel}
+            value={selectedModel}
+            ariaLabel="Model"
+            title="Select model"
+            onChange={(e) => {
+              const target = e.target as HTMLSelectElement;
+              onModelChange(target.value, selectedLevel);
+            }}
+          >
               {modelEntries.map((entry) => (
                 <option
                   key={entry.model.id}
@@ -109,70 +94,63 @@ export function ComposerToolbar({
                   {entry.label}
                 </option>
               ))}
-            </select>
-            <span class="pointer-events-none absolute inset-0 inline-flex min-w-0 items-center overflow-hidden truncate whitespace-nowrap rounded-full py-0.5 pl-2 pr-6 text-[11px] text-foreground" aria-hidden="true">{selectedModelLabel}</span>
-            <span class="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-foreground/70" aria-hidden="true">▾</span>
-          </div>
+          </ToolbarModelSelectChip>
         ) : selectedModel ? (
-          <span class={staticChipClass} title={selectedModel}>{selectedModel}</span>
+          <ToolbarChip label={selectedModel} title={selectedModel} />
         ) : null}
 
         {supportsReasoning && (
-          <select
-            class={cx(selectChipClass, 'min-w-[64px] max-w-[110px]')}
+          <ToolbarSelectChip
             value={selectedLevel}
+            width="reasoning"
             onChange={(e) => {
               const target = e.target as HTMLSelectElement;
               onModelChange(selectedModel, target.value as ThinkingLevel);
             }}
-            aria-label="Reasoning level"
+            ariaLabel="Reasoning level"
             title="Reasoning level"
           >
             {(Object.keys(THINKING_LEVEL_LABELS) as ThinkingLevel[]).map((level) => (
               <option key={level} value={level}>{THINKING_LEVEL_LABELS[level]}</option>
             ))}
-          </select>
+          </ToolbarSelectChip>
         )}
       </div>
 
       <div class="ml-auto flex min-w-0 shrink-0 flex-nowrap items-center justify-end gap-1.5">
-        <span
-          class={cx(staticChipClass, 'session-token-indicator justify-center font-normal tabular-nums text-foreground/75')}
-          aria-label={sessionTokenIndicator.ariaLabel}
+        <ToolbarIndicatorChip
+          kind="tokens"
+          ariaLabel={sessionTokenIndicator.ariaLabel}
           title={sessionTokenIndicator.tooltip}
-        >
-          {sessionTokenIndicator.label}
-        </span>
+          label={sessionTokenIndicator.label}
+        />
 
         {sessionCostIndicator && (
-          <span
-            class={cx(staticChipClass, 'session-cost-indicator justify-center font-normal tabular-nums text-foreground/75')}
-            aria-label={sessionCostIndicator.ariaLabel}
+          <ToolbarIndicatorChip
+            kind="cost"
+            ariaLabel={sessionCostIndicator.ariaLabel}
             title={sessionCostIndicator.tooltip}
-          >
-            {sessionCostIndicator.label}
-          </span>
+            label={sessionCostIndicator.label}
+          />
         )}
 
         {contextIndicator?.label && contextBreakdownTitle && (
-          <span
-            class={cx(staticChipClass, `context-window-indicator${contextIndicatorClass}`, 'justify-center font-normal tabular-nums text-foreground/90')}
-            aria-label={contextIndicator.ariaLabel}
-            aria-description={contextBreakdownTitle}
+          <ToolbarIndicatorChip
+            kind="context"
+            severity={contextIndicator.severity}
+            ariaLabel={contextIndicator.ariaLabel}
             title={contextBreakdownTitle}
-          >
-            {contextIndicator.label}
-          </span>
+            label={contextIndicator.label}
+          />
         )}
 
         {runStatus && (
           <div class="ml-auto mr-0 inline-flex shrink-0 items-center gap-1.5">
-            <span
-              class={runStatusClass}
+            <ToolbarRunStatusChip
+              tone={runStatus.tone}
               title={runStatus.title}
-            >
-              {runStatus.text}
-            </span>
+              label={runStatus.text}
+            />
           </div>
         )}
       </div>

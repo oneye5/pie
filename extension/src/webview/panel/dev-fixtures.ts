@@ -1,5 +1,6 @@
 import type { ChatMessage, ModelInfo, SessionSummary, ToolCall, ViewState } from '../../shared/protocol';
 import { EMPTY_TRANSCRIPT_WINDOW } from '../../shared/protocol';
+import { CUSTOM_SENTINEL } from '../../shared/ask-user-sentinel';
 import { EMPTY_VIEW_STATE } from './hooks/use-host-sync';
 
 export interface DevFixture {
@@ -86,11 +87,41 @@ const runningTool: ToolCall = {
   id: 'tool-test-1',
   name: 'run_in_terminal',
   input: {
-    command: 'npm --prefix extension run build -- --skip-typecheck --no-sync',
+    command: 'npm --prefix extension run build -- --skip-typecheck -- --no-sync',
     goal: 'Build browser webview dev artifacts',
   },
   status: 'running',
   startedAt: Date.parse(now) - 1800,
+};
+
+const askUserRunningTool: ToolCall = {
+  id: 'tool-ask-1',
+  name: 'ask_user',
+  input: {
+    question: 'Which naming convention should we use for the new API endpoints?',
+    options: ['camelCase', 'snake_case', 'kebab-case'],
+    allowCustom: true,
+    context: 'The existing codebase uses a mix of styles; a consistent choice reduces cognitive load for all contributors.',
+  },
+  status: 'running',
+  startedAt: Date.parse(now) - 800,
+};
+
+const askUserCompletedTool: ToolCall = {
+  id: 'tool-ask-2',
+  name: 'ask_user',
+  input: {
+    question: 'Should we keep backwards compatibility?',
+    options: ['Yes, keep v1 compat', 'No, break v1'],
+    allowCustom: false,
+  },
+  result: {
+    content: [{ type: 'text', text: 'Yes, keep v1 compat' }],
+    details: { answer: 'Yes, keep v1 compat', source: 'option', cancelled: false },
+  },
+  status: 'completed',
+  startedAt: Date.parse(now) - 5000,
+  durationMs: 3200,
 };
 
 function userMessage(id: string, markdown: string): ChatMessage {
@@ -374,6 +405,46 @@ export const devFixtures: DevFixture[] = [
         placeholder: 'e.g. feature/my-branch',
         extensionId: 'subagent',
       },
+    }),
+  },
+  {
+    id: 'ask-user-running',
+    label: 'Ask user (running)',
+    state: baseState({
+      transcript: [
+        ...normalTranscript,
+        assistantMessage('assistant-ask-running', 'I need to know your preference before continuing.', {
+          parts: [
+            { kind: 'text', text: 'I need to know your preference before continuing.' },
+            { kind: 'toolCall', toolCall: askUserRunningTool },
+          ],
+          toolCalls: [askUserRunningTool],
+          status: 'streaming',
+        }),
+      ],
+      pendingExtensionUIRequest: {
+        id: 'ext-ui-ask-1',
+        method: 'select',
+        title: 'Which naming convention should we use for the new API endpoints?\n\nThe existing codebase uses a mix of styles; a consistent choice reduces cognitive load for all contributors.',
+        options: ['camelCase', 'snake_case', 'kebab-case', CUSTOM_SENTINEL],
+      },
+      busy: true,
+    }),
+  },
+  {
+    id: 'ask-user-completed',
+    label: 'Ask user (completed)',
+    state: baseState({
+      transcript: [
+        ...normalTranscript,
+        assistantMessage('assistant-ask-completed', 'Got it. I\u2019ll use the naming convention you selected.', {
+          parts: [
+            { kind: 'text', text: 'Got it. I\u2019ll use the naming convention you selected.' },
+            { kind: 'toolCall', toolCall: askUserCompletedTool },
+          ],
+          toolCalls: [askUserCompletedTool],
+        }),
+      ],
     }),
   },
 ];
