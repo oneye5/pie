@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildLiveSessionCostEstimate,
   buildSessionCostIndicator,
   buildSessionTokenIndicator,
   formatCostUsd,
@@ -80,7 +81,7 @@ test('buildSessionCostIndicator computes cost across all channels', () => {
   // 3 + 15 + 0.3 + 3.75 = 22.05
   assert.equal(result.label, '$22.05');
   assert.match(result.tooltip, /Copilot: Claude Sonnet 4\.6/);
-  assert.match(result.tooltip, /Subtotal:\s+\$22\.0500/);
+  assert.match(result.tooltip, /Completed subtotal:\s+\$22\.0500/);
   assert.match(result.tooltip, /Cache read:\s+\$0\.3000/);
   assert.match(result.tooltip, /Total: \$22\.0500/);
 });
@@ -195,4 +196,116 @@ test('buildSessionCostIndicator shows prepass cost from pruning details', () => 
   assert.ok(result);
   assert.match(result.tooltip, /Pruning prepass/);
   assert.match(result.tooltip, /gemma3:4b/);
+});
+
+test('buildSessionCostIndicator uses prepass model pricing when available', () => {
+  const summary = makeSummary({
+    inputTokens: 1_000_000,
+    outputTokens: 0,
+    totalTokens: 1_000_000,
+    reportedTurnCount: 1,
+  });
+  const selectedPricing = { input: 10, output: 10, cacheRead: 0, cacheWrite: 0 };
+  const prepassPricing = { input: 1, output: 20, cacheRead: 0, cacheWrite: 0 };
+
+  const result = buildSessionCostIndicator(
+    summary,
+    selectedPricing,
+    'Selected Model',
+    [],
+    {
+      mode: 'auto' as const,
+      skillTokensSaved: 0,
+      toolTokensSaved: 0,
+      includedSkills: [],
+      excludedSkills: [],
+      includedTools: [],
+      excludedTools: [],
+      prepassModel: 'prepass-model',
+      prepassInputTokens: 500_000,
+      prepassOutputTokens: 100_000,
+    },
+    (modelId) => (modelId === 'prepass-model' ? prepassPricing : undefined),
+  );
+
+  assert.ok(result);
+  assert.match(result.tooltip, /Pruning prepass/);
+  assert.match(result.tooltip, /Cost:\s+\$2\.5000/);
+  assert.match(result.tooltip, /Total: \$12\.5000/);
+});
+
+test('buildSessionCostIndicator uses assistant message model pricing when available', () => {
+  const summary = makeSummary({
+    inputTokens: 100_000,
+    outputTokens: 10_000,
+    totalTokens: 110_000,
+    reportedTurnCount: 1,
+  });
+  const selectedPricing = { input: 10, output: 10, cacheRead: 0, cacheWrite: 0 };
+  const messagePricing = { input: 1, output: 20, cacheRead: 0, cacheWrite: 0 };
+  const transcript = [
+    {
+      id: 'a1',
+      role: 'assistant' as const,
+      createdAt: '',
+      markdown: '',
+      status: 'completed' as const,
+      modelId: 'actual-model',
+      usage: {
+        inputTokens: 100_000,
+        outputTokens: 10_000,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 110_000,
+      },
+    },
+  ];
+
+  const result = buildSessionCostIndicator(
+    summary,
+    selectedPricing,
+    'Selected Model',
+    transcript,
+    undefined,
+    (modelId) => (modelId === 'actual-model' ? messagePricing : undefined),
+  );
+
+  assert.ok(result);
+  assert.match(result.tooltip, /Completed subtotal:\s+\$0\.3000/);
+  assert.match(result.tooltip, /Model id: actual-model/);
+  assert.match(result.tooltip, /Input:\s+\$0\.1000 \(100,000 tokens\)/);
+  assert.match(result.tooltip, /Output:\s+\$0\.2000 \(10,000 tokens\)/);
+});
+
+test('buildSessionCostIndicator shows a live estimate while running without completed usage', () => {
+  const transcript = [
+    {
+      id: 'a1',
+      role: 'assistant' as const,
+      createdAt: '',
+      markdown: 'streaming answer text',
+      status: 'streaming' as const,
+    },
+  ];
+  const liveEstimate = buildLiveSessionCostEstimate(
+    transcript,
+    { tokens: 126_500, contextWindow: 1_048_576, percent: 12.1 },
+    true,
+  );
+
+  const result = buildSessionCostIndicator(
+    makeSummary(),
+    { input: 0.0817, output: 0.0817, cacheRead: 0, cacheWrite: 0 },
+    'Ollama Cloud: DeepSeek V4 Pro',
+    transcript,
+    undefined,
+    undefined,
+    liveEstimate,
+  );
+
+  assert.ok(liveEstimate);
+  assert.ok(result);
+  assert.equal(result.label, '$0.01');
+  assert.match(result.tooltip, /Live turn estimate/);
+  assert.match(result.tooltip, /126,500 tokens/);
 });

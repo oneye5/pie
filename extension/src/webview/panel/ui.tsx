@@ -24,7 +24,7 @@ import type {
 } from '../../shared/protocol';
 import { buildContextWindowBreakdown } from './context-window/breakdown';
 import { buildContextWindowIndicatorState } from './context-window/indicator';
-import { buildSessionCostIndicator, buildSessionTokenIndicator, buildSessionTokenUsage, type TokenRateState } from './session-tabs/token-usage';
+import { buildLiveSessionCostEstimate, buildSessionCostIndicator, buildSessionTokenIndicator, buildSessionTokenUsage, type TokenPricing, type TokenRateState } from './session-tabs/token-usage';
 import { shouldHandleGlobalComposerPaste } from './composer/affordances';
 import { describeComposerInputSummary } from './composer/inputs';
 import { resolveComposerModelState } from './composer/model-state';
@@ -155,6 +155,14 @@ function ComposerView({
     modelSettings,
     availableModels,
   }), [activeModelId, activeThinkingLevel, availableModels, modelSettings]);
+  const pricingByModelId = useMemo(() => {
+    const map = new Map<string, TokenPricing>();
+    for (const model of availableModels) {
+      const pricing = model.subagent?.pricing;
+      if (pricing) map.set(model.id, pricing);
+    }
+    return map;
+  }, [availableModels]);
   const supportsImageInputs = selectedModelInfo?.inputKinds.includes('image') ?? false;
   const runControls = getComposerRunControls(activeRunSummary ?? null);
   const hasUserMessages = transcriptWindow.hasUserMessages;
@@ -322,6 +330,10 @@ function ComposerView({
     () => buildSessionTokenIndicator(sessionTokenUsage, tokenRate),
     [sessionTokenUsage, tokenRate],
   );
+  const liveCostEstimate = useMemo(
+    () => buildLiveSessionCostEstimate(transcript, contextUsage, busy),
+    [transcript, contextUsage, busy],
+  );
   const sessionCostIndicator = useMemo(
     () => buildSessionCostIndicator(
       sessionTokenUsage,
@@ -329,8 +341,10 @@ function ComposerView({
       selectedModelInfo?.name,
       transcript,
       (pruningResult?.details as PruningDetails | undefined),
+      (modelId) => pricingByModelId.get(modelId),
+      liveCostEstimate,
     ),
-    [sessionTokenUsage, selectedModelInfo, transcript, pruningResult],
+    [sessionTokenUsage, selectedModelInfo, transcript, pruningResult, pricingByModelId, liveCostEstimate],
   );
   const canSend = text.trim().length > 0 || pendingComposerInputs.length > 0;
   const attachmentSummary = useMemo(

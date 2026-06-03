@@ -175,7 +175,6 @@
   --status-chip-motion-duration: 2.4s;
 
   /* Transcript layout */
-  --panel-content-max-width: 1180px;
   /* Stable width prevents horizontal jitter while the assistant streams */
   --message-assistant-width: 88%;
   --message-assistant-width-narrow: 92%;
@@ -305,4 +304,5 @@
 @import './composer.css';
 @import './context-menu.css';
 @import './file-changes.css';
+@import './extension-ui-prompt.css';
 @import './pruning-banner.css';

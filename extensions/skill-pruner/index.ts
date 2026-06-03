@@ -579,7 +579,17 @@ function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 				timestamp: Date.now(),
 			})),
 		};
-		const result = await _piCompleteSimple(model, piContext, options);
+
+		// Final safety net: ensure Copilot IDE headers are present on the model
+		// and in the options before making the API call.  resolveModel and
+		// resolveAuth both add these headers, but there are edge cases (e.g.
+		// the model object being referenced before patching, or headers being
+		// dropped by intermediate transforms) that can cause them to go missing.
+		// This last-minute check guarantees the headers are always sent.
+		const safeModel = ensureCopilotHeaders(model as Record<string, unknown>);
+		const safeOptions = withCopilotOptions(options, model as Record<string, unknown>);
+
+		const result = await _piCompleteSimple(safeModel, piContext, safeOptions);
 		const assistantMessage = result as {
 			content?: Array<{ type: string; text?: string; thinking?: string }>;
 			stopReason?: string;
@@ -604,12 +614,54 @@ function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 	return adapter;
 }
 
+/**
+ * Required GitHub Copilot IDE-auth headers.
+ * Built-in models include these in model.headers, but custom models from
+ * models.json are created with headers=undefined (see model-registry.parseModels).
+ * When a custom model replaces a built-in one, the copilot headers are lost,
+ * causing the API to reject requests with "missing Editor-Version header for
+ * IDE auth".  This constant provides a fallback so the skill-pruner always
+ * sends the headers the Copilot API requires.
+ */
+const COPILOT_IDE_HEADERS: Record<string, string> = {
+	"User-Agent": "GitHubCopilotChat/0.35.0",
+	"Editor-Version": "vscode/1.107.0",
+	"Editor-Plugin-Version": "copilot-chat/0.35.0",
+	"Copilot-Integration-Id": "vscode-chat",
+};
+
+/**
+ * Ensure a model object for the github-copilot provider has the required IDE
+ * auth headers.  Custom models from models.json lack these because
+ * model-registry.parseModels() sets headers=undefined, so we patch them in.
+ * The built-in headers from models.generated.js already include them, so we
+ * only add keys that are missing — we never override existing values.
+ */
+function ensureCopilotHeaders(model: Record<string, unknown>): Record<string, unknown> {
+	if (model.provider !== "github-copilot") return model;
+	const existing = (model.headers ?? {}) as Record<string, string>;
+	let patched = false;
+	const merged = { ...existing };
+	for (const [key, value] of Object.entries(COPILOT_IDE_HEADERS)) {
+		if (!merged[key]) {
+			merged[key] = value;
+			patched = true;
+		}
+	}
+	if (!patched) return model;
+	return { ...model, headers: merged };
+}
+
 /** Resolve model from context using config's model/provider. */
 function resolveModel(ctx: unknown, _config: PruningConfig): unknown {
 	const ctxObj = ctx as Record<string, unknown>;
 	const modelRegistry = ctxObj?.modelRegistry as { find?: (provider: string, id: string) => unknown } | undefined;
 	if (modelRegistry?.find) {
-		return modelRegistry.find(_config.provider, _config.model);
+		const raw = modelRegistry.find(_config.provider, _config.model);
+		if (raw && typeof raw === "object") {
+			return ensureCopilotHeaders(raw as Record<string, unknown>);
+		}
+		return raw;
 	}
 	// When no model registry available (e.g. test context or minimal SDK mode),
 	// construct a minimal model object that providers can use.
@@ -621,15 +673,59 @@ function resolveModel(ctx: unknown, _config: PruningConfig): unknown {
 
 /** Resolve API key and headers from the model registry for a given model. */
 async function resolveAuth(ctx: unknown, model: unknown): Promise<{ apiKey?: string; headers?: Record<string, string> }> {
+	const modelObj = model as Record<string, unknown> | null;
+	const isCopilot = modelObj?.provider === "github-copilot";
+
 	const ctxObj = ctx as Record<string, unknown>;
 	const modelRegistry = ctxObj?.modelRegistry as { getApiKeyAndHeaders?: (model: unknown) => Promise<{ ok: boolean; apiKey?: string; headers?: Record<string, string> }> } | undefined;
 	if (modelRegistry?.getApiKeyAndHeaders) {
 		const result = await modelRegistry.getApiKeyAndHeaders(model);
 		if (result.ok) {
-			return { apiKey: result.apiKey, headers: result.headers };
+			return { apiKey: result.apiKey, headers: withCopilotHeaders(result.headers, isCopilot) };
 		}
 	}
-	return {};
+
+	// Auth resolution failed (e.g. no OAuth token). Still provide copilot headers
+	// so the request at least reaches the API — it will fail with an auth error
+	// rather than the misleading "missing Editor-Version header" error.
+	return isCopilot ? { headers: { ...COPILOT_IDE_HEADERS } } : {};
+}
+
+/**
+ * Ensure github-copilot IDE-auth headers are present in the auth headers.
+ * Adds any missing copilot keys without overriding existing values.
+ */
+function withCopilotHeaders(headers: Record<string, string> | undefined, isCopilot: boolean): Record<string, string> | undefined {
+	if (!isCopilot) return headers;
+	const merged: Record<string, string> = { ...headers };
+	for (const [key, value] of Object.entries(COPILOT_IDE_HEADERS)) {
+		if (!merged[key]) merged[key] = value;
+	}
+	return merged;
+}
+
+/**
+ * Final safety net: ensure Copilot IDE headers are present in the options
+ * object passed to completeSimple.  Unlike withCopilotHeaders (which only
+ * operates on a bare headers record), this patches the full options bag so
+ * that `options.headers` always carries the IDE-auth headers when the
+ * provider is github-copilot.
+ */
+function withCopilotOptions(
+	options: Record<string, unknown>,
+	model: Record<string, unknown>,
+): Record<string, unknown> {
+	if (model.provider !== "github-copilot") return options;
+	const existing = { ...(options.headers ?? {}) } as Record<string, string>;
+	let changed = false;
+	for (const [key, value] of Object.entries(COPILOT_IDE_HEADERS)) {
+		if (!existing[key]) {
+			existing[key] = value;
+			changed = true;
+		}
+	}
+	if (!changed) return options;
+	return { ...options, headers: existing };
 }
 
 interface PrepassRunResult {
@@ -975,5 +1071,13 @@ export function __setToolSeams(opts: {
 	getActiveToolsOverride = opts.getActiveTools ?? null;
 	setActiveToolsOverride = opts.setActiveTools ?? null;
 }
+
+/** internal: test seam — exposes ensureCopilotHeaders for unit tests. */
+export function __ensureCopilotHeaders(model: Record<string, unknown>): Record<string, unknown> {
+	return ensureCopilotHeaders(model);
+}
+
+/** internal: test seam — exposes COPILOT_IDE_HEADERS for unit tests. */
+export const __COPILOT_IDE_HEADERS = COPILOT_IDE_HEADERS;
 
 export { SKILLS_BLOCK_RE, MIN_PROMPT_LENGTH };

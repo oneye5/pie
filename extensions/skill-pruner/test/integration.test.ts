@@ -830,3 +830,64 @@ test("no completeFn available → error message returned (no prompt modification
 	assert.ok(String(result.message.content).includes("No completion function available"));
 	assert.equal(result.systemPrompt, undefined);
 });
+
+test("github-copilot model without headers: copilot headers injected via model registry", async () => {
+	// Simulate the real scenario: modelRegistry returns a custom model with headers=undefined
+	// (because models.json parseModels() sets headers=undefined). The skill-pruner should
+	// patch the model with required copilot headers so the LLM call succeeds.
+	let capturedModel: unknown = null;
+	let capturedOptions: Record<string, unknown> = {};
+
+	// CompleteFn that captures what model and options were passed
+	const captureCompleteFn = async (model: unknown, _context: unknown, options: Record<string, unknown>) => {
+		capturedModel = model;
+		capturedOptions = options;
+		return { text: JSON.stringify({ skills: ["code-simplification"], tools: [] }) };
+	};
+
+	__setCompleteFn(captureCompleteFn);
+	try {
+		const { handlers } = register(config());
+
+		// Context with a modelRegistry that returns a custom model WITHOUT headers
+		const ctx = {
+			cwd: "/repo",
+			sessionManager: { getSessionId: () => "session-1", getSessionFile: () => undefined },
+			modelRegistry: {
+				find: (_provider: string, _id: string) => ({
+					id: "gpt-5-mini",
+					provider: "github-copilot",
+					api: "openai-responses",
+					baseUrl: "https://api.individual.githubcopilot.com",
+					headers: undefined, // This is the bug scenario: custom model has no headers
+				}),
+				getApiKeyAndHeaders: (_model: unknown) => Promise.resolve({ ok: true, apiKey: "test-key", headers: undefined }),
+			},
+		};
+
+		const handler = handlers.get("before_agent_start");
+		assert.ok(handler, "before_agent_start handler registered");
+
+		await handler({
+			type: "before_agent_start",
+			prompt: "Refactor this code",
+			systemPrompt: systemPrompt(realisticSkills),
+			systemPromptOptions: { cwd: "/repo", skills: realisticSkills, contextFiles: [{ path: "AGENTS.md", content: "" }] },
+		}, ctx);
+
+		// Verify the model was patched with copilot headers
+		const patchedModel = capturedModel as Record<string, unknown> | null;
+		assert.ok(patchedModel, "model was captured");
+		assert.ok(patchedModel.headers, "model should have headers after patching");
+		const headers = patchedModel.headers as Record<string, string>;
+		assert.ok(headers["Editor-Version"], "Editor-Version should be present in model headers");
+		assert.ok(headers["Editor-Version"].startsWith("vscode/"), "Editor-Version should be a vscode version");
+
+		// Verify auth headers also contain Editor-Version
+		const authHeaders = capturedOptions.headers as Record<string, string> | undefined;
+		assert.ok(authHeaders, "auth headers should be defined");
+		assert.ok(authHeaders["Editor-Version"], "Editor-Version should be present in auth headers");
+	} finally {
+		__setCompleteFn(null);
+	}
+});

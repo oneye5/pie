@@ -20,6 +20,7 @@ interface SessionTabsProps {
   activeSession: SessionSummary | null;
   activeRunSummary: ActiveRunSummary | null;
   backendReady?: boolean;
+  hasPendingExtensionUIRequest?: boolean;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
   onMove: (sessionPath: string | undefined, fromIndex: number, toIndex: number) => void;
@@ -61,6 +62,7 @@ export function SessionTabs({
   activeSession,
   activeRunSummary,
   backendReady,
+  hasPendingExtensionUIRequest,
   onSelect,
   onClose,
   onMove,
@@ -472,6 +474,7 @@ export function SessionTabs({
           const session = sessionByPath.get(tabPath);
           const label = session?.name ?? 'New Session';
           const isActive = activeSession?.path === tabPath;
+          const isAttention = isActive && !!hasPendingExtensionUIRequest;
           const isRunning = runningPathSet.has(tabPath);
           const isUnreadFinished = unreadFinishedPathSet.has(tabPath);
           const originalIndex = openIndexByPath.get(tabPath) ?? index;
@@ -481,7 +484,7 @@ export function SessionTabs({
             renderDropGap(index),
             <div
               key={tabPath}
-              class={`session-tab${isActive ? ' active' : ''}${isUnreadFinished ? ' unread-finished' : ''}`}
+              class={`session-tab${isActive ? ' active' : ''}${isAttention ? ' attention' : ''}${isUnreadFinished ? ' unread-finished' : ''}`}
               data-drop-target-tab="true"
               onContextMenu={(event) => handleTabContextMenu(tabPath, event as MouseEvent)}
             >

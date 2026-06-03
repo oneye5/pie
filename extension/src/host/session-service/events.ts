@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 
 import { BackendClient } from '../backend/client';
-import { shouldFlashFinishedTab } from '../sidebar/completion-notification';
+import { shouldFlashFinishedTab, requestWindowAttention } from '../sidebar/completion-notification';
 import { resolveSessionOpenedTranscript } from './session-opened-transcript';
 import { type RunObserver } from '../stats-service';
 import { auditLog, bootLog } from '../util/audit';
@@ -629,7 +629,20 @@ export class SessionServiceEvents {
   }
 
   private onExtensionUIRequest(payload: ExtensionUIRequestPayload): void {
+    if (payload.method === 'notify') {
+      // Notify is fire-and-forget; use the notice banner instead of blocking the prompt slot.
+      const prefix = payload.notifyType === 'error' ? 'Error' : payload.notifyType === 'warning' ? 'Warning' : 'Info';
+      store.dispatch(uiActions.setNotice(`${prefix}: ${payload.message}`));
+      return;
+    }
     store.dispatch(uiActions.setPendingExtensionUIRequest(payload));
+
+    // Flash the VS Code window to draw the user's attention to the question.
+    requestWindowAttention(
+      vscode.env.appName,
+      vscode.workspace.name ?? vscode.workspace.workspaceFolders?.[0]?.name,
+    );
+
     this.scheduleRender();
   }
 

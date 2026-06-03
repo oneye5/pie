@@ -2,8 +2,7 @@
 
 .transcript {
   flex: 1;
-  width: min(100%, var(--panel-content-max-width));
-  align-self: center;
+  width: 100%;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;

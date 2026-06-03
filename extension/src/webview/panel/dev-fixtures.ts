@@ -336,7 +336,7 @@ export const devFixtures: DevFixture[] = [
   },
   {
     id: 'extension-ui',
-    label: 'Extension prompt',
+    label: 'Extension confirm',
     state: baseState({
       transcript: normalTranscript,
       pendingExtensionUIRequest: {
@@ -345,6 +345,34 @@ export const devFixtures: DevFixture[] = [
         title: 'Safeguard confirmation',
         message: 'Allow the dev host to simulate this extension UI request?',
         extensionId: 'safeguard',
+      },
+    }),
+  },
+  {
+    id: 'extension-ui-select',
+    label: 'Extension select',
+    state: baseState({
+      transcript: normalTranscript,
+      pendingExtensionUIRequest: {
+        id: 'select-1',
+        method: 'select',
+        title: 'How should we proceed?',
+        options: ['Run full suite', 'Run fast checks only', 'Skip tests'],
+        extensionId: 'safeguard',
+      },
+    }),
+  },
+  {
+    id: 'extension-ui-input',
+    label: 'Extension input',
+    state: baseState({
+      transcript: normalTranscript,
+      pendingExtensionUIRequest: {
+        id: 'input-1',
+        method: 'input',
+        title: 'Branch name',
+        placeholder: 'e.g. feature/my-branch',
+        extensionId: 'subagent',
       },
     }),
   },

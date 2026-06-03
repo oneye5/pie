@@ -12,7 +12,6 @@ import {
   assistantReplyMeta,
   formatAssistantMetaTooltip,
   formatDuration,
-  formatTimestamp,
   roleLabel,
 } from './header';
 import { InlineEditor } from './inline-editor';
@@ -234,7 +233,6 @@ function MessageItemView({
     return () => ro.disconnect();
   }, [message.role]);
 
-  const createdAtLabel = formatTimestamp(message.createdAt);
   const statusLabel =
     message.status === 'interrupted' ? 'Interrupted'
     : message.status === 'error' ? 'Error'
@@ -328,7 +326,6 @@ function MessageItemView({
     >
       <MessageHeader
         label={message.role !== 'user' ? roleLabel(message.role) : null}
-        timestamp={createdAtLabel}
         duration={message.role === 'assistant' && !isCurrentlyStreaming && message.durationMs !== undefined ? formatDuration(message.durationMs) : null}
         meta={replyMeta?.compactText ?? null}
         title={assistantMetaTooltip ?? undefined}

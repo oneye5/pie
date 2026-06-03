@@ -13,7 +13,7 @@
 }
 
 .composer-rail {
-  width: min(100%, var(--panel-content-max-width));
+  width: 100%;
 }
 
 @media (max-width: 720px) {

@@ -230,6 +230,7 @@ export function App({ adapter }: { adapter: AppAdapter }) {
           activeSession={activeSession}
           activeRunSummary={activeRunSummary}
           backendReady={backendReady}
+          hasPendingExtensionUIRequest={!!pendingExtensionUIRequest}
           onSelect={handleSelectTab}
           onClose={handleCloseTab}
           onMove={handleMoveTab}
@@ -291,11 +292,10 @@ export function App({ adapter }: { adapter: AppAdapter }) {
             postMessage={postMessage}
           />
         )}
+        {hasActiveTabs && !needsSessionRecovery && pendingExtensionUIRequest && activeSessionPath && (
+          <ExtensionUIPrompt sessionPath={activeSessionPath} request={pendingExtensionUIRequest} postMessage={postMessage} />
+        )}
       </div>
-
-      {hasActiveTabs && !needsSessionRecovery && pendingExtensionUIRequest && activeSessionPath && (
-        <ExtensionUIPrompt sessionPath={activeSessionPath} request={pendingExtensionUIRequest} postMessage={postMessage} />
-      )}
 
       {hasActiveTabs && !needsSessionRecovery && (
         <Composer

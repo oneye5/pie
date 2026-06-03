@@ -1,4 +1,4 @@
-import type { AssistantUsage, ChatMessage, PruningDetails, ToolCall } from '../../../shared/protocol';
+import type { AssistantUsage, ChatMessage, ContextWindowUsage, PruningDetails, ToolCall } from '../../../shared/protocol';
 
 /**
  * Aggregate token usage for a session derived from per-assistant-message usage
@@ -156,6 +156,20 @@ export interface TokenPricing {
   cacheWrite: number;
 }
 
+export type TokenPricingResolver = (modelId: string) => TokenPricing | undefined;
+
+interface CostUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+export interface LiveSessionCostEstimate extends CostUsage {
+  source: 'live-context';
+}
+
 export interface SessionCostIndicatorState {
   label: string;
   ariaLabel: string;
@@ -180,17 +194,71 @@ function formatCostDetail(cost: number): string {
   return `$${Math.max(0, cost).toFixed(4)}`;
 }
 
+function formatCostTokens(tokens: number): string {
+  return `${formatReadableTokens(tokens)} token${tokens === 1 ? '' : 's'}`;
+}
+
 export function formatCostUsd(cost: number): string {
   if (!Number.isFinite(cost) || cost <= 0) return '$0.00';
   if (cost < 0.01) return '<$0.01';
   return costFormatter.format(cost);
 }
 
-function costFromUsage(usage: SessionTokenUsageSummary, pricing: TokenPricing): number {
+function costFromUsage(usage: CostUsage, pricing: TokenPricing): number {
   return ((usage.inputTokens / 1_000_000) * pricing.input)
     + ((usage.outputTokens / 1_000_000) * pricing.output)
     + ((usage.cacheReadTokens / 1_000_000) * pricing.cacheRead)
     + ((usage.cacheWriteTokens / 1_000_000) * pricing.cacheWrite);
+}
+
+function costBreakdownFromUsage(usage: CostUsage, pricing: TokenPricing) {
+  const input = (usage.inputTokens / 1_000_000) * pricing.input;
+  const output = (usage.outputTokens / 1_000_000) * pricing.output;
+  const cacheRead = (usage.cacheReadTokens / 1_000_000) * pricing.cacheRead;
+  const cacheWrite = (usage.cacheWriteTokens / 1_000_000) * pricing.cacheWrite;
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    total: input + output + cacheRead + cacheWrite,
+  };
+}
+
+function estimateTextTokens(text: string): number {
+  const trimmed = text.trim();
+  return trimmed ? Math.ceil(trimmed.length / 4) : 0;
+}
+
+export function buildLiveSessionCostEstimate(
+  transcript: ChatMessage[],
+  contextUsage: ContextWindowUsage | null,
+  busy: boolean,
+): LiveSessionCostEstimate | null {
+  if (!busy) return null;
+
+  const inputTokens = typeof contextUsage?.tokens === 'number' && Number.isFinite(contextUsage.tokens)
+    ? Math.max(0, Math.trunc(contextUsage.tokens))
+    : 0;
+
+  let outputTokens = 0;
+  for (const message of transcript) {
+    if (message.role !== 'assistant' || message.usage || message.status !== 'streaming') continue;
+    outputTokens += estimateTextTokens(message.markdown);
+    outputTokens += estimateTextTokens(message.thinking ?? '');
+  }
+
+  const totalTokens = inputTokens + outputTokens;
+  if (totalTokens <= 0) return null;
+
+  return {
+    source: 'live-context',
+    inputTokens,
+    outputTokens,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -224,8 +292,13 @@ function extractSubagentDirectCost(transcript: ChatMessage[]): number {
   return cost;
 }
 
-function buildPruningPrepassSummary(details: PruningCostDetails | undefined, pricing: TokenPricing | undefined): { cost: number; lines: string[] } {
+function buildPruningPrepassSummary(
+  details: PruningCostDetails | undefined,
+  pricing: TokenPricing | undefined,
+  pricingForModel?: TokenPricingResolver,
+): { cost: number; lines: string[] } {
   if (!details?.prepassModel) return { cost: 0, lines: [] };
+  const prepassPricing = pricingForModel?.(details.prepassModel) ?? pricing;
   const inputTokens = numberValue(details.prepassInputTokens);
   const outputTokens = numberValue(details.prepassOutputTokens);
   const cacheReadTokens = numberValue(details.prepassCacheReadTokens);
@@ -235,11 +308,11 @@ function buildPruningPrepassSummary(details: PruningCostDetails | undefined, pri
     return { cost: 0, lines: ['Pruning prepass:', `  Model: ${details.prepassModel}`] };
   }
 
-  const cost = pricing
-    ? ((inputTokens / 1_000_000) * pricing.input)
-      + ((outputTokens / 1_000_000) * pricing.output)
-      + ((cacheReadTokens / 1_000_000) * pricing.cacheRead)
-      + ((cacheWriteTokens / 1_000_000) * pricing.cacheWrite)
+  const cost = prepassPricing
+    ? ((inputTokens / 1_000_000) * prepassPricing.input)
+      + ((outputTokens / 1_000_000) * prepassPricing.output)
+      + ((cacheReadTokens / 1_000_000) * prepassPricing.cacheRead)
+      + ((cacheWriteTokens / 1_000_000) * prepassPricing.cacheWrite)
     : 0;
 
   return {
@@ -248,9 +321,84 @@ function buildPruningPrepassSummary(details: PruningCostDetails | undefined, pri
       'Pruning prepass:',
       `  Model: ${details.prepassModel}`,
       `  Tokens: \u2191 ${formatReadableTokens(inputTokens)} \u2193 ${formatReadableTokens(outputTokens)}`,
-      ...(pricing ? [`  Cost: ${formatCostDetail(cost)}`] : []),
+      ...(prepassPricing ? [`  Cost: ${formatCostDetail(cost)}`] : []),
     ],
   };
+}
+
+interface CompletedCostSummary extends CostUsage {
+  inputCost: number;
+  outputCost: number;
+  cacheReadCost: number;
+  cacheWriteCost: number;
+  totalCost: number;
+  pricedTurnCount: number;
+  modelIds: Set<string>;
+}
+
+function emptyCompletedCostSummary(): CompletedCostSummary {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+    inputCost: 0,
+    outputCost: 0,
+    cacheReadCost: 0,
+    cacheWriteCost: 0,
+    totalCost: 0,
+    pricedTurnCount: 0,
+    modelIds: new Set<string>(),
+  };
+}
+
+function addCompletedUsageCost(
+  summary: CompletedCostSummary,
+  usage: AssistantUsage,
+  pricing: TokenPricing | undefined,
+  modelId: string | undefined,
+): void {
+  summary.inputTokens += usage.inputTokens;
+  summary.outputTokens += usage.outputTokens;
+  summary.cacheReadTokens += usage.cacheReadTokens;
+  summary.cacheWriteTokens += usage.cacheWriteTokens;
+  summary.totalTokens += usage.totalTokens;
+  if (modelId) summary.modelIds.add(modelId);
+  if (!pricing) return;
+
+  const costs = costBreakdownFromUsage(usage, pricing);
+  summary.inputCost += costs.input;
+  summary.outputCost += costs.output;
+  summary.cacheReadCost += costs.cacheRead;
+  summary.cacheWriteCost += costs.cacheWrite;
+  summary.totalCost += costs.total;
+  summary.pricedTurnCount += 1;
+}
+
+function buildCompletedCostSummary(
+  usageSummary: SessionTokenUsageSummary,
+  transcript: ChatMessage[],
+  fallbackPricing: TokenPricing | undefined,
+  pricingForModel: TokenPricingResolver | undefined,
+): CompletedCostSummary {
+  const completed = emptyCompletedCostSummary();
+  let sawTranscriptUsage = false;
+
+  for (const message of transcript) {
+    if (message.role !== 'assistant' || !message.usage) continue;
+    sawTranscriptUsage = true;
+    const messagePricing = message.modelId ? pricingForModel?.(message.modelId) ?? fallbackPricing : fallbackPricing;
+    addCompletedUsageCost(completed, message.usage, messagePricing, message.modelId);
+  }
+
+  if (sawTranscriptUsage || usageSummary.reportedTurnCount === 0) {
+    return completed;
+  }
+
+  addCompletedUsageCost(completed, usageSummary, fallbackPricing, undefined);
+  completed.pricedTurnCount = fallbackPricing ? usageSummary.reportedTurnCount : 0;
+  return completed;
 }
 
 export function buildSessionCostIndicator(
@@ -259,12 +407,16 @@ export function buildSessionCostIndicator(
   modelName: string | undefined,
   transcript: ChatMessage[],
   pruningDetails: PruningCostDetails | undefined,
+  pricingForModel?: TokenPricingResolver,
+  liveEstimate?: LiveSessionCostEstimate | null,
 ): SessionCostIndicatorState | null {
-  if (summary.reportedTurnCount === 0) return null;
+  if (summary.reportedTurnCount === 0 && !liveEstimate) return null;
 
   const labelModel = modelName ?? 'Selected model';
   const subagentCost = extractSubagentDirectCost(transcript);
-  const prepass = buildPruningPrepassSummary(pruningDetails, pricing);
+  const prepass = buildPruningPrepassSummary(pruningDetails, pricing, pricingForModel);
+  const completed = buildCompletedCostSummary(summary, transcript, pricing, pricingForModel);
+  const liveCost = pricing && liveEstimate ? costFromUsage(liveEstimate, pricing) : 0;
 
   if (!pricing) {
     return {
@@ -273,25 +425,42 @@ export function buildSessionCostIndicator(
       tooltip: [
         `${labelModel}`,
         `${formatReadableTokens(summary.totalTokens)} tokens (no pricing)`,
+        ...(liveEstimate ? ['', 'Live turn estimate:', `  Input:  ${formatCostTokens(liveEstimate.inputTokens)}`, `  Output: ${formatCostTokens(liveEstimate.outputTokens)}`] : []),
         ...(subagentCost > 0 ? ['', 'Sub-agents:', `  Direct cost: ${formatCostDetail(subagentCost)}`] : []),
         ...(prepass.lines.length > 0 ? ['', ...prepass.lines] : []),
       ].join('\n'),
     };
   }
 
-  const mainCost = costFromUsage(summary, pricing);
-  const totalCost = mainCost + subagentCost + prepass.cost;
+  const mainCost = completed.totalCost;
+  const totalCost = mainCost + liveCost + subagentCost + prepass.cost;
   const tooltipLines = [
     `${labelModel}`,
-    `Subtotal: ${formatCostDetail(mainCost)}`,
-    `  Input:  ${formatCostDetail((summary.inputTokens / 1_000_000) * pricing.input)}`,
-    `  Output: ${formatCostDetail((summary.outputTokens / 1_000_000) * pricing.output)}`,
+    `Completed subtotal: ${formatCostDetail(mainCost)}`,
+    `  Input:  ${formatCostDetail(completed.inputCost)} (${formatCostTokens(completed.inputTokens)})`,
+    `  Output: ${formatCostDetail(completed.outputCost)} (${formatCostTokens(completed.outputTokens)})`,
   ];
 
-  if (summary.cacheReadTokens > 0 || summary.cacheWriteTokens > 0) {
+  if (completed.modelIds.size > 1) {
+    tooltipLines.push(`  Models: ${Array.from(completed.modelIds).join(', ')}`);
+  } else if (completed.modelIds.size === 1) {
+    tooltipLines.push(`  Model id: ${Array.from(completed.modelIds)[0]}`);
+  }
+
+  if (completed.cacheReadTokens > 0 || completed.cacheWriteTokens > 0) {
     tooltipLines.push(
-      `  Cache read:  ${formatCostDetail((summary.cacheReadTokens / 1_000_000) * pricing.cacheRead)}`,
-      `  Cache write: ${formatCostDetail((summary.cacheWriteTokens / 1_000_000) * pricing.cacheWrite)}`,
+      `  Cache read:  ${formatCostDetail(completed.cacheReadCost)} (${formatCostTokens(completed.cacheReadTokens)})`,
+      `  Cache write: ${formatCostDetail(completed.cacheWriteCost)} (${formatCostTokens(completed.cacheWriteTokens)})`,
+    );
+  }
+
+  if (liveEstimate) {
+    const liveCosts = costBreakdownFromUsage(liveEstimate, pricing);
+    tooltipLines.push(
+      '',
+      `Live turn estimate: ${formatCostDetail(liveCost)}`,
+      `  Input:  ${formatCostDetail(liveCosts.input)} (${formatCostTokens(liveEstimate.inputTokens)})`,
+      `  Output: ${formatCostDetail(liveCosts.output)} (${formatCostTokens(liveEstimate.outputTokens)})`,
     );
   }
 
