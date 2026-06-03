@@ -1,0 +1,164 @@
+import assert from 'node:assert/strict';
+import test, { describe } from 'node:test';
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const askModuleUrl = pathToFileURL(path.resolve(__dirname, '../src/ask.ts')).href;
+const typesModuleUrl = pathToFileURL(path.resolve(__dirname, '../src/types.ts')).href;
+
+type AskResult = {
+  content: Array<{ type: 'text'; text: string }>;
+  details: { answer: string; source: 'option' | 'custom' | 'cancelled'; cancelled: boolean };
+  isError: false;
+};
+
+type AskModule = {
+  runAsk: (input: any, port: any) => Promise<AskResult>;
+};
+
+type TypesModule = {
+  CUSTOM_SENTINEL: string;
+};
+
+async function loadAsk(): Promise<AskModule & TypesModule> {
+  const [ask, types] = await Promise.all([
+    import(askModuleUrl) as Promise<AskModule>,
+    import(typesModuleUrl) as Promise<TypesModule>,
+  ]);
+  return { ...ask, ...types };
+}
+
+function makePort(opts: { selectResult?: string; inputResult?: string } = {}) {
+  const calls: Array<{ method: 'select' | 'input'; args: unknown[] }> = [];
+  const signal = new AbortController().signal;
+  const port = {
+    signal,
+    ui: {
+      select: async (...args: unknown[]) => {
+        calls.push({ method: 'select', args });
+        return opts.selectResult;
+      },
+      input: async (...args: unknown[]) => {
+        calls.push({ method: 'input', args });
+        return opts.inputResult;
+      },
+    },
+  };
+  return { port, calls, signal };
+}
+
+describe('runAsk', () => {
+  test('returns a preset option answer without opening the custom input prompt', async () => {
+    const { runAsk, CUSTOM_SENTINEL } = await loadAsk();
+    const { port, calls, signal } = makePort({ selectResult: 'camelCase' });
+
+    const result = await runAsk({ question: 'Which style?', options: ['camelCase', 'snake_case'] }, port);
+
+    assert.deepEqual(result, {
+      content: [{ type: 'text', text: 'camelCase' }],
+      details: { answer: 'camelCase', source: 'option', cancelled: false },
+      isError: false,
+    });
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, 'select');
+    assert.deepEqual(calls[0].args, ['Which style?', ['camelCase', 'snake_case', CUSTOM_SENTINEL], { signal }]);
+  });
+
+  test('treats a value returned outside the preset options as an inline custom answer', async () => {
+    const { runAsk } = await loadAsk();
+    const { port, calls } = makePort({ selectResult: 'kebab-case' });
+
+    const result = await runAsk({ question: 'Which style?', options: ['camelCase', 'snake_case'] }, port);
+
+    assert.deepEqual(result, {
+      content: [{ type: 'text', text: 'kebab-case' }],
+      details: { answer: 'kebab-case', source: 'custom', cancelled: false },
+      isError: false,
+    });
+    assert.equal(calls.length, 1);
+  });
+
+  test('opens a custom input prompt when the user picks the sentinel option', async () => {
+    const { runAsk, CUSTOM_SENTINEL } = await loadAsk();
+    const { port, calls, signal } = makePort({ selectResult: CUSTOM_SENTINEL, inputResult: '  kebab-case  ' });
+
+    const result = await runAsk({ question: 'Which style?', options: ['camelCase'] }, port);
+
+    assert.deepEqual(result, {
+      content: [{ type: 'text', text: 'kebab-case' }],
+      details: { answer: 'kebab-case', source: 'custom', cancelled: false },
+      isError: false,
+    });
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[1].args, ['Your answer', undefined, { signal }]);
+  });
+
+  test('treats cancelling the custom input prompt as a non-error cancellation result', async () => {
+    const { runAsk, CUSTOM_SENTINEL } = await loadAsk();
+    const { port } = makePort({ selectResult: CUSTOM_SENTINEL, inputResult: '   ' });
+
+    const result = await runAsk({ question: 'Which style?', options: ['camelCase'] }, port);
+
+    assert.deepEqual(result, {
+      content: [{ type: 'text', text: '[user cancelled the question]' }],
+      details: { answer: '', source: 'cancelled', cancelled: true },
+      isError: false,
+    });
+  });
+
+  test('treats cancelling the select prompt as a non-error cancellation result', async () => {
+    const { runAsk } = await loadAsk();
+    const { port } = makePort({ selectResult: undefined });
+
+    const result = await runAsk({ question: 'Which style?', options: ['camelCase'] }, port);
+
+    assert.deepEqual(result, {
+      content: [{ type: 'text', text: '[user cancelled the question]' }],
+      details: { answer: '', source: 'cancelled', cancelled: true },
+      isError: false,
+    });
+  });
+
+  test('filters a sentinel-shaped preset option so it cannot collide with custom input metadata', async () => {
+    const { runAsk, CUSTOM_SENTINEL } = await loadAsk();
+    const { port, calls } = makePort({ selectResult: 'camelCase' });
+
+    const result = await runAsk({ question: 'Which style?', options: [CUSTOM_SENTINEL, 'camelCase'], allowCustom: false }, port);
+
+    assert.equal(result.content[0].text, 'camelCase');
+    assert.deepEqual(calls[0].args[1], ['camelCase']);
+  });
+
+  test('still offers a custom answer when no preset options are available', async () => {
+    const { runAsk, CUSTOM_SENTINEL } = await loadAsk();
+    const { port, calls } = makePort({ selectResult: CUSTOM_SENTINEL, inputResult: 'custom answer' });
+
+    const result = await runAsk({ question: 'What should I do?', options: [], allowCustom: false }, port);
+
+    assert.deepEqual(result, {
+      content: [{ type: 'text', text: 'custom answer' }],
+      details: { answer: 'custom answer', source: 'custom', cancelled: false },
+      isError: false,
+    });
+    assert.deepEqual(calls[0].args[1], [CUSTOM_SENTINEL]);
+  });
+
+  test('omits the custom sentinel when allowCustom is false and includes context in the select title', async () => {
+    const { runAsk, CUSTOM_SENTINEL } = await loadAsk();
+    const { port, calls } = makePort({ selectResult: 'snake_case' });
+
+    const result = await runAsk({
+      question: 'Which style?',
+      context: 'This affects generated file names.',
+      options: ['camelCase', 'snake_case'],
+      allowCustom: false,
+    }, port);
+
+    assert.equal(result.content[0].text, 'snake_case');
+    assert.equal(calls.length, 1);
+    assert.deepEqual(calls[0].args[0], 'Which style?\n\nThis affects generated file names.');
+    assert.deepEqual(calls[0].args[1], ['camelCase', 'snake_case']);
+    assert.equal((calls[0].args[1] as string[]).includes(CUSTOM_SENTINEL), false);
+  });
+});

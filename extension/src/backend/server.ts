@@ -18,6 +18,7 @@ import {
   type TranscriptPagePayload,
 } from '../shared/protocol';
 import { prepareContextFiles } from './context-files';
+import { deriveFallbackContextUsageFromBranch } from './context-usage';
 import { ExtensionUIBridge } from './extension-ui-bridge';
 import { handleBackendRequest } from './request-handler';
 import { buildSessionAnalyticsFactors } from './session-analytics';
@@ -333,8 +334,48 @@ export class BackendServer {
     };
   }
 
+  private resolveCurrentContextWindow(context: SessionContext): number | undefined {
+    const sessionContextWindow = context.session.model?.contextWindow;
+    if (
+      typeof sessionContextWindow === 'number'
+      && Number.isFinite(sessionContextWindow)
+      && sessionContextWindow > 0
+    ) {
+      return Math.trunc(sessionContextWindow);
+    }
+
+    const currentModelId = context.session.model?.id;
+    if (!currentModelId) {
+      return undefined;
+    }
+
+    try {
+      const models = context.runtime.services?.modelRegistry?.getAvailable() ?? [];
+      const model = models.find((candidate) => candidate.id === currentModelId);
+      if (
+        typeof model?.contextWindow === 'number'
+        && Number.isFinite(model.contextWindow)
+        && model.contextWindow > 0
+      ) {
+        return Math.trunc(model.contextWindow);
+      }
+    } catch {
+      // Ignore model registry issues and fall back to undefined.
+    }
+
+    return undefined;
+  }
+
   private getContextUsage(context: SessionContext): ContextWindowUsage | undefined {
-    return context.session.getContextUsage?.();
+    const directUsage = context.session.getContextUsage?.();
+    if (directUsage) {
+      return directUsage;
+    }
+
+    return deriveFallbackContextUsageFromBranch(
+      context.session.sessionManager.getBranch(),
+      this.resolveCurrentContextWindow(context),
+    );
   }
 
   private emitContextUsageChanged(context: SessionContext): void {

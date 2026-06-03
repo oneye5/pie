@@ -15,6 +15,7 @@ import type {
   ModelInfo,
   ModelSettings,
   PruningCatalog,
+  PruningDetails,
   PruningResult,
   PruningSettings,
   SystemPromptEntry,
@@ -23,7 +24,7 @@ import type {
 } from '../../shared/protocol';
 import { buildContextWindowBreakdown } from './context-window/breakdown';
 import { buildContextWindowIndicatorState } from './context-window/indicator';
-import { buildSessionTokenIndicator, buildSessionTokenUsage, type TokenRateState } from './session-tabs/token-usage';
+import { buildSessionCostIndicator, buildSessionTokenIndicator, buildSessionTokenUsage, type TokenRateState } from './session-tabs/token-usage';
 import { shouldHandleGlobalComposerPaste } from './composer/affordances';
 import { describeComposerInputSummary } from './composer/inputs';
 import { resolveComposerModelState } from './composer/model-state';
@@ -321,6 +322,16 @@ function ComposerView({
     () => buildSessionTokenIndicator(sessionTokenUsage, tokenRate),
     [sessionTokenUsage, tokenRate],
   );
+  const sessionCostIndicator = useMemo(
+    () => buildSessionCostIndicator(
+      sessionTokenUsage,
+      selectedModelInfo?.subagent?.pricing,
+      selectedModelInfo?.name,
+      transcript,
+      (pruningResult?.details as PruningDetails | undefined),
+    ),
+    [sessionTokenUsage, selectedModelInfo, transcript, pruningResult],
+  );
   const canSend = text.trim().length > 0 || pendingComposerInputs.length > 0;
   const attachmentSummary = useMemo(
     () => describeComposerInputSummary(pendingComposerInputs),
@@ -331,7 +342,8 @@ function ComposerView({
   const composerPlaceholder = '';
 
   return (
-    <div class="flex shrink-0 flex-col gap-1.5 border-t border-border/50 bg-surface px-3 py-2 pb-2.5" ref={composerAreaRef}>
+    <div class="composer-area flex shrink-0 flex-col gap-1.5 border-t border-border/50 bg-surface px-3 py-2 pb-2.5" ref={composerAreaRef}>
+      <div class="composer-rail flex flex-col gap-1.5">
       <ComposerToolbar
         prefs={prefs}
         pruningSettings={pruningSettings}
@@ -358,6 +370,7 @@ function ComposerView({
               ariaLabel: sessionTokenIndicator.ariaLabel,
               tooltip: sessionTokenIndicator.tooltip,
             }}
+        sessionCostIndicator={sessionCostIndicator}
         runStatus={runControls.status}
         onModelChange={onModelChange}
       />
@@ -443,6 +456,7 @@ function ComposerView({
       {attachmentError && (
         <div class="composer-hint composer-hint-error" role="status">{attachmentError}</div>
       )}
+      </div>
     </div>
   );
 }

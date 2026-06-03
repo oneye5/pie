@@ -8,6 +8,20 @@
   margin-left: auto;
 }
 
+.composer-area {
+  align-items: center;
+}
+
+.composer-rail {
+  width: min(100%, var(--panel-content-max-width));
+}
+
+@media (max-width: 720px) {
+  .composer-area {
+    padding-inline: var(--panel-gap-md);
+  }
+}
+
 .composer-run-action {
   --run-action-border: transparent;
   display: inline-flex;
@@ -17,8 +31,8 @@
   padding: 0 12px;
   border-radius: var(--panel-radius-md);
   border: 1px solid var(--run-action-border);
-  background: var(--vscode-button-background);
-  color: var(--vscode-button-foreground, #fff);
+  background: var(--panel-accent);
+  color: var(--panel-accent-contrast);
   font-size: 12px;
   font-weight: 500;
   line-height: 1;
@@ -36,7 +50,7 @@
 
 .composer-run-action:hover:not(:disabled),
 .composer-run-action:focus-visible:not(:disabled) {
-  background: var(--vscode-button-hoverBackground);
+  background: var(--panel-accent-strong);
 }
 
 .composer-run-action.open:hover:not(:disabled),
@@ -56,7 +70,7 @@
 
 /* Style ineligible models in the model select dropdown */
 .toolbar-settings-select option.model-option-ineligible {
-  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  color: var(--panel-muted);
   font-style: italic;
 }
 
@@ -64,11 +78,11 @@
    render the chip label; this keeps the actual <option> text visible when
    the native dropdown opens. */
 .toolbar-model-select option {
-  color: var(--vscode-dropdown-foreground, var(--vscode-foreground));
+  color: var(--panel-foreground);
 }
 
 .toolbar-model-select option.model-option-ineligible {
-  color: var(--vscode-disabledForeground, var(--vscode-descriptionForeground));
+  color: var(--panel-muted);
   font-style: italic;
 }
 
@@ -76,7 +90,7 @@
 
 .context-window-indicator {
   justify-content: center;
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   font-weight: 400;
   cursor: help;
   opacity: 0.9;
@@ -102,7 +116,7 @@
 
 .session-token-rate {
   justify-content: center;
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   font-weight: 400;
   cursor: help;
   opacity: 0.75;
@@ -114,7 +128,19 @@
 
 .session-token-indicator {
   justify-content: center;
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
+  font-weight: 400;
+  cursor: help;
+  opacity: 0.75;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  margin-left: 4px;
+  overflow: hidden;
+}
+
+.session-cost-indicator {
+  justify-content: center;
+  color: var(--panel-foreground);
   font-weight: 400;
   cursor: help;
   opacity: 0.75;
@@ -127,7 +153,8 @@
 /* Progressive hide as toolbar narrows:
    1st hidden: token rate (least important)
    2nd hidden: token in/out counts
-   3rd hidden: context window indicator (most important, kept longest) */
+   3rd hidden: cost estimate
+   4th hidden: context window indicator (most important, kept longest) */
 @container toolbar (max-width: 440px) {
   .session-token-rate {
     display: none;
@@ -136,6 +163,12 @@
 
 @container toolbar (max-width: 340px) {
   .session-token-indicator {
+    display: none;
+  }
+}
+
+@container toolbar (max-width: 300px) {
+  .session-cost-indicator {
     display: none;
   }
 }
@@ -157,17 +190,17 @@
 .toolbar-settings-menu {
   position: absolute;
   left: 0;
-  bottom: calc(100% + 8px);
+  bottom: calc(100% + var(--panel-gap-md));
   z-index: 200;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--panel-gap-sm);
   min-width: 240px;
   max-width: 300px;
-  padding: 8px;
-  border: 1px solid var(--vscode-menu-border, var(--panel-border));
+  padding: var(--panel-gap-md);
+  border: 1px solid var(--panel-border);
   border-radius: var(--panel-radius-lg);
-  background: var(--vscode-menu-background, var(--panel-overlay-surface));
+  background: var(--panel-overlay-surface);
   box-shadow: var(--panel-shadow-overlay);
 }
 
@@ -178,13 +211,13 @@
 }
 
 .toolbar-settings-section + .toolbar-settings-section {
-  padding-top: 8px;
+  padding-top: var(--panel-gap-md);
   border-top: 1px solid var(--panel-border);
 }
 
 .toolbar-settings-section-label {
-  padding: 0 8px;
-  margin-bottom: 2px;
+  padding: 0 var(--panel-gap-md);
+  margin-bottom: var(--panel-gap-xs);
   font-size: 10px;
   line-height: 1.3;
   text-transform: uppercase;
@@ -202,13 +235,13 @@
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: var(--panel-gap-md);
   width: 100%;
-  padding: 7px 8px;
+  padding: 5px var(--panel-gap-md);
   border: none;
-  border-radius: 7px;
+  border-radius: var(--panel-radius-md);
   background: transparent;
-  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  color: var(--panel-foreground);
   cursor: pointer;
   font-size: 12px;
   line-height: 1.3;
@@ -217,8 +250,8 @@
 
 .toolbar-settings-item:hover,
 .toolbar-settings-item:focus {
-  background: var(--vscode-menu-selectionBackground, var(--panel-control-hover));
-  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+  background: var(--panel-control-hover);
+  color: var(--panel-foreground);
   outline: none;
 }
 
@@ -230,15 +263,15 @@
   width: 14px;
   height: 14px;
   border: 1px solid var(--panel-border);
-  border-radius: 4px;
+  border-radius: var(--panel-radius-sm);
   background: transparent;
   color: var(--panel-accent);
 }
 
 .toolbar-settings-item.checked .toolbar-settings-item-check {
-  border-color: var(--vscode-checkbox-border, var(--panel-accent));
-  background: var(--vscode-checkbox-background, var(--panel-accent));
-  color: var(--vscode-checkbox-foreground, #fff);
+  border-color: color-mix(in srgb, var(--panel-accent) 55%, var(--panel-border));
+  background: var(--panel-accent);
+  color: var(--panel-accent-contrast);
 }
 
 .toolbar-settings-item-label {
@@ -271,7 +304,7 @@
   height: 22px;
   padding: 0;
   border: none;
-  border-radius: 4px;
+  border-radius: var(--panel-radius-sm);
   background: transparent;
   color: var(--panel-muted);
   cursor: pointer;
@@ -280,7 +313,7 @@
 }
 
 .toolbar-settings-ext-chevron:hover {
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   background: var(--panel-control-hover);
 }
 
@@ -295,7 +328,7 @@
   background: var(--panel-control-surface);
   border: 1px solid var(--panel-border-subtle);
   border-radius: var(--panel-radius-sm);
-  padding: 8px;
+  padding: var(--panel-gap-md);
 }
 
 /* ── Pruning settings ────────────────────────────────────────────────────── */
@@ -307,7 +340,7 @@
   align-items: center;
   justify-content: space-between;
   cursor: default;
-  gap: 8px;
+  gap: var(--panel-gap-md);
 }
 
 .toolbar-settings-mode-row .toolbar-settings-item-label,
@@ -317,11 +350,11 @@
 }
 
 .toolbar-settings-select {
-  background: var(--vscode-dropdown-background, var(--panel-control-surface));
-  color: var(--vscode-dropdown-foreground, inherit);
-  border: 1px solid var(--vscode-dropdown-border, var(--panel-border-subtle));
+  background: var(--panel-control-surface);
+  color: inherit;
+  border: 1px solid var(--panel-border-subtle);
   border-radius: var(--panel-radius-sm);
-  padding: 3px 8px;
+  padding: 3px var(--panel-gap-md);
   font-size: 11px;
   outline: none;
   min-width: 0;
@@ -336,8 +369,8 @@
 }
 
 .toolbar-settings-stepper-btn {
-  background: var(--vscode-button-secondaryBackground, var(--panel-control-surface));
-  color: var(--vscode-button-secondaryForeground, inherit);
+  background: var(--panel-control-surface);
+  color: inherit;
   border: 1px solid var(--panel-border-subtle);
   border-radius: var(--panel-radius-sm);
   width: 22px;
@@ -357,7 +390,7 @@
 }
 
 .toolbar-settings-stepper-btn:hover:not(:disabled) {
-  background: var(--vscode-button-secondaryHoverBackground, var(--panel-control-hover));
+  background: var(--panel-control-hover);
 }
 
 .toolbar-settings-stepper-value {
@@ -365,6 +398,27 @@
   text-align: center;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  color: var(--panel-foreground);
+}
+
+.toolbar-settings-timeout-value {
+  min-width: 32px;
+}
+
+.toolbar-settings-timeout-reset {
+  background: none;
+  border: none;
+  color: var(--panel-muted);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1;
+  padding: 0 2px;
+  margin-left: 2px;
+  border-radius: var(--panel-radius-sm);
+}
+
+.toolbar-settings-timeout-reset:hover {
+  color: var(--panel-foreground);
 }
 
 /* ── Sound settings ──────────────────────────────────────────────────────── */
@@ -372,23 +426,23 @@
 .toolbar-settings-sound-controls {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--panel-gap-sm);
 }
 
 .toolbar-settings-slider {
   width: 96px;
   height: 4px;
   cursor: pointer;
-  accent-color: var(--vscode-focusBorder);
+  accent-color: var(--panel-accent);
 }
 
 .toolbar-settings-test-btn {
   background: none;
-  border: 1px solid var(--vscode-input-border, var(--panel-border-subtle));
-  border-radius: 3px;
-  color: var(--vscode-foreground);
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-sm);
+  color: var(--panel-foreground);
   font-size: 10px;
-  padding: 2px 6px;
+  padding: 2px var(--panel-gap-sm);
   cursor: pointer;
   line-height: 1;
 }
@@ -408,8 +462,8 @@
 .toolbar-settings-keep-picker {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 6px 8px;
+  gap: var(--panel-gap-xs);
+  padding: var(--panel-gap-sm) var(--panel-gap-md);
   cursor: default;
 }
 
@@ -417,25 +471,26 @@
   font-size: 11px;
   line-height: 1.3;
   color: var(--panel-muted);
+  letter-spacing: 0.01em;
 }
 
 .toolbar-settings-keep-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
+  gap: var(--panel-gap-xs);
 }
 
 .toolbar-settings-keep-chip {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 6px 2px 6px;
+  gap: var(--panel-gap-xs);
+  padding: 2px var(--panel-gap-sm);
   border-radius: 999px;
   background: var(--panel-control-surface);
   border: 1px solid var(--panel-border-subtle);
   font-size: 11px;
   line-height: 1.4;
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
 }
 
 .toolbar-settings-keep-chip-remove {
@@ -452,11 +507,12 @@
   font-size: 12px;
   line-height: 1;
   cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
 }
 
 .toolbar-settings-keep-chip-remove:hover {
   background: var(--panel-control-hover);
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
 }
 
 .toolbar-settings-keep-picker-wrap {
@@ -477,8 +533,8 @@
 
 .block-context-menu {
   z-index: 200;
-  background: var(--vscode-menu-background, var(--panel-overlay-surface));
-  border: 1px solid var(--vscode-menu-border, var(--panel-border));
+  background: var(--panel-overlay-surface);
+  border: 1px solid var(--panel-border);
   border-radius: var(--panel-radius-sm);
   padding: 3px 0;
   box-shadow: var(--panel-shadow-overlay);
@@ -510,7 +566,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 18px;
+  padding: var(--panel-gap-xl);
   background: var(--panel-overlay-backdrop);
 }
 
@@ -520,10 +576,10 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
-  padding: 16px;
+  gap: var(--panel-gap-xl);
+  padding: var(--panel-gap-xl);
   border: 1px solid var(--panel-border);
-  border-radius: 14px;
+  border-radius: var(--panel-radius-xl);
   background: var(--panel-overlay-surface);
   box-shadow: var(--panel-shadow-overlay);
 }
@@ -531,7 +587,7 @@
 .run-outcome-header {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--panel-gap-sm);
 }
 
 .run-outcome-eyebrow {
@@ -558,7 +614,7 @@
 .run-outcome-section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--panel-gap-md);
 }
 
 .run-outcome-section-title {
@@ -569,7 +625,7 @@
 .run-outcome-rating-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
+  gap: var(--panel-gap-md);
 }
 
 .run-outcome-rating {
@@ -579,11 +635,11 @@
   justify-content: center;
   gap: 2px;
   min-height: 56px;
-  padding: 6px 8px;
+  padding: var(--panel-gap-sm) var(--panel-gap-md);
   border: 1px solid var(--panel-border-subtle);
   border-radius: var(--panel-radius-lg);
   background: var(--panel-control-surface);
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
@@ -621,20 +677,20 @@
 .run-outcome-resolution-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--panel-gap-md);
 }
 
 .run-outcome-resolution {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: var(--panel-gap-xs);
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--panel-gap-lg) var(--panel-gap-xl);
   border: 1px solid var(--panel-border-subtle);
   border-radius: var(--panel-radius-lg);
   background: var(--panel-control-surface);
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   text-align: left;
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease;
@@ -654,5 +710,5 @@
 .run-outcome-actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--panel-gap-md);
 }

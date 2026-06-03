@@ -148,6 +148,34 @@ test('assistantStatus, usage helpers, and systemMessage normalize edge cases', (
     cacheWriteTokens: 4,
     totalTokens: 10,
   });
+  assert.deepEqual(usageFromMessage({
+    role: 'assistant',
+    usage: {
+      prompt_tokens: 11,
+      completion_tokens: 7,
+      total_tokens: 18,
+      prompt_tokens_details: {
+        cached_tokens: 5,
+        cache_creation_input_tokens: 3,
+      },
+    },
+  }), {
+    inputTokens: 6,
+    outputTokens: 7,
+    cacheReadTokens: 2,
+    cacheWriteTokens: 3,
+    totalTokens: 18,
+  });
+  assert.deepEqual(usageFromMessage({
+    role: 'assistant',
+    usage: { prompt_eval_count: 13, eval_count: 4 },
+  }), {
+    inputTokens: 13,
+    outputTokens: 4,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 17,
+  });
 
   assert.deepEqual(addAssistantUsage(undefined, undefined), undefined);
   assert.deepEqual(addAssistantUsage(undefined, {

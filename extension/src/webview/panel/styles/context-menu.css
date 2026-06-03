@@ -8,7 +8,7 @@
   padding: 5px 10px;
   border: none;
   background: transparent;
-  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  color: var(--panel-foreground);
   cursor: pointer;
   font-size: 12px;
   text-align: left;
@@ -16,8 +16,8 @@
 }
 
 .context-menu-item:hover {
-  background: var(--vscode-menu-selectionBackground, var(--panel-control-hover));
-  color: var(--vscode-menu-selectionForeground, var(--vscode-foreground));
+  background: var(--panel-control-hover);
+  color: var(--panel-foreground);
 }
 
 .context-menu-item:disabled {
@@ -28,7 +28,7 @@
 /* Disabled items must not change appearance on hover */
 .context-menu-item:disabled:hover {
   background: transparent;
-  color: var(--vscode-menu-foreground, var(--vscode-foreground));
+  color: var(--panel-foreground);
 }
 
 .context-menu-check {
@@ -145,7 +145,7 @@
 }
 
 .attachment-card-name {
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   font-size: 10px;
   font-weight: 600;
   line-height: 1.2;
@@ -158,8 +158,8 @@
 }
 
 .attachment-card-remove {
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: none;
   border-radius: 999px;
@@ -167,7 +167,7 @@
   color: var(--panel-muted);
   cursor: pointer;
   flex-shrink: 0;
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1;
   transition: background 0.12s ease, color 0.12s ease;
 }
@@ -175,11 +175,11 @@
 .attachment-card-remove:hover,
 .attachment-card-remove:focus-visible {
   background: var(--panel-control-hover);
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
 }
 
 .attachment-card-remove:focus-visible {
-  outline: 1px solid var(--vscode-focusBorder, var(--panel-accent));
+  outline: 1px solid var(--panel-accent);
   outline-offset: 1px;
 }
 

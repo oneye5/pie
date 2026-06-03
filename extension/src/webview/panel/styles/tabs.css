@@ -7,7 +7,7 @@
   border: 1px solid color-mix(in srgb, var(--panel-warning) 34%, var(--panel-border));
   border-radius: var(--panel-radius-lg);
   background: color-mix(in srgb, var(--panel-warning-surface) 72%, var(--panel-control-surface));
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   font-size: 12px;
   line-height: 1.45;
   word-break: break-word;
@@ -36,10 +36,11 @@
 .notice-btn {
   background: none;
   border: none;
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   cursor: pointer;
   font-size: 11px;
-  padding: 2px 5px;
+  min-height: 24px;
+  padding: 0 7px;
   border-radius: var(--panel-radius-sm);
   opacity: 0.72;
 }
@@ -50,6 +51,7 @@
 }
 
 .notice-dismiss {
+  min-width: 24px;
   font-size: 13px;
   line-height: 1;
 }
@@ -160,7 +162,7 @@ body.session-tab-dragging {
 
 .session-tab.active .session-tab-label {
   font-weight: 600;
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
 }
 
 /* Focus ring propagates from any focused child (main or close button) */
@@ -219,7 +221,7 @@ body.session-tab-dragging {
   font-weight: 500;
   letter-spacing: 0.01em;
   text-align: left;
-  color: color-mix(in srgb, var(--vscode-foreground) 90%, var(--panel-muted) 10%);
+  color: color-mix(in srgb, var(--panel-foreground) 90%, var(--panel-muted) 10%);
 }
 
 /* Run outcome badge: shows score or open-run indicator */
@@ -283,15 +285,15 @@ body.session-tab-dragging {
 /* ── Close button ────────────────────────────────────────────────────────── */
 
 .session-tab-close {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
   border: 1px solid transparent;
   border-radius: var(--panel-radius-sm);
   background: transparent;
   color: var(--panel-muted);
   cursor: pointer;
   flex-shrink: 0;
-  margin: 7px 6px 7px 0;
+  margin: 5px 5px 5px 0;
   padding: 0;
   font-size: 12px;
   line-height: 1;
@@ -313,7 +315,7 @@ body.session-tab-dragging {
 .session-tab-close:focus-visible {
   background: var(--panel-control-hover);
   border-color: var(--session-tab-outline);
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   outline: none;
 }
 
@@ -399,7 +401,7 @@ body.session-tab-dragging {
 .session-tabs-new:focus-visible:not(:disabled) {
   background: var(--panel-control-hover);
   border-color: var(--panel-border);
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   outline: none;
 }
 

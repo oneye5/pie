@@ -45,6 +45,13 @@ out-tsc/
 .parcel-cache/
 .eslintcache
 
+# Stale TypeScript emit alongside source (build outputs to /extension/out/)
+extension/src/**/*.js
+extension/src/**/*.js.map
+extension/test/*.js
+extension/test/*.js.map
+extension/test-results/
+
 # Analysis package generated outputs
 /analysis/data/*.duckdb
 /analysis/data/*.duckdb.*

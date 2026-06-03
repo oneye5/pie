@@ -37,6 +37,7 @@ interface ComposerToolbarProps {
   contextIndicator: { label: string | null; ariaLabel: string; severity: string | null } | null;
   contextBreakdownTitle: string | null;
   sessionTokenIndicator: { label: string; rateLabel: string; ariaLabel: string; tooltip: string };
+  sessionCostIndicator: { label: string; ariaLabel: string; tooltip: string } | null;
   runStatus: ComposerToolbarStatus | null;
   onModelChange: (model: string, thinkingLevel: ThinkingLevel) => void;
 }
@@ -60,6 +61,7 @@ export function ComposerToolbar({
   contextIndicator,
   contextBreakdownTitle,
   sessionTokenIndicator,
+  sessionCostIndicator,
   runStatus,
   onModelChange,
 }: ComposerToolbarProps) {
@@ -148,6 +150,16 @@ export function ComposerToolbar({
         >
           {sessionTokenIndicator.label}
         </span>
+
+        {sessionCostIndicator && (
+          <span
+            class={cx(staticChipClass, 'session-cost-indicator justify-center font-normal tabular-nums text-foreground/75')}
+            aria-label={sessionCostIndicator.ariaLabel}
+            title={sessionCostIndicator.tooltip}
+          >
+            {sessionCostIndicator.label}
+          </span>
+        )}
 
         {contextIndicator?.label && contextBreakdownTitle && (
           <span

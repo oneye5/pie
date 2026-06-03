@@ -6,27 +6,27 @@
 /* These generate Tailwind utility classes (bg-surface, text-foreground, etc.) */
 
 @theme {
-  --color-surface: var(--vscode-sideBar-background, #1e1e1e);
-  --color-card: var(--vscode-editor-background, #252526);
-  --color-elevated: color-mix(in srgb, var(--vscode-editor-background, #252526) 88%, var(--vscode-foreground, #ccc) 12%);
-  --color-control: var(--vscode-sideBarSectionHeader-background, rgba(127, 127, 127, 0.07));
-  --color-control-hover: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.1));
-  --color-code: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
-  --color-input: var(--vscode-input-background, #3c3c3c);
-  --color-overlay: var(--vscode-editorWidget-background, #252526);
+  --color-surface: var(--panel-surface);
+  --color-card: var(--panel-card-surface);
+  --color-elevated: var(--panel-raised-surface);
+  --color-control: var(--panel-control-surface);
+  --color-control-hover: var(--panel-control-hover);
+  --color-code: var(--panel-code-surface);
+  --color-input: var(--panel-input-surface);
+  --color-overlay: var(--panel-overlay-surface);
 
-  --color-foreground: var(--vscode-foreground, #cccccc);
-  --color-muted: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.86));
+  --color-foreground: var(--panel-foreground);
+  --color-muted: var(--panel-muted);
 
-  --color-accent: var(--vscode-focusBorder, #007acc);
-  --color-danger: var(--vscode-errorForeground, #cc3333);
-  --color-warning: var(--vscode-inputValidation-warningBorder, #d29922);
-  --color-success: var(--vscode-testing-iconPassed, #3fb950);
+  --color-accent: var(--panel-accent);
+  --color-danger: var(--panel-danger);
+  --color-warning: var(--panel-warning);
+  --color-success: var(--panel-success);
 
-  --color-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.22));
-  --color-border-subtle: color-mix(in srgb, var(--vscode-panel-border, rgba(128, 128, 128, 0.22)) 50%, transparent);
+  --color-border: var(--panel-border);
+  --color-border-subtle: var(--panel-border-subtle);
 
-  --font-mono: var(--vscode-editor-font-family, monospace);
+  --font-mono: var(--panel-font-mono);
 
   --radius-sm: 6px;
   --radius-md: 8px;
@@ -43,41 +43,100 @@
 /* Not Tailwind tokens — components that use Tailwind utilities use @theme.  */
 
 :root {
+  /* Bespoke night palette: intentionally independent from the VS Code theme. */
+  --panel-black: #020203;
+  --panel-ink: #050506;
+  --panel-ink-2: #090a0d;
+  --panel-ink-3: #0d1014;
+  --panel-ink-4: #12161d;
+  --panel-ink-5: #19202a;
+  --panel-foreground: #f2eee4;
+  --panel-foreground-soft: #d4cec1;
+  --panel-muted: #958f82;
+  --panel-border: rgba(242, 238, 228, 0.13);
+  --panel-border-subtle: rgba(242, 238, 228, 0.075);
+  --panel-accent: #d7a942;
+  --panel-accent-strong: #f1c75b;
+  --panel-accent-contrast: #090704;
+  --panel-danger: #ff6677;
+  --panel-warning: #e4b84f;
+  --panel-success: #51d88a;
+  --panel-font-sans: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --panel-font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+
+  /* Compatibility aliases for VS Code token references.
+     No longer used by component stylesheets — prefer --panel-* tokens directly.
+     Kept for any HTML that still depends on these class-level overrides. */
+  --vscode-foreground: var(--panel-foreground);
+  --vscode-descriptionForeground: var(--panel-muted);
+  --vscode-editor-background: var(--panel-ink);
+  --vscode-sideBar-background: var(--panel-black);
+  --vscode-sideBarSectionHeader-background: var(--panel-ink-3);
+  --vscode-list-hoverBackground: var(--panel-ink-5);
+  --vscode-panel-border: var(--panel-border);
+  --vscode-focusBorder: var(--panel-accent);
+  --vscode-button-background: var(--panel-accent);
+  --vscode-button-foreground: var(--panel-accent-contrast);
+  --vscode-button-hoverBackground: var(--panel-accent-strong);
+  --vscode-button-secondaryBackground: var(--panel-ink-3);
+  --vscode-button-secondaryForeground: var(--panel-foreground-soft);
+  --vscode-button-secondaryHoverBackground: var(--panel-ink-5);
+  --vscode-checkbox-background: var(--panel-accent);
+  --vscode-checkbox-border: color-mix(in srgb, var(--panel-accent) 55%, var(--panel-border));
+  --vscode-checkbox-foreground: var(--panel-accent-contrast);
+  --vscode-dropdown-background: var(--panel-ink-3);
+  --vscode-dropdown-border: var(--panel-border);
+  --vscode-dropdown-foreground: var(--panel-foreground);
+  --vscode-editorWidget-background: var(--panel-ink-3);
+  --vscode-errorForeground: var(--panel-danger);
+  --vscode-input-background: var(--panel-ink-2);
+  --vscode-input-border: var(--panel-border);
+  --vscode-input-foreground: var(--panel-foreground);
+  --vscode-input-placeholderForeground: var(--panel-muted);
+  --vscode-inputValidation-errorBackground: rgba(255, 102, 119, 0.12);
+  --vscode-inputValidation-warningBackground: rgba(228, 184, 79, 0.12);
+  --vscode-inputValidation-warningBorder: var(--panel-warning);
+  --vscode-menu-background: var(--panel-ink-3);
+  --vscode-menu-border: var(--panel-border);
+  --vscode-menu-foreground: var(--panel-foreground);
+  --vscode-menu-selectionBackground: var(--panel-ink-5);
+  --vscode-menu-selectionForeground: var(--panel-foreground);
+  --vscode-scrollbarSlider-background: rgba(242, 238, 228, 0.18);
+  --vscode-scrollbarSlider-hoverBackground: rgba(242, 238, 228, 0.3);
+  --vscode-testing-iconPassed: var(--panel-success);
+  --vscode-textCodeBlock-background: var(--panel-ink-2);
+  --vscode-textLink-foreground: #7bd8d0;
+  --vscode-widget-shadow: rgba(0, 0, 0, 0.84);
+
   /* Surfaces */
-  --panel-border: var(--vscode-panel-border, rgba(128, 128, 128, 0.22));
-  --panel-border-subtle: color-mix(in srgb, var(--panel-border) 74%, transparent);
-  --panel-muted: var(--vscode-descriptionForeground, rgba(127, 127, 127, 0.86));
-  --panel-surface: var(--vscode-editor-background, rgba(127, 127, 127, 0.04));
-  --panel-subtle-surface: var(--vscode-sideBarSectionHeader-background, rgba(127, 127, 127, 0.07));
-  --panel-raised-surface: color-mix(in srgb, var(--vscode-editor-background, transparent) 86%, var(--vscode-foreground) 14%);
-  --panel-card-surface: color-mix(in srgb, var(--vscode-editor-background, var(--panel-surface)) 92%, var(--vscode-foreground) 8%);
-  --panel-control-surface: color-mix(in srgb, var(--panel-subtle-surface) 78%, transparent);
+  --panel-surface: var(--panel-black);
+  --panel-subtle-surface: var(--panel-ink-2);
+  --panel-raised-surface: var(--panel-ink-4);
+  --panel-card-surface: var(--panel-ink-3);
+  --panel-control-surface: var(--panel-ink-4);
   --panel-control-hover: color-mix(in srgb, var(--panel-hover-surface) 72%, var(--panel-control-surface));
-  --panel-overlay-surface: var(--vscode-editorWidget-background, var(--panel-card-surface));
-  --panel-overlay-backdrop: color-mix(in srgb, black 32%, transparent);
-  --panel-hover-surface: var(--vscode-list-hoverBackground, rgba(127, 127, 127, 0.1));
+  --panel-overlay-surface: var(--panel-card-surface);
+  --panel-overlay-backdrop: color-mix(in srgb, black 64%, transparent);
+  --panel-hover-surface: var(--panel-ink-5);
   --panel-skill-surface: color-mix(in srgb, var(--panel-accent) 6%, var(--panel-control-surface));
   --panel-skill-border: color-mix(in srgb, var(--panel-accent) 18%, var(--panel-border));
-  --panel-accent: var(--vscode-focusBorder, var(--vscode-button-background, #007acc));
   --panel-accent-surface: color-mix(in srgb, var(--panel-accent) 11%, transparent);
   --panel-subagent-header-surface: color-mix(in srgb, var(--panel-accent) 9%, var(--panel-control-surface));
   --panel-subagent-header-surface-hover: color-mix(in srgb, var(--panel-accent) 12%, var(--panel-control-hover));
   --panel-subagent-header-border: color-mix(in srgb, var(--panel-accent) 20%, var(--panel-border));
-  --panel-code-surface: var(--vscode-textCodeBlock-background, rgba(127, 127, 127, 0.12));
+  --panel-code-surface: var(--panel-ink-2);
+  --panel-input-surface: var(--panel-ink-2);
 
   /* Semantic colors */
-  --panel-danger: var(--vscode-errorForeground, #c33);
-  --panel-danger-surface: var(--vscode-inputValidation-errorBackground, rgba(255, 50, 50, 0.12));
-  --panel-warning: var(--vscode-inputValidation-warningBorder, #d29922);
-  --panel-warning-surface: var(--vscode-inputValidation-warningBackground, rgba(255, 170, 0, 0.12));
-  --panel-success: var(--vscode-testing-iconPassed, var(--vscode-terminal-ansiGreen, #3fb950));
+  --panel-danger-surface: rgba(255, 102, 119, 0.12);
+  --panel-warning-surface: rgba(228, 184, 79, 0.12);
   --panel-success-surface: color-mix(in srgb, var(--panel-success) 12%, transparent);
 
   /* Shadows */
-  --panel-shadow-xs: 0 6px 16px -16px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.24)) 92%, transparent);
-  --panel-shadow-sm: 0 10px 24px -24px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.28)) 100%, transparent);
-  --panel-shadow-md: 0 16px 32px -28px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.32)) 100%, transparent);
-  --panel-shadow-overlay: 0 18px 36px -26px color-mix(in srgb, var(--vscode-widget-shadow, rgba(0, 0, 0, 0.36)) 100%, transparent);
+  --panel-shadow-xs: 0 8px 18px -16px rgba(0, 0, 0, 0.86);
+  --panel-shadow-sm: 0 12px 28px -22px rgba(0, 0, 0, 0.88);
+  --panel-shadow-md: 0 18px 42px -30px rgba(0, 0, 0, 0.9);
+  --panel-shadow-overlay: 0 24px 58px -34px rgba(0, 0, 0, 0.94);
 
   /* Spacing and radius scale */
   --panel-radius-sm: 6px;
@@ -91,8 +150,8 @@
   --panel-gap-xl: 16px;
 
   /* Session tab surfaces */
-  --session-tabs-strip-surface: color-mix(in srgb, var(--vscode-sideBar-background, var(--panel-surface)) 82%, var(--panel-subtle-surface) 18%);
-  --session-tab-active-surface: color-mix(in srgb, var(--vscode-editor-background, var(--panel-surface)) 88%, var(--vscode-foreground) 12%);
+  --session-tabs-strip-surface: color-mix(in srgb, var(--panel-black) 84%, var(--panel-ink-3) 16%);
+  --session-tab-active-surface: color-mix(in srgb, var(--panel-ink-4) 86%, var(--panel-accent) 14%);
   --session-tab-inactive-surface: color-mix(in srgb, var(--panel-control-surface) 88%, transparent 12%);
   --session-tab-hover-surface: color-mix(in srgb, var(--panel-hover-surface) 62%, var(--panel-control-surface) 38%);
   --session-tab-outline: color-mix(in srgb, var(--panel-border) 82%, transparent 18%);
@@ -116,6 +175,7 @@
   --status-chip-motion-duration: 2.4s;
 
   /* Transcript layout */
+  --panel-content-max-width: 1180px;
   /* Stable width prevents horizontal jitter while the assistant streams */
   --message-assistant-width: 88%;
   --message-assistant-width-narrow: 92%;
@@ -146,10 +206,10 @@
   }
 
   body {
-    font-family: var(--vscode-font-family);
-    font-size: var(--vscode-font-size);
-    color: var(--vscode-foreground);
-    background: var(--vscode-sideBar-background, var(--panel-surface));
+    font-family: var(--panel-font-sans);
+    font-size: 13px;
+    color: var(--panel-foreground);
+    background: var(--panel-black);
   }
 
   #app {

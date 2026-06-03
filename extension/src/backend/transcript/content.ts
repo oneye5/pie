@@ -194,6 +194,10 @@ function toNonNegativeInt(value: number | undefined): number {
   return Math.trunc(value);
 }
 
+function firstNumber(...values: Array<number | undefined>): number | undefined {
+  return values.find((value) => typeof value === 'number' && Number.isFinite(value));
+}
+
 /**
  * Extract a normalised `AssistantUsage` block from a raw assistant message.
  * Returns `undefined` for messages without usage (aborted/errored turns, or
@@ -205,11 +209,31 @@ export function usageFromMessage(message: MessageLike): AssistantUsage | undefin
     return undefined;
   }
 
-  const input = toNonNegativeInt(usage.input);
-  const output = toNonNegativeInt(usage.output);
-  const cacheRead = toNonNegativeInt(usage.cacheRead);
-  const cacheWrite = toNonNegativeInt(usage.cacheWrite);
-  const reportedTotal = toNonNegativeInt(usage.totalTokens);
+  const promptDetails = usage.prompt_tokens_details;
+  const promptTokens = toNonNegativeInt(firstNumber(usage.prompt_tokens, usage.prompt_eval_count));
+  const output = toNonNegativeInt(firstNumber(usage.output, usage.completion_tokens, usage.eval_count));
+  const cacheWrite = toNonNegativeInt(firstNumber(
+    usage.cacheWrite,
+    promptDetails?.cache_creation_input_tokens,
+    promptDetails?.cache_write_input_tokens,
+    promptDetails?.cache_write_tokens,
+  ));
+  const reportedCachedTokens = toNonNegativeInt(firstNumber(
+    promptDetails?.cached_tokens,
+    usage.prompt_cache_hit_tokens,
+    promptDetails?.cache_read_input_tokens,
+  ));
+  const cacheRead = usage.cacheRead !== undefined
+    ? toNonNegativeInt(usage.cacheRead)
+    : cacheWrite > 0
+      ? Math.max(0, reportedCachedTokens - cacheWrite)
+      : reportedCachedTokens;
+  const input = usage.input !== undefined
+    ? toNonNegativeInt(usage.input)
+    : promptTokens > 0
+      ? Math.max(0, promptTokens - cacheRead - cacheWrite)
+      : 0;
+  const reportedTotal = toNonNegativeInt(firstNumber(usage.totalTokens, usage.total_tokens));
   const total = reportedTotal > 0 ? reportedTotal : input + output + cacheRead + cacheWrite;
 
   if (total === 0) {

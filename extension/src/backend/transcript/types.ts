@@ -47,5 +47,20 @@ export interface MessageLike {
     cacheRead?: number;
     cacheWrite?: number;
     totalTokens?: number;
+    // OpenAI-compatible usage aliases.
+    prompt_tokens?: number;
+    completion_tokens?: number;
+    total_tokens?: number;
+    prompt_tokens_details?: {
+      cached_tokens?: number;
+      cache_read_input_tokens?: number;
+      cache_creation_input_tokens?: number;
+      cache_write_input_tokens?: number;
+      cache_write_tokens?: number;
+    };
+    prompt_cache_hit_tokens?: number;
+    // Ollama native usage fields.
+    prompt_eval_count?: number;
+    eval_count?: number;
   };
 }

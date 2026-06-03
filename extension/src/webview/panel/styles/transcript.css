@@ -2,6 +2,8 @@
 
 .transcript {
   flex: 1;
+  width: min(100%, var(--panel-content-max-width));
+  align-self: center;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
@@ -29,6 +31,13 @@
   min-height: 100%;
 }
 
+@media (max-width: 720px) {
+  .transcript {
+    width: 100%;
+    padding-inline: var(--panel-gap-md);
+  }
+}
+
 /* ── Collapsed header typography system ─────────────────────────────────── */
 /* Shared hierarchy used by reasoning, tool, subagent, and prompt dropdowns */
 
@@ -46,13 +55,13 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
-  color: color-mix(in srgb, var(--vscode-foreground) 90%, var(--panel-muted) 10%);
+  color: color-mix(in srgb, var(--panel-foreground) 90%, var(--panel-muted) 10%);
 }
 
 .transcript-header-summary {
   font-size: 11px;
   line-height: 1.3;
-  color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--panel-muted) 26%);
+  color: color-mix(in srgb, var(--panel-foreground) 74%, var(--panel-muted) 26%);
 }
 
 .transcript-header-summary-mono,
@@ -65,12 +74,12 @@
 }
 
 .transcript-header-summary-mono {
-  color: color-mix(in srgb, var(--vscode-foreground) 72%, var(--panel-muted) 28%);
+  color: color-mix(in srgb, var(--panel-foreground) 72%, var(--panel-muted) 28%);
 }
 
 .transcript-header-summary-emphasis {
   font-weight: 500;
-  color: color-mix(in srgb, var(--vscode-foreground) 84%, var(--panel-muted) 16%);
+  color: color-mix(in srgb, var(--panel-foreground) 84%, var(--panel-muted) 16%);
 }
 
 .transcript-header-summary-subtle {
@@ -81,12 +90,14 @@
 .transcript-header-summary-command {
   font-weight: 700;
   letter-spacing: 0.01em;
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
 }
 
 .transcript-header-summary-link {
-  display: block;
+  display: flex;
+  align-items: center;
   min-width: 0;
+  min-height: 24px;
   max-width: 100%;
   flex: 1 1 0;
   cursor: pointer;
@@ -104,7 +115,7 @@
 
 .transcript-header-summary-link:hover .transcript-header-summary-emphasis,
 .transcript-header-summary-link:focus-visible .transcript-header-summary-emphasis {
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
 }
 
 .transcript-header-path-preview {
@@ -118,7 +129,7 @@
 
 .transcript-header-path-prefix {
   min-width: 0;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -184,7 +195,7 @@
   border: 1px solid var(--panel-border-subtle);
   border-radius: 999px;
   background: var(--panel-control-surface);
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   font-size: 11px;
   line-height: 1;
   padding: 6px 10px;
@@ -224,12 +235,13 @@
   z-index: 280;
   box-shadow: var(--panel-shadow-sm);
   transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  animation: transcript-jump-latest-in 0.18s ease-out;
 }
 
 .transcript-jump-latest:hover {
   background: var(--panel-control-hover);
   border-color: var(--panel-border);
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
 }
 
 .transcript-jump-latest:focus-visible {
@@ -271,7 +283,7 @@
   align-items: baseline;
   min-width: 0;
   max-width: 100%;
-  color: color-mix(in srgb, var(--vscode-foreground) 72%, var(--panel-muted) 28%);
+  color: color-mix(in srgb, var(--panel-foreground) 72%, var(--panel-muted) 28%);
 }
 
 .typing-indicator {
@@ -306,7 +318,7 @@
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: color-mix(in srgb, var(--vscode-foreground) 68%, var(--panel-muted) 32%);
+  color: color-mix(in srgb, var(--panel-foreground) 68%, var(--panel-muted) 32%);
   opacity: 0.78;
   animation: none;
 }
@@ -336,8 +348,10 @@
   line-height: 1.25;
   letter-spacing: 0.02em;
   white-space: nowrap;
-  color: color-mix(in srgb, var(--vscode-foreground) 46%, var(--panel-muted) 54%);
+  color: color-mix(in srgb, var(--panel-foreground) 46%, var(--panel-muted) 54%);
   opacity: 0.72;
+  /* Allow the bouncing ellipsis to render above the text baseline without being clipped. */
+  overflow: visible;
 }
 
 .turn-activity-strip.standalone { margin: 2px 0; }
@@ -347,23 +361,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  position: relative;
 }
 
-.turn-activity-strip-ellipsis {
-  display: inline-flex;
-  width: 1.6ch;
-  justify-content: flex-start;
-  overflow: hidden;
-  vertical-align: baseline;
+.turn-activity-strip.running .turn-activity-strip-label {
+  /* Continuous shimmer: a bright stripe sweeps across the dim base text. */
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--panel-foreground) 38%, transparent) 0%,
+    color-mix(in srgb, var(--panel-foreground) 38%, transparent) 40%,
+    var(--panel-foreground) 50%,
+    color-mix(in srgb, var(--panel-foreground) 38%, transparent) 60%,
+    color-mix(in srgb, var(--panel-foreground) 38%, transparent) 100%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  background-position: 100% 0;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+  animation: turn-activity-shimmer 1.8s linear infinite;
 }
-
-.turn-activity-strip-ellipsis span {
-  opacity: 0.16;
-  animation: turn-activity-ellipsis-dot 1.35s ease-in-out infinite;
-}
-
-.turn-activity-strip-ellipsis span:nth-child(2) { animation-delay: 0.18s; }
-.turn-activity-strip-ellipsis span:nth-child(3) { animation-delay: 0.36s; }
 
 .turn-activity-strip-detail {
   min-width: min(10ch, 40%);
@@ -409,7 +428,7 @@
   height: 22px;
   box-sizing: border-box;
   border-radius: 999px;
-  border: 2px solid color-mix(in srgb, var(--panel-border) 78%, transparent); 
+  border: 2px solid color-mix(in srgb, var(--panel-border) 78%, transparent);
   border-top-color: var(--panel-accent);
   animation: panel-loading-wheel-spin 0.72s linear infinite;
 }
@@ -428,7 +447,7 @@
 .message-retry-btn {
   background: none;
   border: none;
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   cursor: pointer;
   font-size: 11px;
   padding: 2px 5px;
@@ -463,7 +482,7 @@
   border: 1px solid color-mix(in srgb, var(--panel-danger) 32%, var(--panel-border));
   font-size: 12px;
   line-height: 1.45;
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   word-break: break-word;
   display: flex;
   align-items: flex-start;
@@ -485,7 +504,7 @@
 .message-error-detail-btn {
   background: none;
   border: none;
-  color: var(--vscode-foreground); 
+  color: var(--panel-foreground);
   cursor: pointer;
   font-size: 11px;
   padding: 2px 5px;
@@ -522,7 +541,7 @@
 .message-body pre,
 .tool-call-pre {
   background: var(--panel-code-surface);
-  border-radius: var(--panel-radius-lg); 
+  border-radius: var(--panel-radius-lg);
   padding: 10px 12px;
   overflow-x: auto;
   font-family: var(--vscode-editor-font-family, monospace);
@@ -596,7 +615,7 @@
 
 .code-block-copy:hover,
 .code-block-toggle:hover {
-  color: var(--vscode-foreground);
+  color: var(--panel-foreground);
   background: var(--panel-control-hover);
 }
 
@@ -609,7 +628,7 @@
   display: block;
   width: 100%;
   text-align: center;
-  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent); 
+  border-top: 1px solid color-mix(in srgb, var(--panel-border) 60%, transparent);
   padding: 3px 6px;
 }
 
@@ -686,7 +705,7 @@
 }
 
 .message-body a {
-  color: var(--vscode-textLink-foreground, var(--panel-accent));
+  color: var(--panel-accent);
   text-decoration: none;
 }
 
@@ -709,7 +728,7 @@
   max-width: 100%;
   max-height: 240px;
   border-radius: var(--panel-radius-lg);
-  border: 1px solid var(--panel-border); 
+  border: 1px solid var(--panel-border);
   background: var(--panel-code-surface);
   object-fit: contain;
 }
@@ -721,29 +740,46 @@
 
 /* ── Transcript-specific animations ─────────────────────────────────────── */
 
-@keyframes turn-activity-ellipsis-dot {
-  0%, 70%, 100% { opacity: 0.16; }
-  35% { opacity: 0.72; }
+@keyframes turn-activity-shimmer {
+  0%   { background-position: 100% 0; }
+  100% { background-position: -150% 0; }
+}
+
+@keyframes transcript-jump-latest-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .agent-activity-text {
     opacity: 0.82;
-    color: color-mix(in srgb, var(--vscode-foreground) 74%, var(--panel-muted) 26%);
+    color: color-mix(in srgb, var(--panel-foreground) 74%, var(--panel-muted) 26%);
   }
 
   .activity-status-bar {
     opacity: 0.35;
   }
 
-  .turn-activity-strip-ellipsis span {
+  .turn-activity-strip.running .turn-activity-strip-label {
     animation: none;
-    opacity: 0.42;
+    background: none;
+    -webkit-text-fill-color: currentColor;
+    color: inherit;
   }
 
   .transcript-typing-dot {
     animation: none;
     opacity: 0.7;
+  }
+
+  .transcript-jump-latest {
+    animation: none;
   }
 }
 

@@ -1,0 +1,198 @@
+import assert from 'node:assert/strict';
+import test from 'node:test';
+
+import {
+  buildSessionCostIndicator,
+  buildSessionTokenIndicator,
+  formatCostUsd,
+  type SessionTokenUsageSummary,
+} from '../src/webview/panel/session-tabs/token-usage';
+
+function makeSummary(partial: Partial<SessionTokenUsageSummary> = {}): SessionTokenUsageSummary {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+    reportedTurnCount: 0,
+    lastTurn: null,
+    ...partial,
+  };
+}
+
+test('formatCostUsd renders zero, sub-cent, and normal amounts', () => {
+  assert.equal(formatCostUsd(0), '$0.00');
+  assert.equal(formatCostUsd(-1), '$0.00');
+  assert.equal(formatCostUsd(0.004), '<$0.01');
+  assert.equal(formatCostUsd(0.026), '$0.03');
+  assert.equal(formatCostUsd(1.5), '$1.50');
+});
+
+test('buildSessionTokenIndicator shows em-dash counts when no usage is reported', () => {
+  const indicator = buildSessionTokenIndicator(makeSummary(), null);
+  assert.equal(indicator.label, '\u2191 \u2014 \u2193 \u2014');
+  assert.equal(indicator.rateLabel, '\u2014 t/s');
+});
+
+test('buildSessionTokenIndicator shows real counts once usage is reported', () => {
+  const summary = makeSummary({
+    inputTokens: 1820,
+    outputTokens: 540,
+    totalTokens: 2360,
+    reportedTurnCount: 1,
+    lastTurn: {
+      inputTokens: 1820,
+      outputTokens: 540,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      totalTokens: 2360,
+    },
+  });
+  const indicator = buildSessionTokenIndicator(summary, null);
+  assert.equal(indicator.label, '\u2191 1.8k \u2193 540');
+});
+
+test('buildSessionCostIndicator returns null when nothing has been spent', () => {
+  const summary = makeSummary();
+  assert.equal(buildSessionCostIndicator(summary, undefined, 'Model', [], undefined), null);
+});
+
+test('buildSessionCostIndicator stays quiet until a turn reports usage', () => {
+  const summary = makeSummary();
+  const pricing = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+  assert.equal(buildSessionCostIndicator(summary, pricing, 'Model', [], undefined), null);
+});
+
+test('buildSessionCostIndicator computes cost across all channels', () => {
+  // 1M input @ $3, 1M output @ $15, 1M cacheRead @ $0.3, 1M cacheWrite @ $3.75
+  const summary = makeSummary({
+    inputTokens: 1_000_000,
+    outputTokens: 1_000_000,
+    cacheReadTokens: 1_000_000,
+    cacheWriteTokens: 1_000_000,
+    totalTokens: 4_000_000,
+    reportedTurnCount: 2,
+  });
+  const pricing = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
+  const result = buildSessionCostIndicator(summary, pricing, 'Copilot: Claude Sonnet 4.6', [], undefined);
+  assert.ok(result);
+  // 3 + 15 + 0.3 + 3.75 = 22.05
+  assert.equal(result.label, '$22.05');
+  assert.match(result.tooltip, /Copilot: Claude Sonnet 4\.6/);
+  assert.match(result.tooltip, /Subtotal:\s+\$22\.0500/);
+  assert.match(result.tooltip, /Cache read:\s+\$0\.3000/);
+  assert.match(result.tooltip, /Total: \$22\.0500/);
+});
+
+test('buildSessionCostIndicator omits cache lines when no cache usage', () => {
+  const summary = makeSummary({
+    inputTokens: 500_000,
+    outputTokens: 100_000,
+    totalTokens: 600_000,
+    reportedTurnCount: 1,
+  });
+  const pricing = { input: 2, output: 8, cacheRead: 0.5, cacheWrite: 0 };
+  const result = buildSessionCostIndicator(summary, pricing, 'Copilot: GPT-4.1', [], undefined);
+  assert.ok(result);
+  // 0.5M*2 = 1.0 + 0.1M*8 = 0.8 → $1.80
+  assert.equal(result.label, '$1.80');
+  assert.doesNotMatch(result.tooltip, /Cache read/);
+});
+
+test('buildSessionCostIndicator renders sub-cent spend compactly', () => {
+  const summary = makeSummary({
+    inputTokens: 1000,
+    outputTokens: 200,
+    totalTokens: 1200,
+    reportedTurnCount: 1,
+  });
+  const pricing = { input: 0.25, output: 2, cacheRead: 0.025, cacheWrite: 0 };
+  const result = buildSessionCostIndicator(summary, pricing, 'Copilot: GPT-5 Mini', [], undefined);
+  assert.ok(result);
+  // 0.001M*0.25 = 0.00025 + 0.0002M*2 = 0.0004 → 0.00065 → "<$0.01"
+  assert.equal(result.label, '<$0.01');
+});
+
+test('buildSessionCostIndicator shows sub-agent costs from transcript', () => {
+  const summary = makeSummary({
+    inputTokens: 10_000,
+    outputTokens: 2_000,
+    totalTokens: 12_000,
+    reportedTurnCount: 1,
+  });
+  const pricing = { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 };
+
+  // Transcript with a completed subagent tool call
+  const transcript = [
+    { id: 'm1', role: 'assistant' as const, createdAt: '', markdown: '', status: 'completed' as const, toolCalls: [
+      {
+        id: 'tc1',
+        name: 'subagent',
+        input: { agent: 'worker', task: 'do stuff' },
+        result: {
+          content: [],
+          details: {
+            mode: 'single',
+            results: [
+              { agent: 'worker', usage: { input: 5000, output: 1000, cacheRead: 0, cacheWrite: 0, cost: 0.05, contextTokens: 6000, turns: 1 } },
+            ],
+          },
+        },
+        status: 'completed' as const,
+      },
+    ] },
+  ];
+
+  const result = buildSessionCostIndicator(summary, pricing, 'Test Model', transcript, undefined);
+  assert.ok(result);
+  // Main: 10k/1M * 3 + 2k/1M * 15 = 0.03 + 0.03 = 0.06
+  // Sub: $0.05
+  // Total: $0.11
+  assert.equal(result.label, '$0.11');
+  assert.match(result.tooltip, /Sub-agents/);
+  assert.match(result.tooltip, /Direct cost:\s+\$0\.0500/);
+  assert.match(result.tooltip, /Total: \$0\.1100/);
+});
+
+test('buildSessionCostIndicator shows tokens when no pricing (Ollama)', () => {
+  const summary = makeSummary({
+    inputTokens: 100_000,
+    outputTokens: 50_000,
+    totalTokens: 150_000,
+    reportedTurnCount: 1,
+  });
+
+  const result = buildSessionCostIndicator(summary, undefined, 'Ollama: llama3.1', [], undefined);
+  assert.ok(result);
+  assert.equal(result.label, '$0.00');
+  assert.match(result.tooltip, /150,000 tokens \(no pricing\)/);
+});
+
+test('buildSessionCostIndicator shows prepass cost from pruning details', () => {
+  const summary = makeSummary({
+    inputTokens: 10_000,
+    outputTokens: 2_000,
+    totalTokens: 12_000,
+    reportedTurnCount: 1,
+  });
+  const pricing = { input: 0.25, output: 2, cacheRead: 0, cacheWrite: 0 };
+
+  const pruningDetails = {
+    mode: 'auto' as const,
+    skillTokensSaved: 500,
+    toolTokensSaved: 200,
+    includedSkills: ['a'],
+    excludedSkills: ['b'],
+    includedTools: ['x'],
+    excludedTools: ['y'],
+    prepassModel: 'gemma3:4b',
+    prepassInputTokens: 8000,
+    prepassOutputTokens: 200,
+  };
+
+  const result = buildSessionCostIndicator(summary, pricing, 'Test', [], pruningDetails);
+  assert.ok(result);
+  assert.match(result.tooltip, /Pruning prepass/);
+  assert.match(result.tooltip, /gemma3:4b/);
+});
