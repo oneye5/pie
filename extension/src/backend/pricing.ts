@@ -108,26 +108,39 @@ export function loadModelPricing(modelsJsonPath: string): Map<string, ModelPrici
   const providers = cfg.providers;
   if (!providers || typeof providers !== 'object' || Array.isArray(providers)) return map;
 
+  const addRecord = (provider: string, id: string, model: Record<string, unknown>) => {
+    if (id.length === 0) return;
+    const pricing = parseModelPricing(model.cost);
+    if (!pricing) return;
+
+    const record: ModelPricingRecord = { id, provider, pricing };
+    const existing = map.get(id);
+    if (existing) {
+      existing.push(record);
+    } else {
+      map.set(id, [record]);
+    }
+  };
+
   for (const [providerName, providerData] of Object.entries(providers as Record<string, unknown>)) {
     if (!providerData || typeof providerData !== 'object') continue;
-    const models = (providerData as Record<string, unknown>).models;
-    if (!Array.isArray(models)) continue;
+    const provider = providerData as Record<string, unknown>;
 
-    for (const model of models) {
-      if (!model || typeof model !== 'object') continue;
-      const m = model as Record<string, unknown>;
-      const id = m.id;
-      if (typeof id !== 'string' || id.length === 0) continue;
+    const models = provider.models;
+    if (Array.isArray(models)) {
+      for (const model of models) {
+        if (!model || typeof model !== 'object') continue;
+        const m = model as Record<string, unknown>;
+        if (typeof m.id !== 'string') continue;
+        addRecord(providerName, m.id, m);
+      }
+    }
 
-      const pricing = parseModelPricing(m.cost);
-      if (!pricing) continue;
-
-      const record: ModelPricingRecord = { id, provider: providerName, pricing };
-      const existing = map.get(id);
-      if (existing) {
-        existing.push(record);
-      } else {
-        map.set(id, [record]);
+    const modelOverrides = provider.modelOverrides;
+    if (modelOverrides && typeof modelOverrides === 'object' && !Array.isArray(modelOverrides)) {
+      for (const [id, model] of Object.entries(modelOverrides as Record<string, unknown>)) {
+        if (!model || typeof model !== 'object') continue;
+        addRecord(providerName, id, model as Record<string, unknown>);
       }
     }
   }

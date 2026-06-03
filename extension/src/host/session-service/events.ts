@@ -227,7 +227,7 @@ export class SessionServiceEvents {
     }
   }
 
-  private handleBackendEvent(event: EventEnvelope): void {
+  handleBackendEvent(event: EventEnvelope): void {
     dispatchSessionBackendEvent(event, {
       onSessionOpened: (payload) => this.applySessionOpened(payload),
       onSessionListChanged: (payload) => this.onSessionListChanged(payload),

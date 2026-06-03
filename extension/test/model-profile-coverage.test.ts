@@ -7,7 +7,10 @@ import * as path from 'node:path';
 declare const __dirname: string;
 
 interface RawModelConfig {
-  providers?: Record<string, { models?: Array<{ id?: unknown; cost?: unknown }> }>;
+  providers?: Record<string, {
+    models?: Array<{ id?: unknown; cost?: unknown }>;
+    modelOverrides?: Record<string, { cost?: unknown }>;
+  }>;
 }
 
 interface RawProfileEntry {
@@ -32,7 +35,8 @@ function loadYaml(filePath: string): RawProfileConfig {
   const profiles: RawProfileEntry[] = [];
   let current: RawProfileEntry | null = null;
 
-  for (const line of text.split('\n')) {
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trimEnd();
     const idMatch = line.match(/^\s+-\s+id:\s+(.+)$/);
     if (idMatch) {
       if (current) profiles.push(current);
@@ -174,6 +178,11 @@ test('every Copilot model profile id exists in models.json under github-copilot 
   if (copilotProvider && Array.isArray(copilotProvider.models)) {
     for (const model of copilotProvider.models) {
       if (typeof model.id === 'string') copilotModelIds.add(model.id);
+    }
+  }
+  if (copilotProvider?.modelOverrides && typeof copilotProvider.modelOverrides === 'object') {
+    for (const id of Object.keys(copilotProvider.modelOverrides)) {
+      copilotModelIds.add(id);
     }
   }
 

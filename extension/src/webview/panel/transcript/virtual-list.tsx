@@ -5,7 +5,7 @@ import { Virtualizer, elementScroll, observeElementOffset, observeElementRect } 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { type ChatMessage, type ChatPrefs, type PruningResult, type PruningSettings, type SystemPromptEntry, type ThinkingLevel, type ToolCall, type TranscriptWindow } from '../../../shared/protocol';
-import { deriveTurnActivityState, type TurnActivityState } from './activity';
+import { deriveTurnActivityState } from './activity';
 import { ToolCallItem } from './tool-call-item';
 import { useTranscriptScroll } from './use-transcript-scroll';
 import { cx } from '../utils/cx';
@@ -62,7 +62,7 @@ export function TranscriptVirtualList({
   onLoadNewer,
   onJumpToLatest,
 }: TranscriptVirtualListProps) {
-  const [renderTick, setRenderTick] = useState(0);
+  const [, setRenderTick] = useState(0);
   const renderFrameRef = useRef<number | null>(null);
 
   const activityState = useMemo(() => deriveTurnActivityState({

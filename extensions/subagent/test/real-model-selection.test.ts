@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import * as path from "node:path";
+import { readFileSync } from "node:fs";
 
 import {
 	getAllowedModelIdsForProviders,
@@ -27,7 +28,7 @@ function repoRoot(): string {
 function loadRealConfig(topK = 1): RegistryConfig {
 	const root = repoRoot();
 	const config = loadSelectionConfig(path.join(root, "model-profiles.json")) as RegistryConfig;
-	const pricingRecords = loadModelPricing(path.join(root, "model-profiles.yaml"));
+	const pricingRecords = loadModelPricing(path.join(root, "models.json"));
 
 	config.topK = topK;
 	for (const profile of config.profiles) {
@@ -43,9 +44,17 @@ function loadRealConfig(topK = 1): RegistryConfig {
 
 function providerRefs(config: RegistryConfig): ModelProviderRef[] {
 	const refs: ModelProviderRef[] = [];
-	for (const [provider, providerData] of Object.entries(config.providers ?? {})) {
+	let providers = config.providers;
+	if (!providers) {
+		const modelsConfig = JSON.parse(readFileSync(path.join(repoRoot(), "models.json"), "utf-8")) as RegistryConfig;
+		providers = modelsConfig.providers;
+	}
+	for (const [provider, providerData] of Object.entries(providers ?? {})) {
 		for (const model of providerData.models ?? []) {
 			if (typeof model.id === "string") refs.push({ id: model.id, provider });
+		}
+		for (const id of Object.keys((providerData as { modelOverrides?: Record<string, unknown> }).modelOverrides ?? {})) {
+			refs.push({ id, provider });
 		}
 	}
 	return refs;

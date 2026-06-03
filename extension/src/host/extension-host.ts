@@ -714,7 +714,7 @@ export class PieExtension implements vscode.Disposable {
         // Untracked file created by the agent – delete it.
         await fs.unlink(resolvedPath);
       }
-    } catch (err) {
+    } catch {
       // Last resort: if the file still exists, warn the user.
       const exists = await fs.access(resolvedPath).then(() => true, () => false);
       if (exists) {

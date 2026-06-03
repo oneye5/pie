@@ -110,15 +110,40 @@ export function formatToolCallResultForDisplay(toolCall: Pick<ToolCall, 'name' |
   return readableText ?? JSON.stringify(toolCall.result, null, 2);
 }
 
-export function splitSummaryPath(summary: string): { pathSection: string | null; fileSection: string } {
+function looksLikeFileLeaf(value: string): boolean {
+  const leaf = value.trim();
+  if (!leaf || leaf === '.' || leaf === '..') {
+    return false;
+  }
+
+  // Treat dotted leaves (settings-menu.tsx, README.md, .gitignore) and
+  // conventional extensionless project files (Makefile, Dockerfile, LICENSE)
+  // as files. Bare directory names should stay subtle so a trailing folder is
+  // not presented with the same emphasis as an actual file target.
+  const extensionlessFileNames = new Set(['makefile', 'dockerfile', 'license', 'copying', 'notice']);
+  if (extensionlessFileNames.has(leaf.toLowerCase())) return true;
+
+  return leaf.startsWith('.') && leaf.length > 1
+    ? !leaf.slice(1).includes('/') && !leaf.slice(1).includes('\\')
+    : /\.[A-Za-z0-9_-]{1,12}$/.test(leaf);
+}
+
+export function splitSummaryPath(summary: string): { pathSection: string | null; fileSection: string | null } {
   const lastSeparatorIndex = Math.max(summary.lastIndexOf('/'), summary.lastIndexOf('\\'));
   if (lastSeparatorIndex < 0 || lastSeparatorIndex >= summary.length - 1) {
-    return { pathSection: null, fileSection: summary };
+    return looksLikeFileLeaf(summary)
+      ? { pathSection: null, fileSection: summary }
+      : { pathSection: summary, fileSection: null };
+  }
+
+  const leaf = summary.slice(lastSeparatorIndex + 1);
+  if (!looksLikeFileLeaf(leaf)) {
+    return { pathSection: summary, fileSection: null };
   }
 
   return {
     pathSection: summary.slice(0, lastSeparatorIndex + 1),
-    fileSection: summary.slice(lastSeparatorIndex + 1),
+    fileSection: leaf,
   };
 }
 
@@ -306,8 +331,20 @@ function buildToolCallHeaderSummaryModel(
     : null;
 }
 
-function PathSummaryPreview({ text }: { text: string }) {
+function PathSummaryPreview({
+  text,
+  linkPath,
+  onOpenFile,
+}: {
+  text: string;
+  linkPath?: string;
+  onOpenFile?: (path: string) => void;
+}) {
   const { pathSection, fileSection } = splitSummaryPath(text);
+
+  const fileContent = fileSection ? (
+    <span class="transcript-header-summary-emphasis transcript-header-path-target">{fileSection}</span>
+  ) : null;
 
   return (
     <span class="transcript-header-path-preview">
@@ -316,7 +353,21 @@ function PathSummaryPreview({ text }: { text: string }) {
           <span class="[direction:ltr] [unicode-bidi:isolate]">{pathSection}</span>
         </span>
       ) : null}
-      <span class="transcript-header-summary-emphasis transcript-header-path-target">{fileSection}</span>
+      {linkPath && onOpenFile && fileContent ? (
+        <button
+          type="button"
+          class="transcript-header-summary-link group"
+          title={linkPath}
+          onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenFile(linkPath);
+          }}
+        >
+          {fileContent}
+        </button>
+      ) : fileContent}
     </span>
   );
 }
@@ -339,30 +390,10 @@ function CollapsedSummary({
   }
 
   if (model.kind === 'path') {
-    const content = <PathSummaryPreview text={model.text} />;
-
-    if (!summaryPath) {
-      return (
-        <span class="block min-w-0 max-w-full flex-1" title={model.title ?? model.text}>
-          {content}
-        </span>
-      );
-    }
-
     return (
-      <button
-        type="button"
-        class="transcript-header-summary-link group"
-        title={summaryPath}
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenFile(summaryPath);
-        }}
-      >
-        {content}
-      </button>
+      <span class="block min-w-0 max-w-full flex-1" title={summaryPath ?? model.title ?? model.text}>
+        <PathSummaryPreview text={model.text} linkPath={summaryPath} onOpenFile={onOpenFile} />
+      </span>
     );
   }
 

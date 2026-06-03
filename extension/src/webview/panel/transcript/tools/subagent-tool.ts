@@ -6,7 +6,7 @@
  * just registers 'subagent' so the registry dispatch finds it.
  */
 
-import { registerToolRenderer, type ToolRendererProps } from '../registry';
+import { registerToolRenderer } from '../registry';
 import { SubagentToolRenderer } from '../tool-call-item';
 
 registerToolRenderer('subagent', SubagentToolRenderer);

@@ -226,7 +226,7 @@ export class BackendClient implements vscode.Disposable {
       // eventually times out with no clear cause). Surface it loudly so the
       // failure mode is debuggable.
       const preview = line.length > 200 ? `${line.slice(0, 200)}…` : line;
-      // eslint-disable-next-line no-console
+       
       console.warn(`[pie] dropped non-JSON backend line: ${(error as Error).message} :: ${preview}`);
       return;
     }

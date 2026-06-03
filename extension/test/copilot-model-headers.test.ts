@@ -12,10 +12,24 @@ const REQUIRED_COPILOT_HEADERS = [
 test('custom Copilot provider keeps required IDE auth headers at provider boundary', async () => {
   const raw = await readFile(new URL('../../models.json', import.meta.url), 'utf8');
   const parsed = JSON.parse(raw) as {
-    providers?: Record<string, { headers?: Record<string, string> }>;
+    providers?: Record<string, {
+      api?: string;
+      compat?: unknown;
+      headers?: Record<string, string>;
+      modelOverrides?: Record<string, unknown>;
+      models?: unknown[];
+    }>;
   };
 
-  const headers = parsed.providers?.['github-copilot']?.headers;
+  const provider = parsed.providers?.['github-copilot'];
+  assert.ok(provider, 'github-copilot provider must be configured');
+
+  assert.equal(provider.api, undefined, 'github-copilot must preserve per-model generated API routing');
+  assert.equal(provider.compat, undefined, 'github-copilot must preserve per-model generated compat settings');
+  assert.equal(provider.models, undefined, 'github-copilot pricing should use modelOverrides, not custom replacement models');
+  assert.ok(provider.modelOverrides?.['gpt-5.5'], 'gpt-5.5 must remain a built-in model override');
+
+  const headers = provider.headers;
   assert.ok(headers, 'github-copilot provider must define provider-level headers');
 
   for (const header of REQUIRED_COPILOT_HEADERS) {

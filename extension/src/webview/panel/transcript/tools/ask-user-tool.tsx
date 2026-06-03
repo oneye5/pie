@@ -264,7 +264,7 @@ function renderAskUserTool({
   workingDirectory,
   onOpenFile,
   onContextMenu,
-  renderToolCall,
+  renderToolCall: _renderToolCall,
 }: ToolRendererProps) {
   const parsedInput = parseAskUserInput(toolCall.input);
   const askUserCtx = useContext(AskUserContext);

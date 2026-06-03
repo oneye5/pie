@@ -1,4 +1,4 @@
-import type { ChatPrefs, ExtensionInfo } from '../../shared/protocol';
+import type { ChatPrefs } from '../../shared/protocol';
 
 export type BooleanPrefKey =
   | 'autoExpandReasoning'

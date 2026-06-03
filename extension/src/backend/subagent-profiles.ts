@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
 import type { ModelSubagentInfo } from '../shared/protocol';
-import { estimateNormalizedCost, loadModelPricing, type ModelTokenPricing } from './pricing';
+import { estimateNormalizedCost, loadModelPricing } from './pricing';
 
 /**
  * Raw profile shape as stored in `<agentDir>/model-profiles.{yaml,json}`.

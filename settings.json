@@ -2,7 +2,7 @@
   "lastChangelogVersion": "0.73.0",
   "defaultProvider": "github-copilot",
   "defaultModel": "gpt-5.5",
-  "defaultThinkingLevel": "medium",
+  "defaultThinkingLevel": "low",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
     {
@@ -43,7 +43,9 @@
         "read",
         "ls",
         "write",
-        "request_tool"
+        "request_tool",
+        "subagent",
+        "code_search"
       ]
     }
   }

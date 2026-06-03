@@ -211,28 +211,28 @@ export function usageFromMessage(message: MessageLike): AssistantUsage | undefin
 
   const promptDetails = usage.prompt_tokens_details;
   const promptTokens = toNonNegativeInt(firstNumber(usage.prompt_tokens, usage.prompt_eval_count));
-  const output = toNonNegativeInt(firstNumber(usage.output, usage.completion_tokens, usage.eval_count));
+  const output = toNonNegativeInt(firstNumber(usage.output, usage.output_tokens, usage.completion_tokens, usage.eval_count));
   const cacheWrite = toNonNegativeInt(firstNumber(
     usage.cacheWrite,
+    usage.cache_creation_input_tokens,
     promptDetails?.cache_creation_input_tokens,
     promptDetails?.cache_write_input_tokens,
     promptDetails?.cache_write_tokens,
   ));
-  const reportedCachedTokens = toNonNegativeInt(firstNumber(
-    promptDetails?.cached_tokens,
-    usage.prompt_cache_hit_tokens,
+  const cacheRead = toNonNegativeInt(firstNumber(
+    usage.cacheRead,
+    usage.cache_read_input_tokens,
     promptDetails?.cache_read_input_tokens,
+    usage.prompt_cache_hit_tokens,
+    promptDetails?.cached_tokens,
   ));
-  const cacheRead = usage.cacheRead !== undefined
-    ? toNonNegativeInt(usage.cacheRead)
-    : cacheWrite > 0
-      ? Math.max(0, reportedCachedTokens - cacheWrite)
-      : reportedCachedTokens;
   const input = usage.input !== undefined
     ? toNonNegativeInt(usage.input)
-    : promptTokens > 0
-      ? Math.max(0, promptTokens - cacheRead - cacheWrite)
-      : 0;
+    : usage.input_tokens !== undefined
+      ? toNonNegativeInt(usage.input_tokens)
+      : promptTokens > 0
+        ? Math.max(0, promptTokens - cacheRead - cacheWrite)
+        : 0;
   const reportedTotal = toNonNegativeInt(firstNumber(usage.totalTokens, usage.total_tokens));
   const total = reportedTotal > 0 ? reportedTotal : input + output + cacheRead + cacheWrite;
 

@@ -7,7 +7,6 @@ import {
   type BusyChangedPayload,
   type ContextUsageChangedPayload,
   type ContextWindowUsage,
-  type ExtensionUIResponsePayload,
   type ModelSettings,
   type RequestEnvelope,
   type SessionListChangedPayload,

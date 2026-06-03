@@ -16,7 +16,7 @@
 
 import type { Event } from './events';
 import type { Effect } from './effects';
-import type { ChatMessage, SessionSummary, UserContentPart } from '../../shared/protocol';
+import type { SessionSummary } from '../../shared/protocol';
 
 /** Per-session state tracked by the new architecture. */
 export interface SessionArchState {

@@ -120,7 +120,7 @@ export function useTranscriptScroll({
       setIsInitialPositioning(false);
     });
     return () => { if (frame !== null) cancelAnimationFrame(frame); };
-  }, [sessionKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sessionKey]);
 
   // Scroll event handling
   useEffect(() => {

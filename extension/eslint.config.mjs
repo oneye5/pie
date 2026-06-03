@@ -7,6 +7,7 @@ export default tseslint.config(
     ignores: [
       'node_modules/**',
       'out/**',
+      '.tmp/**',
       '*.vsix',
     ],
   },
@@ -48,6 +49,13 @@ export default tseslint.config(
           caughtErrorsIgnorePattern: '^_',
         },
       ],
+    },
+  },
+
+  {
+    files: ['test/**/*.{ts,tsx,cts,mts}'],
+    rules: {
+      '@typescript-eslint/no-unused-vars': 'off',
     },
   },
 

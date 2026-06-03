@@ -88,7 +88,11 @@ export async function readPruningSettings(): Promise<PruningSettings> {
       ? (pruning.thinkingLevel as ThinkingLevel)
       : DEFAULT_PRUNING_SETTINGS.thinkingLevel;
 
-    return { mode, skillCeiling, toolCeiling, skillAlwaysKeep, toolAlwaysKeep, model, provider, thinkingLevel };
+    const prepassTimeoutSec = typeof pruning.prepassTimeoutSec === 'number' && Number.isFinite(pruning.prepassTimeoutSec) && pruning.prepassTimeoutSec > 0
+      ? pruning.prepassTimeoutSec
+      : DEFAULT_PRUNING_SETTINGS.prepassTimeoutSec;
+
+    return { mode, skillCeiling, toolCeiling, skillAlwaysKeep, toolAlwaysKeep, model, provider, thinkingLevel, prepassTimeoutSec };
   } catch {
     return cloneDefaultPruningSettings();
   }

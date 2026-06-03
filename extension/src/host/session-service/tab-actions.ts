@@ -242,7 +242,6 @@ export class SessionTabActions {
       }),
     );
 
-    const sourceIndex = store.getState().sessions.openTabPaths.indexOf(sourceSessionPath);
     // Insert duplicate tab right after the source tab.
     store.dispatch(sessionsActions.insertOpenTabAfter({
       afterPath: sourceSessionPath,

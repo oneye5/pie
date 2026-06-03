@@ -12,7 +12,7 @@ import type {
   ViewState,
   WebviewToHostMessage,
 } from '../../../shared/protocol';
-import { DEFAULT_CHAT_PREFS, EMPTY_TRANSCRIPT_WINDOW } from '../../../shared/protocol';
+import { DEFAULT_CHAT_PREFS, DEFAULT_PRUNING_SETTINGS, EMPTY_TRANSCRIPT_WINDOW } from '../../../shared/protocol';
 
 /**
  * Fill gaps in host-delivered state with safe defaults and log violations.
@@ -52,16 +52,7 @@ export const EMPTY_VIEW_STATE: ViewState = {
   availableExtensions: [],
   fileChanges: [],
   pruningResult: null,
-  pruningSettings: {
-    mode: 'auto',
-    skillCeiling: 8,
-    toolCeiling: 10,
-    skillAlwaysKeep: [],
-    toolAlwaysKeep: [],
-    model: 'gpt-5.4-mini',
-    provider: 'github-copilot',
-    thinkingLevel: 'minimal',
-  },
+  pruningSettings: { ...DEFAULT_PRUNING_SETTINGS },
   pruningCatalog: {
     skills: [],
     tools: [],

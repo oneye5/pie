@@ -71,11 +71,9 @@ export function TurnActivityStrip({
     >
       <span class="turn-activity-strip-label">
         {label}
-        {runningDot && (
-          <span class="turn-activity-strip-ellipsis" aria-hidden="true">
-            <span>.</span><span>.</span><span>.</span>
-          </span>
-        )}
+        <span class={cx('turn-activity-strip-dot', runningDot && 'running', 'turn-activity-strip-ellipsis')} aria-hidden="true">
+          {runningDot && <><span>.</span><span>.</span><span>.</span></>}
+        </span>
       </span>
       {detail && <span class="turn-activity-strip-detail">{detail}</span>}
     </div>

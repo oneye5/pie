@@ -563,6 +563,8 @@ export interface PruningSettings {
   provider: string;
   /** Thinking level for the pruning prepass. */
   thinkingLevel: ThinkingLevel;
+  /** Optional timeout override for the pruning prepass, in seconds. */
+  prepassTimeoutSec?: number | null;
 }
 
 export interface PruningCatalog {
@@ -627,6 +629,7 @@ export const DEFAULT_PRUNING_SETTINGS: PruningSettings = {
   model: 'gpt-5.4-mini',
   provider: 'github-copilot',
   thinkingLevel: 'minimal',
+  prepassTimeoutSec: null,
 };
 
 export const EMPTY_TRANSCRIPT_WINDOW: TranscriptWindow = {

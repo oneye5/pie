@@ -47,6 +47,11 @@ export interface MessageLike {
     cacheRead?: number;
     cacheWrite?: number;
     totalTokens?: number;
+    // Anthropic/Sdk-style usage aliases.
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_read_input_tokens?: number;
+    cache_creation_input_tokens?: number;
     // OpenAI-compatible usage aliases.
     prompt_tokens?: number;
     completion_tokens?: number;

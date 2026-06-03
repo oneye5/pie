@@ -20,6 +20,7 @@ import { StatusChip } from './status-chip';
 import { DisclosureChevron, ToolCallCard } from './tool-call-card';
 import { TranscriptMessageList } from './transcript-message-list';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
+import { getToolRenderer } from './registry';
 import { useDisclosureOpen } from './use-disclosure-open';
 
 interface ToolCallItemProps {
@@ -327,28 +328,28 @@ export function ToolCallItem({
   renderToolCall,
 }: ToolCallItemProps) {
   const subagentResult = getRenderableSubagentResultFromToolCall(toolCall);
-  const isSubagent = toolCall.name === 'subagent' || !!subagentResult;
-  const contextType = getToolCallContextType(isSubagent ? 'subagent' : toolCall.name);
+  const rendererName = toolCall.name === 'subagent' || !!subagentResult ? 'subagent' : toolCall.name;
+  const Renderer = getToolRenderer(rendererName) ?? getToolRenderer('__default');
+
+  if (Renderer) {
+    return (
+      <Renderer
+        toolCall={toolCall}
+        prefs={prefs}
+        workingDirectory={workingDirectory}
+        onOpenFile={onOpenFile}
+        onContextMenu={onContextMenu}
+        renderToolCall={renderToolCall}
+      />
+    );
+  }
+
+  const contextType = getToolCallContextType(rendererName);
   const handleContextMenu = (e: MouseEvent) => onContextMenu(
     contextType,
     JSON.stringify(toolCall, null, 2),
     e,
   );
-
-  if (isSubagent) {
-    return (
-      <SubagentBlock
-        toolCall={toolCall}
-        subagentResult={subagentResult}
-        prefs={prefs}
-        workingDirectory={workingDirectory}
-        onOpenFile={onOpenFile}
-        onContextMenu={handleContextMenu}
-        onNestedContextMenu={onContextMenu}
-        renderToolCall={renderToolCall}
-      />
-    );
-  }
 
   return (
     <ToolCallCard

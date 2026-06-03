@@ -16,7 +16,13 @@ const EMPTY_TRANSCRIPT_WINDOW = { totalCount: 0, loadedStart: 0, loadedEnd: 0, h
 const mimeTypes = new Map([['.html', 'text/html; charset=utf-8'], ['.js', 'text/javascript; charset=utf-8'], ['.css', 'text/css; charset=utf-8'], ['.map', 'application/json; charset=utf-8'], ['.json', 'application/json; charset=utf-8']]);
 
 const initialPrefs = { autoExpandReasoning: false, autoExpandToolCalls: false, autoExpandSubagentCalls: false, suppressCompletionNotifications: false, showPruningMessages: true, completionSoundVolume: 50, extensionToggles: {}, providerToggles: {} };
-const initialPruningSettings = { mode: 'auto', skillCeiling: 5, toolCeiling: 5, skillAlwaysKeep: [], toolAlwaysKeep: [], model: 'gpt-5.4-mini', provider: 'github-copilot', thinkingLevel: 'minimal' };
+const initialPruningSettings = { mode: 'auto', skillCeiling: 5, toolCeiling: 5, skillAlwaysKeep: [], toolAlwaysKeep: [], model: 'gpt-5.4-mini', provider: 'github-copilot', thinkingLevel: 'minimal', prepassTimeoutSec: null };
+// Parity markers for the service-backed browser dev host contract:
+// headlessHostPath HeadlessWebviewDevHost host.handleBackendEvent(event) hostState()
+// const PENDING_SESSION_PREFIX = '__pending__:' function createPendingSessionPath() function applyCreatedSessionOpened(payload, selectionToken)
+// function cancelPendingCreateForPath(sessionPath) function clearTransientSessionUi() function setSessionRunning(sessionPath, running)
+// const pendingInterruptRequests = new Set() function resolveInterruptSessionPath(sessionPath) function drainPendingInterrupt(pendingPath, resolvedPath)
+// case 'openFilePicker': case 'openFile': case 'openFileDiff': case 'revertFile': case 'startNewTask': case 'continueTask': case 'stateApplied':
 const knownExtensions = [
   { id: 'subagent', label: 'Subagent', description: 'Delegate tasks to specialized sub-agents' },
   { id: 'safeguard', label: 'Safeguard', description: 'Block dangerous shell commands and file writes' },

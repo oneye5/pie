@@ -52,9 +52,14 @@ function resolvePathForComparison(targetPath: string, cwd: string): string {
 	return normalizePath(rawTarget.startsWith("/") ? rawTarget : path.posix.resolve(base, rawTarget));
 }
 
+function trimTrailingPathSeparatorForComparison(p: string): string {
+	if (p === "/" || /^[a-z]:\/$/i.test(p)) return p;
+	return p.replace(/\/+$/g, "");
+}
+
 function isUnderCwd(targetPath: string, cwd: string): boolean {
-	const norm = resolvePathForComparison(targetPath, cwd);
-	const cwdNorm = resolvePathForComparison(cwd, cwd);
+	const norm = trimTrailingPathSeparatorForComparison(resolvePathForComparison(targetPath, cwd));
+	const cwdNorm = trimTrailingPathSeparatorForComparison(resolvePathForComparison(cwd, cwd));
 	return norm === cwdNorm || norm.startsWith(`${cwdNorm}/`);
 }
 

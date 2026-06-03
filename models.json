@@ -618,7 +618,6 @@
       ]
     },
     "github-copilot": {
-      "api": "openai-completions",
       "apiKey": "copilot",
       "headers": {
         "User-Agent": "GitHubCopilotChat/0.35.0",
@@ -626,15 +625,8 @@
         "Editor-Plugin-Version": "copilot-chat/0.35.0",
         "Copilot-Integration-Id": "vscode-chat"
       },
-      "compat": {
-        "supportsDeveloperRole": true,
-        "supportsReasoningEffort": true,
-        "supportsUsageInStreaming": true,
-        "maxTokensField": "max_tokens"
-      },
-      "models": [
-        {
-          "id": "claude-haiku-4.5",
+      "modelOverrides": {
+        "claude-haiku-4.5": {
           "name": "Copilot: Claude Haiku 4.5",
           "reasoning": true,
           "contextWindow": 200000,
@@ -646,8 +638,7 @@
             "cacheWrite": 1.25
           }
         },
-        {
-          "id": "claude-opus-4.5",
+        "claude-opus-4.5": {
           "name": "Copilot: Claude Opus 4.5",
           "reasoning": true,
           "cost": {
@@ -657,8 +648,7 @@
             "cacheWrite": 6.25
           }
         },
-        {
-          "id": "claude-opus-4.6",
+        "claude-opus-4.6": {
           "name": "Copilot: Claude Opus 4.6",
           "reasoning": true,
           "cost": {
@@ -668,8 +658,7 @@
             "cacheWrite": 6.25
           }
         },
-        {
-          "id": "claude-opus-4.7",
+        "claude-opus-4.7": {
           "name": "Copilot: Claude Opus 4.7",
           "reasoning": true,
           "cost": {
@@ -679,8 +668,7 @@
             "cacheWrite": 6.25
           }
         },
-        {
-          "id": "claude-sonnet-4",
+        "claude-sonnet-4": {
           "name": "Copilot: Claude Sonnet 4",
           "reasoning": true,
           "cost": {
@@ -690,8 +678,7 @@
             "cacheWrite": 3.75
           }
         },
-        {
-          "id": "claude-sonnet-4.5",
+        "claude-sonnet-4.5": {
           "name": "Copilot: Claude Sonnet 4.5",
           "reasoning": true,
           "cost": {
@@ -701,8 +688,7 @@
             "cacheWrite": 3.75
           }
         },
-        {
-          "id": "claude-sonnet-4.6",
+        "claude-sonnet-4.6": {
           "name": "Copilot: Claude Sonnet 4.6",
           "reasoning": true,
           "cost": {
@@ -712,8 +698,7 @@
             "cacheWrite": 3.75
           }
         },
-        {
-          "id": "gpt-4o",
+        "gpt-4o": {
           "name": "Copilot: GPT-4o",
           "contextWindow": 128000,
           "maxTokens": 16384,
@@ -724,8 +709,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-4.1",
+        "gpt-4.1": {
           "name": "Copilot: GPT-4.1",
           "contextWindow": 1000000,
           "maxTokens": 32768,
@@ -736,8 +720,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5",
+        "gpt-5": {
           "name": "Copilot: GPT-5",
           "reasoning": true,
           "cost": {
@@ -747,8 +730,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5-mini",
+        "gpt-5-mini": {
           "name": "Copilot: GPT-5 Mini",
           "cost": {
             "input": 0.25,
@@ -757,8 +739,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.1",
+        "gpt-5.1": {
           "name": "Copilot: GPT-5.1",
           "reasoning": true,
           "cost": {
@@ -768,8 +749,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.1-codex",
+        "gpt-5.1-codex": {
           "name": "Copilot: GPT-5.1 Codex",
           "reasoning": true,
           "cost": {
@@ -779,8 +759,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.1-codex-max",
+        "gpt-5.1-codex-max": {
           "name": "Copilot: GPT-5.1 Codex Max",
           "reasoning": true,
           "cost": {
@@ -790,8 +769,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.1-codex-mini",
+        "gpt-5.1-codex-mini": {
           "name": "Copilot: GPT-5.1 Codex Mini",
           "reasoning": true,
           "cost": {
@@ -801,8 +779,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.2",
+        "gpt-5.2": {
           "name": "Copilot: GPT-5.2",
           "reasoning": true,
           "cost": {
@@ -812,8 +789,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.2-codex",
+        "gpt-5.2-codex": {
           "name": "Copilot: GPT-5.2 Codex",
           "reasoning": true,
           "cost": {
@@ -823,8 +799,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.3-codex",
+        "gpt-5.3-codex": {
           "name": "Copilot: GPT-5.3 Codex",
           "reasoning": true,
           "cost": {
@@ -834,8 +809,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.4",
+        "gpt-5.4": {
           "name": "Copilot: GPT-5.4",
           "reasoning": true,
           "cost": {
@@ -845,8 +819,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.4-mini",
+        "gpt-5.4-mini": {
           "name": "Copilot: GPT-5.4 Mini",
           "reasoning": true,
           "cost": {
@@ -856,8 +829,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gpt-5.5",
+        "gpt-5.5": {
           "name": "Copilot: GPT-5.5",
           "reasoning": true,
           "cost": {
@@ -867,8 +839,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gemini-2.5-pro",
+        "gemini-2.5-pro": {
           "name": "Copilot: Gemini 2.5 Pro",
           "reasoning": true,
           "cost": {
@@ -878,8 +849,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gemini-3-flash-preview",
+        "gemini-3-flash-preview": {
           "name": "Copilot: Gemini 3 Flash Preview",
           "reasoning": true,
           "cost": {
@@ -889,8 +859,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gemini-3-pro-preview",
+        "gemini-3-pro-preview": {
           "name": "Copilot: Gemini 3 Pro Preview",
           "reasoning": true,
           "cost": {
@@ -900,8 +869,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "gemini-3.1-pro-preview",
+        "gemini-3.1-pro-preview": {
           "name": "Copilot: Gemini 3.1 Pro Preview",
           "reasoning": true,
           "cost": {
@@ -911,8 +879,7 @@
             "cacheWrite": 0
           }
         },
-        {
-          "id": "grok-code-fast-1",
+        "grok-code-fast-1": {
           "name": "Copilot: Grok Code Fast 1",
           "reasoning": true,
           "cost": {
@@ -922,7 +889,7 @@
             "cacheWrite": 0
           }
         }
-      ]
+      }
     }
   }
 }

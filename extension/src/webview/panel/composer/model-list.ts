@@ -78,7 +78,7 @@ export function orderModelsForPicker(models: ModelInfo[]): ModelPickerEntry[] {
     }
     if (sub?.pricing && (sub.pricing.input > 0 || sub.pricing.output > 0)) {
       titleParts.push(
-        `Pricing: \$${sub.pricing.input.toFixed(2)}/M in, \$${sub.pricing.output.toFixed(2)}/M out`,
+        `Pricing: $${sub.pricing.input.toFixed(2)}/M in, $${sub.pricing.output.toFixed(2)}/M out`,
       );
     }
 

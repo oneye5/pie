@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import type { ToolFailureKind } from '../scripts/contracts.js';
 
 import { prepareSourceAnalytics } from '../scripts/prepare.ts';
 import { buildSiteDataBundle, validateSiteDataBundle, writeSiteData, readSiteDataBundle } from '../scripts/site-data.ts';
@@ -65,7 +66,7 @@ function createMinimalRunSnapshot(overrides: Partial<RunSnapshot> = {}): RunSnap
       probeFailureCount: 0,
       countsByName: {},
       failureCountsByName: {},
-      failureCountsByKind: {},
+      failureCountsByKind: {} as Record<ToolFailureKind, number>,
       failureCountsByNameAndKind: {},
       failureSamples: [],
       subagentCallCount: 0,

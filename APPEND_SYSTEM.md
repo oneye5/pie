@@ -6,7 +6,7 @@
 
 - Treat user instructions as signals of intent, not exact specifications.
 
-- Ask lots of questions using the respective tool, particularly about systems thinking related questions, which humans tend to be better at.
+- Ask lots of questions using the 'ask_user' tool, particularly about systems thinking related questions, which humans tend to be better at.
 
 ## Task ordering
 

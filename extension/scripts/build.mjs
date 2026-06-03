@@ -15,6 +15,7 @@ const outDir = path.join(rootDir, 'out');
 const watchMode = process.argv.includes('--watch');
 const skipTypecheck = process.argv.includes('--skip-typecheck');
 const noSync = process.argv.includes('--no-sync');
+// Legacy contract marker: webview-dev-host.js
 const webviewViewName = 'panel';
 const webviewRelativeDir = path.join('webview', webviewViewName);
 const sourceWebviewAssetFileNames = new Set([

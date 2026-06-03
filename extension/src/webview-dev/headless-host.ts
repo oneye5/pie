@@ -133,7 +133,6 @@ export class HeadlessWebviewDevHost {
       runObserver: NOOP_RUN_OBSERVER,
       state: this.state,
       createNewSession: () => this.tabs.createNewSession(),
-      confirmModelSwitch: async () => true,
     });
     this.effectRunner = new EffectRunner({
       backend: backendAdapter,
@@ -548,12 +547,6 @@ export class HeadlessWebviewDevHost {
         break;
       case 'ClearComposerInputs':
         store.dispatch(sessionStateActions.clearPendingComposerInputs(effect.sessionPath));
-        break;
-      case 'RestoreComposerInputs':
-        store.dispatch(sessionStateActions.setPendingComposerInputs({
-          sessionPath: effect.sessionPath,
-          inputs: effect.inputs,
-        }));
         break;
       case 'SetNotice':
         store.dispatch(uiActions.setNotice(effect.message));

@@ -202,6 +202,8 @@ export function validateWebviewToHostMessage(
 
     case 'requestSnapshot':
       if (!isOptionalString(value.assetVersion)) return fail('requestSnapshot: invalid `assetVersion`');
+      return { ok: true, value: value as WebviewToHostMessage };
+
     case 'openFilePicker':
     case 'newSession':
       return { ok: true, value: value as WebviewToHostMessage };

@@ -275,9 +275,10 @@ export function renderClickablePathHtml(summaryPath: string, displayText: string
     ? `<span class="transcript-header-summary-subtle transcript-header-path-prefix"><span class="[direction:ltr] [unicode-bidi:isolate]">${escapeHtml(pathSection)}</span></span>`
     : '';
   return (
+    `<span class="transcript-header-path-preview">${prefixHtml}` +
     `<button type="button" class="transcript-header-summary-link" data-file-path="${escapeHtml(summaryPath)}">` +
-    `<span class="transcript-header-path-preview">${prefixHtml}<span class="transcript-header-summary-emphasis transcript-header-path-target">${escapeHtml(fileSection)}</span></span>` +
-    `</button>`
+    `<span class="transcript-header-summary-emphasis transcript-header-path-target">${escapeHtml(fileSection)}</span>` +
+    `</button></span>`
   );
 }
 
@@ -290,25 +291,25 @@ export interface ClickablePathButtonProps {
 export function ClickablePathButton({ path, displayText, onOpenFile }: ClickablePathButtonProps): JSX.Element {
   const { pathSection, fileSection } = splitSummaryPath(displayText);
   return (
-    <button
-      type="button"
-      class="transcript-header-summary-link group"
-      title={path}
-      onMouseDown={(e) => e.stopPropagation()}
-      onKeyDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation();
-        onOpenFile(path);
-      }}
-    >
-      <span class="transcript-header-path-preview">
-        {pathSection ? (
-          <span class="transcript-header-summary-subtle transcript-header-path-prefix">
-            <span class="[direction:ltr] [unicode-bidi:isolate]">{pathSection}</span>
-          </span>
-        ) : null}
+    <span class="transcript-header-path-preview" title={path}>
+      {pathSection ? (
+        <span class="transcript-header-summary-subtle transcript-header-path-prefix">
+          <span class="[direction:ltr] [unicode-bidi:isolate]">{pathSection}</span>
+        </span>
+      ) : null}
+      <button
+        type="button"
+        class="transcript-header-summary-link group"
+        title={path}
+        onMouseDown={(e) => e.stopPropagation()}
+        onKeyDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          onOpenFile(path);
+        }}
+      >
         <span class="transcript-header-summary-emphasis transcript-header-path-target">{fileSection}</span>
-      </span>
-    </button>
+      </button>
+    </span>
   );
 }

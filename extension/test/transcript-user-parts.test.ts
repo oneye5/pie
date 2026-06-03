@@ -50,4 +50,9 @@ test('splitSummaryPath separates the directory and highlighted file sections', (
     pathSection: null,
     fileSection: 'IDEAS.md',
   });
+
+  assert.deepEqual(splitSummaryPath('/repo/Makefile'), {
+    pathSection: '/repo/',
+    fileSection: 'Makefile',
+  });
 });
