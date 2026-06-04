@@ -293,6 +293,40 @@
   }
 }
 
+@keyframes skill-inner-glow {
+  0%,
+  100% {
+    box-shadow: inset 3px 0 10px -3px color-mix(in srgb, var(--panel-accent) 10%, transparent);
+  }
+  50% {
+    box-shadow: inset 3px 0 18px -2px color-mix(in srgb, var(--panel-accent) 26%, transparent);
+  }
+}
+
+/* ── Skill-load glow ──────────────────────────────────────────────────────── */
+/* Soft inner left-edge glow that pulses gently — emphasises loaded skills  */
+
+.skill-load-glow {
+  position: relative;
+}
+
+.skill-load-glow::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 3px 0 12px -3px color-mix(in srgb, var(--panel-accent) 12%, transparent);
+  animation: skill-inner-glow 2.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .skill-load-glow::after {
+    animation: none;
+    box-shadow: inset 3px 0 12px -3px color-mix(in srgb, var(--panel-accent) 16%, transparent);
+  }
+}
+
 /* ── Components ─────────────────────────────────────────────────────────── */
 
 @import './status-chip.css';

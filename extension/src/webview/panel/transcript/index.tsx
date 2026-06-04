@@ -18,9 +18,9 @@ import { isTranscriptHydrating } from './state';
 import { MessageItem, ReasoningBlock } from './message-item';
 export {
   formatToolCallResultForDisplay,
-  splitSummaryPath,
   ToolCallCard,
 } from './tool-call-card';
+export { splitSummaryPath } from '../file-path';
 export {
   getRenderableUserParts,
   messageHasUserImages,

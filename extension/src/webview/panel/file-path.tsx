@@ -255,15 +255,40 @@ export function looksLikePathToken(value: string): boolean {
     || /^[A-Za-z0-9._-]*[A-Za-z_][A-Za-z0-9._-]*\.[A-Za-z0-9_-]{1,8}$/.test(token);
 }
 
-export function splitSummaryPath(summary: string): { pathSection: string | null; fileSection: string } {
+function looksLikeFileLeaf(value: string): boolean {
+  const leaf = value.trim();
+  if (!leaf || leaf === '.' || leaf === '..') {
+    return false;
+  }
+
+  // Treat dotted leaves (settings-menu.tsx, README.md, .gitignore) and
+  // conventional extensionless project files (Makefile, Dockerfile, LICENSE)
+  // as files. Bare directory names should stay subtle so a trailing folder is
+  // not presented with the same emphasis as an actual file target.
+  const extensionlessFileNames = new Set(['makefile', 'dockerfile', 'license', 'copying', 'notice']);
+  if (extensionlessFileNames.has(leaf.toLowerCase())) return true;
+
+  return leaf.startsWith('.') && leaf.length > 1
+    ? !leaf.slice(1).includes('/') && !leaf.slice(1).includes('\\')
+    : /\.[A-Za-z0-9_-]{1,12}$/.test(leaf);
+}
+
+export function splitSummaryPath(summary: string): { pathSection: string | null; fileSection: string | null } {
   const lastSeparatorIndex = Math.max(summary.lastIndexOf('/'), summary.lastIndexOf('\\'));
   if (lastSeparatorIndex < 0 || lastSeparatorIndex >= summary.length - 1) {
-    return { pathSection: null, fileSection: summary };
+    return looksLikeFileLeaf(summary)
+      ? { pathSection: null, fileSection: summary }
+      : { pathSection: summary, fileSection: null };
+  }
+
+  const leaf = summary.slice(lastSeparatorIndex + 1);
+  if (!looksLikeFileLeaf(leaf)) {
+    return { pathSection: summary, fileSection: null };
   }
 
   return {
     pathSection: summary.slice(0, lastSeparatorIndex + 1),
-    fileSection: summary.slice(lastSeparatorIndex + 1),
+    fileSection: leaf,
   };
 }
 
@@ -271,6 +296,13 @@ export function splitSummaryPath(summary: string): { pathSection: string | null;
 
 export function renderClickablePathHtml(summaryPath: string, displayText: string): string {
   const { pathSection, fileSection } = splitSummaryPath(displayText);
+  if (!fileSection) {
+    return (
+      `<span class="transcript-header-path-preview">` +
+      `<span class="transcript-header-summary-subtle transcript-header-path-prefix"><span class="[direction:ltr] [unicode-bidi:isolate]">${escapeHtml(pathSection ?? displayText)}</span></span>` +
+      `</span>`
+    );
+  }
   const prefixHtml = pathSection
     ? `<span class="transcript-header-summary-subtle transcript-header-path-prefix"><span class="[direction:ltr] [unicode-bidi:isolate]">${escapeHtml(pathSection)}</span></span>`
     : '';
@@ -285,11 +317,20 @@ export function renderClickablePathHtml(summaryPath: string, displayText: string
 export interface ClickablePathButtonProps {
   path: string;
   displayText: string;
-  onOpenFile: (path: string) => void;
+  onOpenFile?: (path: string) => void;
 }
 
 export function ClickablePathButton({ path, displayText, onOpenFile }: ClickablePathButtonProps): JSX.Element {
   const { pathSection, fileSection } = splitSummaryPath(displayText);
+  if (!fileSection) {
+    return (
+      <span class="transcript-header-path-preview" title={path}>
+        <span class="transcript-header-summary-subtle transcript-header-path-prefix">
+          <span class="[direction:ltr] [unicode-bidi:isolate]">{pathSection ?? displayText}</span>
+        </span>
+      </span>
+    );
+  }
   return (
     <span class="transcript-header-path-preview" title={path}>
       {pathSection ? (
@@ -297,19 +338,23 @@ export function ClickablePathButton({ path, displayText, onOpenFile }: Clickable
           <span class="[direction:ltr] [unicode-bidi:isolate]">{pathSection}</span>
         </span>
       ) : null}
-      <button
-        type="button"
-        class="transcript-header-summary-link group"
-        title={path}
-        onMouseDown={(e) => e.stopPropagation()}
-        onKeyDown={(e) => e.stopPropagation()}
-        onClick={(e) => {
-          e.stopPropagation();
-          onOpenFile(path);
-        }}
-      >
+      {onOpenFile ? (
+        <button
+          type="button"
+          class="transcript-header-summary-link group"
+          title={path}
+          onMouseDown={(e) => e.stopPropagation()}
+          onKeyDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenFile(path);
+          }}
+        >
+          <span class="transcript-header-summary-emphasis transcript-header-path-target">{fileSection}</span>
+        </button>
+      ) : (
         <span class="transcript-header-summary-emphasis transcript-header-path-target">{fileSection}</span>
-      </button>
+      )}
     </span>
   );
 }

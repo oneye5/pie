@@ -6,6 +6,7 @@ import { normalizeToolCallName } from '../../../shared/tool-call-analysis';
 import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
 
+import { ClickablePathButton, splitSummaryPath } from '../file-path';
 import { formatDuration } from './header';
 import { StatusChip } from './status-chip';
 import { useDisclosureOpen } from './use-disclosure-open';
@@ -108,43 +109,6 @@ export function formatToolCallResultForDisplay(toolCall: Pick<ToolCall, 'name' |
     : undefined;
 
   return readableText ?? JSON.stringify(toolCall.result, null, 2);
-}
-
-function looksLikeFileLeaf(value: string): boolean {
-  const leaf = value.trim();
-  if (!leaf || leaf === '.' || leaf === '..') {
-    return false;
-  }
-
-  // Treat dotted leaves (settings-menu.tsx, README.md, .gitignore) and
-  // conventional extensionless project files (Makefile, Dockerfile, LICENSE)
-  // as files. Bare directory names should stay subtle so a trailing folder is
-  // not presented with the same emphasis as an actual file target.
-  const extensionlessFileNames = new Set(['makefile', 'dockerfile', 'license', 'copying', 'notice']);
-  if (extensionlessFileNames.has(leaf.toLowerCase())) return true;
-
-  return leaf.startsWith('.') && leaf.length > 1
-    ? !leaf.slice(1).includes('/') && !leaf.slice(1).includes('\\')
-    : /\.[A-Za-z0-9_-]{1,12}$/.test(leaf);
-}
-
-export function splitSummaryPath(summary: string): { pathSection: string | null; fileSection: string | null } {
-  const lastSeparatorIndex = Math.max(summary.lastIndexOf('/'), summary.lastIndexOf('\\'));
-  if (lastSeparatorIndex < 0 || lastSeparatorIndex >= summary.length - 1) {
-    return looksLikeFileLeaf(summary)
-      ? { pathSection: null, fileSection: summary }
-      : { pathSection: summary, fileSection: null };
-  }
-
-  const leaf = summary.slice(lastSeparatorIndex + 1);
-  if (!looksLikeFileLeaf(leaf)) {
-    return { pathSection: summary, fileSection: null };
-  }
-
-  return {
-    pathSection: summary.slice(0, lastSeparatorIndex + 1),
-    fileSection: leaf,
-  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -331,47 +295,6 @@ function buildToolCallHeaderSummaryModel(
     : null;
 }
 
-function PathSummaryPreview({
-  text,
-  linkPath,
-  onOpenFile,
-}: {
-  text: string;
-  linkPath?: string;
-  onOpenFile?: (path: string) => void;
-}) {
-  const { pathSection, fileSection } = splitSummaryPath(text);
-
-  const fileContent = fileSection ? (
-    <span class="transcript-header-summary-emphasis transcript-header-path-target">{fileSection}</span>
-  ) : null;
-
-  return (
-    <span class="transcript-header-path-preview">
-      {pathSection ? (
-        <span class="transcript-header-summary-subtle transcript-header-path-prefix">
-          <span class="[direction:ltr] [unicode-bidi:isolate]">{pathSection}</span>
-        </span>
-      ) : null}
-      {linkPath && onOpenFile && fileContent ? (
-        <button
-          type="button"
-          class="transcript-header-summary-link group"
-          title={linkPath}
-          onMouseDown={(e) => e.stopPropagation()}
-          onKeyDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onOpenFile(linkPath);
-          }}
-        >
-          {fileContent}
-        </button>
-      ) : fileContent}
-    </span>
-  );
-}
-
 function CollapsedSummary({
   model,
   summaryPath,
@@ -392,7 +315,7 @@ function CollapsedSummary({
   if (model.kind === 'path') {
     return (
       <span class="block min-w-0 max-w-full flex-1" title={summaryPath ?? model.title ?? model.text}>
-        <PathSummaryPreview text={model.text} linkPath={summaryPath} onOpenFile={onOpenFile} />
+        <ClickablePathButton path={summaryPath ?? model.title ?? model.text} displayText={model.text} onOpenFile={onOpenFile} />
       </span>
     );
   }
@@ -405,7 +328,7 @@ function CollapsedSummary({
         <span class="transcript-header-command-details">
           {model.detail && <span class="transcript-header-command-tail transcript-header-summary-mono">{model.detail}</span>}
           {model.pathLeadingQuote && <span class="transcript-header-command-tail transcript-header-summary-subtle">{model.pathLeadingQuote}</span>}
-          {model.pathText && <PathSummaryPreview text={model.pathText} />}
+          {model.pathText && <ClickablePathButton path={model.pathText} displayText={model.pathText} />}
           {model.pathTrailingQuote && <span class="transcript-header-command-tail transcript-header-summary-subtle">{model.pathTrailingQuote}</span>}
           {model.suffix && <span class="transcript-header-command-tail transcript-header-summary-subtle">{model.suffix}</span>}
         </span>
@@ -486,7 +409,7 @@ export function ToolCallCard({
         'forced-colors:border forced-colors:border-[ButtonText]',
         toolCall.status === 'failed' && 'border-l-danger/50',
         toolCall.status === 'completed' && 'border-l-success/30',
-        presentation.variant === 'skill-load' && 'bg-accent/5',
+        presentation.variant === 'skill-load' && 'bg-accent/5 skill-load-glow',
         className,
       )}
       role="button"
