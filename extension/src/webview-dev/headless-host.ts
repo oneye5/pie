@@ -2,7 +2,6 @@ import * as crypto from 'node:crypto';
 import * as path from 'node:path';
 
 import { EffectRunner } from '../host/core/effect-runner';
-import type { SyncEffect } from '../host/core/effects';
 import type { Event } from '../host/core/events';
 import { initialArchState, reducer, type ArchState } from '../host/core/reducer';
 import { NOOP_RUN_OBSERVER } from '../host/stats-service';
@@ -117,6 +116,7 @@ export class HeadlessWebviewDevHost {
       },
       runObserver: NOOP_RUN_OBSERVER,
       state: this.state,
+      dispatchArch: (event) => this.dispatchArchEvent(event),
     });
     this.tabs = new SessionTabActions({
       context: this.context,
@@ -142,10 +142,10 @@ export class HeadlessWebviewDevHost {
       },
       tabs: { persistTabs: async () => undefined },
       log: { log: (level, message, data) => level === 'error' ? console.error('[arch]', message, data) : undefined },
-      sync: { execute: (effect) => this.executeSyncEffect(effect) },
+      postImperative: { postImperative: () => undefined },
       dispatch: (event) => this.dispatchArchEvent(event),
     });
-    this.events.setArchDispatch((event) => this.dispatchArchEvent(event));
+
 
     store.dispatch(sessionsActions.setWorkspaceCwd(options.workspaceRoot));
     store.dispatch(uiActions.setPrefs(options.initialPrefs));
@@ -535,55 +535,5 @@ export class HeadlessWebviewDevHost {
     for (const effect of result.effects) this.effectRunner.run(effect);
   }
 
-  private executeSyncEffect(effect: SyncEffect): void {
-    switch (effect.kind) {
-      case 'InsertOptimisticMessage':
-        store.dispatch(transcriptActions.appendLocalUserMessage({ sessionPath: effect.sessionPath, id: effect.localId, text: effect.text, userParts: effect.userParts }));
-        store.dispatch(sessionsActions.setSessionRunning({ sessionPath: effect.sessionPath, running: true }));
-        break;
-      case 'RemoveOptimisticMessage':
-        store.dispatch(transcriptActions.removeMessage({ sessionPath: effect.sessionPath, messageId: effect.localId }));
-        store.dispatch(sessionsActions.setSessionRunning({ sessionPath: effect.sessionPath, running: false }));
-        break;
-      case 'ClearComposerInputs':
-        store.dispatch(sessionStateActions.clearPendingComposerInputs(effect.sessionPath));
-        break;
-      case 'SetNotice':
-        store.dispatch(uiActions.setNotice(effect.message));
-        break;
-      case 'PostImperative':
-        break;
-      case 'SetSessionName': {
-        const current = getSessionByPath(store.getState(), effect.sessionPath);
-        if (current) store.dispatch(sessionsActions.upsertSession({ ...current, name: effect.name, isPlaceholder: effect.isPlaceholder }));
-        break;
-      }
-      case 'RestoreSessionSummary':
-        store.dispatch(sessionsActions.setSessionSummary(effect.summary));
-        break;
-      case 'AppendDelta':
-        store.dispatch(transcriptActions.appendDelta({ sessionPath: effect.sessionPath, messageId: effect.messageId, delta: effect.delta }));
-        break;
-      case 'AppendThinking':
-        store.dispatch(transcriptActions.appendThinking({ sessionPath: effect.sessionPath, messageId: effect.messageId, thinking: effect.thinking }));
-        break;
-      case 'UpsertToolCall':
-        store.dispatch(transcriptActions.upsertToolCall({ sessionPath: effect.sessionPath, messageId: effect.messageId, toolCall: effect.toolCall }));
-        break;
-      case 'UpsertMessage':
-        store.dispatch(transcriptActions.upsertMessage({ sessionPath: effect.sessionPath, message: effect.message, canonicalMessageId: effect.canonicalMessageId }));
-        break;
-      case 'EnsureAssistantMessage':
-        store.dispatch(transcriptActions.ensureAssistantMessage({ sessionPath: effect.sessionPath, messageId: effect.canonicalMessageId, isAlias: effect.isAlias, modelId: effect.modelId, thinkingLevel: effect.thinkingLevel }));
-        break;
-      case 'SetMessageStatus':
-        store.dispatch(transcriptActions.setMessageStatus({ sessionPath: effect.sessionPath, messageId: effect.messageId, status: effect.status }));
-        break;
-      case 'SetSessionRunning':
-        store.dispatch(sessionsActions.setSessionRunning({ sessionPath: effect.sessionPath, running: effect.running }));
-        break;
-      case 'ScheduleRender':
-        break;
-    }
-  }
+
 }

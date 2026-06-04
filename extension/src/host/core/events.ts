@@ -6,20 +6,29 @@
  *    webview message handler to dispatch these instead of calling helpers).
  *  - Results of effects executed by `EffectRunner` (each `*Rpc` effect has a
  *    matching `*Result` event carrying the same `corrId`).
- *  - Backend events forwarded by `SessionEventDispatcher` (will be unified in
- *    a later phase).
+ *  - Backend events forwarded by the backend event parser (unified in Phase 5+).
  *
  * This file is the future replacement for ad-hoc helper calls scattered
  * across the host. Today, no code dispatches these events yet.
  */
 
 import type { Command } from './commands';
+import type {
+  ChatMessage,
+  ToolCall,
+  ContextWindowUsage,
+  SessionSummary,
+  ExtensionUIRequestPayload,
+  SessionOpenedPayload,
+} from '../../shared/protocol';
 
 /** Wraps a `Command` so it can flow through the same event channel. */
 export interface CommandEvent {
   kind: 'Command';
   cmd: Command;
 }
+
+// ─── Effect result events ────────────────────────────────────────────────────
 
 export interface SendResultEvent {
   kind: 'SendResult';
@@ -91,6 +100,15 @@ export type EffectResultEvent =
 // ─── Backend streaming events ─────────────────────────────────────────────────
 // These wrap PI backend events so they flow through the reducer.
 
+export interface MessageStartedEvent {
+  kind: 'MessageStarted';
+  sessionPath: string;
+  messageId: string;
+  requestId?: string;
+  modelId?: string;
+  thinkingLevel?: ChatMessage['thinkingLevel'];
+}
+
 export interface MessageDeltaEvent {
   kind: 'MessageDelta';
   sessionPath: string;
@@ -103,17 +121,6 @@ export interface MessageThinkingEvent {
   sessionPath: string;
   messageId: string;
   thinking: string;
-}
-
-import type { ChatMessage, ToolCall } from '../../shared/protocol';
-
-export interface MessageStartedEvent {
-  kind: 'MessageStarted';
-  sessionPath: string;
-  messageId: string;
-  requestId?: string;
-  modelId?: string;
-  thinkingLevel?: ChatMessage['thinkingLevel'];
 }
 
 export interface MessageAbortedEvent {
@@ -135,12 +142,61 @@ export interface MessageFinishedEvent {
   message: ChatMessage;
 }
 
-/**
- * Emitted by the host when a session tab is closed. Drives reducer cleanup of
- * any per-session bookkeeping (pending RPCs, current turn map, alias entries)
- * so that closing a session does not leave dangling state that bleeds into
- * other sessions (B4 cross-session bleed).
- */
+/** Emitted when a session starts or stops streaming. */
+export interface BusyChangedEvent {
+  kind: 'BusyChanged';
+  sessionPath: string;
+  running: boolean;
+}
+
+/** Emitted when a session finishes streaming (complement to BusyChanged). */
+export interface BusyCompletedEvent {
+  kind: 'BusyCompleted';
+  sessionPath: string;
+}
+
+/** Emitted when context window usage changes for a session. */
+export interface ContextUsageChangedEvent {
+  kind: 'ContextUsageChanged';
+  sessionPath: string;
+  contextUsage: ContextWindowUsage | null;
+}
+
+/** Emitted when the backend's session list changes. */
+export interface SessionListChangedEvent {
+  kind: 'SessionListChanged';
+  sessionSummaries: SessionSummary[];
+}
+
+/** Emitted when the backend sends a custom message (e.g., pruning result). */
+export interface CustomMessageEvent {
+  kind: 'CustomMessage';
+  sessionPath: string;
+  message: ChatMessage;
+}
+
+/** Emitted when the backend requests an extension UI interaction. */
+export interface ExtensionUIRequestEvent {
+  kind: 'ExtensionUIRequest';
+  sessionPath: string;
+  request: ExtensionUIRequestPayload;
+}
+
+/** Emitted when the backend reports an error. */
+export interface ErrorEvent {
+  kind: 'Error';
+  sessionPath: string;
+  error: string;
+}
+
+/** Emitted when a session is opened and its data is loaded. */
+export interface SessionOpenedEvent {
+  kind: 'SessionOpened';
+  sessionPath: string;
+  payload: SessionOpenedPayload;
+}
+
+/** Emitted by the host when a session tab is closed. */
 export interface SessionClosedEvent {
   kind: 'SessionClosed';
   sessionPath: string;
@@ -153,6 +209,14 @@ export type BackendEvent =
   | MessageThinkingEvent
   | ToolCallEvent
   | MessageFinishedEvent
+  | BusyChangedEvent
+  | BusyCompletedEvent
+  | ContextUsageChangedEvent
+  | SessionListChangedEvent
+  | CustomMessageEvent
+  | ExtensionUIRequestEvent
+  | ErrorEvent
+  | SessionOpenedEvent
   | SessionClosedEvent;
 
 export type Event = CommandEvent | EffectResultEvent | BackendEvent;

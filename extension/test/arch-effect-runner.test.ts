@@ -47,7 +47,7 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown> } =
         calls.push({ kind: 'log', level, message });
       },
     },
-    sync: { execute() {} },
+    postImperative: { postImperative() {} },
     dispatch: (e) => events.push(e),
   };
   return { deps, calls, events };

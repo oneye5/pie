@@ -35,7 +35,7 @@ import { CHAT_PREF_MENU_SECTIONS } from '../src/webview/panel/chat-prefs';
 function archStateWithSession(path: string): ArchState {
   return {
     ...initialArchState,
-    sessions: { [path]: { interruptInFlight: false } },
+    sessions: { ...initialArchState.sessions, interruptInFlightBySession: { [path]: false } },
   };
 }
 
@@ -46,7 +46,11 @@ function archStateWithPending(
   return {
     ...initialArchState,
     pending: {
-      [corrId]: { ...op, previousSummary: op.previousSummary ?? null },
+      ...initialArchState.pending,
+      ops: {
+        ...initialArchState.pending.ops,
+        [corrId]: { ...op, previousSummary: op.previousSummary ?? null },
+      },
     },
   };
 }
@@ -57,21 +61,27 @@ test('arch: SessionClosed removes per-session arch state but preserves other ses
   const state: ArchState = {
     ...initialArchState,
     sessions: {
-      '/s/a': { interruptInFlight: true },
-      '/s/b': { interruptInFlight: false },
+      ...initialArchState.sessions,
+      interruptInFlightBySession: {
+        '/s/a': true,
+        '/s/b': false,
+      },
     },
-    currentTurnBySession: {
-      '/s/a': { requestId: 'req-1', firstMessageId: 'msg-1' },
-      '/s/b': { requestId: 'req-2', firstMessageId: 'msg-2' },
+    pending: {
+      ...initialArchState.pending,
+      currentTurnBySession: {
+        '/s/a': { requestId: 'req-1', firstMessageId: 'msg-1' },
+        '/s/b': { requestId: 'req-2', firstMessageId: 'msg-2' },
+      },
     },
   };
 
   const result = reducer(state, { kind: 'SessionClosed', sessionPath: '/s/a' });
 
-  assert.equal(result.state.sessions['/s/a'], undefined);
-  assert.deepEqual(result.state.sessions['/s/b'], { interruptInFlight: false });
-  assert.equal(result.state.currentTurnBySession['/s/a'], undefined);
-  assert.deepEqual(result.state.currentTurnBySession['/s/b'], {
+  assert.equal(result.state.sessions.interruptInFlightBySession['/s/a'], undefined);
+  assert.equal(result.state.sessions.interruptInFlightBySession['/s/b'], false);
+  assert.equal(result.state.pending.currentTurnBySession['/s/a'], undefined);
+  assert.deepEqual(result.state.pending.currentTurnBySession['/s/b'], {
     requestId: 'req-2',
     firstMessageId: 'msg-2',
   });
@@ -82,17 +92,20 @@ test('arch: SessionClosed removes pending operations belonging to the closed ses
   const state: ArchState = {
     ...initialArchState,
     pending: {
-      'c1': { kind: 'send', sessionPath: '/s/a', localId: 'loc-1', previousSummary: null },
-      'c2': { kind: 'edit', sessionPath: '/s/b', localId: 'loc-2', previousSummary: null },
-      'c3': { kind: 'send', sessionPath: '/s/a', localId: 'loc-3', previousSummary: null },
+      ...initialArchState.pending,
+      ops: {
+        'c1': { kind: 'send', sessionPath: '/s/a', localId: 'loc-1', previousSummary: null },
+        'c2': { kind: 'edit', sessionPath: '/s/b', localId: 'loc-2', previousSummary: null },
+        'c3': { kind: 'send', sessionPath: '/s/a', localId: 'loc-3', previousSummary: null },
+      },
     },
   };
 
   const result = reducer(state, { kind: 'SessionClosed', sessionPath: '/s/a' });
 
-  assert.equal(result.state.pending['c1'], undefined);
-  assert.equal(result.state.pending['c3'], undefined);
-  assert.deepEqual(result.state.pending['c2'], {
+  assert.equal(result.state.pending.ops['c1'], undefined);
+  assert.equal(result.state.pending.ops['c3'], undefined);
+  assert.deepEqual(result.state.pending.ops['c2'], {
     kind: 'edit',
     sessionPath: '/s/b',
     localId: 'loc-2',
@@ -142,13 +155,13 @@ test('arch: concurrent sends across different sessions do not interfere', () => 
     },
   });
 
-  assert.deepEqual(result.state.pending['c-a'], {
+  assert.deepEqual(result.state.pending.ops['c-a'], {
     kind: 'send',
     sessionPath: '/s/a',
     localId: 'loc-a',
     previousSummary: null,
   });
-  assert.deepEqual(result.state.pending['c-b'], {
+  assert.deepEqual(result.state.pending.ops['c-b'], {
     kind: 'send',
     sessionPath: '/s/b',
     localId: 'loc-b',
@@ -164,8 +177,8 @@ test('arch: Interrupt on one session does not affect another session', () => {
     cmd: { kind: 'Interrupt', corrId: 'c1', sessionPath: '/s/a' },
   });
 
-  assert.equal(result.state.sessions['/s/a']?.interruptInFlight, true);
-  assert.equal(result.state.sessions['/s/b']?.interruptInFlight, false);
+  assert.equal(result.state.sessions.interruptInFlightBySession['/s/a'], true);
+  assert.equal(result.state.sessions.interruptInFlightBySession['/s/b'], false);
 });
 
 // ─── Arch reducer: Edit edge cases ────────────────────────────────────────────
@@ -183,7 +196,7 @@ test('arch: EditResult for unknown corrId is a no-op', () => {
 
 // ─── Arch reducer: MessageStarted variations ──────────────────────────────────
 
-test('arch: MessageStarted without modelId still creates turn and emits EnsureAssistantMessage', () => {
+test('arch: MessageStarted without modelId still creates turn and assistant message in transcript', () => {
   const result = reducer(initialArchState, {
     kind: 'MessageStarted',
     sessionPath: '/s',
@@ -191,24 +204,29 @@ test('arch: MessageStarted without modelId still creates turn and emits EnsureAs
     requestId: 'req-1',
   });
 
-  assert.deepEqual(result.state.currentTurnBySession['/s'], {
+  assert.deepEqual(result.state.pending.currentTurnBySession['/s'], {
     requestId: 'req-1',
     firstMessageId: 'msg-1',
   });
-  const ensure = result.effects.find(e => e.kind === 'EnsureAssistantMessage');
-  assert.ok(ensure);
-  if (ensure?.kind === 'EnsureAssistantMessage') {
-    assert.equal(ensure.isAlias, false);
-    assert.equal(ensure.modelId, undefined);
-    assert.equal(ensure.thinkingLevel, undefined);
-  }
+  // Assistant message created directly in transcript
+  const msg = result.state.transcript.bySession['/s']?.find(m => m.id === 'msg-1');
+  assert.ok(msg, 'assistant message should exist in transcript');
+  assert.equal(msg!.role, 'assistant');
+  assert.equal(msg!.status, 'streaming');
+  assert.equal(msg!.modelId, undefined);
+  assert.equal(msg!.thinkingLevel, undefined);
+  // No SyncEffects
+  assert.equal(result.effects.length, 0);
 });
 
 test('arch: MessageStarted with different requestId starts a new turn', () => {
   const state: ArchState = {
     ...initialArchState,
-    currentTurnBySession: {
-      '/s': { requestId: 'req-old', firstMessageId: 'msg-old' },
+    pending: {
+      ...initialArchState.pending,
+      currentTurnBySession: {
+        '/s': { requestId: 'req-old', firstMessageId: 'msg-old' },
+      },
     },
   };
 
@@ -219,19 +237,24 @@ test('arch: MessageStarted with different requestId starts a new turn', () => {
     requestId: 'req-new',
   });
 
-  assert.deepEqual(result.state.currentTurnBySession['/s'], {
+  assert.deepEqual(result.state.pending.currentTurnBySession['/s'], {
     requestId: 'req-new',
     firstMessageId: 'msg-new',
   });
-  const ensure = result.effects.find(e => e.kind === 'EnsureAssistantMessage');
-  assert.ok(ensure?.kind === 'EnsureAssistantMessage' && ensure.isAlias === false);
+  // New assistant message created in transcript
+  const msg = result.state.transcript.bySession['/s']?.find(m => m.id === 'msg-new');
+  assert.ok(msg, 'new assistant message should exist');
+  assert.equal(msg!.role, 'assistant');
 });
 
 test('arch: MessageStarted without requestId does not change current turn', () => {
   const state: ArchState = {
     ...initialArchState,
-    currentTurnBySession: {
-      '/s': { requestId: 'req-1', firstMessageId: 'msg-1' },
+    pending: {
+      ...initialArchState.pending,
+      currentTurnBySession: {
+        '/s': { requestId: 'req-1', firstMessageId: 'msg-1' },
+      },
     },
   };
 
@@ -243,7 +266,7 @@ test('arch: MessageStarted without requestId does not change current turn', () =
   });
 
   // currentTurnBySession unchanged because no requestId
-  assert.deepEqual(result.state.currentTurnBySession['/s'], {
+  assert.deepEqual(result.state.pending.currentTurnBySession['/s'], {
     requestId: 'req-1',
     firstMessageId: 'msg-1',
   });
@@ -251,7 +274,7 @@ test('arch: MessageStarted without requestId does not change current turn', () =
 
 // ─── Arch reducer: MessageFinished without alias ──────────────────────────────
 
-test('arch: MessageFinished on canonical (non-aliased) ID emits UpsertMessage without canonicalMessageId', () => {
+test('arch: MessageFinished on canonical (non-aliased) ID upserts message directly in transcript', () => {
   const message = {
     id: 'direct-msg',
     role: 'assistant' as const,
@@ -266,17 +289,17 @@ test('arch: MessageFinished on canonical (non-aliased) ID emits UpsertMessage wi
     message,
   });
 
-  const effect = result.effects.find(e => e.kind === 'UpsertMessage');
-  assert.ok(effect);
-  if (effect?.kind === 'UpsertMessage') {
-    assert.equal(effect.canonicalMessageId, undefined);
-    assert.equal(effect.message.id, 'direct-msg');
-  }
+  // Message upserted directly in transcript
+  const msg = result.state.transcript.bySession['/s']?.find(m => m.id === 'direct-msg');
+  assert.ok(msg, 'message should exist in transcript');
+  assert.equal(msg!.status, 'completed');
+  // No SyncEffects
+  assert.equal(result.effects.length, 0);
 });
 
 // ─── Arch reducer: ToolCall with unknown messageId ────────────────────────────
 
-test('arch: ToolCall with unknown messageId still emits UpsertToolCall (no alias)', () => {
+test('arch: ToolCall with unknown messageId produces no effect (message not in transcript)', () => {
   const tc = { id: 'tc-1', name: 'read', input: { path: 'f.txt' }, status: 'running' as const };
   const result = reducer(initialArchState, {
     kind: 'ToolCall',
@@ -285,17 +308,23 @@ test('arch: ToolCall with unknown messageId still emits UpsertToolCall (no alias
     toolCall: tc,
   });
 
-  const effect = result.effects.find(e => e.kind === 'UpsertToolCall');
-  assert.ok(effect);
-  if (effect?.kind === 'UpsertToolCall') {
-    assert.equal(effect.messageId, 'unknown-msg');
-    assert.deepEqual(effect.toolCall, tc);
-  }
+  // Message not in transcript, so tool call is silently ignored.
+  // No state change and no SyncEffects.
+  assert.equal(result.effects.length, 0);
 });
 
 // ─── Arch reducer: Backend event scheduling consistency ───────────────────────
 
-test('arch: every streaming event also schedules a render', () => {
+test('arch: every streaming event mutates state directly (no SyncEffects)', () => {
+  // Seed a streaming message for the delta/thinking/toolcall events
+  const seedResult = reducer(initialArchState, {
+    kind: 'MessageStarted',
+    sessionPath: '/s',
+    messageId: 'm1',
+    requestId: 'r1',
+  });
+  const seededState = seedResult.state;
+
   const events: Event[] = [
     { kind: 'MessageStarted', sessionPath: '/s', messageId: 'm1', requestId: 'r1' },
     { kind: 'MessageDelta', sessionPath: '/s', messageId: 'm1', delta: 'hi' },
@@ -303,11 +332,15 @@ test('arch: every streaming event also schedules a render', () => {
     { kind: 'ToolCall', sessionPath: '/s', messageId: 'm1', toolCall: { id: 't1', name: 'bash', input: {}, status: 'running' } },
   ];
 
+  // MessageStarted uses initial state, others use seeded state
   for (const event of events) {
-    const result = reducer(initialArchState, event);
-    assert.ok(
-      result.effects.some(e => e.kind === 'ScheduleRender'),
-      `${event.kind} should schedule a render`,
+    const state = event.kind === 'MessageStarted' ? initialArchState : seededState;
+    const result = reducer(state, event);
+    // All streaming events now mutate state directly — no SyncEffects
+    assert.equal(
+      result.effects.length,
+      0,
+      `${event.kind} should not produce SyncEffects`,
     );
   }
 });
@@ -1213,8 +1246,11 @@ test('chatPrefs: menu sections expose all toggleable transcript prefs', () => {
 test('arch reducer: pure — does not mutate input state', () => {
   const state: ArchState = {
     ...initialArchState,
-    sessions: { '/s': { interruptInFlight: false } },
-    pending: { 'c1': { kind: 'send', sessionPath: '/s', localId: 'loc', previousSummary: null } },
+    sessions: { ...initialArchState.sessions, interruptInFlightBySession: { '/s': false } },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c1': { kind: 'send', sessionPath: '/s', localId: 'loc', previousSummary: null } },
+    },
   };
 
   const copy = JSON.parse(JSON.stringify(state));

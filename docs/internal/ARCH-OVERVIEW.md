@@ -2,7 +2,9 @@
 
 **Pattern:** CQRS-shaped Elm/MVI
 **Authoritative contract:** [`docs/STATE_CONTRACT.md`](../STATE_CONTRACT.md)
-**Migration history:** removed (see git history, commit `d581d83`)
+**Migration plan:** [`docs/ARCHITECTURE.md §10`](../ARCHITECTURE.md)
+
+> **Note:** This file describes the *target* architecture. The migration from Redux to pure CQRS is in progress. See §10 of ARCHITECTURE.md for the plan and current phase. Files marked as "target" do not yet exist; their responsibilities are currently handled by the modules listed in the current column.
 
 ---
 
@@ -24,41 +26,57 @@ All core architecture types live in `extension/src/host/core/`:
 |------|----------------|
 | `commands.ts` | `Command` discriminated union — intents from webview. Each carries `corrId` + `sessionPath`. |
 | `events.ts` | `Event` discriminated union — inputs to the reducer (commands, backend events, effect results). |
-| `effects.ts` | `Effect` discriminated union — side-effect descriptors returned by the reducer. |
-| `reducer.ts` | Pure function `(ArchState, Event) → { state, effects }`. No I/O. |
+| `effects.ts` | `Effect` discriminated union — side-effect descriptors grouped into namespaces (`SessionRpc`, `SessionLifecycle`, `FileOperation`, `Notification`). |
+| `reducer.ts` | Pure function `(ArchState, Event) → { archState, effects }`. No I/O. |
 | `effect-runner.ts` | Executes effects, posts result events back to reducer. Owns no state. |
+| `projection.ts` | Pure function `ArchState → ViewState`. Computes what the webview should display. |
+| `backend-event-parser.ts` | Parses raw JSON lines from the PI backend into typed `BackendEvent` objects. |
+| `message-router.ts` | Converts `WebviewToHostMessage` into `Command` objects and dispatches to the reducer. |
 
-Supporting state slices remain in `extension/src/host/store/` (Redux Toolkit + Immer).
+All application state lives in `ArchState` — no separate Redux store.
 
 ---
 
 ## Information Flow
 
 ```
-                       ┌────────────────────────────────────────┐
-  Webview Command  ──► │                                        │
-  Backend Event    ──► │   Reducer: (State, Event)              │
-  EffectResult     ──► │      → { state', effects: Effect[] }   │
-  Timer Msg        ──► │   (pure)                               │
-                       └──────────┬─────────────────────────────┘
+                       ┌──────────────────────────────────────────┐
+  Webview Command  ──► │                                         │
+  Backend Event    ──► │   Reducer: (ArchState, Event)           │
+  EffectResult     ──► │      → { archState', effects: Effect[] } │
+  Timer Msg        ──► │   (pure — no I/O, no Redux)             │
+                       └──────────┬───────────────────────────────┘
                                   │
                 ┌─────────────────┴──────────────────┐
                 │                                    │
                 ▼                                    ▼
-     projection: State → ViewState[s]       EffectRunner executes:
-                │                              - RPCs to backend
-                ▼                              - persistence
-       diff → Patch{sessionPath, ops}          - logging
-                │                              results → Event
-                ▼
-       per-session revision channel
+     Projection: ArchState → ViewState    EffectRunner executes:
+                │                           - RPCs to PI backend
+                ▼                           - File operations
+       Patch{sessionPath, ops}              - Notifications
+                │                           - Analytics export
+                ▼                           Results → Event
+       Per-session revision channel
                 │
                 ▼
-       Webview applies to mirrors[sessionPath]
+       Webview mirror[sessionPath]
                 │
                 ▼
-       Render active mirror
+       Render active session
 ```
+
+---
+
+## ArchState Sub-States
+
+| Sub-state | Contains | Former slice |
+|-----------|----------|-------------|
+| `transcript` | Messages, deltas, tool calls, pruning results, message status, editing state | `transcript-slice` + editing from `ui-slice` |
+| `sessions` | Session list, running states, unread marks, active path | `sessions-slice` |
+| `settings` | Model settings, chat prefs, pruning config, available models, backend ready | `settings-slice` + `ui-slice` (backendReady) |
+| `composer` | Pending composer inputs, active run summaries | `session-state-slice` (partial) |
+| `fileChanges` | File change entries, derived state | `file-changes-slice` |
+| `pending` | Optimistic ops table, interrupt flags | was already in `ArchState` |
 
 ---
 
@@ -68,9 +86,10 @@ Supporting state slices remain in `extension/src/host/store/` (Redux Toolkit + I
 |------|-----------|-------------|
 | **Command** | Webview → host intent, carries `corrId` | `host/core/commands.ts` |
 | **Event** | Reducer input (command, backend event, or effect result) | `host/core/events.ts` |
-| **Effect** | Plain data describing a side effect | `host/core/effects.ts` |
+| **Effect** | Plain data describing a side effect, grouped by namespace | `host/core/effects.ts` |
 | **EffectRunner** | Executes effects, produces result events | `host/core/effect-runner.ts` |
-| **Projection** | `State → ViewState` (currently `selectViewState` in `host/store/index.ts`) | `host/store/index.ts` |
+| **Projection** | `ArchState → ViewState` | `host/core/projection.ts` |
+| **ArchState** | All application state, nested into sub-states | `host/core/reducer.ts` (type) |
 | **Patch** | Session-addressed diff of ViewState | `shared/protocol.ts` |
 | **Snapshot** | Full ViewState for recovery | `shared/protocol.ts` |
 | **Mirror** | Webview-side cache of ViewState per session | `webview/panel/hooks/use-host-sync.ts` |
@@ -85,7 +104,7 @@ Supporting state slices remain in `extension/src/host/store/` (Redux Toolkit + I
 4. Every Patch and session-scoped backend event carries an explicit `sessionPath`.
 5. Optimistic state is tagged with `corrId` and reconciled by matching `EffectResult`.
 6. Background-tab patches update that tab's mirror; they are never dropped.
-7. Host state uses `Record<string, T>` only (no `Map`/`Set` — RTK/Immer constraint).
+7. Host state uses `Record<string, T>` only (no `Map`/`Set`).
 8. See `STATE_CONTRACT.md` for the full set.
 
 ---
@@ -93,10 +112,14 @@ Supporting state slices remain in `extension/src/host/store/` (Redux Toolkit + I
 ## Effect Routing
 
 | Effect category | Queue path |
-|-----------------|-----------|
-| `*Rpc` (SendRpc, EditRpc, InterruptRpc, TruncateRpc) | `enqueueLifecycle → enqueueSessionOperation(sessionPath, doRpc)` |
-| Lifecycle (OpenSession, CreateSession) | `enqueueLifecycle(...)` only |
-| Non-session (PersistTabs, Log) | Direct execution, no queue |
+|-----------------|----------|
+| `SessionRpc` (Send, Edit, Interrupt, Truncate) | `enqueueLifecycle → enqueueSessionOperation(sessionPath, doRpc)` |
+| `SessionLifecycle` (Open, Create) | `enqueueLifecycle(...)` only |
+| `FileOperation` (Diff, Revert, Export) | Direct execution, no queue |
+| `Notification` (Flash, Sound) | Direct execution, no queue |
+| `Log` | Direct execution, no queue |
+
+> **Note:** `FileOperation` and `Notification` effect namespaces are target architecture. Currently file operations and notifications are handled imperatively in `extension-host.ts`.
 
 ---
 
@@ -116,8 +139,8 @@ Everything else is host state delivered via ViewState. See `STATE_CONTRACT.md §
 
 | Task | Files to touch |
 |------|---------------|
-| New user action | `commands.ts` → `events.ts` → `reducer.ts` → `effects.ts` (if RPC needed) → `effect-runner.ts` → `extension-host.ts` (dispatch wiring) |
-| New backend event | `events.ts` → `reducer.ts` → `store/transcript-slice.ts` (if transcript mutation) |
-| New ViewState field | `store/index.ts` (`selectViewState`) → `shared/protocol.ts` (`ViewState`) → webview consumer |
-| New effect type | `effects.ts` → `effect-runner.ts` (execution logic) → `events.ts` (result event) |
+| New user action | `commands.ts` → `events.ts` → `reducer.ts` → `effects.ts` → `effect-runner.ts` → `message-router.ts` |
+| New backend event | `events.ts` → `backend-event-parser.ts` → `reducer.ts` (+ `effects.ts` if side-effects needed) |
+| New ViewState field | `projection.ts` → `shared/protocol.ts` → webview consumer |
+| New effect type | `effects.ts` (in the right namespace) → `effect-runner.ts` → `events.ts` (result event) |
 | New webview component | `webview/panel/components/` → import in `app.tsx` |

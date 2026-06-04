@@ -7,24 +7,23 @@
  *
  * Routing rules (binding for all later phases — see plan §Phase 2):
  *  - `*Rpc` effects use the **double-wrap**
- *    `enqueueLifecycle(() => enqueueSessionOperation(sessionPath, doRpc))` so
+ *    `enqueueLifecycle(() => enqueueSessionOperation(sessionPath, do_rpc))` so
  *    they serialize correctly with legacy `send`/`edit` paths during the
  *    multi-phase migration.
  *  - Lifecycle effects (`OpenSession`, `CreateSession`) use `enqueueLifecycle`
  *    only (the session may not exist yet, so the inner per-session queue
  *    cannot be addressed).
  *  - `PersistTabs` and `Log` execute directly without queueing.
+ *  - `PostImperative` sends an imperative message to the webview via the
+ *    `postImperative` callback.
  *
  * The runner never inspects state. All routing decisions are derived from the
  * effect's discriminator. Result dispatch is async via `Promise` → microtask,
  * which precludes re-entrant blocking even if a reducer chains effects.
- *
- * This skeleton is wired by **no code yet** — Phase 3 will instantiate it
- * once at extension activation and route `interrupt` through it.
  */
 
-import type { Effect, SyncEffect } from './effects';
-import { isLifecycleEffect, isRpcEffect, isSyncEffect } from './effects';
+import type { Effect } from './effects';
+import { isLifecycleEffect, isRpcEffect } from './effects';
 import type { EffectResultEvent } from './events';
 
 /** Minimal backend surface the runner needs. Matches `BackendClient.request`. */
@@ -55,13 +54,9 @@ export interface LogSink {
   log(level: 'info' | 'warn' | 'error', message: string, data?: unknown): void;
 }
 
-/**
- * Sink for synchronous imperative effects. These are transitional (Phase 4):
- * they dispatch directly to the Redux store or webview while transcript state
- * still lives outside the reducer.
- */
-export interface SyncEffectSink {
-  execute(effect: SyncEffect): void;
+/** Callback for posting imperative messages to the webview. */
+export interface PostImperativeSink {
+  postImperative(message: { type: string; sessionPath?: string; text?: string; localId?: string }): void;
 }
 
 export interface EffectRunnerDeps {
@@ -69,7 +64,7 @@ export interface EffectRunnerDeps {
   queues: QueueRouter;
   tabs: TabPersistenceSink;
   log: LogSink;
-  sync: SyncEffectSink;
+  postImperative: PostImperativeSink;
   /** Called with each `*Result` event the runner produces. */
   dispatch: (event: EffectResultEvent) => void;
 }
@@ -100,8 +95,21 @@ export class EffectRunner {
       this.deps.log.log(effect.level, effect.message, effect.data);
       return;
     }
-    if (isSyncEffect(effect)) {
-      this.deps.sync.execute(effect);
+    if (effect.kind === 'PostImperative') {
+      this.deps.postImperative.postImperative(effect.imperativeMessage);
+      return;
+    }
+    // CQRS effect types — not yet implemented; no-op until runner is extended.
+    if (
+      effect.kind === 'FileDiff' ||
+      effect.kind === 'FileRevert' ||
+      effect.kind === 'FlashWindow' ||
+      effect.kind === 'PlayCompletionSound' ||
+      effect.kind === 'ExportRunAnalytics' ||
+      effect.kind === 'EvictTranscript' ||
+      effect.kind === 'DeriveFileChanges' ||
+      effect.kind === 'DeriveAvailableExtensions'
+    ) {
       return;
     }
     // Exhaustiveness check — TS should reject unhandled kinds at compile time.

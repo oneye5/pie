@@ -12,6 +12,8 @@
 
 import type { ComposerInput, ComposerInputDraft, SessionSummary, UserContentPart } from '../../shared/protocol';
 
+import type { ModelSettings, ChatPrefs } from '../../shared/protocol';
+
 /** Common fields on every command. */
 export interface CommandBase {
   corrId: string;
@@ -103,4 +105,61 @@ export type Command =
   | CreateSessionCommand
   | PersistTabsCommand
   | AddComposerInputCommand
-  | RemoveComposerInputCommand;
+  | RemoveComposerInputCommand
+  | SetModelCommand
+  | SetPrefsCommand
+  | SelectSessionCommand
+  | CloseTabCommand
+  | ReorderTabsCommand
+  | OpenFileDiffCommand
+  | RevertFileCommand
+  | ExportAnalyticsCommand
+  | CloseSessionCommand;
+export interface SetModelCommand extends CommandBase {
+  kind: 'SetModel';
+  sessionPath: string;
+  modelSettings: ModelSettings;
+}
+
+export interface SetPrefsCommand extends CommandBase {
+  kind: 'SetPrefs';
+  prefs: Partial<ChatPrefs>;
+}
+
+export interface SelectSessionCommand extends CommandBase {
+  kind: 'SelectSession';
+  sessionPath: string;
+}
+
+export interface CloseTabCommand extends CommandBase {
+  kind: 'CloseTab';
+  sessionPath: string;
+}
+
+export interface ReorderTabsCommand extends CommandBase {
+  kind: 'ReorderTabs';
+  openTabPaths: string[];
+}
+
+export interface OpenFileDiffCommand extends CommandBase {
+  kind: 'OpenFileDiff';
+  sessionPath: string;
+  filePath: string;
+  status: 'modified' | 'created' | 'deleted';
+}
+
+export interface RevertFileCommand extends CommandBase {
+  kind: 'RevertFile';
+  sessionPath: string;
+  filePath: string;
+}
+
+export interface ExportAnalyticsCommand extends CommandBase {
+  kind: 'ExportAnalytics';
+  sessionPath: string;
+}
+
+export interface CloseSessionCommand extends CommandBase {
+  kind: 'CloseSession';
+  sessionPath: string;
+}

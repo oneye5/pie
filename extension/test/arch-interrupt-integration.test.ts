@@ -64,7 +64,7 @@ function makeSerializingDeps(): {
     },
     tabs: { async persistTabs() {} },
     log: { log() {} },
-    sync: { execute() {} },
+    postImperative: { postImperative() {} },
     dispatch: (e) => events.push(e),
   };
 
@@ -130,7 +130,7 @@ test('end-to-end: interrupt command through reducer produces effect and result c
   const r1 = reducer(state, interruptCmd);
   state = r1.state;
 
-  assert.equal(state.sessions['/x']?.interruptInFlight, true);
+  assert.equal(state.sessions.interruptInFlightBySession['/x'], true);
   assert.equal(r1.effects.length, 1);
   assert.equal(r1.effects[0]?.kind, 'InterruptRpc');
 
@@ -144,8 +144,9 @@ test('end-to-end: interrupt command through reducer produces effect and result c
   const r2 = reducer(state, resultEvent);
   state = r2.state;
 
-  assert.equal(state.sessions['/x']?.interruptInFlight, false);
-  // Successful interrupt emits the SetSessionRunning watchdog effect.
-  assert.equal(r2.effects.length, 1);
-  assert.equal(r2.effects[0]?.kind, 'SetSessionRunning');
+  assert.equal(state.sessions.interruptInFlightBySession['/x'], false);
+  // Successful interrupt sets running=false directly in state.
+  assert.ok(!state.sessions.runningSessionPaths.includes('/x'), 'running should be cleared by watchdog');
+  // No SyncEffects — running state is mutated directly.
+  assert.equal(r2.effects.length, 0);
 });

@@ -132,6 +132,7 @@
     "typescript-eslint": "^8.32.0"
   },
   "dependencies": {
+    "immer": "^11.1.8",
     "yaml": "^2.9.0"
   }
 }

@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
+import { produce } from 'immer';
 import * as vscode from 'vscode';
 
 const EMPTY_DIFF_SCHEME = 'pie-empty-diff';
@@ -25,20 +26,19 @@ import {
   type SessionCompletionEvent,
 } from './sidebar/completion-notification';
 import { type RunAnalyticsExportPayload } from './run-analytics/query';
-import { fileChangesActions, selectActiveSessionPath, selectViewState, sessionsActions, sessionStateActions, store, transcriptActions, uiActions } from './store';
 import { SidebarViewProvider } from './sidebar/provider';
 import { SessionService } from './session-service';
 import { StatsService } from './stats-service';
-import type { WebviewToHostMessage } from '../shared/protocol';
+import type { WebviewToHostMessage, SessionSummary } from '../shared/protocol';
 import { EffectRunner } from './core/effect-runner';
-import type { SyncEffect } from './core/effects';
 import { reducer, initialArchState, type ArchState } from './core/reducer';
 import type { Event } from './core/events';
+import { selectViewState } from './core/projection';
+import { subscribeToArchState } from './core/dispatch';
 import { auditLog, bootLog } from './util/audit';
 import { buildOptimisticUserParts, buildPromptText } from './session-service/composer';
 import { deriveSessionNameFromText } from '../shared/session-name';
 import { isPendingTabPath } from '../shared/tab-behavior';
-import { getSessionByPath } from './store';
 
 export const SIDEBAR_VIEW_TYPE = 'pie.sessionsView';
 
@@ -133,6 +133,7 @@ export class PieExtension implements vscode.Disposable {
       backend,
       () => this.scheduleRender(),
       (message) => this.sidebarProvider.postImperative(message),
+      (event) => this.dispatchArchEvent(event),
       (event) => {
         this.handleSessionCompleted(event);
       },
@@ -144,7 +145,7 @@ export class PieExtension implements vscode.Disposable {
 
     this.sidebarProvider = new SidebarViewProvider(
       context,
-      () => selectViewState(store.getState()),
+      () => selectViewState(this.archState),
       (message) => {
         void this.handleWebviewMessage(message);
       },
@@ -164,17 +165,16 @@ export class PieExtension implements vscode.Disposable {
           if (level === 'error') console.error('[arch]', message, data);
         },
       },
-      sync: { execute: (effect) => this.executeSyncEffect(effect) },
+      postImperative: {
+        postImperative: (message) => this.sidebarProvider.postImperative(message as import('../shared/protocol').HostToWebviewMessage),
+      },
       dispatch: (event) => this.dispatchArchEvent(event),
     });
 
-    // Wire backend events through the arch-reducer dispatch path (Phase 5).
-    this.service.setArchDispatch((event) => this.dispatchArchEvent(event));
-
     // Drain queued sends once the backend becomes ready.
-    let wasReady = store.getState().ui.backendReady;
-    store.subscribe(() => {
-      const isReady = store.getState().ui.backendReady;
+    let wasReady = this.archState.settings.backendReady;
+    subscribeToArchState((state) => {
+      const isReady = state.settings.backendReady;
       if (isReady && !wasReady) {
         this.drainBackendReadyQueue();
       }
@@ -197,6 +197,14 @@ export class PieExtension implements vscode.Disposable {
   }
 
   /**
+   * Look up a session from the arch state by path.
+   */
+  private getSessionByPath(path: string | null | undefined): SessionSummary | null {
+    if (!path) return null;
+    return this.archState.sessions.sessions.find(s => s.path === path) ?? null;
+  }
+
+  /**
    * Phase 3: dispatch an event through the arch reducer and execute resulting effects.
    * This is the single point where the new CQRS spine integrates with the extension.
    */
@@ -211,132 +219,7 @@ export class PieExtension implements vscode.Disposable {
     for (const effect of result.effects) {
       this.effectRunner.run(effect);
     }
-  }
-
-  /**
-   * Phase 4: execute synchronous imperative effects. These bridge the new
-   * architecture to the legacy Redux store and webview imperative API while
-   * transcript state still lives outside the reducer.
-   */
-  private executeSyncEffect(effect: SyncEffect): void {
-    switch (effect.kind) {
-      case 'InsertOptimisticMessage':
-        store.dispatch(transcriptActions.appendLocalUserMessage({
-          sessionPath: effect.sessionPath,
-          id: effect.localId,
-          text: effect.text,
-          userParts: effect.userParts,
-        }));
-        // Optimistically mark the session as running so the composer immediately
-        // switches to a Stop button and the typing indicator appears, even before
-        // the backend emits its first `agent.busy` event. Cleared either by the
-        // backend's busy=false event on completion or by RemoveOptimisticMessage
-        // on send failure.
-        store.dispatch(sessionsActions.setSessionRunning({
-          sessionPath: effect.sessionPath,
-          running: true,
-        }));
-        this.flushRender();
-        break;
-      case 'RemoveOptimisticMessage':
-        store.dispatch(transcriptActions.removeMessage({
-          sessionPath: effect.sessionPath,
-          messageId: effect.localId,
-        }));
-        // Clear the optimistic running state if the send was rejected before
-        // the backend started processing.
-        store.dispatch(sessionsActions.setSessionRunning({
-          sessionPath: effect.sessionPath,
-          running: false,
-        }));
-        this.scheduleRender();
-        break;
-      case 'ClearComposerInputs':
-        store.dispatch(sessionStateActions.clearPendingComposerInputs(effect.sessionPath));
-        this.scheduleRender();
-        break;
-      case 'SetNotice':
-        store.dispatch(uiActions.setNotice(effect.message));
-        this.scheduleRender();
-        break;
-      case 'PostImperative':
-        this.sidebarProvider.postImperative(effect.imperativeMessage as import('../shared/protocol').HostToWebviewMessage);
-        break;
-      case 'SetSessionName': {
-        const current = getSessionByPath(store.getState(), effect.sessionPath);
-        if (current) {
-          store.dispatch(sessionsActions.upsertSession({
-            ...current,
-            name: effect.name,
-            isPlaceholder: effect.isPlaceholder,
-          }));
-          this.scheduleRender();
-        }
-        break;
-      }
-      case 'RestoreSessionSummary':
-        store.dispatch(sessionsActions.setSessionSummary(effect.summary));
-        this.scheduleRender();
-        break;
-      case 'AppendDelta':
-        store.dispatch(transcriptActions.appendDelta({
-          sessionPath: effect.sessionPath,
-          messageId: effect.messageId,
-          delta: effect.delta,
-        }));
-        break;
-      case 'AppendThinking':
-        store.dispatch(transcriptActions.appendThinking({
-          sessionPath: effect.sessionPath,
-          messageId: effect.messageId,
-          thinking: effect.thinking,
-        }));
-        break;
-      case 'UpsertToolCall':
-        store.dispatch(transcriptActions.upsertToolCall({
-          sessionPath: effect.sessionPath,
-          messageId: effect.messageId,
-          toolCall: effect.toolCall,
-        }));
-        break;
-      case 'UpsertMessage':
-        store.dispatch(transcriptActions.upsertMessage({
-          sessionPath: effect.sessionPath,
-          message: effect.message,
-          canonicalMessageId: effect.canonicalMessageId,
-        }));
-        break;
-      case 'EnsureAssistantMessage':
-        store.dispatch(transcriptActions.ensureAssistantMessage({
-          sessionPath: effect.sessionPath,
-          messageId: effect.canonicalMessageId,
-          isAlias: effect.isAlias,
-          modelId: effect.modelId,
-          thinkingLevel: effect.thinkingLevel,
-        }));
-        this.flushRender();
-        break;
-      case 'SetMessageStatus':
-        store.dispatch(transcriptActions.setMessageStatus({
-          sessionPath: effect.sessionPath,
-          messageId: effect.messageId,
-          status: effect.status,
-        }));
-        break;
-      case 'SetSessionRunning':
-        // Watchdog escape: clears a session's running flag without waiting for
-        // backend busy.changed. Used by the reducer after a successful interrupt
-        // so the composer doesn't stick on "Stop" if the backend never emits
-        // busy=false for the aborted stream.
-        store.dispatch(sessionsActions.setSessionRunning({
-          sessionPath: effect.sessionPath,
-          running: effect.running,
-        }));
-        break;
-      case 'ScheduleRender':
-        this.scheduleRender();
-        break;
-    }
+    this.scheduleRender();
   }
 
   register(): void {
@@ -463,7 +346,7 @@ export class PieExtension implements vscode.Disposable {
     const payload = {
       capturedAt: new Date().toISOString(),
       sidebar: this.sidebarProvider.getDebugState(),
-      viewState: selectViewState(store.getState()),
+      viewState: selectViewState(this.archState),
     };
 
     await fs.mkdir(path.dirname(dumpPath), { recursive: true });
@@ -472,7 +355,7 @@ export class PieExtension implements vscode.Disposable {
   }
 
   private scheduleRender(): void {
-    const viewState = selectViewState(store.getState());
+    const viewState = selectViewState(this.archState);
     bootLog('extension-host', 'render.schedule', {
       activeSessionPath: viewState.activeSession?.path ?? null,
       backendReady: viewState.backendReady,
@@ -482,7 +365,7 @@ export class PieExtension implements vscode.Disposable {
     });
     this.sidebarProvider.scheduleState();
     queueMicrotask(() => {
-      const state = selectViewState(store.getState());
+      const state = selectViewState(this.archState);
       this.updateStatusBar(
         state.notice ? 'Error' : state.runningSessionPaths.length > 0 ? 'Thinking' : 'Idle',
       );
@@ -495,7 +378,7 @@ export class PieExtension implements vscode.Disposable {
    * and the first streaming event of a turn so feedback is instant.
    */
   private flushRender(): void {
-    const viewState = selectViewState(store.getState());
+    const viewState = selectViewState(this.archState);
     bootLog('extension-host', 'render.flush', {
       activeSessionPath: viewState.activeSession?.path ?? null,
       backendReady: viewState.backendReady,
@@ -504,15 +387,15 @@ export class PieExtension implements vscode.Disposable {
       transcriptLoaded: viewState.transcriptLoaded,
     });
     this.sidebarProvider.postState();
-    const state = selectViewState(store.getState());
+    const state = selectViewState(this.archState);
     this.updateStatusBar(
       state.notice ? 'Error' : state.runningSessionPaths.length > 0 ? 'Thinking' : 'Idle',
     );
   }
 
   private updateStatusBar(state: 'Starting' | 'Idle' | 'Thinking' | 'Error'): void {
-    const runningCount = store.getState().sessions.runningSessionPaths.length;
-    const notice = store.getState().ui.notice;
+    const runningCount = this.archState.sessions.runningSessionPaths.length;
+    const notice = this.archState.settings.notice;
     const text =
       state === 'Thinking'
         ? runningCount > 1
@@ -529,8 +412,7 @@ export class PieExtension implements vscode.Disposable {
   }
 
   private handleSessionCompleted(_event: SessionCompletionEvent): void {
-    const state = store.getState();
-    const suppressNotifications = state.ui.prefs.suppressCompletionNotifications;
+    const suppressNotifications = this.archState.settings.prefs.suppressCompletionNotifications;
     const windowFocused = vscode.window.state.focused;
 
     if (!shouldShowCompletionNotification({
@@ -590,17 +472,17 @@ export class PieExtension implements vscode.Disposable {
       this.backendReadyQueueWatchdog = null;
       const queued = this.backendReadyQueue.splice(0);
       if (queued.length === 0) return;
-      for (const entry of queued) {
-        if (entry.localId) {
-          store.dispatch(transcriptActions.removeMessage({
-            sessionPath: entry.sessionPath,
-            messageId: entry.localId,
-          }));
+      this.archState = produce(this.archState, draft => {
+        for (const entry of queued) {
+          if (entry.localId) {
+            const list = draft.transcript.bySession[entry.sessionPath];
+            if (list) {
+              draft.transcript.bySession[entry.sessionPath] = list.filter(m => m.id !== entry.localId);
+            }
+          }
         }
-      }
-      store.dispatch(uiActions.setNotice(
-        `Backend did not become ready within ${PieExtension.BACKEND_READY_QUEUE_TIMEOUT_MS / 1000}s. ${queued.length} queued message${queued.length === 1 ? '' : 's'} dropped — please retry.`,
-      ));
+        draft.settings.notice = `Backend did not become ready within ${PieExtension.BACKEND_READY_QUEUE_TIMEOUT_MS / 1000}s. ${queued.length} queued message${queued.length === 1 ? '' : 's'} dropped — please retry.`;
+      });
       this.scheduleRender();
     }, PieExtension.BACKEND_READY_QUEUE_TIMEOUT_MS);
   }
@@ -631,9 +513,8 @@ export class PieExtension implements vscode.Disposable {
       return filePath;
     }
 
-    const state = store.getState();
-    const sessionCwd = state.sessions.sessions.find((session) => session.path === sessionPath)?.cwd;
-    const basePath = sessionCwd || state.sessions.workspaceCwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    const sessionCwd = this.archState.sessions.sessions.find((session) => session.path === sessionPath)?.cwd;
+    const basePath = sessionCwd || this.archState.sessions.workspaceCwd || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
     return basePath ? path.resolve(basePath, filePath) : filePath;
   }
 
@@ -642,7 +523,7 @@ export class PieExtension implements vscode.Disposable {
     filePath: string,
     resolvedPath: string,
   ): 'created' | 'modified' | 'deleted' {
-    const changes = store.getState().fileChanges.bySession[sessionPath] ?? [];
+    const changes = this.archState.fileChanges.bySession[sessionPath] ?? [];
     const change = changes.find((entry) => {
       const entryPath = this.resolveFileChangePath(sessionPath, entry.path);
       return entry.path === filePath || entryPath === resolvedPath;
@@ -726,12 +607,18 @@ export class PieExtension implements vscode.Disposable {
       // File is already gone – treat as success and remove the entry.
     }
 
-    store.dispatch(fileChangesActions.removeFileChange({ sessionPath, path: filePath }));
+    this.archState = produce(this.archState, draft => {
+      const changes = draft.fileChanges.bySession[sessionPath];
+      if (changes) {
+        draft.fileChanges.bySession[sessionPath] = changes.filter(c => c.path !== filePath);
+      }
+    });
     this.scheduleRender();
   }
+
   private async handleWebviewMessage(msg: WebviewToHostMessage): Promise<void> {
     if (msg.type === 'ready' || msg.type === 'refreshState' || msg.type === 'requestSnapshot') {
-      const viewState = selectViewState(store.getState());
+      const viewState = selectViewState(this.archState);
       bootLog('extension-host', `webview.${msg.type}`, {
         activeSessionPath: viewState.activeSession?.path ?? null,
         backendReady: viewState.backendReady,
@@ -747,7 +634,7 @@ export class PieExtension implements vscode.Disposable {
         return;
 
       case 'refreshState': {
-        const activeSessionPath = selectActiveSessionPath(store.getState());
+        const activeSessionPath = this.archState.sessions.activeSessionPath;
         if (activeSessionPath) {
           await this.service.hydrateModelState(activeSessionPath);
         }
@@ -764,7 +651,9 @@ export class PieExtension implements vscode.Disposable {
         const text = typeof msg.text === 'string' ? msg.text : '';
         const webviewLocalId = msg.localId;
         if (!sessionPath) {
-          store.dispatch(uiActions.setNotice('Protocol defect: send arrived without a sessionPath.'));
+          this.archState = produce(this.archState, draft => {
+            draft.settings.notice = 'Protocol defect: send arrived without a sessionPath.';
+          });
           this.scheduleRender();
           return;
         }
@@ -780,18 +669,34 @@ export class PieExtension implements vscode.Disposable {
           queue.push({ text, localId });
           this.pendingSendQueue.set(sessionPath, queue);
 
-          store.dispatch(transcriptActions.appendLocalUserMessage({
-            sessionPath,
-            id: localId,
-            text,
-          }));
+          // Insert optimistic user message through produce
+          this.archState = produce(this.archState, draft => {
+            const list = draft.transcript.bySession[sessionPath];
+            if (!draft.transcript.bySession[sessionPath]) {
+              draft.transcript.bySession[sessionPath] = [];
+            }
+            draft.transcript.bySession[sessionPath]!.push({
+              id: localId,
+              author: 'user',
+              text,
+              status: 'local',
+              userParts: undefined,
+              timestamp: Date.now(),
+            } as any);
+          });
 
           // Derive optimistic session name from the first message.
-          const session = getSessionByPath(store.getState(), sessionPath);
+          const session = this.getSessionByPath(sessionPath);
           if (session?.isPlaceholder) {
             const derived = deriveSessionNameFromText(text);
             if (!derived.isPlaceholder && derived.name !== session.name) {
-              store.dispatch(sessionsActions.upsertSession({ ...session, name: derived.name, isPlaceholder: false }));
+              this.archState = produce(this.archState, draft => {
+                const s = draft.sessions.sessions.find(x => x.path === sessionPath);
+                if (s) {
+                  s.name = derived.name;
+                  s.isPlaceholder = false;
+                }
+              });
             }
           }
 
@@ -799,7 +704,7 @@ export class PieExtension implements vscode.Disposable {
           return;
         }
         // If the backend is still starting, queue the send and show optimistic UI.
-        if (!store.getState().ui.backendReady) {
+        if (!this.archState.settings.backendReady) {
           if (!text.trim()) return;
           // Use the webview-provided localId when available so the drain can
           // reuse it and the webview's overlay de-duplicates correctly.
@@ -808,18 +713,32 @@ export class PieExtension implements vscode.Disposable {
           this.ensureBackendReadyQueueWatchdog();
 
           // Insert optimistic user message so the user sees instant feedback.
-          store.dispatch(transcriptActions.appendLocalUserMessage({
-            sessionPath,
-            id: localId,
-            text,
-          }));
+          this.archState = produce(this.archState, draft => {
+            if (!draft.transcript.bySession[sessionPath]) {
+              draft.transcript.bySession[sessionPath] = [];
+            }
+            draft.transcript.bySession[sessionPath]!.push({
+              id: localId,
+              author: 'user',
+              text,
+              status: 'local',
+              userParts: undefined,
+              timestamp: Date.now(),
+            } as any);
+          });
 
           // Derive optimistic session name.
-          const session = getSessionByPath(store.getState(), sessionPath);
+          const session = this.getSessionByPath(sessionPath);
           if (session?.isPlaceholder) {
             const derived = deriveSessionNameFromText(text);
             if (!derived.isPlaceholder && derived.name !== session.name) {
-              store.dispatch(sessionsActions.upsertSession({ ...session, name: derived.name, isPlaceholder: false }));
+              this.archState = produce(this.archState, draft => {
+                const s = draft.sessions.sessions.find(x => x.path === sessionPath);
+                if (s) {
+                  s.name = derived.name;
+                  s.isPlaceholder = false;
+                }
+              });
             }
           }
 
@@ -827,14 +746,16 @@ export class PieExtension implements vscode.Disposable {
           return;
         }
 
-        if (!store.getState().sessions.openTabPaths.includes(sessionPath)) {
-          store.dispatch(uiActions.setNotice('Cannot send: the selected session is no longer open.'));
+        if (!this.archState.sessions.openTabPaths.includes(sessionPath)) {
+          this.archState = produce(this.archState, draft => {
+            draft.settings.notice = 'Cannot send: the selected session is no longer open.';
+          });
           this.scheduleRender();
           return;
         }
 
         const inputs = [
-          ...(store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? []),
+          ...(this.archState.composer.pendingComposerInputsBySession[sessionPath] ?? []),
         ];
         if (!text.trim() && inputs.length === 0) return;
 
@@ -846,13 +767,19 @@ export class PieExtension implements vscode.Disposable {
         const localId = webviewLocalId ?? `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 
         // Optimistic session name.
-        let previousSummary = null as import('../shared/protocol').SessionSummary | null;
-        const session = getSessionByPath(store.getState(), sessionPath);
+        let previousSummary = null as SessionSummary | null;
+        const session = this.getSessionByPath(sessionPath);
         if (session?.isPlaceholder) {
           const derived = deriveSessionNameFromText(composedText);
           if (!derived.isPlaceholder && derived.name !== session.name) {
             previousSummary = session;
-            store.dispatch(sessionsActions.upsertSession({ ...session, name: derived.name, isPlaceholder: false }));
+            this.archState = produce(this.archState, draft => {
+              const s = draft.sessions.sessions.find(x => x.path === sessionPath);
+              if (s) {
+                s.name = derived.name;
+                s.isPlaceholder = false;
+              }
+            });
             this.scheduleRender();
           }
         }
@@ -871,7 +798,9 @@ export class PieExtension implements vscode.Disposable {
         const text = typeof msg.text === 'string' ? msg.text : '';
         const messageId = typeof msg.messageId === 'string' ? msg.messageId : '';
         if (!sessionPath) {
-          store.dispatch(uiActions.setNotice('Protocol defect: editMessage arrived without a sessionPath.'));
+          this.archState = produce(this.archState, draft => {
+            draft.settings.notice = 'Protocol defect: editMessage arrived without a sessionPath.';
+          });
           this.scheduleRender();
           return;
         }
@@ -879,12 +808,16 @@ export class PieExtension implements vscode.Disposable {
 
         // Pre-flight validation.
         if (isPendingTabPath(sessionPath)) {
-          store.dispatch(uiActions.setNotice('Cannot edit: the session is still opening.'));
+          this.archState = produce(this.archState, draft => {
+            draft.settings.notice = 'Cannot edit: the session is still opening.';
+          });
           this.scheduleRender();
           return;
         }
-        if (!store.getState().sessions.openTabPaths.includes(sessionPath)) {
-          store.dispatch(uiActions.setNotice('Cannot edit: the selected session is no longer open.'));
+        if (!this.archState.sessions.openTabPaths.includes(sessionPath)) {
+          this.archState = produce(this.archState, draft => {
+            draft.settings.notice = 'Cannot edit: the selected session is no longer open.';
+          });
           this.scheduleRender();
           return;
         }
@@ -895,9 +828,11 @@ export class PieExtension implements vscode.Disposable {
         this.statsService.prepareForSend(sessionPath, []);
         const localId = `local:edit:${Date.now()}:${Math.random().toString(36).slice(2)}`;
 
-        // Dispatch through CQRS spine.
+        // Clear editing state and dispatch through CQRS spine.
+        this.archState = produce(this.archState, draft => {
+          draft.transcript.editingMessageId = null;
+        });
         const corrId = crypto.randomUUID();
-        store.dispatch(uiActions.setEditingMessageId(null));
         this.dispatchArchEvent({
           kind: 'Command',
           cmd: { kind: 'Edit', corrId, sessionPath, messageId, text, localId },
@@ -908,7 +843,9 @@ export class PieExtension implements vscode.Disposable {
       case 'interrupt': {
         const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath : null;
         if (!sessionPath) {
-          store.dispatch(uiActions.setNotice('Protocol defect: interrupt arrived without a sessionPath.'));
+          this.archState = produce(this.archState, draft => {
+            draft.settings.notice = 'Protocol defect: interrupt arrived without a sessionPath.';
+          });
           this.scheduleRender();
           return;
         }
@@ -954,8 +891,10 @@ export class PieExtension implements vscode.Disposable {
         return;
 
       case 'openSession':
-        store.dispatch(uiActions.setEditingMessageId(null));
-        store.dispatch(uiActions.setShowOutcomeDialog(false));
+        this.archState = produce(this.archState, draft => {
+          draft.transcript.editingMessageId = null;
+          draft.settings.showOutcomeDialog = false;
+        });
         this.service.openSession(msg.sessionPath);
         this.sidebarProvider.reveal();
         this.sidebarProvider.postState();
@@ -970,22 +909,21 @@ export class PieExtension implements vscode.Disposable {
         // This is the central fix for B4 cross-session bleed.
         this.dispatchArchEvent({ kind: 'SessionClosed', sessionPath: msg.sessionPath });
         this.purgeHostStateForSession(msg.sessionPath);
-        {
-          const ui = store.getState().ui;
-          if (ui.editingMessageId !== null) {
-            store.dispatch(uiActions.setEditingMessageId(null));
+        this.archState = produce(this.archState, draft => {
+          if (draft.transcript.editingMessageId !== null) {
+            draft.transcript.editingMessageId = null;
           }
-          if (ui.showOutcomeDialog) {
-            store.dispatch(uiActions.setShowOutcomeDialog(false));
+          if (draft.settings.showOutcomeDialog) {
+            draft.settings.showOutcomeDialog = false;
           }
-          if (ui.pendingExtensionUIRequest) {
+          if (draft.settings.pendingExtensionUIRequest) {
             // pendingExtensionUIRequest is a singleton (payload has no
             // sessionPath today). Conservatively clear it when any tab closes
             // so it can't be answered against a new session. The architectural
             // fix is to attach sessionPath to the payload (TODO).
-            store.dispatch(uiActions.setPendingExtensionUIRequest(null));
+            draft.settings.pendingExtensionUIRequest = null;
           }
-        }
+        });
         this.sidebarProvider.postState();
         return;
 
@@ -1041,27 +979,37 @@ export class PieExtension implements vscode.Disposable {
         return;
 
       case 'startEdit':
-        store.dispatch(uiActions.setEditingMessageId(msg.messageId));
+        this.archState = produce(this.archState, draft => {
+          draft.transcript.editingMessageId = msg.messageId;
+        });
         this.scheduleRender();
         return;
 
       case 'cancelEdit':
-        store.dispatch(uiActions.setEditingMessageId(null));
+        this.archState = produce(this.archState, draft => {
+          draft.transcript.editingMessageId = null;
+        });
         this.scheduleRender();
         return;
 
       case 'dismissNotice':
-        store.dispatch(uiActions.setNotice(null));
+        this.archState = produce(this.archState, draft => {
+          draft.settings.notice = null;
+        });
         this.scheduleRender();
         return;
 
       case 'openOutcomeDialog':
-        store.dispatch(uiActions.setShowOutcomeDialog(true));
+        this.archState = produce(this.archState, draft => {
+          draft.settings.showOutcomeDialog = true;
+        });
         this.scheduleRender();
         return;
 
       case 'closeOutcomeDialog':
-        store.dispatch(uiActions.setShowOutcomeDialog(false));
+        this.archState = produce(this.archState, draft => {
+          draft.settings.showOutcomeDialog = false;
+        });
         this.scheduleRender();
         return;
 
@@ -1075,11 +1023,15 @@ export class PieExtension implements vscode.Disposable {
         // resolved against tab B if the user switched tabs before clicking.
         const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath : null;
         if (!sessionPath) {
-          store.dispatch(uiActions.setNotice('Protocol defect: extensionUiResponse arrived without a sessionPath.'));
+          this.archState = produce(this.archState, draft => {
+            draft.settings.notice = 'Protocol defect: extensionUiResponse arrived without a sessionPath.';
+          });
           this.scheduleRender();
           return;
         }
-        store.dispatch(uiActions.setPendingExtensionUIRequest(null));
+        this.archState = produce(this.archState, draft => {
+          draft.settings.pendingExtensionUIRequest = null;
+        });
         this.scheduleRender();
         await this.backend.request('extension_ui.response', {
           sessionPath,

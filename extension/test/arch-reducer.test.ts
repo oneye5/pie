@@ -3,10 +3,12 @@ import assert from 'node:assert/strict';
 
 import { reducer, initialArchState, type ArchState } from '../src/host/core/reducer';
 import type { Event } from '../src/host/core/events';
+import type { ChatMessage } from '../src/shared/protocol';
 
-test('reducer: initial state has empty pending and sessions records', () => {
-  assert.deepEqual(initialArchState.pending, {});
-  assert.deepEqual(initialArchState.sessions, {});
+test('reducer: initial state has empty pending ops and sessions records', () => {
+  assert.deepEqual(initialArchState.pending.ops, {});
+  assert.deepEqual(initialArchState.sessions.sessions, []);
+  assert.deepEqual(initialArchState.sessions.interruptInFlightBySession, {});
 });
 
 test('reducer: unhandled event returns unchanged state with no effects', () => {
@@ -31,7 +33,7 @@ test('reducer: Interrupt command sets interruptInFlight and returns InterruptRpc
 
   const result = reducer(initialArchState, event);
 
-  assert.equal(result.state.sessions['/session/a']?.interruptInFlight, true);
+  assert.equal(result.state.sessions.interruptInFlightBySession['/session/a'], true);
   assert.equal(result.effects.length, 1);
   assert.deepEqual(result.effects[0], {
     kind: 'InterruptRpc',
@@ -43,7 +45,10 @@ test('reducer: Interrupt command sets interruptInFlight and returns InterruptRpc
 test('reducer: Interrupt does not affect other sessions', () => {
   const stateWithB: ArchState = {
     ...initialArchState,
-    sessions: { '/b': { interruptInFlight: false } },
+    sessions: {
+      ...initialArchState.sessions,
+      interruptInFlightBySession: { '/b': false },
+    },
   };
 
   const event: Event = {
@@ -53,14 +58,18 @@ test('reducer: Interrupt does not affect other sessions', () => {
 
   const result = reducer(stateWithB, event);
 
-  assert.equal(result.state.sessions['/a']?.interruptInFlight, true);
-  assert.equal(result.state.sessions['/b']?.interruptInFlight, false);
+  assert.equal(result.state.sessions.interruptInFlightBySession['/a'], true);
+  assert.equal(result.state.sessions.interruptInFlightBySession['/b'], false);
 });
 
-test('reducer: InterruptResult{ok:true} clears interruptInFlight and emits SetSessionRunning watchdog', () => {
+test('reducer: InterruptResult{ok:true} clears interruptInFlight and sets running=false directly', () => {
   const state: ArchState = {
     ...initialArchState,
-    sessions: { '/a': { interruptInFlight: true } },
+    sessions: {
+      ...initialArchState.sessions,
+      runningSessionPaths: ['/a'],
+      interruptInFlightBySession: { '/a': true },
+    },
   };
 
   const event: Event = {
@@ -72,21 +81,20 @@ test('reducer: InterruptResult{ok:true} clears interruptInFlight and emits SetSe
 
   const result = reducer(state, event);
 
-  assert.equal(result.state.sessions['/a']?.interruptInFlight, false);
-  // Watchdog: when the backend acks the interrupt, the reducer forces
-  // running=false even before busy.changed arrives, to avoid a stuck UI.
-  assert.equal(result.effects.length, 1);
-  assert.equal(result.effects[0]?.kind, 'SetSessionRunning');
-  if (result.effects[0]?.kind === 'SetSessionRunning') {
-    assert.equal(result.effects[0].sessionPath, '/a');
-    assert.equal(result.effects[0].running, false);
-  }
+  assert.equal(result.state.sessions.interruptInFlightBySession['/a'], false);
+  // Watchdog: running=false set directly in state
+  assert.ok(!result.state.sessions.runningSessionPaths.includes('/a'), 'running should be cleared for /a');
+  // No SyncEffect — running state is mutated directly
+  assert.equal(result.effects.length, 0);
 });
 
 test('reducer: InterruptResult{ok:false} clears flag and produces Log effect', () => {
   const state: ArchState = {
     ...initialArchState,
-    sessions: { '/a': { interruptInFlight: true } },
+    sessions: {
+      ...initialArchState.sessions,
+      interruptInFlightBySession: { '/a': true },
+    },
   };
 
   const event: Event = {
@@ -99,7 +107,7 @@ test('reducer: InterruptResult{ok:false} clears flag and produces Log effect', (
 
   const result = reducer(state, event);
 
-  assert.equal(result.state.sessions['/a']?.interruptInFlight, false);
+  assert.equal(result.state.sessions.interruptInFlightBySession['/a'], false);
   assert.equal(result.effects.length, 1);
   assert.equal(result.effects[0]?.kind, 'Log');
   if (result.effects[0]?.kind === 'Log') {
@@ -122,7 +130,7 @@ test('reducer: non-Interrupt Command passes through unchanged', () => {
 
 // ─── Phase 4: Send ──────────────────────────────────────────────────────────
 
-test('reducer: Send command records pending, produces InsertOptimisticMessage + SendRpc', () => {
+test('reducer: Send command inserts optimistic message and produces SendRpc', () => {
   const event: Event = {
     kind: 'Command',
     cmd: {
@@ -135,68 +143,106 @@ test('reducer: Send command records pending, produces InsertOptimisticMessage + 
   const result = reducer(initialArchState, event);
 
   // Pending entry recorded.
-  assert.deepEqual(result.state.pending['c-send'], {
+  assert.deepEqual(result.state.pending.ops['c-send'], {
     kind: 'send',
     sessionPath: '/s',
     localId: 'loc-1',
     previousSummary: null,
   });
 
-  // Effects: InsertOptimisticMessage then SendRpc.
-  assert.equal(result.effects.length, 2);
-  assert.equal(result.effects[0]?.kind, 'InsertOptimisticMessage');
-  if (result.effects[0]?.kind === 'InsertOptimisticMessage') {
-    assert.equal(result.effects[0].sessionPath, '/s');
-    assert.equal(result.effects[0].localId, 'loc-1');
-    assert.equal(result.effects[0].text, 'composed');
-  }
-  assert.equal(result.effects[1]?.kind, 'SendRpc');
-  if (result.effects[1]?.kind === 'SendRpc') {
-    assert.equal(result.effects[1].text, 'raw');
-    assert.deepEqual(result.effects[1].inputs, []);
+  // Optimistic user message inserted in transcript.
+  const transcript = result.state.transcript.bySession['/s'];
+  assert.ok(transcript, 'transcript should exist for session');
+  assert.equal(transcript!.length, 1);
+  assert.equal(transcript![0]?.id, 'loc-1');
+  assert.equal(transcript![0]?.role, 'user');
+
+  // Only SendRpc effect now (no InsertOptimisticMessage).
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'SendRpc');
+  if (result.effects[0]?.kind === 'SendRpc') {
+    assert.equal(result.effects[0].text, 'raw');
+    assert.deepEqual(result.effects[0].inputs, []);
   }
 });
 
-test('reducer: SendResult{ok:true} clears pending, produces ClearComposerInputs', () => {
+test('reducer: SendResult{ok:true} clears pending and composer inputs directly', () => {
   const state: ArchState = {
     ...initialArchState,
-    pending: { 'c-ok': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null } },
+    composer: {
+      ...initialArchState.composer,
+      pendingComposerInputsBySession: { '/s': [{ id: 'in1', kind: 'filesystemPathRef', path: '/f', name: 'f', source: 'picker' }] },
+    },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c-ok': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null } },
+    },
   };
 
   const result = reducer(state, { kind: 'SendResult', corrId: 'c-ok', sessionPath: '/s', ok: true });
 
-  assert.equal(result.state.pending['c-ok'], undefined);
-  assert.equal(result.effects.length, 1);
-  assert.equal(result.effects[0]?.kind, 'ClearComposerInputs');
+  assert.equal(result.state.pending.ops['c-ok'], undefined);
+  // Composer inputs cleared directly in state.
+  assert.equal(result.state.composer.pendingComposerInputsBySession['/s'], undefined);
+  // No effects — state mutation only.
+  assert.equal(result.effects.length, 0);
 });
 
 test('reducer: SendResult{ok:false} clears pending, removes optimistic, restores name, notifies', () => {
   const prevSummary = { path: '/s', name: 'Old', cwd: '/', modifiedAt: '', messageCount: 0 };
   const state: ArchState = {
     ...initialArchState,
-    pending: { 'c-fail': { kind: 'send', sessionPath: '/s', localId: 'loc-2', previousSummary: prevSummary } },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-2', role: 'user' as const, createdAt: '', markdown: 'hello', status: 'completed' as const }] },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+    sessions: {
+      ...initialArchState.sessions,
+      sessions: [{ path: '/s', name: 'Modified', cwd: '/', modifiedAt: '', messageCount: 1 }],
+    },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c-fail': { kind: 'send', sessionPath: '/s', localId: 'loc-2', previousSummary: prevSummary } },
+    },
   };
 
   const result = reducer(state, { kind: 'SendResult', corrId: 'c-fail', sessionPath: '/s', ok: false, error: 'timeout' });
 
-  assert.equal(result.state.pending['c-fail'], undefined);
-  const kinds = result.effects.map((e) => e.kind);
-  assert.ok(kinds.includes('RemoveOptimisticMessage'));
-  assert.ok(kinds.includes('PostImperative'));
-  assert.ok(kinds.includes('SetNotice'));
-  assert.ok(kinds.includes('RestoreSessionSummary'));
+  assert.equal(result.state.pending.ops['c-fail'], undefined);
+  // Optimistic message removed from transcript.
+  assert.ok(!result.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-2'), 'optimistic message should be removed');
+  // Notice set directly in state.
+  assert.match(result.state.settings.notice!, /Failed to send/);
+  // Session summary restored.
+  const restored = result.state.sessions.sessions.find(s => s.path === '/s');
+  assert.equal(restored?.name, 'Old');
+  // Only PostImperative remains as a real side-effect effect.
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'PostImperative');
 });
 
-test('reducer: SendResult{ok:false} without previousSummary does not produce RestoreSessionSummary', () => {
+test('reducer: SendResult{ok:false} without previousSummary does not restore session name', () => {
   const state: ArchState = {
     ...initialArchState,
-    pending: { 'c-fail2': { kind: 'send', sessionPath: '/s', localId: 'loc-3', previousSummary: null } },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-3', role: 'user' as const, createdAt: '', markdown: 'hi', status: 'completed' as const }] },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c-fail2': { kind: 'send', sessionPath: '/s', localId: 'loc-3', previousSummary: null } },
+    },
   };
 
   const result = reducer(state, { kind: 'SendResult', corrId: 'c-fail2', sessionPath: '/s', ok: false, error: 'err' });
 
-  const kinds = result.effects.map((e) => e.kind);
-  assert.ok(!kinds.includes('RestoreSessionSummary'));
+  assert.equal(result.state.pending.ops['c-fail2'], undefined);
+  // No previousSummary, so sessions list is unchanged.
+  assert.deepEqual(result.state.sessions.sessions, []);
+  // But notice and message removal still happened.
+  assert.ok(result.state.settings.notice);
 });
 
 test('reducer: SendResult for unknown corrId is a no-op', () => {
@@ -207,7 +253,7 @@ test('reducer: SendResult for unknown corrId is a no-op', () => {
 
 // ─── Phase 4: Edit ──────────────────────────────────────────────────────────
 
-test('reducer: Edit command records pending, produces InsertOptimisticMessage + EditRpc', () => {
+test('reducer: Edit command records pending, inserts optimistic message, produces EditRpc', () => {
   const event: Event = {
     kind: 'Command',
     cmd: { kind: 'Edit', corrId: 'c-edit', sessionPath: '/s', messageId: 'msg-1', text: 'new text', localId: 'loc-e1' },
@@ -215,54 +261,71 @@ test('reducer: Edit command records pending, produces InsertOptimisticMessage + 
 
   const result = reducer(initialArchState, event);
 
-  assert.deepEqual(result.state.pending['c-edit'], {
+  assert.deepEqual(result.state.pending.ops['c-edit'], {
     kind: 'edit',
     sessionPath: '/s',
     localId: 'loc-e1',
     previousSummary: null,
   });
 
-  assert.equal(result.effects.length, 2);
-  assert.equal(result.effects[0]?.kind, 'InsertOptimisticMessage');
-  assert.equal(result.effects[1]?.kind, 'EditRpc');
-  if (result.effects[1]?.kind === 'EditRpc') {
-    assert.equal(result.effects[1].messageId, 'msg-1');
-    assert.equal(result.effects[1].text, 'new text');
+  // Optimistic user message in transcript.
+  const transcript = result.state.transcript.bySession['/s'];
+  assert.ok(transcript, 'transcript should exist');
+  assert.equal(transcript![0]?.id, 'loc-e1');
+  assert.equal(transcript![0]?.role, 'user');
+
+  // Only EditRpc effect now.
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'EditRpc');
+  if (result.effects[0]?.kind === 'EditRpc') {
+    assert.equal(result.effects[0].messageId, 'msg-1');
+    assert.equal(result.effects[0].text, 'new text');
   }
 });
 
 test('reducer: EditResult{ok:true} clears pending with no extra effects', () => {
   const state: ArchState = {
     ...initialArchState,
-    pending: { 'c-edit-ok': { kind: 'edit', sessionPath: '/s', localId: 'loc-e2', previousSummary: null } },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c-edit-ok': { kind: 'edit', sessionPath: '/s', localId: 'loc-e2', previousSummary: null } },
+    },
   };
 
   const result = reducer(state, { kind: 'EditResult', corrId: 'c-edit-ok', sessionPath: '/s', ok: true });
 
-  assert.equal(result.state.pending['c-edit-ok'], undefined);
+  assert.equal(result.state.pending.ops['c-edit-ok'], undefined);
   assert.deepEqual(result.effects, []);
 });
 
 test('reducer: EditResult{ok:false} clears pending, removes optimistic, sets notice', () => {
   const state: ArchState = {
     ...initialArchState,
-    pending: { 'c-edit-fail': { kind: 'edit', sessionPath: '/s', localId: 'loc-e3', previousSummary: null } },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-e3', role: 'user' as const, createdAt: '', markdown: 'edit', status: 'completed' as const }] },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c-edit-fail': { kind: 'edit', sessionPath: '/s', localId: 'loc-e3', previousSummary: null } },
+    },
   };
 
   const result = reducer(state, { kind: 'EditResult', corrId: 'c-edit-fail', sessionPath: '/s', ok: false, error: 'denied' });
 
-  assert.equal(result.state.pending['c-edit-fail'], undefined);
-  const kinds = result.effects.map((e) => e.kind);
-  assert.ok(kinds.includes('RemoveOptimisticMessage'));
-  assert.ok(kinds.includes('SetNotice'));
-  if (result.effects[1]?.kind === 'SetNotice') {
-    assert.match(result.effects[1].message!, /Failed to edit/);
-  }
+  assert.equal(result.state.pending.ops['c-edit-fail'], undefined);
+  // Notice set directly in state.
+  assert.match(result.state.settings.notice!, /Failed to edit/);
+  // Optimistic message removed from transcript.
+  assert.ok(!result.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-e3'), 'optimistic edit message should be removed');
+  // No SyncEffects — all state mutations are direct.
+  assert.deepEqual(result.effects, []);
 });
 
 // ─── Phase 5: Alias lifecycle ─────────────────────────────────────────────────
 
-test('reducer: MessageStarted with new requestId creates currentTurn and emits EnsureAssistantMessage (isAlias=false)', () => {
+test('reducer: MessageStarted with new requestId creates currentTurn and assistant message in transcript', () => {
   const event: Event = {
     kind: 'MessageStarted',
     sessionPath: '/s',
@@ -275,24 +338,35 @@ test('reducer: MessageStarted with new requestId creates currentTurn and emits E
   const result = reducer(initialArchState, event);
 
   // currentTurnBySession updated
-  assert.deepEqual(result.state.currentTurnBySession['/s'], { requestId: 'req-1', firstMessageId: 'msg-1' });
+  assert.deepEqual(result.state.pending.currentTurnBySession['/s'], { requestId: 'req-1', firstMessageId: 'msg-1' });
   // No alias created
-  assert.equal(result.state.messageIdAlias['msg-1'], undefined);
-  // EnsureAssistantMessage emitted with isAlias=false
-  const ensure = result.effects.find(e => e.kind === 'EnsureAssistantMessage');
-  assert.ok(ensure);
-  if (ensure?.kind === 'EnsureAssistantMessage') {
-    assert.equal(ensure.isAlias, false);
-    assert.equal(ensure.canonicalMessageId, 'msg-1');
-    assert.equal(ensure.modelId, 'gpt-5');
-    assert.equal(ensure.thinkingLevel, 'high');
-  }
+  assert.equal(result.state.pending.messageIdAlias['msg-1'], undefined);
+  // Assistant message created in transcript
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'msg-1');
+  assert.ok(msg, 'assistant message should exist in transcript');
+  assert.equal(msg!.role, 'assistant');
+  assert.equal(msg!.status, 'streaming');
+  assert.equal(msg!.modelId, 'gpt-5');
+  assert.equal(msg!.thinkingLevel, 'high');
+  // No SyncEffects
+  assert.equal(result.effects.length, 0);
 });
 
-test('reducer: MessageStarted with same requestId creates alias and emits EnsureAssistantMessage (isAlias=true)', () => {
+test('reducer: MessageStarted with same requestId creates alias and updates canonical message', () => {
+  // Seed an existing message in transcript
   const state: ArchState = {
     ...initialArchState,
-    currentTurnBySession: { '/s': { requestId: 'req-1', firstMessageId: 'msg-1' } },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{ id: 'msg-1', role: 'assistant' as const, createdAt: '', markdown: 'hello', status: 'completed' as const, parts: [], toolCalls: [] }],
+      },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+    pending: {
+      ...initialArchState.pending,
+      currentTurnBySession: { '/s': { requestId: 'req-1', firstMessageId: 'msg-1' } },
+    },
   };
 
   const event: Event = {
@@ -306,17 +380,15 @@ test('reducer: MessageStarted with same requestId creates alias and emits Ensure
   const result = reducer(state, event);
 
   // Alias recorded
-  assert.equal(result.state.messageIdAlias['msg-2'], 'msg-1');
+  assert.equal(result.state.pending.messageIdAlias['msg-2'], 'msg-1');
   // currentTurn unchanged
-  assert.deepEqual(result.state.currentTurnBySession['/s'], { requestId: 'req-1', firstMessageId: 'msg-1' });
-  // EnsureAssistantMessage emitted with isAlias=true
-  const ensure = result.effects.find(e => e.kind === 'EnsureAssistantMessage');
-  assert.ok(ensure);
-  if (ensure?.kind === 'EnsureAssistantMessage') {
-    assert.equal(ensure.isAlias, true);
-    assert.equal(ensure.canonicalMessageId, 'msg-1');
-    assert.equal(ensure.messageId, 'msg-2');
-  }
+  assert.deepEqual(result.state.pending.currentTurnBySession['/s'], { requestId: 'req-1', firstMessageId: 'msg-1' });
+  // Canonical message updated to streaming status with continuation separator
+  const canonical = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'msg-1');
+  assert.ok(canonical, 'canonical message should still exist');
+  assert.equal(canonical!.status, 'streaming');
+  // No SyncEffects
+  assert.equal(result.effects.length, 0);
 });
 
 test('reducer: MessageStarted without requestId does not update currentTurnBySession', () => {
@@ -328,57 +400,89 @@ test('reducer: MessageStarted without requestId does not update currentTurnBySes
 
   const result = reducer(initialArchState, event);
 
-  assert.equal(result.state.currentTurnBySession['/s'], undefined);
-  const ensure = result.effects.find(e => e.kind === 'EnsureAssistantMessage');
-  assert.ok(ensure);
-  if (ensure?.kind === 'EnsureAssistantMessage') {
-    assert.equal(ensure.isAlias, false);
-    assert.equal(ensure.canonicalMessageId, 'msg-x');
-  }
+  assert.equal(result.state.pending.currentTurnBySession['/s'], undefined);
+  // Assistant message created in transcript
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'msg-x');
+  assert.ok(msg, 'message should exist');
+  assert.equal(msg!.status, 'streaming');
 });
 
-test('reducer: MessageDelta resolves alias before emitting AppendDelta', () => {
+test('reducer: MessageDelta appends text to message directly in state', () => {
   const state: ArchState = {
     ...initialArchState,
-    messageIdAlias: { 'alias-1': 'canonical-1' },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{ id: 'm1', role: 'assistant' as const, createdAt: '', markdown: '', status: 'streaming' as const, parts: [], toolCalls: [] }],
+      },
+    },
   };
 
-  const event: Event = {
+  const result = reducer(state, {
+    kind: 'MessageDelta',
+    sessionPath: '/s',
+    messageId: 'm1',
+    delta: 'hello',
+  });
+
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'm1');
+  assert.equal(msg?.markdown, 'hello');
+  assert.equal(result.effects.length, 0);
+});
+
+test('reducer: MessageDelta resolves alias before appending', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    pending: {
+      ...initialArchState.pending,
+      messageIdAlias: { 'alias-1': 'canonical-1' },
+    },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{ id: 'canonical-1', role: 'assistant' as const, createdAt: '', markdown: '', status: 'streaming' as const, parts: [], toolCalls: [] }],
+      },
+    },
+  };
+
+  const result = reducer(state, {
     kind: 'MessageDelta',
     sessionPath: '/s',
     messageId: 'alias-1',
     delta: 'hello',
-  };
+  });
 
-  const result = reducer(state, event);
-  const delta = result.effects.find(e => e.kind === 'AppendDelta');
-  assert.ok(delta);
-  if (delta?.kind === 'AppendDelta') {
-    assert.equal(delta.messageId, 'canonical-1');
-    assert.equal(delta.delta, 'hello');
-  }
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'canonical-1');
+  assert.equal(msg?.markdown, 'hello');
+  assert.equal(result.effects.length, 0);
 });
 
 test('reducer: MessageDelta with unknown messageId passes through unchanged', () => {
-  const event: Event = {
+  const result = reducer(initialArchState, {
     kind: 'MessageDelta',
     sessionPath: '/s',
     messageId: 'direct-id',
     delta: 'world',
-  };
+  });
 
-  const result = reducer(initialArchState, event);
-  const delta = result.effects.find(e => e.kind === 'AppendDelta');
-  assert.ok(delta);
-  if (delta?.kind === 'AppendDelta') {
-    assert.equal(delta.messageId, 'direct-id');
-  }
+  // No effect, no state change (message doesn't exist)
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 0);
 });
 
-test('reducer: MessageThinking resolves alias', () => {
+test('reducer: MessageThinking resolves alias and appends reasoning', () => {
   const state: ArchState = {
     ...initialArchState,
-    messageIdAlias: { 'alias-t': 'canonical-t' },
+    pending: {
+      ...initialArchState.pending,
+      messageIdAlias: { 'alias-t': 'canonical-t' },
+    },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{ id: 'canonical-t', role: 'assistant' as const, createdAt: '', markdown: '', status: 'streaming' as const, parts: [], toolCalls: [] }],
+      },
+    },
   };
 
   const result = reducer(state, {
@@ -388,18 +492,24 @@ test('reducer: MessageThinking resolves alias', () => {
     thinking: 'plan',
   });
 
-  const effect = result.effects.find(e => e.kind === 'AppendThinking');
-  assert.ok(effect);
-  if (effect?.kind === 'AppendThinking') {
-    assert.equal(effect.messageId, 'canonical-t');
-    assert.equal(effect.thinking, 'plan');
-  }
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'canonical-t');
+  assert.equal(msg?.thinking, 'plan');
+  assert.equal(result.effects.length, 0);
 });
 
-test('reducer: ToolCall resolves alias', () => {
+test('reducer: ToolCall resolves alias and upserts tool call directly', () => {
   const state: ArchState = {
     ...initialArchState,
-    messageIdAlias: { 'alias-tc': 'canonical-tc' },
+    pending: {
+      ...initialArchState.pending,
+      messageIdAlias: { 'alias-tc': 'canonical-tc' },
+    },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{ id: 'canonical-tc', role: 'assistant' as const, createdAt: '', markdown: '', status: 'streaming' as const, parts: [], toolCalls: [] }],
+      },
+    },
   };
 
   const toolCall = { id: 'tool-1', name: 'bash', input: { command: 'ls' }, status: 'running' as const };
@@ -410,65 +520,79 @@ test('reducer: ToolCall resolves alias', () => {
     toolCall,
   });
 
-  const effect = result.effects.find(e => e.kind === 'UpsertToolCall');
-  assert.ok(effect);
-  if (effect?.kind === 'UpsertToolCall') {
-    assert.equal(effect.messageId, 'canonical-tc');
-    assert.deepEqual(effect.toolCall, toolCall);
-  }
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'canonical-tc');
+  assert.ok(msg, 'message should exist');
+  assert.equal(msg!.toolCalls?.length, 1);
+  assert.equal(msg!.toolCalls![0]?.id, 'tool-1');
+  assert.equal(result.effects.length, 0);
 });
 
-test('reducer: MessageFinished resolves alias and sets canonicalMessageId on UpsertMessage', () => {
+test('reducer: MessageFinished resolves alias and merges into canonical message', () => {
   const state: ArchState = {
     ...initialArchState,
-    messageIdAlias: { 'alias-fin': 'canonical-fin' },
+    pending: {
+      ...initialArchState.pending,
+      messageIdAlias: { 'alias-fin': 'canonical-fin' },
+    },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{ id: 'canonical-fin', role: 'assistant' as const, createdAt: '', markdown: 'streaming', status: 'streaming' as const, parts: [], toolCalls: [] }],
+      },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
   };
 
-  const message = {
-    id: 'alias-fin', role: 'assistant' as const, createdAt: '', markdown: 'done', status: 'completed' as const,
-  } as any;
+  const message: ChatMessage = {
+    id: 'alias-fin', role: 'assistant', createdAt: '', markdown: 'done', status: 'completed',
+  };
 
   const result = reducer(state, { kind: 'MessageFinished', sessionPath: '/s', message });
-  const effect = result.effects.find(e => e.kind === 'UpsertMessage');
-  assert.ok(effect);
-  if (effect?.kind === 'UpsertMessage') {
-    assert.equal(effect.canonicalMessageId, 'canonical-fin');
-    assert.equal(effect.message.id, 'alias-fin');
-  }
+  // Since it's an alias, the message is merged into the canonical message
+  const canonical = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'canonical-fin');
+  assert.ok(canonical, 'canonical message should still exist');
+  assert.equal(canonical!.status, 'completed');
+  assert.equal(result.effects.length, 0);
 });
 
-test('reducer: MessageFinished without alias does not set canonicalMessageId', () => {
-  const message = {
-    id: 'direct-id', role: 'assistant' as const, createdAt: '', markdown: 'done', status: 'completed' as const,
-  } as any;
+test('reducer: MessageFinished without alias upserts message directly', () => {
+  const message: ChatMessage = {
+    id: 'direct-id', role: 'assistant', createdAt: '', markdown: 'done', status: 'completed',
+  };
 
   const result = reducer(initialArchState, { kind: 'MessageFinished', sessionPath: '/s', message });
-  const effect = result.effects.find(e => e.kind === 'UpsertMessage');
-  assert.ok(effect);
-  if (effect?.kind === 'UpsertMessage') {
-    assert.equal(effect.canonicalMessageId, undefined);
-  }
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'direct-id');
+  assert.ok(msg, 'message should exist in transcript');
+  assert.equal(msg!.status, 'completed');
+  assert.equal(result.effects.length, 0);
 });
 
-test('reducer: MessageAborted resolves alias before setting status', () => {
+test('reducer: MessageAborted resolves alias and sets status directly in state', () => {
   const state: ArchState = {
     ...initialArchState,
-    messageIdAlias: { 'alias-abort': 'canonical-abort' },
+    pending: {
+      ...initialArchState.pending,
+      messageIdAlias: { 'alias-abort': 'canonical-abort' },
+    },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{ id: 'canonical-abort', role: 'assistant' as const, createdAt: '', markdown: 'text', status: 'streaming' as const, parts: [], toolCalls: [] }],
+      },
+    },
   };
 
   const result = reducer(state, { kind: 'MessageAborted', sessionPath: '/s', messageId: 'alias-abort' });
-  const effect = result.effects.find(e => e.kind === 'SetMessageStatus');
-  assert.ok(effect);
-  if (effect?.kind === 'SetMessageStatus') {
-    assert.equal(effect.messageId, 'canonical-abort');
-    assert.equal(effect.status, 'interrupted');
-  }
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'canonical-abort');
+  assert.ok(msg, 'canonical message should exist');
+  assert.equal(msg!.status, 'interrupted');
+  assert.equal(result.effects.length, 0);
 });
 
-test('reducer: MessageAborted without messageId is a render-only no-op', () => {
+test('reducer: MessageAborted without messageId is a no-op', () => {
   const result = reducer(initialArchState, { kind: 'MessageAborted', sessionPath: '/s', messageId: undefined });
-  assert.ok(!result.effects.find(e => e.kind === 'SetMessageStatus'));
-  assert.ok(result.effects.find(e => e.kind === 'ScheduleRender'));
+  assert.deepEqual(result.state, initialArchState);
+  assert.deepEqual(result.effects, []);
 });
 
 test('reducer: full alias lifecycle — multi-turn accumulation', () => {
@@ -477,26 +601,35 @@ test('reducer: full alias lifecycle — multi-turn accumulation', () => {
     kind: 'MessageStarted', sessionPath: '/s', messageId: 'req1:1', requestId: 'req1', modelId: 'gpt-5',
   });
 
-  // Simulate delta on first message
+  // Verify assistant message created
+  let msg = state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'req1:1');
+  assert.ok(msg, 'first assistant message should exist');
+  assert.equal(msg!.status, 'streaming');
+
+  // Delta on first message appends text
   let r = reducer(state, { kind: 'MessageDelta', sessionPath: '/s', messageId: 'req1:1', delta: 'hello' });
-  const delta1 = r.effects.find(e => e.kind === 'AppendDelta');
-  assert.ok(delta1?.kind === 'AppendDelta' && delta1.messageId === 'req1:1');
+  state = r.state;
+  msg = state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'req1:1');
+  assert.equal(msg?.markdown, 'hello');
 
   // Turn 2: same requestId → alias created
   r = reducer(state, {
     kind: 'MessageStarted', sessionPath: '/s', messageId: 'req1:2', requestId: 'req1',
   });
   state = r.state;
-  assert.equal(state.messageIdAlias['req1:2'], 'req1:1');
+  assert.equal(state.pending.messageIdAlias['req1:2'], 'req1:1');
 
-  // Delta on aliased ID resolves to canonical
+  // Delta on aliased ID resolves to canonical and appends
   r = reducer(state, { kind: 'MessageDelta', sessionPath: '/s', messageId: 'req1:2', delta: 'world' });
-  const delta2 = r.effects.find(e => e.kind === 'AppendDelta');
-  assert.ok(delta2?.kind === 'AppendDelta' && delta2.messageId === 'req1:1');
+  state = r.state;
+  msg = state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'req1:1');
+  assert.ok(msg?.markdown?.includes('world'), 'delta should append to canonical message');
 
-  // Finished on aliased ID produces canonicalMessageId
-  const finMsg = { id: 'req1:2', role: 'assistant' as const, createdAt: '', markdown: 'world', status: 'completed' as const } as any;
+  // Finished on aliased ID merges into canonical
+  const finMsg: ChatMessage = { id: 'req1:2', role: 'assistant', createdAt: '', markdown: 'world', status: 'completed' };
   r = reducer(state, { kind: 'MessageFinished', sessionPath: '/s', message: finMsg });
-  const upsert = r.effects.find(e => e.kind === 'UpsertMessage');
-  assert.ok(upsert?.kind === 'UpsertMessage' && upsert.canonicalMessageId === 'req1:1');
+  state = r.state;
+  msg = state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'req1:1');
+  assert.ok(msg, 'canonical message should persist');
+  assert.equal(msg!.status, 'completed');
 });

@@ -32,10 +32,10 @@ function stripProviderPrefix(name: string): string {
 /**
  * Order models for the picker:
  *   1. Eligible / unprofiled first, then ineligible (subagent-disabled).
- *   2. Within each group, sort by normalized cost ascending (cheapest first).
+ *   2. Within each group, sort by normalized cost descending (most expensive first).
  *   3. Tiebreak by aggregate subagent rating descending, then display name, then id.
  *
- * Unprofiled models (no normalizedCost) sort to the top of the eligible group
+ * Unprofiled models (no normalizedCost) sort to the bottom of the eligible group
  * with cost=0 fallback since their pricing is unknown/typically free.
  * Models without a subagent profile also fall back to cost=0.
  *
@@ -60,7 +60,7 @@ export function orderModelsForPicker(models: ModelInfo[]): ModelPickerEntry[] {
 
   decorated.sort((a, b) => {
     if (a.ineligible !== b.ineligible) return a.ineligible ? 1 : -1;
-    if (a.cost !== b.cost) return a.cost - b.cost;
+    if (a.cost !== b.cost) return b.cost - a.cost;
     if (a.aggregate !== b.aggregate) return b.aggregate - a.aggregate;
     const byName = a.model.name.localeCompare(b.model.name);
     if (byName !== 0) return byName;

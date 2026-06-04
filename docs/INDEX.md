@@ -10,7 +10,7 @@ This folder mixes design contracts, implementation plans (some completed, some o
 
 ## Open plans (work outstanding)
 
-- None. All major architecture phases are implemented.
+- **[CQRS Migration Completion](ARCHITECTURE.md §10)** — Complete the migration from dual-path (CQRS reducer + Redux store) to pure CQRS. The plan, design decisions, and implementation order are documented in §10 of ARCHITECTURE.md. This supersedes the original phased migration plan (archived in git history, commit `d581d83`).
 
 ## Archived plans (removed — see git history)
 

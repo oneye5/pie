@@ -37,7 +37,8 @@ import type {
   ToolStartedPayload,
 } from '../../shared/protocol';
 import { dispatchSessionBackendEvent } from './event-dispatch';
-import type { DispatchArchEvent, OnSessionCompleted, OnSessionPathResolved, ScheduleRender } from './types';
+import type { OnSessionCompleted, OnSessionPathResolved, ScheduleRender } from './types';
+import type { BackendEvent } from '../core/events';
 import { SessionServiceState } from './state';
 
 interface SessionServiceEventsOptions {
@@ -47,6 +48,7 @@ interface SessionServiceEventsOptions {
   onSessionPathResolved?: OnSessionPathResolved;
   runObserver: RunObserver;
   state: SessionServiceState;
+  dispatchArch: (event: BackendEvent) => void;
 }
 
 export class SessionServiceEvents {
@@ -58,7 +60,7 @@ export class SessionServiceEvents {
   private readonly state: SessionServiceState;
   private eventDisposable?: vscode.Disposable;
   private exitDisposable?: vscode.Disposable;
-  private dispatchArch?: DispatchArchEvent;
+  private readonly dispatchArch: (event: BackendEvent) => void;
 
   constructor(options: SessionServiceEventsOptions) {
     this.context = options.context;
@@ -66,11 +68,8 @@ export class SessionServiceEvents {
     this.onSessionCompleted = options.onSessionCompleted;
     this.onSessionPathResolved = options.onSessionPathResolved;
     this.runObserver = options.runObserver;
+    this.dispatchArch = options.dispatchArch;
     this.state = options.state;
-  }
-
-  setArchDispatch(dispatch: DispatchArchEvent): void {
-    this.dispatchArch = dispatch;
   }
 
   attach(backend: BackendClient): void {
@@ -258,27 +257,14 @@ export class SessionServiceEvents {
       return;
     }
 
-    if (this.dispatchArch) {
-      this.dispatchArch({
-        kind: 'MessageStarted',
-        sessionPath,
-        messageId: payload.messageId,
-        requestId: payload.requestId,
-        modelId: payload.modelId,
-        thinkingLevel: payload.thinkingLevel,
-      });
-    } else {
-      store.dispatch(
-        transcriptActions.ensureAssistantMessage({
-          sessionPath,
-          messageId: payload.messageId,
-          requestId: payload.requestId,
-          modelId: payload.modelId,
-          thinkingLevel: payload.thinkingLevel,
-        }),
-      );
-      this.scheduleRender();
-    }
+    this.dispatchArch({
+      kind: 'MessageStarted',
+      sessionPath,
+      messageId: payload.messageId,
+      requestId: payload.requestId,
+      modelId: payload.modelId,
+      thinkingLevel: payload.thinkingLevel,
+    });
 
     this.state.bindRequestSessionPath(payload.requestId, sessionPath);
     this.runObserver.onAssistantTurnStarted(sessionPath, payload.messageId);
@@ -303,23 +289,12 @@ export class SessionServiceEvents {
       return;
     }
 
-    if (this.dispatchArch) {
-      this.dispatchArch({
-        kind: 'MessageDelta',
-        sessionPath,
-        messageId: payload.messageId,
-        delta: payload.delta,
-      });
-    } else {
-      store.dispatch(
-        transcriptActions.appendDelta({
-          sessionPath,
-          messageId: payload.messageId,
-          delta: payload.delta,
-        }),
-      );
-      this.scheduleRender();
-    }
+    this.dispatchArch({
+      kind: 'MessageDelta',
+      sessionPath,
+      messageId: payload.messageId,
+      delta: payload.delta,
+    });
   }
 
   private onMessageThinking(payload: MessageThinkingPayload): void {
@@ -328,23 +303,12 @@ export class SessionServiceEvents {
       return;
     }
 
-    if (this.dispatchArch) {
-      this.dispatchArch({
-        kind: 'MessageThinking',
-        sessionPath,
-        messageId: payload.messageId,
-        thinking: payload.thinking,
-      });
-    } else {
-      store.dispatch(
-        transcriptActions.appendThinking({
-          sessionPath,
-          messageId: payload.messageId,
-          thinking: payload.thinking,
-        }),
-      );
-      this.scheduleRender();
-    }
+    this.dispatchArch({
+      kind: 'MessageThinking',
+      sessionPath,
+      messageId: payload.messageId,
+      thinking: payload.thinking,
+    });
   }
 
   private onToolStarted(payload: ToolStartedPayload): void {
@@ -361,19 +325,12 @@ export class SessionServiceEvents {
       startedAt: payload.startedAt,
     };
 
-    if (this.dispatchArch) {
-      this.dispatchArch({
-        kind: 'ToolCall',
-        sessionPath,
-        messageId: payload.messageId,
-        toolCall,
-      });
-    } else {
-      store.dispatch(
-        transcriptActions.upsertToolCall({ sessionPath, messageId: payload.messageId, toolCall }),
-      );
-      this.scheduleRender();
-    }
+    this.dispatchArch({
+      kind: 'ToolCall',
+      sessionPath,
+      messageId: payload.messageId,
+      toolCall,
+    });
     this.runObserver.onToolStarted(sessionPath, toolCall);
 
     // Track file changes from file-modifying tools
@@ -418,19 +375,12 @@ export class SessionServiceEvents {
       durationMs: payload.durationMs,
     };
 
-    if (this.dispatchArch) {
-      this.dispatchArch({
-        kind: 'ToolCall',
-        sessionPath,
-        messageId: payload.messageId,
-        toolCall,
-      });
-    } else {
-      store.dispatch(
-        transcriptActions.upsertToolCall({ sessionPath, messageId: payload.messageId, toolCall }),
-      );
-      this.scheduleRender();
-    }
+    this.dispatchArch({
+      kind: 'ToolCall',
+      sessionPath,
+      messageId: payload.messageId,
+      toolCall,
+    });
     this.runObserver.onToolFinished(sessionPath, toolCall);
 
     this.state.touchSessionTranscript(sessionPath);
@@ -458,19 +408,12 @@ export class SessionServiceEvents {
       startedAt: existing?.startedAt,
     };
 
-    if (this.dispatchArch) {
-      this.dispatchArch({
-        kind: 'ToolCall',
-        sessionPath,
-        messageId: payload.messageId,
-        toolCall,
-      });
-    } else {
-      store.dispatch(
-        transcriptActions.upsertToolCall({ sessionPath, messageId: payload.messageId, toolCall }),
-      );
-      this.scheduleRender();
-    }
+    this.dispatchArch({
+      kind: 'ToolCall',
+      sessionPath,
+      messageId: payload.messageId,
+      toolCall,
+    });
 
     this.state.touchSessionTranscript(sessionPath);
   }
@@ -490,18 +433,11 @@ export class SessionServiceEvents {
       }
     }
 
-    if (this.dispatchArch) {
-      this.dispatchArch({
-        kind: 'MessageFinished',
-        sessionPath,
-        message,
-      });
-    } else {
-      store.dispatch(
-        transcriptActions.upsertMessage({ sessionPath, message }),
-      );
-      this.scheduleRender();
-    }
+    this.dispatchArch({
+      kind: 'MessageFinished',
+      sessionPath,
+      message,
+    });
     this.runObserver.onAssistantTurnEnded(
       sessionPath,
       message.id,
@@ -534,22 +470,11 @@ export class SessionServiceEvents {
       return;
     }
 
-    if (this.dispatchArch) {
-      this.dispatchArch({
-        kind: 'MessageAborted',
-        sessionPath,
-        messageId: payload.messageId,
-      });
-    } else if (payload.messageId) {
-      store.dispatch(
-        transcriptActions.setMessageStatus({
-          sessionPath,
-          messageId: payload.messageId,
-          status: 'interrupted',
-        }),
-      );
-      this.scheduleRender();
-    }
+    this.dispatchArch({
+      kind: 'MessageAborted',
+      sessionPath,
+      messageId: payload.messageId,
+    });
 
     this.runObserver.onInterrupted(sessionPath);
     this.state.touchSessionTranscript(sessionPath);

@@ -15,7 +15,7 @@ function model(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
   };
 }
 
-test('orderModelsForPicker sorts by normalized cost ascending and pushes ineligible models to the bottom', () => {
+test('orderModelsForPicker sorts by normalized cost descending and pushes ineligible models to the bottom', () => {
   const models: ModelInfo[] = [
     model('cheap-eligible', { subagent: { eligible: true, aggregate: 8, normalizedCost: 2 } }),
     model('ineligible-top', { subagent: { eligible: false, aggregate: 20, disabledReason: 'incompatible', normalizedCost: 0.5 } }),
@@ -25,10 +25,10 @@ test('orderModelsForPicker sorts by normalized cost ascending and pushes ineligi
     model('mid-eligible', { subagent: { eligible: true, aggregate: 14, normalizedCost: 4 } }),
   ];
 
-  // Eligible: cheapest first (cost 0 for unrated, then 2, 4, 8)
-  // Ineligible: cheapest first (0.5, then 3)
+  // Eligible: most expensive first (cost 8, 4, 2, then 0 for unrated)
+  // Ineligible: most expensive first (3, then 0.5)
   const ordered = orderModelsForPicker(models).map((e) => e.model.id);
-  assert.deepEqual(ordered, ['unrated', 'cheap-eligible', 'mid-eligible', 'pricey-eligible', 'ineligible-top', 'ineligible-mid']);
+  assert.deepEqual(ordered, ['pricey-eligible', 'mid-eligible', 'cheap-eligible', 'unrated', 'ineligible-mid', 'ineligible-top']);
 });
 
 test('orderModelsForPicker decorates ineligible options with a warning prefix and reason in the tooltip', () => {
@@ -81,9 +81,9 @@ test('orderModelsForPicker includes pricing and image support in entries', () =>
     }),
   ]);
 
-  // Free (cost 0) sorts before priced (cost 5)
-  assert.equal(ordered[0].model.id, 'free');
-  assert.equal(ordered[1].model.id, 'priced');
+  // Priced (cost 5) sorts before free (cost 0) with descending cost order
+  assert.equal(ordered[0].model.id, 'priced');
+  assert.equal(ordered[1].model.id, 'free');
 
   const priced = ordered.find((e) => e.model.id === 'priced');
   const free = ordered.find((e) => e.model.id === 'free');

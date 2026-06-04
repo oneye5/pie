@@ -16,13 +16,8 @@ import { SessionMessageActions } from './message-actions';
 import { SessionServiceState } from './state';
 import { startSessionBackend } from './startup';
 import { SessionTabActions } from './tab-actions';
-import type {
-  DispatchArchEvent,
-  OnSessionCompleted,
-  OnSessionPathResolved,
-  PostImperative,
-  ScheduleRender,
-} from './types';
+import type { OnSessionCompleted, OnSessionPathResolved, PostImperative, ScheduleRender } from './types';
+import type { BackendEvent } from '../core/events';
 
 const PREFS_STORAGE_KEY = 'chatPrefs';
 
@@ -42,6 +37,7 @@ export class SessionService implements vscode.Disposable {
     private readonly backend: BackendClient,
     private readonly scheduleRender: ScheduleRender,
     postImperative: PostImperative,
+    dispatchArch: (event: BackendEvent) => void,
     onSessionCompleted?: OnSessionCompleted,
     runObserver: RunObserver = NOOP_RUN_OBSERVER,
     onSessionPathResolved?: OnSessionPathResolved,
@@ -54,6 +50,7 @@ export class SessionService implements vscode.Disposable {
       onSessionPathResolved,
       runObserver,
       state: this.state,
+      dispatchArch,
     });
     this.tabs = new SessionTabActions({
       context,
@@ -93,11 +90,6 @@ export class SessionService implements vscode.Disposable {
       enqueueLifecycle: (task) => this.state.enqueueLifecycle(task),
       enqueueSessionOperation: (sessionPath, task) => this.state.enqueueSessionOperation(sessionPath, task),
     };
-  }
-
-  /** Wire the arch-reducer dispatch path for backend events (Phase 5). */
-  setArchDispatch(dispatch: DispatchArchEvent): void {
-    this.events.setArchDispatch(dispatch);
   }
 
   /** Expose completion-notification suppression for interrupt (Phase 3). */

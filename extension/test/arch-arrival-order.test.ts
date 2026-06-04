@@ -56,30 +56,40 @@ function editCommand(corrId: string, sessionPath: string): Event {
 test('arrival-order: send → success produces pending then clears it', () => {
   // 1. Dispatch Send command.
   const r1 = reducer(initialArchState, sendCommand('c1', '/s'));
-  assert.ok(r1.state.pending['c1'], 'pending should exist after Send');
-  assert.equal(r1.effects.length, 2);
-  assert.equal(r1.effects[0]?.kind, 'InsertOptimisticMessage');
-  assert.equal(r1.effects[1]?.kind, 'SendRpc');
+  assert.ok(r1.state.pending.ops['c1'], 'pending should exist after Send');
+  // Now only SendRpc effect — optimistic message is in transcript state directly
+  assert.equal(r1.effects.length, 1);
+  assert.equal(r1.effects[0]?.kind, 'SendRpc');
+
+  // Optimistic message in transcript.
+  const transcript = r1.state.transcript.bySession['/s'];
+  assert.ok(transcript, 'transcript should exist for session');
+  assert.equal(transcript!.length, 1);
+  assert.equal(transcript![0]?.role, 'user');
+  assert.equal(transcript![0]?.id, 'local:c1');
 
   // 2. Dispatch SendResult{ok:true}.
   const r2 = reducer(r1.state, { kind: 'SendResult', corrId: 'c1', sessionPath: '/s', ok: true });
-  assert.equal(r2.state.pending['c1'], undefined, 'pending should be cleared after success');
-  assert.equal(r2.effects.length, 1);
-  assert.equal(r2.effects[0]?.kind, 'ClearComposerInputs');
+  assert.equal(r2.state.pending.ops['c1'], undefined, 'pending should be cleared after success');
+  // Composer inputs cleared directly in state — no effect
+  assert.equal(r2.effects.length, 0);
 });
 
 // ─── send-then-failure (full round-trip sequence) ───────────────────────────
 
 test('arrival-order: send → failure rolls back pending and notifies', () => {
   const r1 = reducer(initialArchState, sendCommand('c2', '/s'));
-  assert.ok(r1.state.pending['c2']);
+  assert.ok(r1.state.pending.ops['c2']);
 
   const r2 = reducer(r1.state, { kind: 'SendResult', corrId: 'c2', sessionPath: '/s', ok: false, error: 'network' });
-  assert.equal(r2.state.pending['c2'], undefined, 'pending should be cleared on failure');
-  const kinds = r2.effects.map((e) => e.kind);
-  assert.ok(kinds.includes('RemoveOptimisticMessage'));
-  assert.ok(kinds.includes('PostImperative'));
-  assert.ok(kinds.includes('SetNotice'));
+  assert.equal(r2.state.pending.ops['c2'], undefined, 'pending should be cleared on failure');
+  // Optimistic message removed from transcript directly
+  assert.ok(!r2.state.transcript.bySession['/s']?.some((m: import('../src/shared/protocol').ChatMessage) => m.id === 'local:c2'), 'optimistic message should be removed');
+  // Notice set directly in state
+  assert.ok(r2.state.settings.notice);
+  // Only PostImperative is a remaining real effect
+  assert.equal(r2.effects.length, 1);
+  assert.equal(r2.effects[0]?.kind, 'PostImperative');
 });
 
 // ─── send-then-delta-before-ack ─────────────────────────────────────────────
@@ -87,11 +97,9 @@ test('arrival-order: send → failure rolls back pending and notifies', () => {
 test('arrival-order: send → unhandled event (simulated delta) → success — pending preserved through interleaving', () => {
   // 1. Dispatch Send command.
   const r1 = reducer(initialArchState, sendCommand('c3', '/s'));
-  assert.ok(r1.state.pending['c3']);
+  assert.ok(r1.state.pending.ops['c3']);
 
-  // 2. An unrecognized event arrives (simulates a streaming delta from the
-  //    backend arriving before the SendRpc ack). Since the reducer doesn't
-  //    handle it yet (Phase 5), it must return state unchanged.
+  // 2. An unrelated InterruptResult arrives (simulates interleaved event).
   const deltaEvent: Event = {
     kind: 'InterruptResult',
     corrId: 'unrelated-corr',
@@ -100,14 +108,15 @@ test('arrival-order: send → unhandled event (simulated delta) → success — 
   };
   const r2 = reducer(r1.state, deltaEvent);
   // Pending for 'c3' must survive — the interleaved event must NOT corrupt it.
-  assert.ok(r2.state.pending['c3'], 'pending must survive unrelated event');
-  assert.equal(r2.state.pending['c3']?.kind, 'send');
-  assert.equal(r2.state.pending['c3']?.localId, 'local:c3');
+  assert.ok(r2.state.pending.ops['c3'], 'pending must survive unrelated event');
+  assert.equal(r2.state.pending.ops['c3']?.kind, 'send');
+  assert.equal(r2.state.pending.ops['c3']?.localId, 'local:c3');
 
   // 3. Now the actual SendResult arrives — still works correctly.
   const r3 = reducer(r2.state, { kind: 'SendResult', corrId: 'c3', sessionPath: '/s', ok: true });
-  assert.equal(r3.state.pending['c3'], undefined, 'pending cleared after ack');
-  assert.equal(r3.effects[0]?.kind, 'ClearComposerInputs');
+  assert.equal(r3.state.pending.ops['c3'], undefined, 'pending cleared after ack');
+  // No effects (state mutation only)
+  assert.equal(r3.effects.length, 0);
 });
 
 test('arrival-order: send → multiple interleaved events → success — pending still intact', () => {
@@ -127,12 +136,12 @@ test('arrival-order: send → multiple interleaved events → success — pendin
   }
 
   // Pending still intact after 5 interleaved events.
-  assert.ok(state.pending['c4'], 'pending survives multiple interleavings');
-  assert.equal(state.pending['c4']?.kind, 'send');
+  assert.ok(state.pending.ops['c4'], 'pending survives multiple interleavings');
+  assert.equal(state.pending.ops['c4']?.kind, 'send');
 
   // SendResult still resolves correctly.
   const final = reducer(state, { kind: 'SendResult', corrId: 'c4', sessionPath: '/s', ok: true });
-  assert.equal(final.state.pending['c4'], undefined);
+  assert.equal(final.state.pending.ops['c4'], undefined);
 });
 
 // ─── send-then-delta-after-ack ──────────────────────────────────────────────
@@ -141,7 +150,7 @@ test('arrival-order: send → success → unhandled event — clean state post-a
   // Send + ack.
   const r1 = reducer(initialArchState, sendCommand('c5', '/s'));
   const r2 = reducer(r1.state, { kind: 'SendResult', corrId: 'c5', sessionPath: '/s', ok: true });
-  assert.equal(r2.state.pending['c5'], undefined);
+  assert.equal(r2.state.pending.ops['c5'], undefined);
 
   // Subsequent event has no pending to corrupt.
   const after: Event = {
@@ -152,7 +161,7 @@ test('arrival-order: send → success → unhandled event — clean state post-a
   };
   const r3 = reducer(r2.state, after);
   // State remains clean — no orphan pending entries.
-  assert.deepEqual(r3.state.pending, {});
+  assert.deepEqual(r3.state.pending.ops, {});
 });
 
 // ─── edit-truncate-then-stream ──────────────────────────────────────────────
@@ -160,15 +169,15 @@ test('arrival-order: send → success → unhandled event — clean state post-a
 test('arrival-order: edit → success → unhandled event — edit pending cleared, no corruption', () => {
   // 1. Dispatch Edit command.
   const r1 = reducer(initialArchState, editCommand('c6', '/s'));
-  assert.ok(r1.state.pending['c6']);
-  assert.equal(r1.state.pending['c6']?.kind, 'edit');
-  assert.equal(r1.effects.length, 2);
-  assert.equal(r1.effects[0]?.kind, 'InsertOptimisticMessage');
-  assert.equal(r1.effects[1]?.kind, 'EditRpc');
+  assert.ok(r1.state.pending.ops['c6']);
+  assert.equal(r1.state.pending.ops['c6']?.kind, 'edit');
+  // Only EditRpc effect now
+  assert.equal(r1.effects.length, 1);
+  assert.equal(r1.effects[0]?.kind, 'EditRpc');
 
-  // 2. EditResult{ok:true} arrives (this represents truncate+send succeeding).
+  // 2. EditResult{ok:true} arrives.
   const r2 = reducer(r1.state, { kind: 'EditResult', corrId: 'c6', sessionPath: '/s', ok: true });
-  assert.equal(r2.state.pending['c6'], undefined, 'edit pending cleared');
+  assert.equal(r2.state.pending.ops['c6'], undefined, 'edit pending cleared');
   assert.deepEqual(r2.effects, []);
 
   // 3. Streaming events arrive after edit ack — state stays clean.
@@ -179,12 +188,12 @@ test('arrival-order: edit → success → unhandled event — edit pending clear
     ok: true,
   };
   const r3 = reducer(r2.state, stream);
-  assert.deepEqual(r3.state.pending, {});
+  assert.deepEqual(r3.state.pending.ops, {});
 });
 
 test('arrival-order: edit → interleaved event before ack → success — pending preserved', () => {
   const r1 = reducer(initialArchState, editCommand('c7', '/s'));
-  assert.ok(r1.state.pending['c7']);
+  assert.ok(r1.state.pending.ops['c7']);
 
   // Interleaved event while edit RPC is in-flight.
   const noise: Event = {
@@ -195,11 +204,11 @@ test('arrival-order: edit → interleaved event before ack → success — pendi
   };
   const r2 = reducer(r1.state, noise);
   // SendResult for unknown corrId is a no-op, state unchanged.
-  assert.ok(r2.state.pending['c7'], 'edit pending survives unrelated SendResult');
+  assert.ok(r2.state.pending.ops['c7'], 'edit pending survives unrelated SendResult');
 
   // EditResult arrives correctly.
   const r3 = reducer(r2.state, { kind: 'EditResult', corrId: 'c7', sessionPath: '/s', ok: true });
-  assert.equal(r3.state.pending['c7'], undefined);
+  assert.equal(r3.state.pending.ops['c7'], undefined);
 });
 
 // ─── Concurrent sends on different sessions ─────────────────────────────────
@@ -209,16 +218,16 @@ test('arrival-order: two concurrent sends — results resolve independently', ()
   const r1 = reducer(initialArchState, sendCommand('ca', '/session-a'));
   const r2 = reducer(r1.state, sendCommand('cb', '/session-b'));
 
-  assert.ok(r2.state.pending['ca']);
-  assert.ok(r2.state.pending['cb']);
+  assert.ok(r2.state.pending.ops['ca']);
+  assert.ok(r2.state.pending.ops['cb']);
 
   // 'cb' ack arrives first (out-of-order w.r.t. dispatch).
   const r3 = reducer(r2.state, { kind: 'SendResult', corrId: 'cb', sessionPath: '/session-b', ok: true });
-  assert.equal(r3.state.pending['cb'], undefined);
-  assert.ok(r3.state.pending['ca'], 'ca still pending');
+  assert.equal(r3.state.pending.ops['cb'], undefined);
+  assert.ok(r3.state.pending.ops['ca'], 'ca still pending');
 
   // 'ca' ack arrives second.
   const r4 = reducer(r3.state, { kind: 'SendResult', corrId: 'ca', sessionPath: '/session-a', ok: true });
-  assert.equal(r4.state.pending['ca'], undefined);
-  assert.deepEqual(r4.state.pending, {});
+  assert.equal(r4.state.pending.ops['ca'], undefined);
+  assert.deepEqual(r4.state.pending.ops, {});
 });
