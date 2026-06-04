@@ -4,17 +4,13 @@
 import { useState } from 'preact/hooks';
 import type { FileChangeEntry } from '../../shared/protocol';
 
+import { FileTypeIcon } from './components/file-type-icon';
+
 interface FileChangesPanelProps {
   fileChanges: FileChangeEntry[];
   onOpenDiff: (filePath: string) => void;
   onRevertFile: (filePath: string) => void;
 }
-
-const CHANGE_ICONS: Record<FileChangeEntry['kind'], string> = {
-  created: '+',
-  modified: '~',
-  deleted: '\u2212',
-};
 
 const CHANGE_LABELS: Record<FileChangeEntry['kind'], string> = {
   created: 'Created',
@@ -73,12 +69,7 @@ export function FileChangesPanel({
         <div class="file-changes-list">
           {fileChanges.map((change) => (
             <div key={change.path} class={`file-change-item kind-${change.kind}`}>
-              <span
-                class={`file-change-icon ${change.kind}`}
-                aria-label={CHANGE_LABELS[change.kind]}
-              >
-                {CHANGE_ICONS[change.kind]}
-              </span>
+              <FileTypeIcon path={change.path} className={`kind-${change.kind}`} />
               <button
                 class="file-change-path"
                 type="button"

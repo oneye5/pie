@@ -472,7 +472,7 @@ test('derivePruningResult extracts PruningResult from customDetails', () => {
       id: 'prune-1',
       role: 'system',
       createdAt: '',
-      markdown: 'Pruned: Kept 3/5 skills, Kept 8/10 tools',
+      markdown: 'Kept 3/5 skills, Kept 8/10 tools',
       status: 'completed',
       customType: 'pruning-result',
       customDetails: {

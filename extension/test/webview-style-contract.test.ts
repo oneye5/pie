@@ -39,7 +39,7 @@ test('panel chip styling is centralized instead of embedded in feature component
   assert.match(panelChipComponent, /export function ToolbarIndicatorChip/);
   assert.match(panelChipComponent, /export function PruningHeaderChipControl/);
 
-  assert.match(toolbar, /ToolbarModelSelectChip/);
+  assert.match(toolbar, /ModelPicker/);
   assert.match(toolbar, /ToolbarIndicatorChip/);
   assert.doesNotMatch(toolbar, /PanelChip/);
   assert.doesNotMatch(toolbar, /variant=/);

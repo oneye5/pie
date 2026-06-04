@@ -303,6 +303,7 @@
 @import './inline-editor.css';
 @import './tool-call.css';
 @import './composer.css';
+@import './model-picker.css';
 @import './context-menu.css';
 @import './file-changes.css';
 @import './extension-ui-prompt.css';

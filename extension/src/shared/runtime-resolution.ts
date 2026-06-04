@@ -91,6 +91,16 @@ function isValidSdkPath(sdkPath: string, exists: (filePath: string) => boolean):
   return exists(path.join(sdkPath, 'package.json')) && exists(path.join(sdkPath, 'dist', 'index.js'));
 }
 
+const GLOBAL_SDK_PACKAGE_PATHS = [
+  ['@earendil-works', 'pi-coding-agent'],
+  ['@mariozechner', 'pi-coding-agent'],
+] as const;
+
+function isLegacyGlobalSdkPath(sdkPath: string): boolean {
+  const parts = sdkPath.split(/[\\/]+/);
+  return parts.at(-2) === '@mariozechner' && parts.at(-1) === 'pi-coding-agent';
+}
+
 export function resolveNodePath(options: ResolveNodePathOptions): string {
   const exists = options.exists ?? defaultExists;
   const platform = options.platform ?? process.platform;
@@ -138,7 +148,11 @@ export async function resolveSdkPath(options: ResolveSdkPathOptions): Promise<st
     return envPath;
   }
 
-  if (options.cachedPath && isValidSdkPath(options.cachedPath, exists)) {
+  if (
+    options.cachedPath &&
+    !isLegacyGlobalSdkPath(options.cachedPath) &&
+    isValidSdkPath(options.cachedPath, exists)
+  ) {
     return options.cachedPath;
   }
 
@@ -149,12 +163,15 @@ export async function resolveSdkPath(options: ResolveSdkPathOptions): Promise<st
     );
   }
 
-  const sdkPath = path.join(npmRoot.stdout.trim(), '@mariozechner', 'pi-coding-agent');
-  if (!isValidSdkPath(sdkPath, exists)) {
-    throw new Error(
-      'Could not find @mariozechner/pi-coding-agent in the global npm root. Set pie.sdkPath or PI_SDK_PATH.',
-    );
+  const npmRootPath = npmRoot.stdout.trim();
+  for (const packagePath of GLOBAL_SDK_PACKAGE_PATHS) {
+    const sdkPath = path.join(npmRootPath, ...packagePath);
+    if (isValidSdkPath(sdkPath, exists)) {
+      return sdkPath;
+    }
   }
 
-  return sdkPath;
+  throw new Error(
+    'Could not find @earendil-works/pi-coding-agent or @mariozechner/pi-coding-agent in the global npm root. Set pie.sdkPath or PI_SDK_PATH.',
+  );
 }

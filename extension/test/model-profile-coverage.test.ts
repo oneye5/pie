@@ -16,7 +16,6 @@ interface RawModelConfig {
 interface RawProfileEntry {
   id?: string;
   eligible?: unknown;
-  cost?: number;
   precision?: number;
   creativity?: number;
   thoroughness?: number;
@@ -45,7 +44,7 @@ function loadYaml(filePath: string): RawProfileConfig {
     }
     if (!current) continue;
 
-    const numMatch = line.match(/^\s+(precision|creativity|thoroughness|reasoning|cost):\s+(-?[\d.]+)/);
+    const numMatch = line.match(/^\s+(precision|creativity|thoroughness|reasoning):\s+(-?[\d.]+)/);
     if (numMatch) {
       (current as Record<string, unknown>)[numMatch[1]] = Number(numMatch[2]);
       continue;
@@ -101,23 +100,35 @@ test('every configured model has a matching model profile entry', () => {
 
 // --- NEW: reverse coverage and pricing validation tests ---
 
-test('every eligible model profile has either real pricing or legacy cost fallback', () => {
+test('every eligible model profile has real pricing in models.json', () => {
   const repoRoot = path.resolve(__dirname, '..', '..');
   const models = readJson<RawModelConfig>(path.join(repoRoot, 'models.json'));
   const profiles = readConfig(repoRoot);
 
-  // Build set of model ids that have non-zero pricing in models.json
+  // Build set of model ids that have explicit pricing in models.json (zero counts as known/free)
   const pricedModelIds = new Set<string>();
   for (const provider of Object.values(models.providers ?? {})) {
-    if (!Array.isArray(provider.models)) continue;
-    for (const model of provider.models) {
+    const modelList = Array.isArray(provider.models) ? provider.models : [];
+    const overrides = provider.modelOverrides && typeof provider.modelOverrides === 'object'
+      ? Object.entries(provider.modelOverrides)
+      : [];
+    for (const model of modelList) {
       if (typeof model.id !== 'string') continue;
       const cost = model.cost;
       if (cost && typeof cost === 'object' && !Array.isArray(cost)) {
         const c = cost as Record<string, unknown>;
-        const hasPricing = (typeof c.input === 'number' && c.input > 0) ||
-                           (typeof c.output === 'number' && c.output > 0);
+        const hasPricing = (typeof c.input === 'number' && Number.isFinite(c.input)) ||
+                           (typeof c.output === 'number' && Number.isFinite(c.output));
         if (hasPricing) pricedModelIds.add(model.id);
+      }
+    }
+    for (const [id, override] of overrides) {
+      const cost = (override as Record<string, unknown>).cost;
+      if (cost && typeof cost === 'object' && !Array.isArray(cost)) {
+        const c = cost as Record<string, unknown>;
+        const hasPricing = (typeof c.input === 'number' && Number.isFinite(c.input)) ||
+                           (typeof c.output === 'number' && Number.isFinite(c.output));
+        if (hasPricing) pricedModelIds.add(id);
       }
     }
   }
@@ -135,18 +146,14 @@ test('every eligible model profile has either real pricing or legacy cost fallba
     // Has real pricing?
     if (pricedModelIds.has(id)) continue;
 
-    // Has legacy cost?
-    if (typeof profile.cost === 'number' && profile.cost >= 0) continue;
-
     // Has explicit eligible=false (disabled models don't need pricing)
-    // But we still flag them if they have no fallback at all
     if (profile.eligible === false) continue;
 
     missingCoverage.push(id);
   }
 
   assert.deepEqual(missingCoverage, [],
-    `Eligible models without pricing or legacy cost: ${missingCoverage.join(', ')}`);
+    `Eligible models without pricing in models.json: ${missingCoverage.join(', ')}`);
 });
 
 test('every Copilot model profile id exists in models.json under github-copilot provider', () => {
@@ -189,22 +196,6 @@ test('every Copilot model profile id exists in models.json under github-copilot 
   const missing = [...copilotProfileIds].filter((id) => !copilotModelIds.has(id));
   assert.deepEqual(missing, [],
     `Copilot profile ids missing from models.json github-copilot block: ${missing.join(', ')}`);
-});
-
-test('no profile has negative legacy cost', () => {
-  const repoRoot = path.resolve(__dirname, '..', '..');
-  const profiles = readConfig(repoRoot);
-
-  const negativeCostProfiles: string[] = [];
-  for (const profile of (Array.isArray(profiles.profiles) ? profiles.profiles : [])) {
-    if (typeof profile.id !== 'string') continue;
-    if (typeof profile.cost === 'number' && profile.cost < 0) {
-      negativeCostProfiles.push(`${profile.id} (cost=${profile.cost})`);
-    }
-  }
-
-  assert.deepEqual(negativeCostProfiles, [],
-    `Profiles with negative legacy cost: ${negativeCostProfiles.join(', ')}`);
 });
 
 test('no non-local cloud model has silently-zero pricing in models.json', () => {

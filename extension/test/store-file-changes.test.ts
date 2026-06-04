@@ -154,6 +154,78 @@ describe('fileChanges slice', () => {
     }]);
   });
 
+  it('deriveFileChangesFromTranscript drops a file created then deleted in the same session', () => {
+    const transcript = [
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        createdAt: '2024-01-01T00:00:00Z',
+        markdown: '',
+        status: 'completed',
+        toolCalls: [
+          { id: 't1', name: 'write', input: { path: 'src/a.ts' }, status: 'completed' },
+          { id: 't2', name: 'delete_file', input: { filePath: 'src/a.ts' }, status: 'completed' },
+        ],
+      },
+    ] as any;
+
+    assert.deepStrictEqual(deriveFileChangesFromTranscript(transcript), []);
+  });
+
+  it('deriveFileChangesFromTranscript keeps a deleted file that was not created in the same session', () => {
+    const transcript = [
+      {
+        id: 'assistant-1',
+        role: 'assistant',
+        createdAt: '2024-01-01T00:00:00Z',
+        markdown: '',
+        status: 'completed',
+        toolCalls: [
+          { id: 't1', name: 'delete_file', input: { filePath: 'src/old.ts' }, status: 'completed' },
+        ],
+      },
+    ] as any;
+
+    assert.deepStrictEqual(deriveFileChangesFromTranscript(transcript), [{
+      path: 'src/old.ts',
+      kind: 'deleted',
+      toolCallId: 't1',
+      messageId: 'assistant-1',
+      description: 'deleted',
+      timestamp: '2024-01-01T00:00:00Z',
+    }]);
+  });
+
+  it('addFileChange removes a created entry when the same file is deleted', () => {
+    const created: FileChangeEntry = {
+      path: 'src/foo.ts',
+      kind: 'created',
+      toolCallId: 't1',
+      messageId: 'm1',
+      description: 'created',
+      timestamp: '2024-01-01T00:00:00Z',
+    };
+    const deleted: FileChangeEntry = {
+      path: 'src/foo.ts',
+      kind: 'deleted',
+      toolCallId: 't2',
+      messageId: 'm2',
+      description: 'deleted',
+      timestamp: '2024-01-01T00:00:01Z',
+    };
+
+    const afterCreate = fileChangesReducer(
+      { bySession: {} },
+      fileChangesActions.addFileChange({ sessionPath: '/session/a', change: created }),
+    );
+    const afterDelete = fileChangesReducer(
+      afterCreate,
+      fileChangesActions.addFileChange({ sessionPath: '/session/a', change: deleted }),
+    );
+
+    assert.deepStrictEqual(afterDelete.bySession['/session/a'], []);
+  });
+
   it('deriveFileChangeFromToolCall classifies write/edit/delete and skips non-file tools', () => {
     assert.deepStrictEqual(
       deriveFileChangeFromToolCall({ id: '1', name: 'write', input: { path: 'src/new.ts' } }, 'm1', '2024-01-01T00:00:00Z'),

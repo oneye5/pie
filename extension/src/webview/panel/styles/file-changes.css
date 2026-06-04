@@ -120,35 +120,39 @@
   background: var(--panel-control-hover);
 }
 
-.file-change-icon {
+.file-change-item .file-type-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
-  background: var(--panel-control-surface);
-  border: 1px solid var(--panel-border-subtle);
-  color: var(--panel-muted);
   flex-shrink: 0;
+  overflow: hidden;
+  transition: opacity 0.12s ease;
 }
 
-.file-change-icon.created {
-  color: var(--panel-success);
-  border-color: color-mix(in srgb, var(--panel-success) 24%, var(--panel-border));
+.file-change-item .file-type-icon svg {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
-.file-change-icon.modified {
-  color: var(--panel-warning);
-  border-color: color-mix(in srgb, var(--panel-warning) 24%, var(--panel-border));
+.file-change-item .file-type-icon.kind-created {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--panel-success) 35%, var(--panel-border-subtle));
 }
 
-.file-change-icon.deleted {
-  color: var(--panel-danger);
-  border-color: color-mix(in srgb, var(--panel-danger) 24%, var(--panel-border));
+.file-change-item .file-type-icon.kind-modified {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--panel-warning) 35%, var(--panel-border-subtle));
+}
+
+.file-change-item .file-type-icon.kind-deleted {
+  box-shadow: inset 0 0 0 1.5px color-mix(in srgb, var(--panel-danger) 35%, var(--panel-border-subtle));
+  opacity: 0.6;
+}
+
+.file-change-item .file-type-icon.kind-deleted svg {
+  filter: grayscale(0.6);
 }
 
 .file-change-path {
@@ -247,22 +251,14 @@
   color: var(--panel-danger);
 }
 
-/* ── File-type icon ───────────────────────────────────────────────────── */
+/* ── File-type icon base (shared by brand + badge) ──────────────────────── */
 
 .file-type-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 18px;
-  height: 18px;
   border-radius: 4px;
   flex-shrink: 0;
-  font-size: 8px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  line-height: 1;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #000 18%, transparent);
   user-select: none;
 }
 
@@ -274,4 +270,12 @@
   padding: 0 3px;
   overflow: hidden;
   text-overflow: clip;
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  background: var(--panel-control-surface);
+  border: 1px solid var(--panel-border-subtle);
+  color: var(--panel-foreground);
 }

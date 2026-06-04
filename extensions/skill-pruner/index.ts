@@ -100,7 +100,7 @@ export default function (pi: ExtensionAPI) {
 			: "";
 
 		if (!expanded) {
-			const compact = `${modeLabel}Pruned: ${parts.join(", ")}${tokenNote}`;
+			const compact = `${modeLabel}${parts.join(", ")}${tokenNote}`;
 			const box = new Box(1, 1, (t) => theme.bg("customMessageBg", t));
 			box.addChild(new Text(compact, 0, 0));
 			return box;
@@ -214,8 +214,16 @@ export default function (pi: ExtensionAPI) {
 		let rawUserMessage = "";
 		let prepassThinkingLevel = activeConfig.thinkingLevel;
 		let latencyMs = 0;
+		let skillFailOpenReason: string | null = null;
+		let toolFailOpenReason: string | null = null;
 
-		if (skills.length > 0) {
+		// Build tool candidates unconditionally so tool pruning can run even when no skills are loaded.
+		const allTools = getAllToolsOverride
+			? getAllToolsOverride()
+			: getPiToolSeams().getAllTools();
+		const hasToolsConfig = activeConfig.tools && allTools.length > 0;
+
+		if (skills.length > 0 || hasToolsConfig) {
 			// Exclude disabled skills from LLM consideration
 			const visibleSkills = skills.filter((s) => !s.disableModelInvocation);
 			const disabledNames = new Set(
@@ -223,6 +231,9 @@ export default function (pi: ExtensionAPI) {
 			);
 
 			// Forced-include names that resolve to a disabled skill → warn + skip.
+			// Also filter to only names that are actually in the visible skills list;
+			// a pinned skill that isn't loaded should not break intersection logic.
+			const visibleSkillNames = new Set(visibleSkills.map((s) => s.name));
 			const effectivePinned = [...new Set([
 				...(activeConfig.skills.pinned ?? []),
 				...(activeConfig.skills.alwaysKeep ?? []),
@@ -231,15 +242,14 @@ export default function (pi: ExtensionAPI) {
 					console.warn(`[skill-pruner] forced-include skill '${name}' is disabled (disableModelInvocation); skipping`);
 					return false;
 				}
+				if (!visibleSkillNames.has(name)) {
+					console.warn(`[skill-pruner] forced-include skill '${name}' is not in the current session's visible skills; skipping`);
+					return false;
+				}
 				return true;
 			});
 
 			const contextFile = event.systemPromptOptions.contextFiles?.[0];
-
-			// Build tool candidates
-			const allTools = getAllToolsOverride
-				? getAllToolsOverride()
-				: getPiToolSeams().getAllTools();
 
 			const llmInput: LlmPruningInput = {
 				userPrompt: event.prompt,
@@ -247,11 +257,15 @@ export default function (pi: ExtensionAPI) {
 				skills: visibleSkills.map((s) => ({ name: s.name, description: s.description })),
 				tools: allTools.map((t) => ({ name: t.name, description: t.description ?? "" })),
 				config: activeConfig,
+				forcedSkills: effectivePinned,
+				forcedTools: activeConfig.tools?.alwaysKeep ?? [],
 			};
 
 			// Resolve model and call LLM
 			let llmSelectedSkills: string[] | null = null;
 			let llmSelectedTools: string[] | null = null;
+			let skillsExplicitlyEmpty = false;
+			let toolsExplicitlyEmpty = false;
 
 			const completeFn = getCompleteFn(ctx);
 			if (!completeFn) {
@@ -262,6 +276,8 @@ export default function (pi: ExtensionAPI) {
 				const prepassResult = await runPruningPrepass(ctx, llmInput, activeConfig, completeFn);
 				llmSelectedSkills = prepassResult.selectedSkills;
 				llmSelectedTools = prepassResult.selectedTools;
+				skillsExplicitlyEmpty = prepassResult.skillsExplicitlyEmpty ?? false;
+				toolsExplicitlyEmpty = prepassResult.toolsExplicitlyEmpty ?? false;
 				pruningError = prepassResult.error;
 				rawResponse = prepassResult.rawResponse;
 				rawThinking = prepassResult.rawThinking;
@@ -272,18 +288,20 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (!pruningError || pruningError.startsWith("Model") || pruningError.startsWith("LLM pruning failed")) {
-				// Fail-open guard: if LLM returned empty selections for both skills
-				// and tools, treat it as a failed prepass (keep everything).
-				// This is not an error — it's expected for ambiguous prompts. We
-				// silently keep everything and do NOT surface it in the transcript
-				// (emitting a message here would confuse the main model).
+				// Fail-open guard: only when the LLM explicitly returned empty arrays for
+				// BOTH skills and tools do we treat it as an ambiguous / failed prepass
+				// and keep everything. If one category is empty due to filtering unknown
+				// names, the per-category fail-opens handle it independently.
 				if (
 					llmSelectedSkills !== null && llmSelectedSkills.length === 0 &&
-					llmSelectedTools !== null && llmSelectedTools.length === 0
+					llmSelectedTools !== null && llmSelectedTools.length === 0 &&
+					skillsExplicitlyEmpty && toolsExplicitlyEmpty
 				) {
 					console.warn("[skill-pruner] LLM returned empty selections for both skills and tools; failing open");
 					llmSelectedSkills = null;
 					llmSelectedTools = null;
+					skillFailOpenReason = "LLM explicitly returned empty selections for both skills and tools; keeping all as fail-open";
+					toolFailOpenReason = "LLM explicitly returned empty selections for both skills and tools; keeping all as fail-open";
 				}
 
 				// Apply skill selection (even on error — treat as all-included fallback)
@@ -304,10 +322,12 @@ export default function (pi: ExtensionAPI) {
 					includedSkillNames = visibleSkills.filter((s) => finalSet.has(s.name)).map((s) => s.name);
 					excludedSkillNames = visibleSkills.filter((s) => !finalSet.has(s.name)).map((s) => s.name);
 
-					// Per-category fail-open: if no skills survived intersection, keep all
-					if (includedSkillNames.length === 0 && visibleSkills.length > 0) {
+					// Per-category fail-open: if no skills survived intersection AND the LLM
+					// did not explicitly request an empty skills list, keep all as fallback.
+					if (includedSkillNames.length === 0 && visibleSkills.length > 0 && !skillsExplicitlyEmpty) {
 						includedSkillNames = visibleSkills.map((s) => s.name);
 						excludedSkillNames = [];
+						skillFailOpenReason = "All model-selected skills were unknown or invalid; keeping all skills as fail-open";
 					}
 				} else {
 					// Fallback: all included
@@ -402,10 +422,12 @@ export default function (pi: ExtensionAPI) {
 						const includedSet = new Set(includedToolNames);
 						excludedToolNames = allTools.map((t) => t.name).filter((name) => !includedSet.has(name));
 
-						// Per-category fail-open: if no tools survived, keep all
-						if (includedToolNames.length === 0 && allTools.length > 0) {
+						// Per-category fail-open: if no tools survived AND the LLM did not
+						// explicitly request an empty tools list, keep all as fallback.
+						if (includedToolNames.length === 0 && allTools.length > 0 && !toolsExplicitlyEmpty) {
 							includedToolNames = allTools.map((t) => t.name);
 							excludedToolNames = [];
+							toolFailOpenReason = "All model-selected tools were unknown or invalid; keeping all tools as fail-open";
 						}
 					} else {
 						// Fallback: all included
@@ -433,6 +455,10 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		// --- Build pruning status (integrated into system prompts section) ---
+		const failOpenReason = skillFailOpenReason && toolFailOpenReason
+			? `${skillFailOpenReason} · ${toolFailOpenReason}`
+			: (skillFailOpenReason ?? toolFailOpenReason ?? undefined);
+
 		const feedbackMessage = buildFeedbackMessage(skillResult, toolResult, activeConfig.mode, {
 			model: activeConfig.model,
 			thinkingLevel: prepassThinkingLevel,
@@ -442,6 +468,7 @@ export default function (pi: ExtensionAPI) {
 			userMessage: rawUserMessage,
 			latencyMs,
 			error: pruningError,
+			failOpenReason,
 		});
 
 		if (activeConfig.mode === "shadow") {
@@ -731,6 +758,8 @@ function withCopilotOptions(
 interface PrepassRunResult {
 	selectedSkills: string[] | null;
 	selectedTools: string[] | null;
+	skillsExplicitlyEmpty: boolean;
+	toolsExplicitlyEmpty: boolean;
 	error: string | null;
 	rawResponse: string;
 	rawThinking: string;
@@ -778,6 +807,8 @@ async function runPruningPrepass(
 	const emptyResult = (thinkingLevel: string, error: string | null): PrepassRunResult => ({
 		selectedSkills: null,
 		selectedTools: null,
+		skillsExplicitlyEmpty: false,
+		toolsExplicitlyEmpty: false,
 		error,
 		rawResponse: "",
 		rawThinking: "",
@@ -808,6 +839,8 @@ async function runPruningPrepass(
 			latestResult = {
 				selectedSkills: result.selectedSkills,
 				selectedTools: result.selectedTools,
+				skillsExplicitlyEmpty: result.skillsExplicitlyEmpty ?? false,
+				toolsExplicitlyEmpty: result.toolsExplicitlyEmpty ?? false,
 				error: null,
 				rawResponse: result.rawResponse,
 				rawThinking: result.rawThinking,
@@ -832,6 +865,8 @@ async function runPruningPrepass(
 					...latestResult,
 					selectedSkills: null,
 					selectedTools: null,
+					skillsExplicitlyEmpty: false,
+					toolsExplicitlyEmpty: false,
 					error: errorMessage,
 					thinkingLevel,
 				};
@@ -843,6 +878,8 @@ async function runPruningPrepass(
 				...latestResult,
 				selectedSkills: null,
 				selectedTools: null,
+				skillsExplicitlyEmpty: false,
+				toolsExplicitlyEmpty: false,
 				error: errorMessage,
 				thinkingLevel,
 			};
@@ -941,6 +978,7 @@ interface PrepassDiagnostics {
 	userMessage: string;
 	latencyMs: number;
 	error?: string | null;
+	failOpenReason?: string | null;
 }
 
 function buildFeedbackMessage(
@@ -1019,6 +1057,7 @@ function buildFeedbackMessage(
 		if (prepass.systemPrompt) details.prepassSystemPrompt = prepass.systemPrompt;
 		if (prepass.userMessage) details.prepassUserMessage = prepass.userMessage;
 		details.prepassLatencyMs = prepass.latencyMs;
+		if (prepass.failOpenReason) details.prepassFailOpenReason = prepass.failOpenReason;
 	}
 
 	if (hasSkillPruning) {
@@ -1036,7 +1075,7 @@ function buildFeedbackMessage(
 	const tokenNote = tokensSaved > 0 ? ` · Saved ~${tokensSaved} tokens` : "";
 
 	const content = hasSkillPruning || hasToolPruning
-		? `Pruned: ${parts.join(", ")}${tokenNote}`
+		? `${parts.join(", ")}${tokenNote}`
 		: `Pruning: ${parts.join(", ")} (nothing removed)`;
 
 	return {

@@ -108,5 +108,5 @@ export function formatPruningSummary(details: PruningDetails, fallbackText = 'No
   const summaryCore = summaryParts.length > 0 ? summaryParts.join(', ') : fallbackText;
   const tokenSuffix = tokensSaved > 0 ? ` · Saved ~${tokensSaved} tokens` : '';
 
-  return `Pruned: ${summaryCore}${tokenSuffix}`;
+  return `${summaryCore}${tokenSuffix}`;
 }

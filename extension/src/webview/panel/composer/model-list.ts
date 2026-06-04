@@ -2,7 +2,7 @@ import type { ModelInfo } from '../../../shared/protocol';
 
 export interface ModelPickerEntry {
   model: ModelInfo;
-  /** Display label for the dropdown <option> — prefixed with ⚠ when ineligible as subagent. */
+  /** Display label for the dropdown row — prefixed with ⚠ when ineligible as subagent. */
   label: string;
   /** Compact closed-state label shown in the toolbar after selection. */
   selectedLabel: string;
@@ -10,6 +10,12 @@ export interface ModelPickerEntry {
   ineligible: boolean;
   /** Tooltip text describing rating + ineligibility reason when applicable. */
   title: string;
+  /** Token input price per 1M tokens, formatted for display (e.g. "$2.50"). */
+  tokenInPrice: string;
+  /** Token output price per 1M tokens, formatted for display (e.g. "$10.00"). */
+  tokenOutPrice: string;
+  /** Whether the model supports image inputs. */
+  supportsImages: boolean;
 }
 
 const RATING_MAX = 20;
@@ -26,12 +32,12 @@ function stripProviderPrefix(name: string): string {
 /**
  * Order models for the picker:
  *   1. Eligible / unprofiled first, then ineligible (subagent-disabled).
- *   2. Within each group, sort by aggregate subagent rating descending.
- *   3. Tiebreak by normalized cost (cheaper first), then display name, then id.
+ *   2. Within each group, sort by normalized cost ascending (cheapest first).
+ *   3. Tiebreak by aggregate subagent rating descending, then display name, then id.
  *
- * Unprofiled models keep their original relative order at the top of the eligible
- * group (they sort with aggregate=-1 fallback so a profiled eligible model ranks
- * above an unprofiled one only when its aggregate exceeds 0).
+ * Unprofiled models (no normalizedCost) sort to the top of the eligible group
+ * with cost=0 fallback since their pricing is unknown/typically free.
+ * Models without a subagent profile also fall back to cost=0.
  *
  * The returned entries carry display affordances (warning prefix, tooltip) so the
  * toolbar can render without re-deriving rating logic.
@@ -48,14 +54,14 @@ export function orderModelsForPicker(models: ModelInfo[]): ModelPickerEntry[] {
       ineligible,
       aggregate: typeof aggregate === 'number' ? aggregate : -1,
       hasProfile: sub !== undefined,
-      cost: typeof cost === 'number' ? cost : Number.POSITIVE_INFINITY,
+      cost: typeof cost === 'number' ? cost : 0,
     };
   });
 
   decorated.sort((a, b) => {
     if (a.ineligible !== b.ineligible) return a.ineligible ? 1 : -1;
-    if (a.aggregate !== b.aggregate) return b.aggregate - a.aggregate;
     if (a.cost !== b.cost) return a.cost - b.cost;
+    if (a.aggregate !== b.aggregate) return b.aggregate - a.aggregate;
     const byName = a.model.name.localeCompare(b.model.name);
     if (byName !== 0) return byName;
     return a.model.id.localeCompare(b.model.id);
@@ -86,12 +92,25 @@ export function orderModelsForPicker(models: ModelInfo[]): ModelPickerEntry[] {
       const reason = model.subagent?.disabledReason;
       titleParts.push(reason ? `Disabled for subagent use: ${reason}` : 'Disabled for subagent use');
     }
+    const supportsImages = model.inputKinds.includes('image');
+
+    // Format pricing for display
+    let tokenInPrice = '';
+    let tokenOutPrice = '';
+    if (sub?.pricing) {
+      if (sub.pricing.input > 0) tokenInPrice = `$${sub.pricing.input.toFixed(2)}`;
+      if (sub.pricing.output > 0) tokenOutPrice = `$${sub.pricing.output.toFixed(2)}`;
+    }
+
     return {
       model,
       ineligible,
       label: dropdownLabel,
       selectedLabel,
       title: titleParts.join('\n'),
+      tokenInPrice,
+      tokenOutPrice,
+      supportsImages,
     };
   });
 }

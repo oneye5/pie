@@ -229,6 +229,45 @@ test("discretion mode: LLM returns empty for both skills and tools → fails ope
 	}
 });
 
+test("LLM explicitly returns empty skills with non-empty tools → honors empty skills (no fail-open)", async () => {
+	__setCompleteFn(async () => ({ text: '{"skills":[],"tools":["read","edit"]}' }));
+	try {
+		const { handlers } = register(config());
+		__setToolSeams({
+			getAllTools: () => mockToolInfo as any[],
+			getActiveTools: () => mockToolInfo.map((t) => t.name),
+			setActiveTools: () => {},
+		});
+		const result = await runBeforeAgentStart(handlers, "simple question", realisticSkills) as { systemPrompt?: string } | undefined;
+
+		// The LLM explicitly said no skills are relevant; we should honor that.
+		assert.ok(result?.systemPrompt);
+		assert.doesNotMatch(result.systemPrompt, /<name>code-simplification<\/name>/);
+		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+		assert.doesNotMatch(result.systemPrompt, /<name>frontend-design<\/name>/);
+		assert.match(result.systemPrompt, /Pruned skills/);
+	} finally {
+		__setCompleteFn(null);
+		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
+	}
+});
+
+test("phantom pinned skill (not in visible skills) does not trigger fail-open", async () => {
+	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+	try {
+		const { handlers } = register(config({ pinned: ["nonexistent-skill"] }));
+		const result = await runBeforeAgentStart(handlers, "refactor code", realisticSkills) as { systemPrompt?: string } | undefined;
+
+		// The pinned skill doesn't exist in the session, so it should be ignored.
+		// The LLM's selection of code-simplification should still be honored.
+		assert.ok(result?.systemPrompt);
+		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
+		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+	} finally {
+		__setCompleteFn(null);
+	}
+});
+
 test("ceiling enforced even if LLM returns more skills", async () => {
 	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification", "duckdb-query-optimization", "frontend-design"], tools: [] }));
 	try {
@@ -308,7 +347,7 @@ test("empty prepass response retries with minimal reasoning before failing open"
 		assert.ok(result?.systemPrompt);
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
 		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
-		assert.equal(result?.message?.content.startsWith("Pruned:"), true);
+		assert.equal(result?.message?.content.startsWith("Kept"), true);
 		assert.ok(setActiveToolsCalls[0].includes("read"));
 		assert.ok(setActiveToolsCalls[0].includes("edit"));
 		assert.ok(!setActiveToolsCalls[0].includes("web_search"));

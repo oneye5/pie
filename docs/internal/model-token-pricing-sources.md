@@ -12,7 +12,7 @@ Every non-zero cost field in `models.json` MUST have a corresponding row in this
 
 For each model in `model-profiles.yaml`:
 - **GitHub Copilot models**: Token pricing sourced from official GitHub Copilot billing documentation. 1 AI credit = $0.01 USD.
-- **Ollama Cloud models**: Compute-based estimates using the methodology from `ollama-pro-cloud-models-ranked.md` (H100 @ $3/hr, 2×active_params FLOPs/token). These are lower-bound estimates; actual billed prices may be higher due to platform margin and overhead.
+- **Ollama Cloud models**: Token pricing sourced from the [Portkey-AI/models](https://github.com/Portkey-AI/models) open-source pricing database (`https://configs.portkey.ai/pricing`). Portkey tracks pricing for 2,000+ models across 40+ providers; values are converted from cents-per-token to USD per 1M tokens. Cache prices are pulled from original provider files where available (DeepSeek, Google, z-ai). These are actual billed rates, not compute estimates.
 - **Ollama Local models**: Free/local (no API cost).
 - **Grok models**: No official token pricing found; marked as unknown.
 
@@ -23,6 +23,7 @@ For each model in `model-profiles.yaml`:
 | `official` | Published on provider's official pricing page |
 | `official-inferred` | Derived from official data with documented formula |
 | `third-party` | From independent analysis or compute estimates |
+| `portkey` | Sourced from Portkey-AI/models pricing JSON — live provider pricing aggregated from 40+ providers |
 | `unknown` | No reliable pricing found |
 
 ---
@@ -102,56 +103,54 @@ Cache write pricing is NOT published for Google Copilot models.
 
 ## Ollama Cloud Models
 
-Source: Compute-based estimates from `ollama-pro-cloud-models-ranked.md` (H100 @ $3/hr methodology).
-These are **lower-bound compute-only estimates** and do not include platform margin.
+**Source:** [Portkey-AI/models](https://github.com/Portkey-AI/models) — open-source pricing database for 2,000+ models across 40+ providers.
+**Retrieval date:** 2026-06-04
+**Confidence:** `portkey`
 
-Cost formula: `cost_per_1M ≈ active_params_in_billions / 600`
-Confidence: `third-party` (compute estimates, not official pricing)
+Cache pricing (`cache_read_input_token` / `cache_write_input_token`) is available from Portkey original provider files for some models (DeepSeek, Google, z-ai). Where absent, the upstream provider either does not publish cache rates or the provider file is not accessible via Portkey's public API. All prices are in USD per 1M tokens.
 
-Cache pricing is NOT explicitly published for Ollama Cloud. Marked as `not applicable` in models.json.
-
-| Model ID | Input (est.) | Output (est.) | Active Params | Confidence | Notes |
-|---|---|---|---|---|---|
-| deepseek-v4-pro:cloud | $0.0817 | $0.0817 | 49B | third-party | Frontier; 1.6T total, MoE |
-| deepseek-v4-flash:cloud | $0.0217 | $0.0217 | 13B | third-party | Flash variant; 284B total, MoE |
-| deepseek-v3.2:cloud | $0.0617 | $0.0617 | 37B | third-party | Baseline anchor for Ollama cost scale |
-| deepseek-v3.1:671b-cloud | $0.0617 | $0.0617 | 37B | third-party | Superseded |
-| cogito-2.1:671b-cloud | $0.0617 | $0.0617 | 37B | third-party | Same active params as deepseek-v3.x |
-| gemini-3-flash-preview:cloud | $0.02-$0.08 | $0.02-$0.08 | undisclosed | unknown | Closed-source; range from docs. No compute estimate possible. |
-| gemma4:31b-cloud | $0.0517 | $0.0517 | 31B | third-party | Dense 31B |
-| gemma3:27b-cloud | $0.0450 | $0.0450 | 27B | third-party | Superseded; dense 27B |
-| gemma3:12b-cloud | $0.0200 | $0.0200 | 12B | third-party | Superseded; dense 12B |
-| gemma3:4b-cloud | $0.0067 | $0.0067 | 4B | third-party | Superseded; too small for agentic |
-| rnj-1:8b-cloud | $0.0133 | $0.0133 | 8B | third-party | Too small for agentic |
-| qwen3.5:397b-cloud | $0.0283 | $0.0283 | 17B | third-party | Uses A17B variant (midpoint of variant range) |
-| qwen3.5:cloud | $0.0298 | $0.0298 | varies | third-party | Midpoint of documented variant range ($0.0013-$0.0583) |
-| qwen3-next:80b-cloud | $0.0050 | $0.0050 | 3B | third-party | Very small active params |
-| qwen3-vl:235b-cloud | $0.0367 | $0.0367 | 22B | third-party | VL-specialized |
-| qwen3-vl:235b-instruct-cloud | $0.0367 | $0.0367 | 22B | third-party | Superseded/redundant |
-| qwen3-coder-next:cloud | $0.0050 | $0.0050 | 3B | third-party | Very small active params |
-| qwen3-coder:480b-cloud | $0.0583 | $0.0583 | 35B | third-party | Code-specialized |
-| kimi-k2.6:cloud | $0.0533 | $0.0533 | 32B | third-party | Top open-weight model |
-| kimi-k2.5:cloud | $0.0533 | $0.0533 | ~32B (est.) | third-party | Earlier gen |
-| kimi-k2-thinking:cloud | $0.0533 | $0.0533 | ~32B (est.) | third-party | Superseded |
-| kimi-k2:1t-cloud | $0.0533 | $0.0533 | ~32B (est.) | third-party | Superseded |
-| nemotron-3-super:cloud | $0.0200 | $0.0200 | 12B | third-party | 120B MoE |
-| nemotron-3-nano:30b-cloud | $0.0500 | $0.0500 | 30B | third-party | Dense 30B |
-| glm-5.1:cloud | $0.0667 | $0.0667 | 40B | third-party | Current gen |
-| glm-5:cloud | $0.0667 | $0.0667 | 40B | third-party | Superseded |
-| glm-4.7:cloud | $0.0533 | $0.0533 | 32B | third-party | Current gen |
-| glm-4.6:cloud | $0.0533 | $0.0533 | ~32B (est.) | third-party | Superseded |
-| gpt-oss:120b-cloud | $0.2000 | $0.2000 | 120B | third-party | Dense 120B |
-| gpt-oss:20b-cloud | $0.0333 | $0.0333 | 20B | third-party | Superseded |
-| minimax-m2.7:cloud | $0.0167 | $0.0167 | 10B | third-party | Current gen |
-| minimax-m2.5:cloud | $0.0167 | $0.0167 | 10B | third-party | Superseded |
-| minimax-m2.1:cloud | $0.0167 | $0.0167 | 10B | third-party | Superseded |
-| minimax-m2:cloud | $0.0167 | $0.0167 | 10B | third-party | Superseded |
-| devstral-2:123b-cloud | $0.2050 | $0.2050 | 123B | third-party | Dense 123B |
-| devstral-small-2:24b-cloud | $0.0400 | $0.0400 | 24B | third-party | Dense 24B |
-| mistral-large-3:675b-cloud | $0.0683 | $0.0683 | 41B | third-party | 675B MoE |
-| ministral-3:14b-cloud | $0.0233 | $0.0233 | 14B | third-party | Dense 14B |
-| ministral-3:8b-cloud | $0.0133 | $0.0133 | 8B | third-party | Superseded |
-| ministral-3:3b-cloud | $0.0050 | $0.0050 | 3B | third-party | Superseded |
+| Model ID | Input | Output | Cache Read | Cache Write | Portkey Model ID | Notes |
+|---|---|---|---|---|---|---|---|
+| cogito-2.1:671b-cloud | $1.2500 | $1.2500 | — | — | `deepcogito/cogito-v2.1-671b` | No cache pricing in Portkey provider file |
+| deepseek-v3.1:671b-cloud | $0.1500 | $0.7500 | — | — | `deepseek/deepseek-chat-v3.1` |  |
+| deepseek-v3.2:cloud | $0.2520 | $0.3780 | — | — | `deepseek/deepseek-v3.2` | No cache pricing in Portkey provider file |
+| deepseek-v4-flash:cloud | $0.1400 | $0.2800 | $0.0028 | — | `deepseek/deepseek-v4-flash` |  |
+| deepseek-v4-pro:cloud | $0.4350 | $0.8700 | $0.0036 | — | `deepseek/deepseek-v4-pro` | Extremely cheap cache read |
+| devstral-2:123b-cloud | $0.4000 | $2.0000 | — | — | `mistralai/devstral-2512` |  |
+| devstral-small-2:24b-cloud | $0.1000 | $0.3000 | — | — | *not listed* | Portkey OpenRouter file has devstral-small. Updated from compute estimate. |
+| gemini-3-flash-preview:cloud | $0.5000 | $3.0000 | $0.0500 | $0.5000 | `google/gemini-3-flash-preview` | Cache write priced |
+| gemma3:12b-cloud | $0.0400 | $0.1300 | — | — | `google/gemma-3-12b-it` | No cache pricing in Portkey provider file |
+| gemma3:27b-cloud | $0.0800 | $0.1600 | — | — | `google/gemma-3-27b-it` | No cache pricing in Portkey provider file |
+| gemma3:4b-cloud | $0.0400 | $0.0800 | — | — | `google/gemma-3-4b-it` | No cache pricing in Portkey provider file |
+| gemma4:31b-cloud | $0.1300 | $0.3800 | — | — | `google/gemma-4-31b-it` | No cache pricing in Portkey provider file |
+| glm-4.6:cloud | $0.6000 | $2.2000 | $0.1100 | — | `z-ai/glm-4.6` |  |
+| glm-4.7:cloud | $0.6000 | $2.2000 | $0.1100 | — | `z-ai/glm-4.7` |  |
+| glm-5:cloud | $1.0000 | $3.2000 | $0.2000 | — | `z-ai/glm-5` |  |
+| glm-5.1:cloud | $1.4000 | $4.4000 | $0.2600 | — | `z-ai/glm-5.1` |  |
+| gpt-oss:120b-cloud | $0.0390 | $0.1800 | — | — | `openai/gpt-oss-120b` | No cache pricing in Portkey provider file |
+| gpt-oss:20b-cloud | $0.0300 | $0.1400 | — | — | `openai/gpt-oss-20b` | No cache pricing in Portkey provider file |
+| kimi-k2-thinking:cloud | $0.6000 | $2.5000 | — | — | `moonshotai/kimi-k2-thinking` | No cache pricing in Portkey provider file |
+| kimi-k2:1t-cloud | $0.5700 | $2.3000 | — | — | `moonshotai/kimi-k2` | No cache pricing in Portkey provider file |
+| kimi-k2.5:cloud | $0.4400 | $2.0000 | — | — | `moonshotai/kimi-k2.5` |  |
+| kimi-k2.6:cloud | $0.7500 | $3.5000 | — | — | `moonshotai/kimi-k2.6` |  |
+| ministral-3:14b-cloud | $0.2000 | $0.2000 | — | — | `mistralai/ministral-14b-2512` |  |
+| ministral-3:3b-cloud | $0.1000 | $0.1000 | — | — | `mistralai/ministral-3b-2512` |  |
+| ministral-3:8b-cloud | $0.1500 | $0.1500 | — | — | `mistralai/ministral-8b-2512` |  |
+| minimax-m2:cloud | $0.2550 | $1.0000 | — | — | `minimax/minimax-m2` |  |
+| minimax-m2.1:cloud | $0.2900 | $0.9500 | — | — | `minimax/minimax-m2.1` |  |
+| minimax-m2.5:cloud | $0.1500 | $1.1500 | — | — | `minimax/minimax-m2.5` | No cache pricing in Portkey provider file |
+| minimax-m2.7:cloud | $0.3000 | $1.2000 | — | — | `minimax/minimax-m2.7` | No cache pricing in Portkey provider file |
+| mistral-large-3:675b-cloud | $0.5000 | $1.5000 | — | — | `mistralai/mistral-large-2512` | Latest Mistral Large |
+| nemotron-3-nano:30b-cloud | $0.0500 | $0.2000 | — | — | `nvidia/nemotron-3-nano-30b-a3b` | No cache pricing in Portkey provider file |
+| nemotron-3-super:cloud | $0.0900 | $0.4500 | — | — | `nvidia/nemotron-3-super-120b-a12b` | No cache pricing in Portkey provider file |
+| qwen3-coder-next:cloud | $0.1100 | $0.8000 | — | — | `qwen/qwen3-coder-next` |  |
+| qwen3-coder:480b-cloud | $0.2200 | $1.8000 | — | — | `qwen/qwen3-coder` | No cache pricing in Portkey provider file |
+| qwen3-next:80b-cloud | $0.0900 | $1.1000 | — | — | `qwen/qwen3-next-80b-a3b-instruct` | No cache pricing in Portkey provider file |
+| qwen3-vl:235b-cloud | $0.2000 | $0.8800 | — | — | `qwen/qwen3-vl-235b-a22b-instruct` |  |
+| qwen3-vl:235b-instruct-cloud | $0.2000 | $0.8800 | — | — | `qwen/qwen3-vl-235b-a22b-instruct` | Same as qwen3-vl:235b-cloud |
+| qwen3.5:397b-cloud | $0.3900 | $2.3400 | — | — | `qwen/qwen3.5-397b-a17b` | No cache pricing in Portkey provider file |
+| qwen3.5:cloud | $0.2600 | $1.5600 | — | — | `qwen/qwen3.5-plus-02-15` |  |
+| rnj-1:8b-cloud | $0.1500 | $0.1500 | — | — | `essentialai/rnj-1-instruct` | No cache pricing in Portkey provider file |
 
 ---
 
@@ -190,9 +189,7 @@ Models in `model-profiles.yaml` without pricing in this evidence document:
 | Model ID | Reason |
 |---|---|
 | grok-code-fast-1 | No official token pricing published by GitHub Copilot. Only multiplier-based pricing exists in the old premium-request model. Use legacy `cost: 13` in model-profiles.yaml until token pricing is published. |
-
-Models with `unknown` confidence for pricing:
-- `gemini-3-flash-preview:cloud` — closed-source model on Ollama Cloud with undisclosed parameters. Range estimate only ($0.02-$0.08). No single defensible price to store.
+| devstral-small-2:24b-cloud | Now mapped to `mistralai/devstral-small` in Portkey OpenRouter provider. Previous compute estimate ($0.04/$0.04) replaced. |
 
 ---
 
@@ -200,9 +197,10 @@ Models with `unknown` confidence for pricing:
 
 1. **GitHub Copilot models and pricing**: https://docs.github.com/copilot/reference/copilot-billing/models-and-pricing
 2. **GitHub Copilot model multipliers (annual plans)**: https://docs.github.com/en/copilot/reference/copilot-billing/model-multipliers-for-annual-plans
-3. **Ollama Cloud documentation**: https://ollama.com/ (pricing measured by GPU time)
+3. **Portkey Models pricing JSON**: https://configs.portkey.ai/pricing (live pricing data for Ollama Cloud models)
+3. **Portkey Models repo**: https://github.com/Portkey-AI/models
 4. Internal historical: `docs/internal/copilot-model-pricing.md` (last updated 2026-05-16)
-5. Internal historical: `docs/internal/ollama-pro-cloud-models-ranked.md` (compute estimate methodology)
+5. Internal historical: `docs/internal/ollama-pro-cloud-models-ranked.md` (compute estimate methodology — superseded by Portkey pricing)
 
 ---
 
@@ -211,3 +209,5 @@ Models with `unknown` confidence for pricing:
 | Date | Change |
 |---|---|
 | 2026-06-01 | Initial evidence ledger created. Copilot pricing sourced from official docs (via internal copilot-model-pricing.md). Ollama Cloud pricing from compute estimates (via ollama-pro-cloud-models-ranked.md). |
+| 2026-06-04 | **Ollama Cloud pricing updated from Portkey-AI/models**. All cloud models now use Portkey's open-source pricing database. Original provider files used for cache info where accessible (DeepSeek, Google, z-ai). OpenRouter provider file used as fallback for models without direct provider access. Compute estimates retired for all listed models. |
+| 2026-06-04 | **Cache pricing refreshed** from Portkey provider files. DeepSeek V4, Gemini 3 Flash, and GLM models now show cache read/write costs from upstream providers. Models without cache info in Portkey remain marked "—". |

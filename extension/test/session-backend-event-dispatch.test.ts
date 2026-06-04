@@ -37,7 +37,7 @@ test('dispatchSessionBackendEvent routes message.custom payloads', () => {
       id: 'req-1:custom:1',
       role: 'system' as const,
       createdAt: '2026-01-01T00:00:00.000Z',
-      markdown: 'Pruned: Kept 4/14 skills',
+      markdown: 'Kept 4/14 skills',
       status: 'completed' as const,
       customType: 'pruning-result',
       customDetails: {

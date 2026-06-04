@@ -80,7 +80,7 @@
         "pie.sdkPath": {
           "type": "string",
           "default": "",
-          "description": "Absolute path to the installed @mariozechner/pi-coding-agent package directory."
+          "description": "Absolute path to the installed PI SDK package directory, such as @earendil-works/pi-coding-agent."
         },
         "pie.experimentAssignment": {
           "type": "string",

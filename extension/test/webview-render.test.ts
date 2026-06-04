@@ -892,7 +892,7 @@ test('rendered assistant pruning header shows compact counts and expanded diagno
 
   assert.equal(
     formatPruningSummary(details),
-    'Pruned: Kept 3/14 skills, Kept 5/13 tools · Saved ~2080 tokens',
+    'Kept 3/14 skills, Kept 5/13 tools · Saved ~2080 tokens',
   );
 
   const messageHtml = renderToString(h(MessageItem, {
@@ -912,8 +912,8 @@ test('rendered assistant pruning header shows compact counts and expanded diagno
     pruningHeaderState: { kind: 'result', details },
   }));
 
-  assert.match(messageHtml, /aria-label="Pruned: Kept 3\/14 skills, Kept 5\/13 tools · Saved ~2080 tokens"/);
-  assert.match(messageHtml, /Pruned: Kept 3\/14 skills, Kept 5\/13 tools · Saved ~2080 tokens/);
+  assert.match(messageHtml, /aria-label="Kept 3\/14 skills, Kept 5\/13 tools · Saved ~2080 tokens"/);
+  assert.match(messageHtml, /Kept 3\/14 skills, Kept 5\/13 tools · Saved ~2080 tokens/);
   assert.doesNotMatch(messageHtml, /Skills pruned/);
 
   const chipHtml = renderToString(h(PruningHeaderButton, {
@@ -927,7 +927,7 @@ test('rendered assistant pruning header shows compact counts and expanded diagno
     onToggle: noop,
   }));
   assert.match(chipHtml, /aria-expanded="true"/);
-  assert.match(chipHtml, /Pruned: Kept 3\/14 skills/);
+  assert.match(chipHtml, /Kept 3\/14 skills/);
   assert.match(pendingChipHtml, /role="status"/);
   assert.match(pendingChipHtml, /aria-live="polite"/);
   assert.match(pendingChipHtml, /agent-activity-text">pruning skills\/tools<\/span>/);

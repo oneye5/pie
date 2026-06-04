@@ -37,7 +37,7 @@ function formatPruningChipLabel(details: PruningDetails, fallbackText?: string):
   if (skillsTotal > 0) parts.push(`${skillsKept}/${skillsTotal} skills`);
   if (toolsTotal > 0) parts.push(`${toolsKept}/${toolsTotal} tools`);
 
-  return parts.length > 0 ? `Pruned · ${parts.join(' · ')}` : fallbackText || 'Pruning complete';
+  return parts.length > 0 ? parts.join(' · ') : fallbackText || 'Pruning complete';
 }
 
 export function PruningHeaderChip({ state, expanded, onToggle }: PruningHeaderChipProps) {

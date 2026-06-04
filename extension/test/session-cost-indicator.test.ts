@@ -294,8 +294,8 @@ test('buildSessionCostIndicator shows a live estimate while running without comp
 
   const result = buildSessionCostIndicator(
     makeSummary(),
-    { input: 0.0817, output: 0.0817, cacheRead: 0, cacheWrite: 0 },
-    'Ollama Cloud: DeepSeek V4 Pro',
+    { input: 0.04, output: 0.08, cacheRead: 0, cacheWrite: 0 },
+    'Ollama Cloud: Gemma 3 4B',
     transcript,
     undefined,
     undefined,
@@ -304,7 +304,7 @@ test('buildSessionCostIndicator shows a live estimate while running without comp
 
   assert.ok(liveEstimate);
   assert.ok(result);
-  assert.equal(result.label, '$0.01');
+  assert.equal(result.label, '<$0.01');
   assert.match(result.tooltip, /Live turn estimate/);
   assert.match(result.tooltip, /126,500 tokens/);
 });

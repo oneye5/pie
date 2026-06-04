@@ -1,14 +1,6 @@
 topK: 2
 profiles:
   # === GITHUB COPILOT MODELS ===
-  #
-  # COST: the `cost` field below is a LEGACY fallback selector penalty (0–30+).
-  # Real token pricing is now the authoritative source, stored in `models.json`.
-  # The subagent selector resolves cost in this order:
-  #   1. Real token pricing from models.json → normalized via 10×√(blended/6.00)
-  #   2. Legacy `cost` field below (kept as fallback for models without token pricing)
-  #   3. Capability aggregate (precision+creativity+thoroughness+reasoning)
-  # See docs/internal/model-token-pricing-sources.md for evidence and baseline.
 
   # --- Claude (current gen) ---
   - id: claude-opus-4.8
@@ -18,7 +10,6 @@ profiles:
     reasoning: 5
     thinking: [medium]
     eligible: true
-    cost: 30
 
   - id: claude-opus-4.7
     precision: 5
@@ -27,7 +18,6 @@ profiles:
     reasoning: 5
     thinking: [medium]
     eligible: true
-    cost: 30
 
   - id: claude-opus-4.6
     precision: 4
@@ -36,7 +26,6 @@ profiles:
     reasoning: 5
     thinking: [low, medium, high, xhigh]
     eligible: true
-    cost: 18
 
   - id: claude-sonnet-4.6
     precision: 4
@@ -45,7 +34,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high, xhigh]
     eligible: true
-    cost: 10
 
   - id: claude-sonnet-4.5
     precision: 4
@@ -54,7 +42,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high]
     eligible: true
-    cost: 10
 
   - id: claude-haiku-4.5
     precision: 3
@@ -63,7 +50,6 @@ profiles:
     reasoning: 3
     thinking: [minimal, low, medium]
     eligible: true
-    cost: 3
 
   # --- Claude (old gen, disabled) ---
   - id: claude-opus-4.5
@@ -74,7 +60,6 @@ profiles:
     thinking: [medium, high, xhigh]
     eligible: false
     disabled_reason: Superseded by opus-4.6/4.7
-    cost: 18
 
   - id: claude-sonnet-4
     precision: 4
@@ -84,7 +69,6 @@ profiles:
     thinking: [low, medium, high]
     eligible: false
     disabled_reason: Superseded by sonnet-4.5/4.6
-    cost: 10
 
   # --- GPT (current gen) ---
   - id: gpt-5.5
@@ -94,7 +78,6 @@ profiles:
     reasoning: 5
     thinking: [medium, high, xhigh]
     eligible: true
-    cost: 25
 
   - id: gpt-5.4
     precision: 4
@@ -103,7 +86,6 @@ profiles:
     reasoning: 5
     thinking: [low, medium, high, xhigh]
     eligible: true
-    cost: 10
 
   - id: gpt-5.4-mini
     precision: 3
@@ -112,7 +94,6 @@ profiles:
     reasoning: 3
     thinking: [minimal, low, medium, high]
     eligible: true
-    cost: 3
 
   - id: gpt-5.3-codex
     precision: 4
@@ -121,7 +102,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high]
     eligible: true
-    cost: 10
 
   - id: gpt-5.2-codex
     precision: 4
@@ -130,7 +110,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high]
     eligible: true
-    cost: 10
 
   - id: gpt-5.2
     precision: 4
@@ -139,7 +118,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high]
     eligible: true
-    cost: 10
 
   # --- GPT (old gen, free-tier fallback enabled) ---
   - id: gpt-5.1
@@ -150,7 +128,6 @@ profiles:
     thinking: [low, medium, high]
     eligible: false
     disabled_reason: Superseded by gpt-5.2+
-    cost: 10
 
   - id: gpt-5.1-codex
     precision: 4
@@ -160,7 +137,6 @@ profiles:
     thinking: [low, medium, high]
     eligible: false
     disabled_reason: Superseded by gpt-5.2-codex/5.3-codex
-    cost: 10
 
   - id: gpt-5.1-codex-max
     precision: 4
@@ -170,7 +146,6 @@ profiles:
     thinking: [medium, high, xhigh]
     eligible: false
     disabled_reason: Superseded by gpt-5.3-codex
-    cost: 10
 
   - id: gpt-5.1-codex-mini
     precision: 3
@@ -180,7 +155,6 @@ profiles:
     thinking: [low, medium]
     eligible: false
     disabled_reason: Superseded by gpt-5.4-mini
-    cost: 3
 
   - id: gpt-5
     precision: 3
@@ -190,7 +164,6 @@ profiles:
     thinking: [low, medium, high]
     eligible: false
     disabled_reason: Superseded by gpt-5.4/5.5
-    cost: 10
 
   - id: gpt-5-mini
     precision: 2
@@ -199,7 +172,6 @@ profiles:
     reasoning: 2
     thinking: [low, medium]
     eligible: true
-    cost: 0
 
   - id: gpt-4.1
     precision: 2
@@ -208,7 +180,6 @@ profiles:
     reasoning: 2
     thinking: [minimal]
     eligible: true
-    cost: 0
 
   - id: gpt-4o
     precision: 2
@@ -217,7 +188,6 @@ profiles:
     reasoning: 1
     thinking: [minimal]
     eligible: true
-    cost: 0
 
   # --- Gemini (copilot, current gen) ---
   - id: gemini-3.1-pro-preview
@@ -227,7 +197,6 @@ profiles:
     reasoning: 5
     thinking: [medium, high, xhigh]
     eligible: true
-    cost: 10
 
   - id: gemini-3-pro-preview
     precision: 3
@@ -236,7 +205,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high, xhigh]
     eligible: true
-    cost: 10
 
   - id: gemini-3-flash-preview
     precision: 2
@@ -245,7 +213,6 @@ profiles:
     reasoning: 3
     thinking: [minimal, low, medium, high]
     eligible: true
-    cost: 3
 
   # --- Gemini (copilot, old gen) ---
   - id: gemini-2.5-pro
@@ -256,7 +223,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Superseded by gemini-3.x
-    cost: 10
 
   # --- Grok ---
   - id: grok-code-fast-1
@@ -266,13 +232,8 @@ profiles:
     reasoning: 3
     thinking: [minimal, low, medium]
     eligible: true
-    cost: 13
 
   # === OLLAMA CLOUD MODELS ===
-  #
-  # COST: legacy fallback values. Real pricing in models.json (compute estimates
-  # from docs/internal/model-token-pricing-sources.md) is the authoritative source.
-  # The `cost` field here is only used when models.json has no pricing for a model.
 
   # --- DeepSeek (current gen) ---
   - id: deepseek-v4-pro:cloud
@@ -282,7 +243,6 @@ profiles:
     reasoning: 5
     thinking: [medium, high, xhigh]
     eligible: true
-    cost: 11
 
   - id: deepseek-v4-flash:cloud
     precision: 3
@@ -291,7 +251,6 @@ profiles:
     reasoning: 3
     thinking: [low, medium, high]
     eligible: true
-    cost: 6
 
   - id: deepseek-v3.2:cloud
     precision: 4
@@ -300,7 +259,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high]
     eligible: true
-    cost: 10
 
   # --- DeepSeek (old gen) ---
   - id: deepseek-v3.1:671b-cloud
@@ -311,7 +269,6 @@ profiles:
     thinking: [low, medium, high]
     eligible: false
     disabled_reason: Superseded by deepseek-v3.2
-    cost: 10
 
   # --- Cogito ---
   - id: cogito-2.1:671b-cloud
@@ -321,7 +278,6 @@ profiles:
     reasoning: 4
     thinking: [medium, high, xhigh]
     eligible: true
-    cost: 10
 
   # --- Gemini (ollama) ---
   - id: gemini-3-flash-preview:cloud
@@ -331,7 +287,6 @@ profiles:
     reasoning: 3
     thinking: [minimal, low, medium, high, xhigh]
     eligible: true
-    cost: 9
 
   - id: gemma4:31b-cloud
     precision: 3
@@ -340,7 +295,6 @@ profiles:
     reasoning: 3
     thinking: [minimal, low, medium]
     eligible: true
-    cost: 9
 
   # --- Gemma (old gen) ---
   - id: gemma3:27b-cloud
@@ -351,7 +305,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Superseded by gemma4:31b
-    cost: 9
 
   - id: gemma3:12b-cloud
     precision: 2
@@ -361,7 +314,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Superseded by gemma4:31b
-    cost: 6
 
   - id: gemma3:4b-cloud
     precision: 1
@@ -371,7 +323,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Too small for agentic work
-    cost: 3
 
   # --- RNJ ---
   - id: rnj-1:8b-cloud
@@ -382,7 +333,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Too small for agentic work
-    cost: 5
 
   # --- Qwen (current gen) ---
   - id: qwen3.5:397b-cloud
@@ -392,7 +342,6 @@ profiles:
     reasoning: 4
     thinking: [medium, high, xhigh]
     eligible: true
-    cost: 7
 
   - id: qwen3.5:cloud
     precision: 3
@@ -401,7 +350,6 @@ profiles:
     reasoning: 3
     thinking: [low, medium, high]
     eligible: true
-    cost: 7
 
   - id: qwen3-next:80b-cloud
     precision: 3
@@ -410,7 +358,6 @@ profiles:
     reasoning: 3
     thinking: [low, medium, high]
     eligible: true
-    cost: 3
 
   - id: qwen3-vl:235b-cloud
     precision: 4
@@ -419,7 +366,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high]
     eligible: true
-    cost: 8
 
   - id: qwen3-coder-next:cloud
     precision: 4
@@ -428,7 +374,6 @@ profiles:
     reasoning: 2
     thinking: [minimal]
     eligible: true
-    cost: 3
 
   - id: qwen3-coder:480b-cloud
     precision: 4
@@ -437,7 +382,6 @@ profiles:
     reasoning: 3
     thinking: [minimal]
     eligible: true
-    cost: 10
 
   # --- Qwen (old/redundant) ---
   - id: qwen3-vl:235b-instruct-cloud
@@ -448,7 +392,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Redundant with qwen3-vl:235b-cloud thinking variant
-    cost: 8
 
   # --- Kimi (current gen) ---
   - id: kimi-k2.6:cloud
@@ -458,7 +401,6 @@ profiles:
     reasoning: 5
     thinking: [medium, high, xhigh]
     eligible: true
-    cost: 9
 
   - id: kimi-k2.5:cloud
     precision: 4
@@ -467,7 +409,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high]
     eligible: true
-    cost: 9
 
   # --- Kimi (old gen) ---
   - id: kimi-k2-thinking:cloud
@@ -478,7 +419,6 @@ profiles:
     thinking: [medium, high]
     eligible: false
     disabled_reason: Superseded by kimi-k2.5/k2.6
-    cost: 9
 
   - id: kimi-k2:1t-cloud
     precision: 3
@@ -488,7 +428,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Superseded by kimi-k2.5/k2.6
-    cost: 9
 
   # --- Nemotron ---
   - id: nemotron-3-super:cloud
@@ -498,7 +437,6 @@ profiles:
     reasoning: 3
     thinking: [low, medium, high, xhigh]
     eligible: true
-    cost: 6
 
   - id: nemotron-3-nano:30b-cloud
     precision: 3
@@ -507,7 +445,6 @@ profiles:
     reasoning: 3
     thinking: [minimal, low, medium]
     eligible: true
-    cost: 9
 
   # --- GLM (current gen) ---
   - id: glm-5.1:cloud
@@ -517,7 +454,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high]
     eligible: true
-    cost: 10
 
   - id: glm-4.7:cloud
     precision: 3
@@ -526,7 +462,6 @@ profiles:
     reasoning: 3
     thinking: [low, medium]
     eligible: true
-    cost: 9
 
   # --- GLM (old gen) ---
   - id: glm-5:cloud
@@ -537,7 +472,6 @@ profiles:
     thinking: [low, medium, high]
     eligible: false
     disabled_reason: Superseded by glm-5.1
-    cost: 10
 
   - id: glm-4.6:cloud
     precision: 3
@@ -547,7 +481,6 @@ profiles:
     thinking: [low, medium]
     eligible: false
     disabled_reason: Superseded by glm-4.7
-    cost: 9
 
   # --- GPT-OSS ---
   - id: gpt-oss:120b-cloud
@@ -557,7 +490,6 @@ profiles:
     reasoning: 4
     thinking: [low, medium, high]
     eligible: true
-    cost: 18
 
   - id: gpt-oss:20b-cloud
     precision: 3
@@ -567,7 +499,6 @@ profiles:
     thinking: [minimal, low, medium]
     eligible: false
     disabled_reason: Superseded by gpt-oss:120b
-    cost: 7
 
   # --- Minimax (current gen) ---
   - id: minimax-m2.7:cloud
@@ -577,7 +508,6 @@ profiles:
     reasoning: 3
     thinking: [low, medium, high]
     eligible: true
-    cost: 5
 
   # --- Minimax (old gen) ---
   - id: minimax-m2.5:cloud
@@ -588,7 +518,6 @@ profiles:
     thinking: [low, medium]
     eligible: false
     disabled_reason: Superseded by m2.7
-    cost: 5
 
   - id: minimax-m2.1:cloud
     precision: 2
@@ -598,7 +527,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Superseded by m2.5/m2.7
-    cost: 5
 
   - id: minimax-m2:cloud
     precision: 2
@@ -608,7 +536,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Superseded by m2.5/m2.7
-    cost: 5
 
   # --- Devstral / Mistral ---
   - id: devstral-2:123b-cloud
@@ -618,7 +545,6 @@ profiles:
     reasoning: 2
     thinking: [minimal]
     eligible: true
-    cost: 18
 
   - id: devstral-small-2:24b-cloud
     precision: 3
@@ -627,7 +553,6 @@ profiles:
     reasoning: 2
     thinking: [minimal]
     eligible: true
-    cost: 8
 
   - id: mistral-large-3:675b-cloud
     precision: 4
@@ -636,7 +561,6 @@ profiles:
     reasoning: 3
     thinking: [minimal]
     eligible: true
-    cost: 10
 
   - id: ministral-3:14b-cloud
     precision: 3
@@ -645,7 +569,6 @@ profiles:
     reasoning: 2
     thinking: [minimal]
     eligible: true
-    cost: 6
 
   # --- Ministral (old/too small) ---
   - id: ministral-3:8b-cloud
@@ -656,7 +579,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: 14b variant is a better trade-off for only slightly more cost
-    cost: 5
 
   - id: ministral-3:3b-cloud
     precision: 1
@@ -666,7 +588,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Too small for agentic work
-    cost: 3
 
   # === OLLAMA LOCAL MODELS ===
 
@@ -679,7 +600,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Too small for agentic work
-    cost: 8
 
   - id: llama3.2-3b-pi:latest
     precision: 1
@@ -689,7 +609,6 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Too small for agentic work
-    cost: 4
 
   - id: gemma4-e2b-pi:latest
     precision: 1
@@ -699,4 +618,3 @@ profiles:
     thinking: [minimal]
     eligible: false
     disabled_reason: Too small for agentic work
-    cost: 4

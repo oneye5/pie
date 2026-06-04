@@ -190,8 +190,33 @@ test('resolveSdkPath prefers a cached valid SDK path before shelling out to npm'
   assert.equal(execCalls, 0);
 });
 
-test('resolveSdkPath ignores an invalid cached path and falls back to npm root -g', async () => {
-  const expectedSdkPath = path.join('/global/node_modules', '@mariozechner', 'pi-coding-agent');
+test('resolveSdkPath refreshes a cached legacy global SDK to the maintained package', async () => {
+  const legacySdkPath = path.join('/global/node_modules', '@mariozechner', 'pi-coding-agent');
+  const expectedSdkPath = path.join('/global/node_modules', '@earendil-works', 'pi-coding-agent');
+
+  const sdkPath = await resolveSdkPath({
+    cachedPath: legacySdkPath,
+    env: {},
+    exists: (filePath) => {
+      return (
+        filePath === path.join(legacySdkPath, 'package.json') ||
+        filePath === path.join(legacySdkPath, 'dist', 'index.js') ||
+        filePath === path.join(expectedSdkPath, 'package.json') ||
+        filePath === path.join(expectedSdkPath, 'dist', 'index.js')
+      );
+    },
+    exec: async () => ({
+      stdout: '/global/node_modules\n',
+      stderr: '',
+      exitCode: 0,
+    }),
+  });
+
+  assert.equal(sdkPath, expectedSdkPath);
+});
+
+test('resolveSdkPath ignores an invalid cached path and falls back to the maintained global SDK', async () => {
+  const expectedSdkPath = path.join('/global/node_modules', '@earendil-works', 'pi-coding-agent');
   let execCalls = 0;
 
   const sdkPath = await resolveSdkPath({
@@ -215,6 +240,27 @@ test('resolveSdkPath ignores an invalid cached path and falls back to npm root -
 
   assert.equal(sdkPath, expectedSdkPath);
   assert.equal(execCalls, 1);
+});
+
+test('resolveSdkPath falls back to the legacy global SDK when the maintained package is missing', async () => {
+  const expectedSdkPath = path.join('/global/node_modules', '@mariozechner', 'pi-coding-agent');
+
+  const sdkPath = await resolveSdkPath({
+    env: {},
+    exists: (filePath) => {
+      return (
+        filePath === path.join(expectedSdkPath, 'package.json') ||
+        filePath === path.join(expectedSdkPath, 'dist', 'index.js')
+      );
+    },
+    exec: async () => ({
+      stdout: '/global/node_modules\n',
+      stderr: '',
+      exitCode: 0,
+    }),
+  });
+
+  assert.equal(sdkPath, expectedSdkPath);
 });
 
 // ─── execCommand / createCommandExecutor ────────────────────────────────────

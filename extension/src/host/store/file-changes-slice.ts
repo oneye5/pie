@@ -29,6 +29,13 @@ const fileChangesSlice = createSlice({
       if (existingIdx !== -1) {
         const existing = list[existingIdx];
         const change = action.payload.change;
+
+        // If a file was created in this session and is now deleted, drop it entirely.
+        if (change.kind === 'deleted' && existing.kind === 'created') {
+          list.splice(existingIdx, 1);
+          return;
+        }
+
         // Accumulate line stats without mutating the action payload
         const additions = (existing.additions ?? 0) + (change.additions ?? 0);
         const deletions = (existing.deletions ?? 0) + (change.deletions ?? 0);
@@ -220,6 +227,7 @@ export function deriveFileChangesFromTranscript(
   transcript: ChatMessage[],
 ): FileChangeEntry[] {
   const seen = new Map<string, FileChangeEntry>();
+  const createdPaths = new Set<string>();
 
   for (const message of transcript) {
     if (message.role !== 'assistant') continue;
@@ -231,19 +239,27 @@ export function deriveFileChangesFromTranscript(
         message.id,
         message.createdAt,
       );
-      if (entry) {
-        const existing = seen.get(entry.path);
-        if (existing) {
-          // Accumulate stats across edits to the same file
-          const additions = (existing.additions ?? 0) + (entry.additions ?? 0);
-          const deletions = (existing.deletions ?? 0) + (entry.deletions ?? 0);
-          if (additions > 0) entry.additions = additions;
-          else delete entry.additions;
-          if (deletions > 0) entry.deletions = deletions;
-          else delete entry.deletions;
-        }
-        seen.set(entry.path, entry);
+      if (!entry) continue;
+
+      if (entry.kind === 'created') {
+        createdPaths.add(entry.path);
+      } else if (entry.kind === 'deleted' && createdPaths.has(entry.path)) {
+        // File was created in this session and then deleted — net no-op.
+        seen.delete(entry.path);
+        continue;
       }
+
+      const existing = seen.get(entry.path);
+      if (existing) {
+        // Accumulate stats across edits to the same file
+        const additions = (existing.additions ?? 0) + (entry.additions ?? 0);
+        const deletions = (existing.deletions ?? 0) + (entry.deletions ?? 0);
+        if (additions > 0) entry.additions = additions;
+        else delete entry.additions;
+        if (deletions > 0) entry.deletions = deletions;
+        else delete entry.deletions;
+      }
+      seen.set(entry.path, entry);
     }
   }
 

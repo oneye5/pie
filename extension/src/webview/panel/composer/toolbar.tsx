@@ -3,7 +3,10 @@
 
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningCatalog, PruningResult, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
 
-import { ToolbarChip, ToolbarIndicatorChip, ToolbarModelSelectChip, ToolbarRunStatusChip, ToolbarSelectChip } from '../components/panel-chip';
+import { useMemo } from 'preact/hooks';
+
+import { ToolbarChip, ToolbarIndicatorChip, ToolbarRunStatusChip, ToolbarSelectChip } from '../components/panel-chip';
+import { ModelPicker } from '../components/model-picker';
 import { orderModelsForPicker } from './model-list';
 import { ComposerSettingsMenu } from './settings-menu';
 
@@ -64,7 +67,7 @@ export function ComposerToolbar({
   const filteredModels = availableModels.filter(
     (m) => prefs.providerToggles[m.provider] !== false || m.id === selectedModel,
   );
-  const modelEntries = orderModelsForPicker(filteredModels);
+  const modelEntries = useMemo(() => orderModelsForPicker(filteredModels), [filteredModels]);
   const selectedModelEntry = modelEntries.find((entry) => entry.model.id === selectedModel) ?? null;
   const fallbackModelLabel = modelEntries[0]?.selectedLabel ?? '';
   const selectedModelLabel = selectedModelEntry?.selectedLabel ?? (selectedModel || fallbackModelLabel);
@@ -74,27 +77,14 @@ export function ComposerToolbar({
         <ComposerSettingsMenu prefs={prefs} pruningSettings={pruningSettings} pruningCatalog={pruningCatalog} pruningResult={pruningResult} availableExtensions={availableExtensions} availableModels={availableModels} onSetPrefs={onSetPrefs} onSetPruningSettings={onSetPruningSettings} />
 
         {filteredModels.length > 0 ? (
-          <ToolbarModelSelectChip
+          <ModelPicker
             label={selectedModelLabel}
             value={selectedModel}
             ariaLabel="Model"
             title="Select model"
-            onChange={(e) => {
-              const target = e.target as HTMLSelectElement;
-              onModelChange(target.value, selectedLevel);
-            }}
-          >
-              {modelEntries.map((entry) => (
-                <option
-                  key={entry.model.id}
-                  value={entry.model.id}
-                  class={entry.ineligible ? 'model-option-ineligible' : undefined}
-                  title={entry.title}
-                >
-                  {entry.label}
-                </option>
-              ))}
-          </ToolbarModelSelectChip>
+            entries={modelEntries}
+            onChange={(modelId) => onModelChange(modelId, selectedLevel)}
+          />
         ) : selectedModel ? (
           <ToolbarChip label={selectedModel} title={selectedModel} />
         ) : null}

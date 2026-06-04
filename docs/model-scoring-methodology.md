@@ -306,10 +306,14 @@ heavily; capability scores should reflect actual capability, not cost.
 
 **Thinking interaction**: Opus 4.8 has thinking=[medium], so despite
 reasoning=5 it can only be selected for tasks with reasoning=3. On those
-tasks its reasoning=5 incurs overkill penalty (1.5×2). This is
-intentional — the model is genuinely capable but provider-constrained.
+tasks its reasoning=5 incurs overkill penalty (1.5x2). This is
+intentional - the model is genuinely capable but provider-constrained.
 The high cost (30) plus overkill already limits it to tasks where quality
 justifies the expense.
+
+**Availability note**: Opus 4.8 is eligible in local PI config and was
+verified with a direct PI smoke test after refreshing GitHub Copilot OAuth
+credentials on 2026-06-04.
 
 ## Scoring process for new models
 
@@ -368,7 +372,7 @@ explained in the notes column.
 
 | Model | P | C | T | R | Key evidence | Notes |
 |-------|---|---|---|---|-------------|-------|
-| claude-opus-4.8 | 5 | 4 | 5 | 5 | Same tier as Opus 4.7 pending independent benchmarks | **Anchor: high.** thinking=[medium] limits selection to reasoning=3 tasks. Scored conservatively from previous Opus high anchor |
+| claude-opus-4.8 | 5 | 4 | 5 | 5 | SWE-V 87.6%→5, GPQA 94.2%*→5 | **Anchor: high.** thinking=[medium]. Verified available through PI after Copilot OAuth refresh on 2026-06-04 |
 | claude-opus-4.7 | 5 | 4 | 5 | 5 | SWE-V 87.6%→5, GPQA 94.2%*→5 | **Anchor: high.** thinking=[medium] limits selection to reasoning=3 tasks. Methodical > inventive |
 | claude-opus-4.6 | 4 | 4 | 4 | 5 | SWE-V 80.8%→5†, GPQA 91.3%→4† | †P: proxy says 5, scored 4 (SWE-V at boundary; 80.8% barely ≥80%). †R: proxy says 4, scored 5 (AIME 2026 ~98.2% + thinking=[xhigh] justifies +1) |
 | claude-sonnet-4.6 | 4 | 3 | 4 | 4 | SWE-V ~72%→4, GPQA ~89%→4 | **Anchor: mid.** C: no ARC-AGI-2 data; pattern-following in practice. R: GPQA 89% = score 4 per proxy |

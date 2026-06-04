@@ -190,6 +190,38 @@ test("parseLlmResponse handles missing skills/tools keys gracefully", () => {
 	const result = parseLlmResponse('{"skills": ["alpha"]}', knownSkills, knownTools);
 	assert.deepEqual(result.skills, ["alpha"]);
 	assert.deepEqual(result.tools, []);
+	assert.equal(result.skillsExplicitlyEmpty, false);
+	assert.equal(result.toolsExplicitlyEmpty, false);
+});
+
+test("parseLlmResponse flags explicitly empty skills array", () => {
+	const knownSkills = new Set(["alpha"]);
+	const knownTools = new Set(["read"]);
+	const result = parseLlmResponse('{"skills":[],"tools":["read"]}', knownSkills, knownTools);
+	assert.deepEqual(result.skills, []);
+	assert.deepEqual(result.tools, ["read"]);
+	assert.equal(result.skillsExplicitlyEmpty, true);
+	assert.equal(result.toolsExplicitlyEmpty, false);
+});
+
+test("parseLlmResponse flags explicitly empty tools array", () => {
+	const knownSkills = new Set(["alpha"]);
+	const knownTools = new Set(["read"]);
+	const result = parseLlmResponse('{"skills":["alpha"],"tools":[]}', knownSkills, knownTools);
+	assert.deepEqual(result.skills, ["alpha"]);
+	assert.deepEqual(result.tools, []);
+	assert.equal(result.skillsExplicitlyEmpty, false);
+	assert.equal(result.toolsExplicitlyEmpty, true);
+});
+
+test("parseLlmResponse does not flag explicit empty when array filtered to empty", () => {
+	const knownSkills = new Set(["alpha"]);
+	const knownTools = new Set(["read"]);
+	const result = parseLlmResponse('{"skills":["unknown"],"tools":["unknown-tool"]}', knownSkills, knownTools);
+	assert.deepEqual(result.skills, []);
+	assert.deepEqual(result.tools, []);
+	assert.equal(result.skillsExplicitlyEmpty, false);
+	assert.equal(result.toolsExplicitlyEmpty, false);
 });
 
 test("parseLlmResponse extracts reasoning from JSON response", () => {

@@ -35,7 +35,7 @@ function makePruningMessage(id: string): ChatMessage {
   return {
     id,
     role: 'system',
-    markdown: 'Pruned: Kept 1/2 skills, Kept 1/3 tools · Saved ~50 tokens',
+    markdown: 'Kept 1/2 skills, Kept 1/3 tools · Saved ~50 tokens',
     status: 'completed',
     customType: 'pruning-result',
     customDetails: makePruningDetails(),
@@ -120,7 +120,7 @@ test('buildTranscriptRows attaches pruning-result details to the following assis
     assistantRow?.kind === 'message' && assistantRow.pruningHeaderState?.kind === 'result'
       ? assistantRow.pruningHeaderState.fallbackText
       : null,
-    'Pruned: Kept 1/2 skills, Kept 1/3 tools · Saved ~50 tokens',
+    'Kept 1/2 skills, Kept 1/3 tools · Saved ~50 tokens',
   );
 });
 
@@ -216,7 +216,7 @@ test('buildTranscriptRows keeps a stable assistant placeholder shell when prunin
     assistantRow?.kind === 'message' && assistantRow.pruningHeaderState?.kind === 'result'
       ? assistantRow.pruningHeaderState.fallbackText
       : null,
-    'Pruned: Kept 1/2 skills, Kept 1/3 tools · Saved ~50 tokens',
+    'Kept 1/2 skills, Kept 1/3 tools · Saved ~50 tokens',
   );
   assert.equal(assistantRow?.kind === 'message' && assistantRow.activityState ? assistantRow.activityState.phase : null, 'startingModel');
   assert.equal(assistantRow?.kind === 'message' && assistantRow.activityState ? assistantRow.activityState.label : null, 'starting model');

@@ -8,6 +8,7 @@ import { playCompletionSound, warmupCompletionSoundContext } from '../completion
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningCatalog, PruningMode, PruningResult, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
 import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
 import { orderModelsForPicker } from './model-list';
+import { ModelPicker } from '../components/model-picker';
 
 /** Extension IDs that have nested settings panels */
 const EXTENSIONS_WITH_SETTINGS = new Set(['skill-pruner']);
@@ -181,6 +182,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
     [pruningCatalog.tools, pruningResult, pruningSettings.toolAlwaysKeep],
   );
   const [open, setOpen] = useState(false);
+  const modelEntries = useMemo(() => orderModelsForPicker(availableModels), [availableModels]);
   const [expandedExt, setExpandedExt] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
 
@@ -360,33 +362,25 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
                           </div>
                           <div class="toolbar-settings-item toolbar-settings-mode-row">
                             <span class="toolbar-settings-item-label">Prepass model</span>
-                            <select
-                              class="toolbar-settings-select"
+                            <ModelPicker
+                              compact
+                              dropdownDirection="down"
                               value={pruningSettings.model}
-                              onChange={(e) => {
-                                const selected = availableModels.find((m) => m.id === (e.target as HTMLSelectElement).value);
+                              label={
+                                modelEntries.find((e) => e.model.id === pruningSettings.model)?.selectedLabel
+                                || pruningSettings.model
+                                || 'Select model…'
+                              }
+                              ariaLabel="Pruning prepass model"
+                              title="Select prepass model"
+                              entries={modelEntries}
+                              onChange={(modelId) => {
+                                const selected = availableModels.find((m) => m.id === modelId);
                                 if (selected) {
                                   onSetPruningSettings({ model: selected.id, provider: selected.provider });
                                 }
                               }}
-                              aria-label="Pruning prepass model"
-                            >
-                              {!availableModels.some((m) => m.id === pruningSettings.model) && pruningSettings.model && (
-                                <option key={pruningSettings.model} value={pruningSettings.model}>
-                                  {pruningSettings.model} (unavailable)
-                                </option>
-                              )}
-                              {orderModelsForPicker(availableModels).map((entry) => (
-                                <option
-                                  key={entry.model.id}
-                                  value={entry.model.id}
-                                  class={entry.ineligible ? 'model-option-ineligible' : undefined}
-                                  title={entry.title}
-                                >
-                                  {entry.label}
-                                </option>
-                              ))}
-                            </select>
+                            />
                           </div>
                           <div class="toolbar-settings-item toolbar-settings-mode-row">
                             <span class="toolbar-settings-item-label">Thinking</span>

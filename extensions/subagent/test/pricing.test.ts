@@ -139,8 +139,8 @@ test("estimateNormalizedCost: all models produce non-negative finite results", (
 		{ input: 3.00, output: 15.00, cacheRead: 0.30, cacheWrite: 3.75 },
 		{ input: 5.00, output: 30.00, cacheRead: 0.50, cacheWrite: 0 },
 		{ input: 0.20, output: 1.25, cacheRead: 0.02, cacheWrite: 0 },
-		{ input: 0.0817, output: 0.0817, cacheRead: 0, cacheWrite: 0 }, // ollama cloud cheap
-		{ input: 0.2050, output: 0.2050, cacheRead: 0, cacheWrite: 0 },  // ollama cloud expensive
+		{ input: 0.0983, output: 0.1966, cacheRead: 0, cacheWrite: 0 }, // ollama cloud cheap (deepseek-v4-flash)
+		{ input: 1.25, output: 1.25, cacheRead: 0, cacheWrite: 0 },  // ollama cloud expensive (cogito-v2.1)
 	];
 
 	for (const pricing of testPrices) {
@@ -269,7 +269,7 @@ test("loadModelPricing: reads valid models.json", async (t) => {
 			},
 			ollama: {
 				models: [
-					{ id: "deepseek-v4-pro:cloud", cost: { input: 0.0817, output: 0.0817, cacheRead: 0, cacheWrite: 0 } },
+					{ id: "deepseek-v4-pro:cloud", cost: { input: 0.435, output: 0.87, cacheRead: 0, cacheWrite: 0 } },
 				],
 			},
 		},

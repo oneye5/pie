@@ -15,17 +15,20 @@ function model(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
   };
 }
 
-test('orderModelsForPicker sorts by aggregate descending and pushes ineligible models to the bottom', () => {
+test('orderModelsForPicker sorts by normalized cost ascending and pushes ineligible models to the bottom', () => {
   const models: ModelInfo[] = [
-    model('low-eligible', { subagent: { eligible: true, aggregate: 8 } }),
-    model('ineligible-top', { subagent: { eligible: false, aggregate: 20, disabledReason: 'incompatible' } }),
-    model('high-eligible', { subagent: { eligible: true, aggregate: 18 } }),
-    model('ineligible-mid', { subagent: { eligible: false, aggregate: 12 } }),
+    model('cheap-eligible', { subagent: { eligible: true, aggregate: 8, normalizedCost: 2 } }),
+    model('ineligible-top', { subagent: { eligible: false, aggregate: 20, disabledReason: 'incompatible', normalizedCost: 0.5 } }),
+    model('pricey-eligible', { subagent: { eligible: true, aggregate: 18, normalizedCost: 8 } }),
+    model('ineligible-mid', { subagent: { eligible: false, aggregate: 12, normalizedCost: 3 } }),
     model('unrated', {}),
+    model('mid-eligible', { subagent: { eligible: true, aggregate: 14, normalizedCost: 4 } }),
   ];
 
+  // Eligible: cheapest first (cost 0 for unrated, then 2, 4, 8)
+  // Ineligible: cheapest first (0.5, then 3)
   const ordered = orderModelsForPicker(models).map((e) => e.model.id);
-  assert.deepEqual(ordered, ['high-eligible', 'low-eligible', 'unrated', 'ineligible-top', 'ineligible-mid']);
+  assert.deepEqual(ordered, ['unrated', 'cheap-eligible', 'mid-eligible', 'pricey-eligible', 'ineligible-top', 'ineligible-mid']);
 });
 
 test('orderModelsForPicker decorates ineligible options with a warning prefix and reason in the tooltip', () => {
@@ -55,10 +58,42 @@ test('orderModelsForPicker strips provider text only from the compact selected l
   assert.equal(entry.selectedLabel, 'Deepseek V4 pro');
 });
 
-test('orderModelsForPicker keeps deterministic name-based tiebreak when aggregates match', () => {
+test('orderModelsForPicker keeps deterministic name-based tiebreak when costs match', () => {
   const ordered = orderModelsForPicker([
-    model('b', { name: 'Beta', subagent: { eligible: true, aggregate: 10 } }),
-    model('a', { name: 'Alpha', subagent: { eligible: true, aggregate: 10 } }),
+    model('b', { name: 'Beta', subagent: { eligible: true, aggregate: 8, normalizedCost: 5 } }),
+    model('a', { name: 'Alpha', subagent: { eligible: true, aggregate: 10, normalizedCost: 5 } }),
   ]).map((e) => e.model.id);
+  // Same cost, so sort by aggregate desc: a (10) before b (8)
   assert.deepEqual(ordered, ['a', 'b']);
+});
+
+test('orderModelsForPicker includes pricing and image support in entries', () => {
+  const ordered = orderModelsForPicker([
+    model('priced', {
+      name: 'Priced Model',
+      inputKinds: ['text', 'image'],
+      subagent: { eligible: true, aggregate: 10, normalizedCost: 5, pricing: { input: 2.5, output: 10, cacheRead: 0.25, cacheWrite: 0 } },
+    }),
+    model('free', {
+      name: 'Free Model',
+      inputKinds: ['text'],
+      subagent: { eligible: true, aggregate: 8, normalizedCost: 0 },
+    }),
+  ]);
+
+  // Free (cost 0) sorts before priced (cost 5)
+  assert.equal(ordered[0].model.id, 'free');
+  assert.equal(ordered[1].model.id, 'priced');
+
+  const priced = ordered.find((e) => e.model.id === 'priced');
+  const free = ordered.find((e) => e.model.id === 'free');
+  assert.ok(priced && free);
+
+  assert.equal(priced!.tokenInPrice, '$2.50');
+  assert.equal(priced!.tokenOutPrice, '$10.00');
+  assert.equal(priced!.supportsImages, true);
+
+  assert.equal(free!.tokenInPrice, '');
+  assert.equal(free!.tokenOutPrice, '');
+  assert.equal(free!.supportsImages, false);
 });

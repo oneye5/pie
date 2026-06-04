@@ -24,6 +24,10 @@ export interface LlmPruningInput {
 	skills: SkillCandidate[];
 	tools: ToolCandidate[];
 	config: PruningConfig;
+	/** Names of skills that are forced-included (pinned / always-keep). The model does not need to reason about these. */
+	forcedSkills?: string[];
+	/** Names of tools that are forced-included (always-keep). The model does not need to reason about these. */
+	forcedTools?: string[];
 }
 
 export interface LlmPruningOutput {
@@ -36,6 +40,10 @@ export interface LlmPruningOutput {
 	latencyMs: number;
 	stopReason?: string;
 	errorMessage?: string;
+	/** True only when the LLM explicitly returned `"skills":[]` in valid JSON. */
+	skillsExplicitlyEmpty?: boolean;
+	/** True only when the LLM explicitly returned `"tools":[]` in valid JSON. */
+	toolsExplicitlyEmpty?: boolean;
 }
 
 export interface CompleteSimpleResult {
@@ -104,24 +112,49 @@ export function buildPruningUserMessage(input: LlmPruningInput): string {
 		lines.push(`- ${s.name}: ${s.description}`);
 	}
 
+	if (input.forcedSkills && input.forcedSkills.length > 0) {
+		lines.push("", `Forced-include skills (always kept regardless of your selection): ${input.forcedSkills.join(", ")}`);
+	}
+
 	lines.push("", "Available tools:");
 	for (const t of input.tools) {
 		lines.push(`- ${t.name}: ${t.description}`);
 	}
 
+	if (input.forcedTools && input.forcedTools.length > 0) {
+		lines.push("", `Forced-include tools (always kept regardless of your selection): ${input.forcedTools.join(", ")}`);
+	}
+
 	return lines.join("\n");
 }
 
+export interface ParsedLlmResponse {
+	skills: string[];
+	tools: string[];
+	reasoning?: string;
+	/** True only when the LLM explicitly returned `"skills":[]` in valid JSON. */
+	skillsExplicitlyEmpty: boolean;
+	/** True only when the LLM explicitly returned `"tools":[]` in valid JSON. */
+	toolsExplicitlyEmpty: boolean;
+}
+
 /** Parse the LLM response JSON, with fallback regex extraction. */
-export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownTools: Set<string>): { skills: string[]; tools: string[]; reasoning?: string } {
+export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownTools: Set<string>): ParsedLlmResponse {
 	// Try strict JSON parse first
 	try {
 		const parsed = JSON.parse(raw);
 		if (parsed && typeof parsed === "object") {
-			const skills = Array.isArray(parsed.skills) ? parsed.skills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s)) : [];
-			const tools = Array.isArray(parsed.tools) ? parsed.tools.filter((t: unknown) => typeof t === "string" && knownTools.has(t)) : [];
+			const rawSkills = Array.isArray(parsed.skills) ? parsed.skills : undefined;
+			const rawTools = Array.isArray(parsed.tools) ? parsed.tools : undefined;
+			const skills = rawSkills ? rawSkills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s)) : [];
+			const tools = rawTools ? rawTools.filter((t: unknown) => typeof t === "string" && knownTools.has(t)) : [];
 			const reasoning = typeof parsed.reasoning === "string" && parsed.reasoning.length > 0 ? parsed.reasoning : undefined;
-			const result: { skills: string[]; tools: string[]; reasoning?: string } = { skills, tools };
+			const result: ParsedLlmResponse = {
+				skills,
+				tools,
+				skillsExplicitlyEmpty: rawSkills !== undefined && rawSkills.length === 0,
+				toolsExplicitlyEmpty: rawTools !== undefined && rawTools.length === 0,
+			};
 			if (reasoning) result.reasoning = reasoning;
 			return result;
 		}
@@ -135,10 +168,17 @@ export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownToo
 		try {
 			const parsed = JSON.parse(jsonMatch[0]);
 			if (parsed && typeof parsed === "object") {
-				const skills = Array.isArray(parsed.skills) ? parsed.skills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s)) : [];
-				const tools = Array.isArray(parsed.tools) ? parsed.tools.filter((t: unknown) => typeof t === "string" && knownTools.has(t)) : [];
+				const rawSkills = Array.isArray(parsed.skills) ? parsed.skills : undefined;
+				const rawTools = Array.isArray(parsed.tools) ? parsed.tools : undefined;
+				const skills = rawSkills ? rawSkills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s)) : [];
+				const tools = rawTools ? rawTools.filter((t: unknown) => typeof t === "string" && knownTools.has(t)) : [];
 				const reasoning = typeof parsed.reasoning === "string" && parsed.reasoning.length > 0 ? parsed.reasoning : undefined;
-				const result: { skills: string[]; tools: string[]; reasoning?: string } = { skills, tools };
+				const result: ParsedLlmResponse = {
+					skills,
+					tools,
+					skillsExplicitlyEmpty: rawSkills !== undefined && rawSkills.length === 0,
+					toolsExplicitlyEmpty: rawTools !== undefined && rawTools.length === 0,
+				};
 				if (reasoning) result.reasoning = reasoning;
 				return result;
 			}
@@ -157,7 +197,7 @@ export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownToo
 		if (raw.includes(name)) tools.push(name);
 	}
 
-	return { skills, tools };
+	return { skills, tools, skillsExplicitlyEmpty: false, toolsExplicitlyEmpty: false };
 }
 
 export type CompleteSimpleFn = (
@@ -201,6 +241,8 @@ export async function runLlmPruning(
 		latencyMs,
 		stopReason: response.stopReason,
 		errorMessage: response.errorMessage,
+		skillsExplicitlyEmpty: parsed.skillsExplicitlyEmpty,
+		toolsExplicitlyEmpty: parsed.toolsExplicitlyEmpty,
 	};
 }
 
