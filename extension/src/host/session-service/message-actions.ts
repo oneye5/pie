@@ -3,20 +3,10 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { BackendClient } from '../backend/client';
-import { resolveSessionOpenedTranscript } from './session-opened-transcript';
+import { resolveSessionOpenedTranscript } from '../core/session-opened-transcript';
 import { type RunObserver } from '../stats-service';
-import { auditLog } from '../util/audit';
-import {
-  getSessionByPath,
-  sessionStateActions,
-  settingsActions,
-  sessionsActions,
-  store,
-  transcriptActions,
-  uiActions,
-} from '../store';
-import { createLocalMessageId } from '../../shared/local-message-id';
-import { deriveSessionNameFromText } from '../../shared/session-name';
+
+
 import { isPendingTabPath } from '../../shared/tab-behavior';
 import type {
   ComposerInputDraft,
@@ -27,36 +17,37 @@ import type {
   TranscriptPagePayload,
 } from '../../shared/protocol';
 import {
-  buildOptimisticUserParts,
-  buildPromptText,
   clearPendingImageInputs,
   modelSupportsInputKind,
   normalizeAttachUris,
   upsertPendingComposerInput,
   validateAndMaterializeComposerInput,
-} from './composer';
-import { buildTranscriptPageRequest } from './transcript-window';
+} from '../core/composer';
+import { buildTranscriptPageRequest } from '../core/transcript-window';
 import { SessionServiceState } from './state';
-import type { PostImperative, ScheduleRender } from './types';
+import type { ScheduleRender } from './types';
+import type { ArchState } from '../core/arch-state';
 
 interface SessionMessageActionsOptions {
   context: vscode.ExtensionContext;
   backend: BackendClient;
   scheduleRender: ScheduleRender;
-  postImperative: PostImperative;
   runObserver: RunObserver;
   state: SessionServiceState;
   createNewSession: () => string;
+  getArchState: () => ArchState;
+  mutateArchState: (recipe: (draft: ArchState) => void) => void;
 }
 
 export class SessionMessageActions {
   private readonly context: vscode.ExtensionContext;
   private readonly backend: BackendClient;
   private readonly scheduleRender: ScheduleRender;
-  private readonly postImperative: PostImperative;
   private readonly runObserver: RunObserver;
   private readonly state: SessionServiceState;
   private readonly createNewSession: () => string;
+  private readonly getArchState: () => ArchState;
+  private readonly mutateArchState: (recipe: (draft: ArchState) => void) => void;
   private readonly transcriptPageRequestSeqBySession = new Map<string, number>();
   private readonly inFlightTranscriptPageBySession = new Set<string>();
 
@@ -64,10 +55,11 @@ export class SessionMessageActions {
     this.context = options.context;
     this.backend = options.backend;
     this.scheduleRender = options.scheduleRender;
-    this.postImperative = options.postImperative;
     this.runObserver = options.runObserver;
     this.state = options.state;
     this.createNewSession = options.createNewSession;
+    this.getArchState = options.getArchState;
+    this.mutateArchState = options.mutateArchState;
   }
 
   normalizeAttachUris(uris: vscode.Uri[]): vscode.Uri[] {
@@ -102,11 +94,12 @@ export class SessionMessageActions {
         () => this.state.createComposerInputId(),
         this.scheduleRender,
         this.runObserver,
+        this.mutateArchState,
       );
       if (!input) {
         continue;
       }
-      upsertPendingComposerInput(sessionPath, input);
+      upsertPendingComposerInput(sessionPath, input, this.getArchState, this.mutateArchState);
     }
 
     this.scheduleRender();
@@ -127,12 +120,13 @@ export class SessionMessageActions {
       () => this.state.createComposerInputId(),
       this.scheduleRender,
       this.runObserver,
+      this.mutateArchState,
     );
     if (!input) {
       return;
     }
 
-    upsertPendingComposerInput(sessionPath, input);
+    upsertPendingComposerInput(sessionPath, input, this.getArchState, this.mutateArchState);
     this.scheduleRender();
   }
 
@@ -142,180 +136,18 @@ export class SessionMessageActions {
       return;
     }
 
-    store.dispatch(sessionStateActions.removePendingComposerInput({
-      sessionPath,
-      inputId,
-    }));
-    this.scheduleRender();
-  }
-
-  /**
-   * @deprecated Phase 4 migration: send is now routed through the CQRS
-   * reducer + EffectRunner in extension-host.ts. See ARCH-MIGRATION-PLAN.md §Phase 4.
-   */
-  async send(requestedSessionPath: string, text: string): Promise<void> {
-    const attemptedSessionPath = requestedSessionPath;
-    const sessionPath = this.requireOpenSessionPath('send', requestedSessionPath);
-    if (!sessionPath) {
-      this.postImperative({ type: 'sendRejected', sessionPath: attemptedSessionPath, text });
-      return;
-    }
-
-    const inputs = [
-      ...(store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? []),
-    ];
-    if (!text.trim() && inputs.length === 0) {
-      return;
-    }
-
-    this.state.bumpSessionDataEpoch(sessionPath);
-    this.runObserver.prepareForSend(sessionPath, inputs);
-
-    const composedText = buildPromptText(text, inputs);
-    const optimisticUserParts = buildOptimisticUserParts(text, inputs);
-
-    auditLog(this.context, 'session-service', 'message.send.requested', {
-      attachedInputCount: inputs.length,
-      attachedPathCount: inputs.filter((input) => input.kind === 'filesystemPathRef').length,
-      attachedImageCount: inputs.filter((input) => input.kind === 'imageBlob').length,
-      sessionPath,
-      textLength: text.length,
-    });
-
-    const previousSummary = this.maybeApplyOptimisticSessionName(sessionPath, composedText);
-
-    const localId = createLocalMessageId();
-    store.dispatch(
-      transcriptActions.appendLocalUserMessage({
-        sessionPath,
-        id: localId,
-        text: composedText,
-        userParts: optimisticUserParts,
-      }),
-    );
-    this.scheduleRender();
-
-    try {
-      await this.state.enqueueLifecycle(async () => {
-        await this.state.enqueueSessionOperation(sessionPath, async () => {
-          const response = await this.backend.request<{ requestId?: string }>('message.send', {
-            sessionPath,
-            text,
-            inputs,
-          });
-          if (response.requestId) {
-            this.state.bindRequestSessionPath(response.requestId, sessionPath);
-          }
-        });
-      });
-      store.dispatch(sessionStateActions.clearPendingComposerInputs(sessionPath));
-      this.scheduleRender();
-    } catch (err) {
-      this.runObserver.onBackendError(sessionPath, 'MESSAGE_SEND_FAILED');
-      store.dispatch(transcriptActions.removeMessage({ sessionPath, messageId: localId }));
-      if (previousSummary) {
-        store.dispatch(sessionsActions.setSessionSummary(previousSummary));
-        this.state.saveOpenTabs();
+    this.mutateArchState((draft) => {
+      const list = draft.composer.pendingComposerInputsBySession[sessionPath];
+      if (!list) return;
+      const filtered = list.filter((input) => input.id !== inputId);
+      if (filtered.length === list.length) return;
+      if (filtered.length === 0) {
+        delete draft.composer.pendingComposerInputsBySession[sessionPath];
+      } else {
+        draft.composer.pendingComposerInputsBySession[sessionPath] = filtered;
       }
-      this.postImperative({ type: 'sendRejected', sessionPath, text, localId });
-      store.dispatch(
-        uiActions.setNotice(`Failed to send message: ${(err as Error).message}`),
-      );
-      this.scheduleRender();
-    }
-  }
-
-  /**
-   * @deprecated Phase 4 migration: editMessage is now routed through the CQRS
-   * reducer + EffectRunner in extension-host.ts. See ARCH-MIGRATION-PLAN.md §Phase 4.
-   */
-  async editMessage(requestedSessionPath: string, messageId: string, text: string): Promise<void> {
-    const sessionPath = this.requireOpenSessionPath('edit', requestedSessionPath);
-    if (!sessionPath) {
-      return;
-    }
-
-    let localId: string | null = null;
-
-    this.state.bumpSessionDataEpoch(sessionPath);
-    auditLog(this.context, 'session-service', 'message.edit.requested', {
-      messageId,
-      sessionPath,
-      textLength: text.length,
     });
-
-    try {
-      await this.state.enqueueLifecycle(async () => {
-        await this.state.enqueueSessionOperation(sessionPath, async () => {
-          await this.backend.request('session.truncateAfter', {
-            sessionPath,
-            entryId: messageId,
-          });
-          this.runObserver.onTruncatedAfter(sessionPath, messageId);
-          this.runObserver.onMessageEdited(sessionPath, messageId);
-
-          localId = createLocalMessageId('edit');
-          store.dispatch(
-            transcriptActions.appendLocalUserMessage({
-              sessionPath,
-              id: localId,
-              text,
-            }),
-          );
-          this.scheduleRender();
-
-          this.runObserver.prepareForSend(sessionPath, []);
-          const response = await this.backend.request<{ requestId?: string }>('message.send', {
-            sessionPath,
-            text,
-          });
-          if (response.requestId) {
-            this.state.bindRequestSessionPath(response.requestId, sessionPath);
-          }
-        });
-      });
-    } catch (err) {
-      if (localId) {
-        store.dispatch(transcriptActions.removeMessage({ sessionPath, messageId: localId }));
-      }
-      this.runObserver.onBackendError(sessionPath, 'MESSAGE_EDIT_FAILED');
-      store.dispatch(
-        uiActions.setNotice(`Failed to edit message: ${(err as Error).message}`),
-      );
-      this.scheduleRender();
-    }
-  }
-
-  /**
-   * @deprecated Phase 3 migration: interrupt is now routed through the CQRS
-   * reducer + EffectRunner in extension-host.ts. This method remains only as a
-   * fallback until all callers are verified removed. See ARCH-MIGRATION-PLAN.md §Phase 3.
-   */
-  async interrupt(requestedSessionPath: string): Promise<void> {
-    const sessionPath = this.requireOpenSessionPath('interrupt', requestedSessionPath);
-    if (!sessionPath) {
-      return;
-    }
-
-    auditLog(this.context, 'session-service', 'message.interrupt.requested', {
-      sessionPath,
-    });
-
-    try {
-      await this.state.enqueueLifecycle(async () => {
-        await this.state.enqueueSessionOperation(sessionPath, async () => {
-          await this.backend.request('message.interrupt', {
-            sessionPath,
-          });
-        });
-      });
-      this.state.suppressNextCompletionNotificationFor(sessionPath);
-    } catch (err) {
-      store.dispatch(
-        uiActions.setNotice(`Failed to interrupt: ${(err as Error).message}`),
-      );
-      this.scheduleRender();
-    }
+    this.scheduleRender();
   }
 
   async loadOlderTranscript(requestedSessionPath?: string): Promise<void> {
@@ -340,9 +172,9 @@ export class SessionMessageActions {
       return;
     }
 
-    const pendingInputs = store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? [];
+    const pendingInputs = this.getArchState().composer.pendingComposerInputsBySession[sessionPath] ?? [];
     const hasPendingImageInputs = pendingInputs.some((input) => input.kind === 'imageBlob');
-    const requestedModelSupportsImages = modelSupportsInputKind(sessionPath, defaultModel, 'image');
+    const requestedModelSupportsImages = modelSupportsInputKind(sessionPath, defaultModel, 'image', this.getArchState);
     const shouldClearPendingImages = hasPendingImageInputs && requestedModelSupportsImages === false;
 
     if (shouldClearPendingImages) {
@@ -363,30 +195,38 @@ export class SessionMessageActions {
           defaultModel,
           defaultThinkingLevel,
         });
-        store.dispatch(settingsActions.setModelSettings(result));
-        store.dispatch(settingsActions.clearContextUsage(sessionPath));
+        this.mutateArchState((draft) => {
+          draft.settings.modelSettings = result;
+          delete draft.settings.contextUsageBySession[sessionPath];
+        });
         this.state.bumpSessionDataEpoch(sessionPath);
 
-        const session = getSessionByPath(store.getState(), sessionPath);
+        const archState = this.getArchState();
+        const session = archState.sessions.sessions.find((s) => s.path === sessionPath);
         if (session) {
-          store.dispatch(sessionsActions.upsertSession({
-            ...session,
-            modelId: defaultModel,
-            thinkingLevel: defaultThinkingLevel,
-          }));
+          this.mutateArchState((draft) => {
+            const idx = draft.sessions.sessions.findIndex((s) => s.path === sessionPath);
+            if (idx !== -1) {
+              draft.sessions.sessions[idx] = {
+                ...draft.sessions.sessions[idx],
+                modelId: defaultModel,
+                thinkingLevel: defaultThinkingLevel,
+              };
+            }
+          });
         }
 
         if (shouldClearPendingImages) {
-          clearPendingImageInputs(sessionPath);
+          clearPendingImageInputs(sessionPath, this.getArchState, this.mutateArchState);
         }
 
         this.runObserver.onModelConfigChanged(sessionPath, defaultModel, defaultThinkingLevel);
         this.scheduleRender();
       });
     } catch (err) {
-      store.dispatch(
-        uiActions.setNotice(`Failed to set model: ${(err as Error).message}`),
-      );
+      this.mutateArchState((draft) => {
+        draft.settings.notice = `Failed to set model: ${(err as Error).message}`;
+      });
       this.scheduleRender();
     }
   }
@@ -397,13 +237,13 @@ export class SessionMessageActions {
         this.backend.request<ModelSettings>('settings.get'),
         this.backend.request<ModelInfo[]>('models.list', { sessionPath }),
       ]);
-      store.dispatch(
-        settingsActions.setModelAndAvailable({
-          sessionPath,
-          modelSettings,
-          availableModels: models,
-        }),
-      );
+      this.mutateArchState((draft) => {
+        draft.settings.modelSettings = modelSettings;
+        const existing = draft.settings.availableModelsBySession[sessionPath] ?? [];
+        if (models.length > 0 || existing.length === 0) {
+          draft.settings.availableModelsBySession[sessionPath] = models;
+        }
+      });
       this.scheduleRender();
     } catch {
       // Non-fatal: model hydration failure does not break the extension.
@@ -419,7 +259,8 @@ export class SessionMessageActions {
       return;
     }
 
-    const transcriptWindow = store.getState().transcript.windowBySession[sessionPath];
+    const archState = this.getArchState();
+    const transcriptWindow = archState.transcript.windowBySession[sessionPath];
     if (!transcriptWindow) {
       return;
     }
@@ -464,11 +305,11 @@ export class SessionMessageActions {
         return;
       }
 
-      if (!store.getState().sessions.openTabPaths.includes(payload.sessionPath)) {
+      if (!this.getArchState().sessions.openTabPaths.includes(payload.sessionPath)) {
         return;
       }
 
-      const currentWindow = store.getState().transcript.windowBySession[payload.sessionPath];
+      const currentWindow = this.getArchState().transcript.windowBySession[payload.sessionPath];
       if (
         !currentWindow
         || currentWindow.totalCount !== requestWindow.totalCount
@@ -482,22 +323,21 @@ export class SessionMessageActions {
         busy: payload.busy,
         incomingTranscript: payload.transcript,
         incomingTranscriptWindow: payload.transcriptWindow,
-        localTranscript: store.getState().transcript.bySession[payload.sessionPath] ?? [],
+        localTranscript: this.getArchState().transcript.bySession[payload.sessionPath] ?? [],
       });
 
-      store.dispatch(transcriptActions.setTranscript({
-        sessionPath: payload.sessionPath,
-        transcript: resolution.transcript,
-        transcriptWindow: resolution.transcriptWindow,
-        preserveCurrentTurn: payload.busy,
-        preserveAliases: payload.busy,
-      }));
+      this.mutateArchState((draft) => {
+        draft.transcript.bySession[payload.sessionPath] = resolution.transcript;
+        draft.transcript.windowBySession[payload.sessionPath] = resolution.transcriptWindow;
+      });
 
       this.state.touchSessionTranscript(payload.sessionPath);
       this.state.evictInactiveTranscriptWindows();
       this.scheduleRender();
     } catch (error) {
-      store.dispatch(uiActions.setNotice(`Failed to load transcript page: ${(error as Error).message}`));
+      this.mutateArchState((draft) => {
+        draft.settings.notice = `Failed to load transcript page: ${(error as Error).message}`;
+      });
       this.scheduleRender();
     } finally {
       this.inFlightTranscriptPageBySession.delete(sessionPath);
@@ -530,42 +370,28 @@ export class SessionMessageActions {
     // the user switched tabs mid-flight (R3 / B4). If sessionPath is missing,
     // treat it as a malformed request and refuse.
     if (!sessionPath) {
-      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: missing session reference.`));
+      this.mutateArchState((draft) => {
+        draft.settings.notice = `Cannot ${actionName}: missing session reference.`;
+      });
       this.scheduleRender();
       return null;
     }
     const resolvedSessionPath = sessionPath;
     if (isPendingTabPath(resolvedSessionPath)) {
-      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: the session is still opening.`));
+      this.mutateArchState((draft) => {
+        draft.settings.notice = `Cannot ${actionName}: the session is still opening.`;
+      });
       this.scheduleRender();
       return null;
     }
-    if (!store.getState().sessions.openTabPaths.includes(resolvedSessionPath)) {
-      store.dispatch(uiActions.setNotice(`Cannot ${actionName}: the selected session is no longer open.`));
+    if (!this.getArchState().sessions.openTabPaths.includes(resolvedSessionPath)) {
+      this.mutateArchState((draft) => {
+        draft.settings.notice = `Cannot ${actionName}: the selected session is no longer open.`;
+      });
       this.scheduleRender();
       return null;
     }
     return resolvedSessionPath;
-  }
-
-  private maybeApplyOptimisticSessionName(sessionPath: string, text: string) {
-    const session = getSessionByPath(store.getState(), sessionPath);
-    if (!session || session.isPlaceholder !== true) {
-      return null;
-    }
-
-    const derived = deriveSessionNameFromText(text);
-    if (derived.isPlaceholder || derived.name === session.name) {
-      return null;
-    }
-
-    store.dispatch(sessionsActions.upsertSession({
-      ...session,
-      name: derived.name,
-      isPlaceholder: false,
-    }));
-    this.state.saveOpenTabs();
-    return session;
   }
 
   private resolveComposerTargetSessionPath(requestedSessionPath?: string): string | null {
@@ -578,7 +404,7 @@ export class SessionMessageActions {
   }
 
   private resolveExistingComposerTargetSessionPath(requestedSessionPath?: string): string | null {
-    const state = store.getState();
+    const archState = this.getArchState();
     // STATE_CONTRACT: composer-target resolution must come from the webview's
     // explicit sessionPath. The previous `?? selectActiveSessionPath` fallback
     // could land composer edits on a different tab if the webview's view of
@@ -587,8 +413,10 @@ export class SessionMessageActions {
     if (!sessionPath) {
       return null;
     }
-    if (!state.sessions.openTabPaths.includes(sessionPath)) {
-      store.dispatch(uiActions.setNotice('Cannot update composer inputs: the selected session is no longer open.'));
+    if (!archState.sessions.openTabPaths.includes(sessionPath)) {
+      this.mutateArchState((draft) => {
+        draft.settings.notice = 'Cannot update composer inputs: the selected session is no longer open.';
+      });
       this.scheduleRender();
       return null;
     }

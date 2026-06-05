@@ -35,14 +35,14 @@ import {
   mergeAssistantToolCallsPreservingResolvedState,
   mergeContinuationToolCalls,
   markdownFromUserParts,
-} from '../store/transcript-helpers';
+} from './transcript-helpers';
 import {
   buildFullTranscriptWindow,
   normalizeTranscriptWindow,
   cullTranscriptWindowAroundActiveTurn,
   withIncrementedWindowCounts,
   withDecrementedWindowCounts,
-} from '../session-service/transcript-window';
+} from './transcript-window';
 import { TRANSCRIPT_WINDOW_BUDGETS } from '../../shared/transcript-window';
 
 // Re-export for downstream consumers that import from './reducer'
@@ -237,6 +237,7 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
         case 'Edit': {
           // Insert optimistic edit message directly into transcript state + record pending op
           const nextState = produce(state, (draft) => {
+            draft.transcript.editingMessageId = null;
             appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.text, undefined);
             draft.pending.ops[cmd.corrId] = {
               kind: 'edit',
@@ -493,6 +494,44 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
               },
             },
             effects: [],
+          };
+        }
+
+        case 'SetEditingMessage': {
+          return {
+            state: produce(state, (draft) => {
+              draft.transcript.editingMessageId = cmd.messageId;
+            }),
+            effects: [],
+          };
+        }
+
+        case 'SetOutcomeDialog': {
+          return {
+            state: produce(state, (draft) => {
+              draft.settings.showOutcomeDialog = cmd.visible;
+            }),
+            effects: [],
+          };
+        }
+
+        case 'DismissNotice': {
+          return {
+            state: produce(state, (draft) => {
+              draft.settings.notice = null;
+            }),
+            effects: [],
+          };
+        }
+
+        case 'RespondExtensionUI': {
+          return {
+            state: produce(state, (draft) => {
+              draft.settings.pendingExtensionUIRequest = null;
+            }),
+            effects: cmd.approved
+              ? [{ kind: 'PostImperative' as const, corrId: cmd.corrId, imperativeMessage: { type: 'extensionUiApproved', sessionPath: cmd.sessionPath } }]
+              : [],
           };
         }
 
@@ -831,6 +870,41 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
       };
     }
 
+    case 'SessionNameDerived': {
+      const nextState = produce(state, (draft) => {
+        const s = draft.sessions.sessions.find(x => x.path === event.sessionPath);
+        if (s) {
+          s.name = event.name;
+          s.isPlaceholder = false;
+        }
+      });
+      return { state: nextState, effects: [] };
+    }
+
+    case 'FileChangeRemoved': {
+      const nextState = produce(state, (draft) => {
+        const changes = draft.fileChanges.bySession[event.sessionPath];
+        if (changes) {
+          draft.fileChanges.bySession[event.sessionPath] = changes.filter(c => c.path !== event.filePath);
+        }
+      });
+      return { state: nextState, effects: [] };
+    }
+
+    case 'OptimisticMessageInserted': {
+      const nextState = produce(state, (draft) => {
+        appendLocalUserMessage(draft, event.sessionPath, event.localId, event.text, undefined);
+      });
+      return { state: nextState, effects: [] };
+    }
+
+    case 'OptimisticMessageRemoved': {
+      const nextState = produce(state, (draft) => {
+        removeMessage(draft, event.sessionPath, event.localId);
+      });
+      return { state: nextState, effects: [] };
+    }
+
     case 'BusyChanged': {
       if (event.running) {
         return {
@@ -932,6 +1006,15 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
             notice: event.error,
           },
         },
+        effects: [],
+      };
+    }
+
+    case 'NoticeShown': {
+      return {
+        state: produce(state, (draft) => {
+          draft.settings.notice = event.notice;
+        }),
         effects: [],
       };
     }

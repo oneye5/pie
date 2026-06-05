@@ -182,6 +182,12 @@ export interface ExtensionUIRequestEvent {
   request: ExtensionUIRequestPayload;
 }
 
+/** Emitted when the host wants to show (or clear) a user-facing notice. */
+export interface NoticeShownEvent {
+  kind: 'NoticeShown';
+  notice: string | null;
+}
+
 /** Emitted when the backend reports an error. */
 export interface ErrorEvent {
   kind: 'Error';
@@ -202,6 +208,36 @@ export interface SessionClosedEvent {
   sessionPath: string;
 }
 
+/** Emitted when the host derives an optimistic session name from the first message text. */
+export interface SessionNameDerivedEvent {
+  kind: 'SessionNameDerived';
+  sessionPath: string;
+  name: string;
+}
+
+/** Emitted when an optimistic local user message is inserted into the transcript. */
+export interface OptimisticMessageInsertedEvent {
+  kind: 'OptimisticMessageInserted';
+  sessionPath: string;
+  localId: string;
+  text: string;
+  timestamp: number;
+}
+
+/** Emitted when an optimistic local user message is removed from the transcript. */
+export interface OptimisticMessageRemovedEvent {
+  kind: 'OptimisticMessageRemoved';
+  sessionPath: string;
+  localId: string;
+}
+
+/** Emitted when a file change entry is removed (e.g. on revert). */
+export interface FileChangeRemovedEvent {
+  kind: 'FileChangeRemoved';
+  sessionPath: string;
+  filePath: string;
+}
+
 export type BackendEvent =
   | MessageStartedEvent
   | MessageAbortedEvent
@@ -219,4 +255,4 @@ export type BackendEvent =
   | SessionOpenedEvent
   | SessionClosedEvent;
 
-export type Event = CommandEvent | EffectResultEvent | BackendEvent;
+export type Event = CommandEvent | EffectResultEvent | BackendEvent | NoticeShownEvent | SessionNameDerivedEvent | OptimisticMessageInsertedEvent | OptimisticMessageRemovedEvent | FileChangeRemovedEvent;

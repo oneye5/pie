@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { dispatchSessionBackendEvent } from '../src/host/session-service/event-dispatch';
-import type { SessionBackendEventHandlers } from '../src/host/session-service/event-dispatch';
+import { dispatchSessionBackendEvent } from '../src/host/core/event-dispatch';
+import type { SessionBackendEventHandlers } from '../src/host/core/event-dispatch';
 
 function createHandlers() {
   const calls: Array<{ name: string; payload: unknown }> = [];

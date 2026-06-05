@@ -20,18 +20,15 @@ import {
   type RunSnapshot,
   type TreatmentChangeKind,
 } from '../run-analytics';
-import {
-  sessionStateActions,
-  type AppStore,
-  type RootState,
-} from '../store';
+import type { ArchState } from '../core/arch-state';
 import { SessionRunStateManager } from './run-state-manager';
+import type { GetArchState, MutateArchState } from './types';
 
 const TOOL_FAILURE_SAMPLE_LIMIT = 20;
 
 interface SessionRunTrackerOptions {
-  dispatch: AppStore['dispatch'];
-  getState: () => RootState;
+  getArchState: GetArchState;
+  mutateArchState: MutateArchState;
   scheduleRender: () => void;
   schedulePersist: (snapshotToAppend?: RunSnapshot, outcomeToAppend?: OutcomeHistoryLogEntry) => void;
   now: () => Date;
@@ -40,16 +37,18 @@ interface SessionRunTrackerOptions {
 }
 
 export class SessionRunTracker {
-  private readonly dispatch: AppStore['dispatch'];
+  private readonly getArchState: GetArchState;
+  private readonly mutateArchState: MutateArchState;
   private readonly scheduleRender: () => void;
   private readonly runState: SessionRunStateManager;
 
   constructor(options: SessionRunTrackerOptions) {
-    this.dispatch = options.dispatch;
+    this.getArchState = options.getArchState;
+    this.mutateArchState = options.mutateArchState;
     this.scheduleRender = options.scheduleRender;
     this.runState = new SessionRunStateManager({
-      dispatch: options.dispatch,
-      getState: options.getState,
+      getArchState: options.getArchState,
+      mutateArchState: options.mutateArchState,
       schedulePersist: options.schedulePersist,
       now: options.now,
       createId: options.createId,
@@ -380,7 +379,9 @@ export class SessionRunTracker {
       this.runState.finalizeCurrentRun(sessionPath, 'closed_unscored');
     }
     this.runState.sessions.delete(sessionPath);
-    this.dispatch(sessionStateActions.setActiveRunSummary({ sessionPath, summary: null }));
+    this.mutateArchState((draft) => {
+      draft.composer.activeRunSummaryBySession[sessionPath] = null;
+    });
     this.runState.persist();
     this.scheduleRender();
   }

@@ -23,20 +23,17 @@ import {
   type RunSnapshot,
   type TreatmentChangeKind,
 } from '../run-analytics';
-import {
-  getSessionByPath,
-  sessionStateActions,
-  type AppStore,
-  type RootState,
-} from '../store';
+import type { ArchState } from '../core/arch-state';
 import {
   emptySessionRunState,
+  type GetArchState,
+  type MutateArchState,
   type SessionRunState,
 } from './types';
 
 interface SessionRunStateManagerOptions {
-  dispatch: AppStore['dispatch'];
-  getState: () => RootState;
+  getArchState: GetArchState;
+  mutateArchState: MutateArchState;
   schedulePersist: (snapshotToAppend?: RunSnapshot, outcomeToAppend?: OutcomeHistoryLogEntry) => void;
   now: () => Date;
   createId: () => string;
@@ -45,16 +42,16 @@ interface SessionRunStateManagerOptions {
 
 export class SessionRunStateManager {
   readonly sessions = new Map<string, SessionRunState>();
-  private readonly dispatch: AppStore['dispatch'];
-  private readonly getState: () => RootState;
+  private readonly getArchState: GetArchState;
+  private readonly mutateArchState: MutateArchState;
   private readonly schedulePersistCallback: SessionRunStateManagerOptions['schedulePersist'];
   private readonly now: () => Date;
   private readonly createId: () => string;
   private readonly getExperimentAssignment: () => string | null;
 
   constructor(options: SessionRunStateManagerOptions) {
-    this.dispatch = options.dispatch;
-    this.getState = options.getState;
+    this.getArchState = options.getArchState;
+    this.mutateArchState = options.mutateArchState;
     this.schedulePersistCallback = options.schedulePersist;
     this.now = options.now;
     this.createId = options.createId;
@@ -268,9 +265,9 @@ export class SessionRunStateManager {
     modelId: string | undefined;
     thinkingLevel: ThinkingLevel | undefined;
   } {
-    const state = this.getState();
-    const session = getSessionByPath(state, sessionPath);
-    const modelSettings: ModelSettings | null = state.settings.modelSettings;
+    const archState = this.getArchState();
+    const session = archState.sessions.sessions.find((s) => s.path === sessionPath);
+    const modelSettings: ModelSettings | null = archState.settings.modelSettings;
     return {
       modelId: session?.modelId ?? modelSettings?.defaultModel,
       thinkingLevel: session?.thinkingLevel ?? modelSettings?.defaultThinkingLevel,
@@ -278,7 +275,7 @@ export class SessionRunStateManager {
   }
 
   private getCurrentAnalyticsFactors(sessionPath: string): SessionAnalyticsFactors | null {
-    return this.getState().sessionState.analyticsFactorsBySession[sessionPath] ?? null;
+    return this.getArchState().sessions.analyticsFactorsBySession[sessionPath] ?? null;
   }
 
   syncSessionSummary(sessionPath: string): void {
@@ -287,7 +284,9 @@ export class SessionRunStateManager {
       state?.currentRun ?? state?.lastRun ?? null,
       state?.nextTaskIntent === 'new_task',
     );
-    this.dispatch(sessionStateActions.setActiveRunSummary({ sessionPath, summary }));
+    this.mutateArchState((draft) => {
+      draft.composer.activeRunSummaryBySession[sessionPath] = summary;
+    });
   }
 
   persist(snapshotToAppend?: RunSnapshot, outcomeToAppend?: OutcomeHistoryLogEntry): void {

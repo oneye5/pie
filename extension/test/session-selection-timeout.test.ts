@@ -1,8 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { produce } from 'immer';
+
 import { SessionServiceState } from '../src/host/session-service/state';
-import { sessionsActions, store, uiActions } from '../src/host/store';
+import { createInitialArchState } from '../src/host/core/arch-state';
+import type { ArchState } from '../src/host/core/arch-state';
 
 function createExtensionContext() {
   return {
@@ -13,17 +16,6 @@ function createExtensionContext() {
       update: async () => undefined,
     },
   } as any;
-}
-
-function resetSelectionTimeoutStoreState(): void {
-  store.dispatch(uiActions.setNotice(null));
-  store.dispatch(uiActions.setBackendReady(false));
-  store.dispatch(sessionsActions.replaceSessionSummaries([]));
-  store.dispatch(sessionsActions.setOpenTabPaths([]));
-  store.dispatch(sessionsActions.clearActiveSession());
-  store.dispatch(sessionsActions.clearRunningPaths());
-  store.dispatch(sessionsActions.clearUnreadFinishedSessions());
-  store.dispatch(sessionsActions.setWorkspaceCwd(null));
 }
 
 async function waitFor(predicate: () => boolean, attempts = 40): Promise<void> {
@@ -37,35 +29,43 @@ async function waitFor(predicate: () => boolean, attempts = 40): Promise<void> {
 }
 
 test('selection timeout clears pending tab and surfaces a notice', async () => {
-  resetSelectionTimeoutStoreState();
+  let archState = createInitialArchState();
+  const getArchState = () => archState;
+  const mutateArchState = (recipe: (draft: ArchState) => void) => {
+    archState = produce(archState, recipe);
+  };
 
   const backend = { request: async () => undefined } as any;
   const context = createExtensionContext();
   let renderCount = 0;
   const state = new SessionServiceState(context, backend, () => {
     renderCount += 1;
-  }, 15);
+  }, getArchState, mutateArchState, 15);
 
   const pendingPath = `__pending__:selection-timeout-${Date.now()}`;
-  store.dispatch(sessionsActions.upsertSession({
-    path: pendingPath,
-    name: 'Loading...',
-    isPlaceholder: true,
-    cwd: '',
-    modifiedAt: new Date().toISOString(),
-    messageCount: 0,
-  }));
-  store.dispatch(sessionsActions.ensureOpenTab(pendingPath));
-  store.dispatch(sessionsActions.setActiveSessionPath(pendingPath));
+  mutateArchState((draft) => {
+    draft.sessions.sessions.push({
+      path: pendingPath,
+      name: 'Loading...',
+      isPlaceholder: true,
+      cwd: '',
+      modifiedAt: new Date().toISOString(),
+      messageCount: 0,
+    });
+    if (!draft.sessions.openTabPaths.includes(pendingPath)) {
+      draft.sessions.openTabPaths = [...draft.sessions.openTabPaths, pendingPath];
+    }
+    draft.sessions.activeSessionPath = pendingPath;
+  });
 
   const token = state.beginSelectionRequest(pendingPath, pendingPath, false, true);
 
   await waitFor(() => {
-    const notice = store.getState().ui.notice;
+    const notice = getArchState().settings.notice;
     return typeof notice === 'string' && notice.includes('Timed out waiting to create session');
   });
 
-  const sessionsState = store.getState().sessions;
+  const sessionsState = getArchState().sessions;
   assert.equal(state.getSelectionRequest(token), null);
   assert.equal(sessionsState.openTabPaths.includes(pendingPath), false);
   assert.equal(sessionsState.sessions.some((session) => session.path === pendingPath), false);
@@ -73,27 +73,29 @@ test('selection timeout clears pending tab and surfaces a notice', async () => {
   assert.ok(renderCount > 0, 'timeout should schedule a render');
 
   state.resetRuntimeState();
-  resetSelectionTimeoutStoreState();
 });
 
 test('finishing a selection request cancels its timeout watchdog', async () => {
-  resetSelectionTimeoutStoreState();
+  let archState = createInitialArchState();
+  const getArchState = () => archState;
+  const mutateArchState = (recipe: (draft: ArchState) => void) => {
+    archState = produce(archState, recipe);
+  };
 
   const backend = { request: async () => undefined } as any;
   const context = createExtensionContext();
   let renderCount = 0;
   const state = new SessionServiceState(context, backend, () => {
     renderCount += 1;
-  }, 15);
+  }, getArchState, mutateArchState, 15);
 
   const token = state.beginSelectionRequest('/workspace/session-a.jsonl');
   state.finishSelectionRequest(token);
 
   await new Promise((resolve) => setTimeout(resolve, 40));
 
-  assert.equal(store.getState().ui.notice, null);
+  assert.equal(getArchState().settings.notice, null);
   assert.equal(renderCount, 0);
 
   state.resetRuntimeState();
-  resetSelectionTimeoutStoreState();
 });

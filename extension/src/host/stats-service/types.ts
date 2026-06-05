@@ -5,11 +5,11 @@ import type {
   ThinkingLevel,
   ToolCall,
 } from '../../shared/protocol';
-import type { AppStore, RootState } from '../store';
+import type { ArchState } from '../core/arch-state';
 import type { TaskBoundaryIntent, RunSnapshot } from '../run-analytics';
 
-export type StoreDispatch = AppStore['dispatch'];
-export type StoreGetState = () => RootState;
+export type MutateArchState = (recipe: (draft: ArchState) => void) => void;
+export type GetArchState = () => ArchState;
 
 export interface SessionRunState {
   currentRun: RunSnapshot | null;
@@ -69,8 +69,8 @@ export interface StatsServiceOptions {
   workspaceId: string;
   legacyWorkspaceIds?: string[];
   scheduleRender?: () => void;
-  dispatch?: StoreDispatch;
-  getState?: StoreGetState;
+  getArchState?: GetArchState;
+  mutateArchState?: MutateArchState;
   now?: () => Date;
   createId?: () => string;
   getExperimentAssignment?: () => string | null;

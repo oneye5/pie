@@ -4,9 +4,10 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
+import { produce } from 'immer';
 import { StatsService } from '../src/host/stats-service';
 import { exportRunAnalyticsStore, queryRunAnalyticsStore } from '../src/host/run-analytics/query';
-import { createAppStore, sessionStateActions, sessionsActions, settingsActions } from '../src/host/store';
+import { createInitialArchState, type ArchState } from '../src/host/core/arch-state';
 import type { SessionAnalyticsFactors } from '../src/shared/protocol';
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -43,33 +44,32 @@ const ANALYTICS_FACTORS: SessionAnalyticsFactors = {
 
 test('queryRunAnalyticsStore returns finalized snapshots and checkpointed open runs', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState: ArchState = createInitialArchState();
     const sessionPath = '/workspace/session-query.jsonl';
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
-      path: sessionPath,
-      name: 'Query Session',
-      cwd: '/workspace',
-      modifiedAt: new Date().toISOString(),
-      messageCount: 0,
-      modelId: 'claude',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
-      defaultModel: 'claude',
-      defaultThinkingLevel: 'medium',
-    }));
-    store.dispatch(sessionStateActions.setAnalyticsFactors({
-      sessionPath,
-      factors: ANALYTICS_FACTORS,
-    }));
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+        path: sessionPath,
+        name: 'Query Session',
+        cwd: '/workspace',
+        modifiedAt: new Date().toISOString(),
+        messageCount: 0,
+        modelId: 'claude',
+      });
+      draft.settings.modelSettings = {
+        defaultModel: 'claude',
+        defaultThinkingLevel: 'medium',
+      };
+      draft.sessions.analyticsFactorsBySession[sessionPath] = ANALYTICS_FACTORS;
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-query',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
       getExperimentAssignment: () => 'treatment-a',
     });
@@ -99,29 +99,31 @@ test('queryRunAnalyticsStore returns finalized snapshots and checkpointed open r
 
 test('exportRunAnalyticsStore writes a supported JSON export payload', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState: ArchState = createInitialArchState();
     const sessionPath = '/workspace/session-export.jsonl';
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
-      path: sessionPath,
-      name: 'Export Session',
-      cwd: '/workspace',
-      modifiedAt: new Date().toISOString(),
-      messageCount: 0,
-      modelId: 'gpt-4.1',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
-      defaultModel: 'gpt-4.1',
-      defaultThinkingLevel: 'low',
-    }));
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+        path: sessionPath,
+        name: 'Export Session',
+        cwd: '/workspace',
+        modifiedAt: new Date().toISOString(),
+        messageCount: 0,
+        modelId: 'gpt-4.1',
+      });
+      draft.settings.modelSettings = {
+        defaultModel: 'gpt-4.1',
+        defaultThinkingLevel: 'low',
+      };
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-export',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 

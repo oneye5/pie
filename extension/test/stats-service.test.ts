@@ -13,7 +13,9 @@ import {
 } from '../src/host/run-analytics';
 import { StatsService } from '../src/host/stats-service';
 import { workspaceHash } from '../src/host/stats-service/helpers';
-import { createAppStore, sessionStateActions, sessionsActions, settingsActions } from '../src/host/store';
+import { createInitialArchState, type ArchState } from '../src/host/core/arch-state';
+import { produce } from 'immer';
+import type { ModelSettings, SessionSummary } from '../src/shared/protocol';
 import type { ComposerInput } from '../src/shared/protocol';
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -86,29 +88,37 @@ function createOpenRunSnapshot(sessionPath: string, runId: string): RunSnapshot 
 
 test('StatsService records run outcomes and persists snapshot metrics', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const sessionPath = '/workspace/session-a.jsonl';
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+
       path: sessionPath,
       name: 'Session A',
       cwd: '/workspace',
       modifiedAt: new Date().toISOString(),
       messageCount: 0,
       modelId: 'claude-3.7',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
+    
+      } as SessionSummary);
+    });
+    archState = produce(archState, draft => {
+      draft.settings.modelSettings = {
+
       defaultModel: 'claude-3.7',
       defaultThinkingLevel: 'medium',
-    }));
+    
+      } as ModelSettings;
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-a',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -137,7 +147,7 @@ test('StatsService records run outcomes and persists snapshot metrics', async ()
 
     const runId = stats.prepareForSend(sessionPath, inputs);
     assert.equal(runId, 'id-1');
-    assert.deepEqual(store.getState().sessionState.activeRunSummaryBySession[sessionPath], {
+    assert.deepEqual(archState.composer.activeRunSummaryBySession[sessionPath], {
       runId: 'id-1',
       status: 'open',
       scored: false,
@@ -148,7 +158,7 @@ test('StatsService records run outcomes and persists snapshot metrics', async ()
     stats.onContextUsageChanged(sessionPath, 8000, 200000);
     stats.recordOutcome(sessionPath, { resolution: 'resolved', satisfaction: 5 });
 
-    assert.deepEqual(store.getState().sessionState.activeRunSummaryBySession[sessionPath], {
+    assert.deepEqual(archState.composer.activeRunSummaryBySession[sessionPath], {
       runId: 'id-1',
       status: 'scored',
       scored: true,
@@ -219,7 +229,7 @@ test('StatsService records run outcomes and persists snapshot metrics', async ()
 
 test('StatsService migrates legacy analytics files into data/outcomes', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const workspaceId = 'workspace-migration';
     const legacyStorageDir = path.join(tempDir, 'usage-data', workspaceHash(workspaceId));
     await fs.mkdir(legacyStorageDir, { recursive: true });
@@ -229,8 +239,8 @@ test('StatsService migrates legacy analytics files into data/outcomes', async ()
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId,
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
@@ -244,29 +254,37 @@ test('StatsService migrates legacy analytics files into data/outcomes', async ()
 
 test('StatsService starts a new task group on the next send after startNewTask', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const sessionPath = '/workspace/session-b.jsonl';
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+
       path: sessionPath,
       name: 'Session B',
       cwd: '/workspace',
       modifiedAt: new Date().toISOString(),
       messageCount: 0,
       modelId: 'gpt-4.1',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
+    
+      } as SessionSummary);
+    });
+    archState = produce(archState, draft => {
+      draft.settings.modelSettings = {
+
       defaultModel: 'gpt-4.1',
       defaultThinkingLevel: 'low',
-    }));
+    
+      } as ModelSettings;
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-b',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -278,7 +296,7 @@ test('StatsService starts a new task group on the next send after startNewTask',
 
     assert.equal(firstRunId, 'id-1');
     assert.equal(secondRunId, 'id-3');
-    assert.deepEqual(store.getState().sessionState.activeRunSummaryBySession[sessionPath], {
+    assert.deepEqual(archState.composer.activeRunSummaryBySession[sessionPath], {
       runId: 'id-3',
       status: 'open',
       scored: false,
@@ -309,32 +327,46 @@ test('StatsService starts a new task group on the next send after startNewTask',
 
 test('StatsService restores active run summaries from checkpointed state', async () => {
   await withTempDir(async (tempDir) => {
-    const firstStore = createAppStore();
-    const secondStore = createAppStore();
+    let firstArchState = createInitialArchState();
+    let secondArchState = createInitialArchState();
     const sessionPath = '/workspace/session-c.jsonl';
 
-    for (const store of [firstStore, secondStore]) {
-      store.dispatch(sessionsActions.upsertSession({
+    firstArchState = produce(firstArchState, draft => {
+      draft.sessions.sessions.push({
         path: sessionPath,
         name: 'Session C',
         cwd: '/workspace',
         modifiedAt: new Date().toISOString(),
         messageCount: 0,
         modelId: 'claude',
-      }));
-      store.dispatch(settingsActions.setModelSettings({
+      } as SessionSummary);
+      draft.settings.modelSettings = {
         defaultModel: 'claude',
         defaultThinkingLevel: 'minimal',
-      }));
-    }
+      } as ModelSettings;
+    });
+    secondArchState = produce(secondArchState, draft => {
+      draft.sessions.sessions.push({
+        path: sessionPath,
+        name: 'Session C',
+        cwd: '/workspace',
+        modifiedAt: new Date().toISOString(),
+        messageCount: 0,
+        modelId: 'claude',
+      } as SessionSummary);
+      draft.settings.modelSettings = {
+        defaultModel: 'claude',
+        defaultThinkingLevel: 'minimal',
+      } as ModelSettings;
+    });
 
     let idCounter = 0;
     const firstStats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-c',
-      dispatch: firstStore.dispatch,
-      getState: firstStore.getState,
+      getArchState: () => firstArchState,
+      mutateArchState: (recipe) => { firstArchState = produce(firstArchState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -346,13 +378,13 @@ test('StatsService restores active run summaries from checkpointed state', async
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-c',
-      dispatch: secondStore.dispatch,
-      getState: secondStore.getState,
+      getArchState: () => secondArchState,
+      mutateArchState: (recipe) => { secondArchState = produce(secondArchState, recipe); },
     });
 
     await secondStats.start();
 
-    assert.deepEqual(secondStore.getState().sessionState.activeRunSummaryBySession[sessionPath], {
+    assert.deepEqual(secondArchState.composer.activeRunSummaryBySession[sessionPath], {
       runId: 'id-1',
       status: 'open',
       scored: false,
@@ -360,38 +392,54 @@ test('StatsService restores active run summaries from checkpointed state', async
 
     await firstStats.shutdown();
     await secondStats.shutdown();
-    secondStore.dispatch(sessionStateActions.setActiveRunSummary({ sessionPath, summary: null }));
+    secondArchState = produce(secondArchState, draft => {
+      draft.composer.activeRunSummaryBySession[sessionPath] = null;
+    });
   });
 });
 
 test('StatsService restores completed runs and queued new-task state across restart', async () => {
   await withTempDir(async (tempDir) => {
-    const firstStore = createAppStore();
-    const secondStore = createAppStore();
+    let firstArchState = createInitialArchState();
+    let secondArchState = createInitialArchState();
     const sessionPath = '/workspace/session-c-rated.jsonl';
 
-    for (const store of [firstStore, secondStore]) {
-      store.dispatch(sessionsActions.upsertSession({
+    firstArchState = produce(firstArchState, draft => {
+      draft.sessions.sessions.push({
         path: sessionPath,
         name: 'Session C Rated',
         cwd: '/workspace',
         modifiedAt: new Date().toISOString(),
         messageCount: 0,
         modelId: 'claude',
-      }));
-      store.dispatch(settingsActions.setModelSettings({
+      } as SessionSummary);
+      draft.settings.modelSettings = {
         defaultModel: 'claude',
         defaultThinkingLevel: 'minimal',
-      }));
-    }
+      } as ModelSettings;
+    });
+    secondArchState = produce(secondArchState, draft => {
+      draft.sessions.sessions.push({
+        path: sessionPath,
+        name: 'Session C Rated',
+        cwd: '/workspace',
+        modifiedAt: new Date().toISOString(),
+        messageCount: 0,
+        modelId: 'claude',
+      } as SessionSummary);
+      draft.settings.modelSettings = {
+        defaultModel: 'claude',
+        defaultThinkingLevel: 'minimal',
+      } as ModelSettings;
+    });
 
     let idCounter = 0;
     const firstStats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-c-rated',
-      dispatch: firstStore.dispatch,
-      getState: firstStore.getState,
+      getArchState: () => firstArchState,
+      mutateArchState: (recipe) => { firstArchState = produce(firstArchState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -406,14 +454,14 @@ test('StatsService restores completed runs and queued new-task state across rest
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-c-rated',
-      dispatch: secondStore.dispatch,
-      getState: secondStore.getState,
+      getArchState: () => secondArchState,
+      mutateArchState: (recipe) => { secondArchState = produce(secondArchState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 
     await secondStats.start();
 
-    assert.deepEqual(secondStore.getState().sessionState.activeRunSummaryBySession[sessionPath], {
+    assert.deepEqual(secondArchState.composer.activeRunSummaryBySession[sessionPath], {
       runId: 'id-1',
       status: 'scored',
       scored: true,
@@ -422,7 +470,7 @@ test('StatsService restores completed runs and queued new-task state across rest
 
     const nextRunId = secondStats.prepareForSend(sessionPath, []);
     assert.equal(nextRunId, 'id-3');
-    assert.deepEqual(secondStore.getState().sessionState.activeRunSummaryBySession[sessionPath], {
+    assert.deepEqual(secondArchState.composer.activeRunSummaryBySession[sessionPath], {
       runId: 'id-3',
       status: 'open',
       scored: false,
@@ -451,29 +499,37 @@ test('StatsService restores completed runs and queued new-task state across rest
 
 test('StatsService counts multiple assistant turns using distinct turn ids within one run', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const sessionPath = '/workspace/session-d.jsonl';
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+
       path: sessionPath,
       name: 'Session D',
       cwd: '/workspace',
       modifiedAt: new Date().toISOString(),
       messageCount: 0,
       modelId: 'claude',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
+    
+      } as SessionSummary);
+    });
+    archState = produce(archState, draft => {
+      draft.settings.modelSettings = {
+
       defaultModel: 'claude',
       defaultThinkingLevel: 'medium',
-    }));
+    
+      } as ModelSettings;
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-d',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -502,29 +558,37 @@ test('StatsService counts multiple assistant turns using distinct turn ids withi
 
 test('StatsService marks runs mixed when model config changes mid-run', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const sessionPath = '/workspace/session-e.jsonl';
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+
       path: sessionPath,
       name: 'Session E',
       cwd: '/workspace',
       modifiedAt: new Date().toISOString(),
       messageCount: 0,
       modelId: 'claude',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
+    
+      } as SessionSummary);
+    });
+    archState = produce(archState, draft => {
+      draft.settings.modelSettings = {
+
       defaultModel: 'claude',
       defaultThinkingLevel: 'medium',
-    }));
+    
+      } as ModelSettings;
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-e',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -548,29 +612,37 @@ test('StatsService marks runs mixed when model config changes mid-run', async ()
 
 test('StatsService carries unsupported input attempts into the next run snapshot', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const sessionPath = '/workspace/session-f.jsonl';
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+
       path: sessionPath,
       name: 'Session F',
       cwd: '/workspace',
       modifiedAt: new Date().toISOString(),
       messageCount: 0,
       modelId: 'claude',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
+    
+      } as SessionSummary);
+    });
+    archState = produce(archState, draft => {
+      draft.settings.modelSettings = {
+
       defaultModel: 'claude',
       defaultThinkingLevel: 'medium',
-    }));
+    
+      } as ModelSettings;
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-f',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -594,25 +666,32 @@ test('StatsService carries unsupported input attempts into the next run snapshot
 
 test('StatsService captures structured analytics factors and experiment assignment at run start', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const sessionPath = '/workspace/session-g.jsonl';
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+
       path: sessionPath,
       name: 'Session G',
       cwd: '/workspace',
       modifiedAt: new Date().toISOString(),
       messageCount: 0,
       modelId: 'claude',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
+    
+      } as SessionSummary);
+    });
+    archState = produce(archState, draft => {
+      draft.settings.modelSettings = {
+
       defaultModel: 'claude',
       defaultThinkingLevel: 'medium',
-    }));
-    store.dispatch(sessionStateActions.setAnalyticsFactors({
-      sessionPath,
-      factors: {
+    
+      } as ModelSettings;
+    });
+    archState = produce(archState, draft => {
+      draft.sessions.analyticsFactorsBySession[sessionPath] = {
         promptFamily: 'harness+customPrompt',
         promptHash: 'prompt-hash',
         harnessPromptHash: 'harness-hash',
@@ -632,15 +711,15 @@ test('StatsService captures structured analytics factors and experiment assignme
         }],
         skillSetHash: 'skill-set-hash',
         activeExtensions: [],
-      },
-    }));
+      };
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-g',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
       getExperimentAssignment: () => 'exp-a',
     });
@@ -667,29 +746,37 @@ test('StatsService captures structured analytics factors and experiment assignme
 
 test('StatsService rolls up tool usage, verification commands, subagents, and file mutations', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const sessionPath = '/workspace/session-h.jsonl';
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+
       path: sessionPath,
       name: 'Session H',
       cwd: '/workspace',
       modifiedAt: new Date().toISOString(),
       messageCount: 0,
       modelId: 'claude',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
+    
+      } as SessionSummary);
+    });
+    archState = produce(archState, draft => {
+      draft.settings.modelSettings = {
+
       defaultModel: 'claude',
       defaultThinkingLevel: 'medium',
-    }));
+    
+      } as ModelSettings;
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-h',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -832,26 +919,33 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
 
 test('StatsService tracks busy durations and mixed treatment changes', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const sessionPath = '/workspace/session-i.jsonl';
     let idCounter = 0;
     let currentMs = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+
       path: sessionPath,
       name: 'Session I',
       cwd: '/workspace',
       modifiedAt: new Date().toISOString(),
       messageCount: 0,
       modelId: 'claude',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
+    
+      } as SessionSummary);
+    });
+    archState = produce(archState, draft => {
+      draft.settings.modelSettings = {
+
       defaultModel: 'claude',
       defaultThinkingLevel: 'medium',
-    }));
-    store.dispatch(sessionStateActions.setAnalyticsFactors({
-      sessionPath,
-      factors: {
+    
+      } as ModelSettings;
+    });
+    archState = produce(archState, draft => {
+      draft.sessions.analyticsFactorsBySession[sessionPath] = {
         promptFamily: 'harness',
         promptHash: 'prompt-a',
         harnessPromptHash: 'harness-a',
@@ -865,15 +959,15 @@ test('StatsService tracks busy durations and mixed treatment changes', async () 
         skills: [],
         skillSetHash: null,
         activeExtensions: [],
-      },
-    }));
+      };
+    });
 
     const stats = new StatsService({
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-i',
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
       now: () => new Date(currentMs),
       getExperimentAssignment: () => 'exp-a',
@@ -930,7 +1024,7 @@ test('StatsService tracks busy durations and mixed treatment changes', async () 
 
 test('StatsService migrates legacy runs analytics files into data/outcomes', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const workspaceId = 'workspace-runs-migration';
     const legacyStorageDir = path.join(tempDir, 'runs', workspaceHash(workspaceId));
     await fs.mkdir(legacyStorageDir, { recursive: true });
@@ -940,8 +1034,8 @@ test('StatsService migrates legacy runs analytics files into data/outcomes', asy
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId,
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
@@ -955,7 +1049,7 @@ test('StatsService migrates legacy runs analytics files into data/outcomes', asy
 
 test('StatsService migrates repo-local usage-data roots for legacy workspace hashes', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const currentWorkspaceId = 'workspace-current-hash';
     const legacyWorkspaceId = 'workspace-legacy-hash';
     const storageDir = path.join(
@@ -980,8 +1074,8 @@ test('StatsService migrates repo-local usage-data roots for legacy workspace has
       legacyUsageDataRootPath: path.join(tempDir, 'global-storage'),
       workspaceId: currentWorkspaceId,
       legacyWorkspaceIds: [legacyWorkspaceId],
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
@@ -994,7 +1088,7 @@ test('StatsService migrates repo-local usage-data roots for legacy workspace has
 
 test('StatsService migrates legacy canonical roots for legacy workspace hashes', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const currentWorkspaceId = 'workspace-current-canonical-hash';
     const legacyWorkspaceId = 'workspace-legacy-canonical-hash';
     const storageDir = path.join(
@@ -1018,8 +1112,8 @@ test('StatsService migrates legacy canonical roots for legacy workspace hashes',
       legacyUsageDataRootPath: path.join(tempDir, 'global-storage'),
       workspaceId: currentWorkspaceId,
       legacyWorkspaceIds: [legacyWorkspaceId],
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
@@ -1035,7 +1129,7 @@ test('StatsService migrates legacy canonical roots for legacy workspace hashes',
 
 test('StatsService migrates legacy global data/outcomes roots for legacy workspace hashes', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const currentWorkspaceId = 'workspace-current-global-outcomes';
     const legacyWorkspaceId = 'workspace-legacy-global-outcomes';
     const storageDir = path.join(
@@ -1060,8 +1154,8 @@ test('StatsService migrates legacy global data/outcomes roots for legacy workspa
       legacyUsageDataRootPath: path.join(tempDir, 'global-storage'),
       workspaceId: currentWorkspaceId,
       legacyWorkspaceIds: [legacyWorkspaceId],
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
@@ -1077,7 +1171,7 @@ test('StatsService migrates legacy global data/outcomes roots for legacy workspa
 
 test('StatsService prefers newer snapshots across overlapping legacy roots', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const workspaceId = 'workspace-legacy-root-priority';
     const workspaceDir = workspaceHash(workspaceId);
     const storageDir = path.join(tempDir, 'data', 'outcomes', workspaceDir);
@@ -1119,8 +1213,8 @@ test('StatsService prefers newer snapshots across overlapping legacy roots', asy
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: path.join(tempDir, 'global-storage'),
       workspaceId,
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
@@ -1137,7 +1231,7 @@ test('StatsService prefers newer snapshots across overlapping legacy roots', asy
 
 test('StatsService merges overlapping legacy snapshot history instead of skipping existing files', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const workspaceId = 'workspace-overlapping-log-merge';
     const workspaceDir = workspaceHash(workspaceId);
     const storageDir = path.join(tempDir, 'data', 'outcomes', workspaceDir);
@@ -1160,8 +1254,8 @@ test('StatsService merges overlapping legacy snapshot history instead of skippin
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId,
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
@@ -1178,7 +1272,7 @@ test('StatsService merges overlapping legacy snapshot history instead of skippin
 
 test('StatsService keeps canonical snapshot entries when the same run exists in legacy history', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const workspaceId = 'workspace-conflicting-log-merge';
     const workspaceDir = workspaceHash(workspaceId);
     const storageDir = path.join(tempDir, 'data', 'outcomes', workspaceDir);
@@ -1219,8 +1313,8 @@ test('StatsService keeps canonical snapshot entries when the same run exists in 
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId,
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
@@ -1237,7 +1331,7 @@ test('StatsService keeps canonical snapshot entries when the same run exists in 
 
 test('StatsService merges legacy checkpoint sessions with existing canonical checkpoint state', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const workspaceId = 'workspace-checkpoint-merge';
     const workspaceDir = workspaceHash(workspaceId);
     const storageDir = path.join(tempDir, 'data', 'outcomes', workspaceDir);
@@ -1280,18 +1374,18 @@ test('StatsService merges legacy checkpoint sessions with existing canonical che
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId,
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
 
-    assert.deepEqual(store.getState().sessionState.activeRunSummaryBySession[currentSessionPath], {
+    assert.deepEqual(archState.composer.activeRunSummaryBySession[currentSessionPath], {
       runId: 'run-current',
       status: 'open',
       scored: false,
     });
-    assert.deepEqual(store.getState().sessionState.activeRunSummaryBySession[legacySessionPath], {
+    assert.deepEqual(archState.composer.activeRunSummaryBySession[legacySessionPath], {
       runId: 'run-legacy',
       status: 'open',
       scored: false,
@@ -1303,7 +1397,7 @@ test('StatsService merges legacy checkpoint sessions with existing canonical che
 
 test('StatsService prefers the newer checkpoint state for overlapping session paths', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const workspaceId = 'workspace-checkpoint-conflict';
     const workspaceDir = workspaceHash(workspaceId);
     const storageDir = path.join(tempDir, 'data', 'outcomes', workspaceDir);
@@ -1348,13 +1442,13 @@ test('StatsService prefers the newer checkpoint state for overlapping session pa
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId,
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
     });
 
     await stats.start();
 
-    assert.deepEqual(store.getState().sessionState.activeRunSummaryBySession[sessionPath], {
+    assert.deepEqual(archState.composer.activeRunSummaryBySession[sessionPath], {
       runId: 'run-legacy',
       status: 'open',
       scored: false,
@@ -1366,7 +1460,7 @@ test('StatsService prefers the newer checkpoint state for overlapping session pa
 
 test('StatsService tolerates auto-export write failures during startup and persistence', async () => {
   await withTempDir(async (tempDir) => {
-    const store = createAppStore();
+    let archState = createInitialArchState();
     const sessionPath = '/workspace/session-export-failure.jsonl';
     const workspaceId = 'workspace-export-failure';
     const storageDir = path.join(
@@ -1377,18 +1471,26 @@ test('StatsService tolerates auto-export write failures during startup and persi
     );
     let idCounter = 0;
 
-    store.dispatch(sessionsActions.upsertSession({
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+
       path: sessionPath,
       name: 'Export Failure Session',
       cwd: '/workspace',
       modifiedAt: new Date().toISOString(),
       messageCount: 0,
       modelId: 'claude',
-    }));
-    store.dispatch(settingsActions.setModelSettings({
+    
+      } as SessionSummary);
+    });
+    archState = produce(archState, draft => {
+      draft.settings.modelSettings = {
+
       defaultModel: 'claude',
       defaultThinkingLevel: 'medium',
-    }));
+    
+      } as ModelSettings;
+    });
 
     await fs.mkdir(storageDir, { recursive: true });
     await fs.mkdir(path.join(storageDir, 'run-analytics.json'));
@@ -1397,8 +1499,8 @@ test('StatsService tolerates auto-export write failures during startup and persi
       dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
       legacyUsageDataRootPath: tempDir,
       workspaceId,
-      dispatch: store.dispatch,
-      getState: store.getState,
+      getArchState: () => archState,
+      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
       createId: () => `id-${++idCounter}`,
     });
 

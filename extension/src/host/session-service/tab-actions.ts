@@ -4,18 +4,14 @@ import { BackendClient } from '../backend/client';
 import { type RunObserver } from '../stats-service';
 import { auditLog, bootLog } from '../util/audit';
 import {
-  getSessionByPath,
-  sessionsActions,
-  store,
-  uiActions,
-} from '../store';
-import {
   getNextVisibleTabPathOnClose,
   isPendingTabPath,
+  moveOpenTabPath,
 } from '../../shared/tab-behavior';
 import type { SessionOpenedPayload, SessionSummary } from '../../shared/protocol';
 import type { ScheduleRender } from './types';
 import { SessionServiceState } from './state';
+import type { ArchState } from '../core/arch-state';
 
 interface SessionTabActionsOptions {
   context: vscode.ExtensionContext;
@@ -23,6 +19,30 @@ interface SessionTabActionsOptions {
   scheduleRender: ScheduleRender;
   runObserver: RunObserver;
   state: SessionServiceState;
+  getArchState: () => ArchState;
+  mutateArchState: (recipe: (draft: ArchState) => void) => void;
+}
+
+/**
+ * Merge an existing summary with an incoming one. We preserve a real local name
+ * over a backend-emitted placeholder so that "New Session" doesn't clobber a
+ * user-meaningful tab label after a list refresh.
+ */
+function mergeSessionSummary(
+  existing: SessionSummary | undefined,
+  incoming: SessionSummary,
+): SessionSummary {
+  if (!existing) return incoming;
+  const keepExistingName =
+    !existing.isPlaceholder &&
+    incoming.isPlaceholder === true;
+  return {
+    ...incoming,
+    name: keepExistingName ? existing.name : incoming.name,
+    isPlaceholder: keepExistingName ? false : incoming.isPlaceholder,
+    modelId: incoming.modelId ?? existing.modelId,
+    thinkingLevel: incoming.thinkingLevel ?? existing.thinkingLevel,
+  };
 }
 
 export class SessionTabActions {
@@ -31,6 +51,8 @@ export class SessionTabActions {
   private readonly scheduleRender: ScheduleRender;
   private readonly runObserver: RunObserver;
   private readonly state: SessionServiceState;
+  private readonly getArchState: () => ArchState;
+  private readonly mutateArchState: (recipe: (draft: ArchState) => void) => void;
 
   constructor(options: SessionTabActionsOptions) {
     this.context = options.context;
@@ -38,11 +60,13 @@ export class SessionTabActions {
     this.scheduleRender = options.scheduleRender;
     this.runObserver = options.runObserver;
     this.state = options.state;
+    this.getArchState = options.getArchState;
+    this.mutateArchState = options.mutateArchState;
   }
 
   createNewSession(): string {
     const pendingPath = this.state.createPendingSessionPath();
-    const cwd = store.getState().sessions.workspaceCwd ?? '';
+    const cwd = this.getArchState().sessions.workspaceCwd ?? '';
     const selectionToken = this.state.beginSelectionRequest(pendingPath, pendingPath);
 
     auditLog(this.context, 'session-service', 'session.create.requested', {
@@ -51,18 +75,31 @@ export class SessionTabActions {
       selectionToken,
     });
 
-    store.dispatch(
-      sessionsActions.upsertSession({
+    this.mutateArchState((draft) => {
+      // upsertSession
+      const incoming: SessionSummary = {
         path: pendingPath,
         name: 'New Session',
         cwd,
         modifiedAt: new Date().toISOString(),
         messageCount: 0,
         isPlaceholder: true,
-      }),
-    );
-    store.dispatch(sessionsActions.ensureOpenTab(pendingPath));
-    store.dispatch(sessionsActions.setActiveSessionPath(pendingPath));
+      };
+      const idx = draft.sessions.sessions.findIndex((s) => s.path === incoming.path);
+      if (idx === -1) {
+        draft.sessions.sessions = [incoming, ...draft.sessions.sessions];
+      } else {
+        draft.sessions.sessions[idx] = mergeSessionSummary(draft.sessions.sessions[idx], incoming);
+      }
+      // ensureOpenTab
+      if (!draft.sessions.openTabPaths.includes(pendingPath)) {
+        draft.sessions.openTabPaths = [...draft.sessions.openTabPaths, pendingPath];
+      }
+      // setActiveSessionPath
+      draft.sessions.activeSessionPath = pendingPath;
+      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
+        .filter((p) => p !== pendingPath);
+    });
     this.state.saveOpenTabs();
     this.scheduleRender();
 
@@ -82,8 +119,9 @@ export class SessionTabActions {
   }
 
   openSession(sessionPath: string): void {
-    const existing = getSessionByPath(store.getState(), sessionPath);
-    const wasOpenTab = store.getState().sessions.openTabPaths.includes(sessionPath);
+    const archState = this.getArchState();
+    const existing = archState.sessions.sessions.find((s) => s.path === sessionPath);
+    const wasOpenTab = archState.sessions.openTabPaths.includes(sessionPath);
     const requestEpoch = this.state.bumpSessionDataEpoch(sessionPath);
     const selectionToken = this.state.beginSelectionRequest(
       sessionPath,
@@ -105,20 +143,33 @@ export class SessionTabActions {
       hadExistingSummary: !!existing,
     });
 
-    if (!existing) {
-      store.dispatch(
-        sessionsActions.upsertSession({
+    this.mutateArchState((draft) => {
+      if (!existing) {
+        // upsertSession placeholder
+        const incoming: SessionSummary = {
           path: sessionPath,
           name: 'Loading...',
           isPlaceholder: true,
-          cwd: store.getState().sessions.workspaceCwd ?? '',
+          cwd: draft.sessions.workspaceCwd ?? '',
           modifiedAt: new Date().toISOString(),
           messageCount: 0,
-        }),
-      );
-    }
-    store.dispatch(sessionsActions.setActiveSessionPath(sessionPath));
-    store.dispatch(sessionsActions.ensureOpenTab(sessionPath));
+        };
+        const idx = draft.sessions.sessions.findIndex((s) => s.path === incoming.path);
+        if (idx === -1) {
+          draft.sessions.sessions = [incoming, ...draft.sessions.sessions];
+        } else {
+          draft.sessions.sessions[idx] = mergeSessionSummary(draft.sessions.sessions[idx], incoming);
+        }
+      }
+      // setActiveSessionPath
+      draft.sessions.activeSessionPath = sessionPath;
+      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
+        .filter((p) => p !== sessionPath);
+      // ensureOpenTab
+      if (!draft.sessions.openTabPaths.includes(sessionPath)) {
+        draft.sessions.openTabPaths = [...draft.sessions.openTabPaths, sessionPath];
+      }
+    });
     this.state.touchSessionTranscript(sessionPath);
     this.state.evictInactiveTranscriptWindows();
     this.state.saveOpenTabs();
@@ -140,13 +191,13 @@ export class SessionTabActions {
   }
 
   async closeSession(sessionPath: string): Promise<void> {
-    const state = store.getState();
+    const archState = this.getArchState();
     const nextPath = getNextVisibleTabPathOnClose({
       closingPath: sessionPath,
-      openTabPaths: state.sessions.openTabPaths,
-      sessions: state.sessions.sessions,
-      workspaceCwd: state.sessions.workspaceCwd,
-      activeSessionPath: state.sessions.activeSessionPath,
+      openTabPaths: archState.sessions.openTabPaths,
+      sessions: archState.sessions.sessions,
+      workspaceCwd: archState.sessions.workspaceCwd,
+      activeSessionPath: archState.sessions.activeSessionPath,
     });
 
     auditLog(this.context, 'session-service', 'session.close.requested', {
@@ -157,35 +208,60 @@ export class SessionTabActions {
     this.state.clearSelectionRequestsForPath(sessionPath);
 
     this.runObserver.onSessionClosed(sessionPath);
-    store.dispatch(sessionsActions.removeOpenTab(sessionPath));
+    this.mutateArchState((draft) => {
+      // removeOpenTab
+      draft.sessions.openTabPaths = draft.sessions.openTabPaths.filter((p) => p !== sessionPath);
+      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
+        .filter((p) => p !== sessionPath);
+    });
     this.state.clearSessionScope(sessionPath);
     this.state.saveOpenTabs();
 
-    if (state.sessions.activeSessionPath === sessionPath) {
+    if (archState.sessions.activeSessionPath === sessionPath) {
       if (nextPath) {
         if (isPendingTabPath(nextPath)) {
-          store.dispatch(sessionsActions.setActiveSessionPath(nextPath));
+          this.mutateArchState((draft) => {
+            draft.sessions.activeSessionPath = nextPath;
+            draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
+              .filter((p) => p !== nextPath);
+          });
         } else {
-          const existing = getSessionByPath(state, nextPath);
+          const existing = archState.sessions.sessions.find((s) => s.path === nextPath);
           if (existing) {
-            store.dispatch(sessionsActions.setActiveSessionPath(existing.path));
+            this.mutateArchState((draft) => {
+              draft.sessions.activeSessionPath = existing.path;
+              draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
+                .filter((p) => p !== existing.path);
+            });
           } else {
             const placeholder: SessionSummary = {
               path: nextPath,
               name: 'Loading...',
               isPlaceholder: true,
-              cwd: state.sessions.workspaceCwd ?? '',
+              cwd: archState.sessions.workspaceCwd ?? '',
               modifiedAt: new Date().toISOString(),
               messageCount: 0,
             };
-            store.dispatch(sessionsActions.upsertSession(placeholder));
-            store.dispatch(sessionsActions.setActiveSessionPath(placeholder.path));
+            this.mutateArchState((draft) => {
+              // upsertSession
+              const idx = draft.sessions.sessions.findIndex((s) => s.path === placeholder.path);
+              if (idx === -1) {
+                draft.sessions.sessions = [placeholder, ...draft.sessions.sessions];
+              } else {
+                draft.sessions.sessions[idx] = mergeSessionSummary(draft.sessions.sessions[idx], placeholder);
+              }
+              // setActiveSessionPath
+              draft.sessions.activeSessionPath = placeholder.path;
+              draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
+                .filter((p) => p !== placeholder.path);
+            });
+            void this.openSession(nextPath);
           }
-
-          void this.openSession(nextPath);
         }
       } else {
-        store.dispatch(sessionsActions.clearActiveSession());
+        this.mutateArchState((draft) => {
+          draft.sessions.activeSessionPath = null;
+        });
       }
     }
 
@@ -201,22 +277,29 @@ export class SessionTabActions {
       toIndex,
     });
 
-    store.dispatch(sessionsActions.moveOpenTab({ sessionPath, fromIndex, toIndex }));
+    this.mutateArchState((draft) => {
+      draft.sessions.openTabPaths = moveOpenTabPath(draft.sessions.openTabPaths, { sessionPath, fromIndex, toIndex });
+    });
     this.state.saveOpenTabs();
     this.state.assertSelectionInvariant('moveSessionTab');
     this.scheduleRender();
   }
 
   duplicateSession(sourceSessionPath: string): void {
-    const source = getSessionByPath(store.getState(), sourceSessionPath);
+    const archState = this.getArchState();
+    const source = archState.sessions.sessions.find((s) => s.path === sourceSessionPath);
     if (!source) {
-      store.dispatch(uiActions.setNotice('Cannot duplicate: session not found.'));
+      this.mutateArchState((draft) => {
+        draft.settings.notice = 'Cannot duplicate: session not found.';
+      });
       this.scheduleRender();
       return;
     }
 
     if (isPendingTabPath(sourceSessionPath)) {
-      store.dispatch(uiActions.setNotice('Cannot duplicate: session is still being created.'));
+      this.mutateArchState((draft) => {
+        draft.settings.notice = 'Cannot duplicate: session is still being created.';
+      });
       this.scheduleRender();
       return;
     }
@@ -230,24 +313,42 @@ export class SessionTabActions {
       selectionToken,
     });
 
-    // Show a placeholder tab for the duplicate immediately.
-    store.dispatch(
-      sessionsActions.upsertSession({
+    this.mutateArchState((draft) => {
+      // Show a placeholder tab for the duplicate immediately.
+      const incoming: SessionSummary = {
         path: pendingPath,
         name: `${source.name} (copy)`,
         cwd: source.cwd,
         modifiedAt: new Date().toISOString(),
         messageCount: source.messageCount,
         isPlaceholder: true,
-      }),
-    );
+      };
+      // upsertSession
+      const idx = draft.sessions.sessions.findIndex((s) => s.path === incoming.path);
+      if (idx === -1) {
+        draft.sessions.sessions = [incoming, ...draft.sessions.sessions];
+      } else {
+        draft.sessions.sessions[idx] = mergeSessionSummary(draft.sessions.sessions[idx], incoming);
+      }
 
-    // Insert duplicate tab right after the source tab.
-    store.dispatch(sessionsActions.insertOpenTabAfter({
-      afterPath: sourceSessionPath,
-      newPath: pendingPath,
-    }));
-    store.dispatch(sessionsActions.setActiveSessionPath(pendingPath));
+      // Insert duplicate tab right after the source tab.
+      const afterIndex = draft.sessions.openTabPaths.indexOf(sourceSessionPath);
+      if (afterIndex === -1) {
+        draft.sessions.openTabPaths = [...draft.sessions.openTabPaths, pendingPath];
+      } else {
+        draft.sessions.openTabPaths = [
+          ...draft.sessions.openTabPaths.slice(0, afterIndex + 1),
+          pendingPath,
+          ...draft.sessions.openTabPaths.slice(afterIndex + 1),
+        ];
+      }
+
+      // setActiveSessionPath
+      draft.sessions.activeSessionPath = pendingPath;
+      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
+        .filter((p) => p !== pendingPath);
+    });
+
     this.state.saveOpenTabs();
     this.scheduleRender();
 

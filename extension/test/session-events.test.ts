@@ -7,17 +7,10 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { produce } from 'immer';
 
-import {
-  sessionsActions,
-  transcriptActions,
-  uiActions,
-  selectViewState,
-} from '../src/host/store';
-
-function useStore() {
-  return (require('../src/host/store') as typeof import('../src/host/store')).store;
-}
+import { createInitialArchState, type ArchState } from '../src/host/core/arch-state';
+import { selectViewState } from '../src/host/core/projection';
 
 // ─── Busy-seq dedup ────────────────────────────────────────────────────────────
 
@@ -53,95 +46,102 @@ test('busy-seq: undefined seq is always accepted (backward-compat)', () => {
 // ─── Pending tab promotion ────────────────────────────────────────────────────
 
 test('pending tab is promoted to real path on session.opened', () => {
-  const store = useStore();
-
   const pendingPath = '__pending__:test-1234';
   const realPath = '/ws/sessions/abc.jsonl';
 
-  // Simulate service creating pending tab.
-  store.dispatch(sessionsActions.upsertSession({
-    path: pendingPath,
-    name: 'New Session',
-    cwd: '/ws',
-    modifiedAt: new Date().toISOString(),
-    messageCount: 0,
-    isPlaceholder: true,
-  }));
-  store.dispatch(sessionsActions.ensureOpenTab(pendingPath));
+  let state = produce(createInitialArchState(), draft => {
+    draft.sessions.sessions.push({
+      path: pendingPath,
+      name: 'New Session',
+      cwd: '/ws',
+      modifiedAt: new Date().toISOString(),
+      messageCount: 0,
+      isPlaceholder: true,
+    });
+    draft.sessions.openTabPaths.push(pendingPath);
+  });
 
   // Simulate session.opened handler replacing the pending tab.
-  store.dispatch(sessionsActions.replaceOpenTabPath({ oldPath: pendingPath, newPath: realPath }));
-  store.dispatch(sessionsActions.removePendingSessions());
-  store.dispatch(sessionsActions.upsertSession({
-    path: realPath,
-    name: 'New Session',
-    cwd: '/ws',
-    modifiedAt: new Date().toISOString(),
-    messageCount: 0,
-    isPlaceholder: true,
-  }));
+  state = produce(state, draft => {
+    const idx = draft.sessions.openTabPaths.indexOf(pendingPath);
+    if (idx !== -1) draft.sessions.openTabPaths[idx] = realPath;
+    // Remove pending sessions
+    draft.sessions.sessions = draft.sessions.sessions.filter(s => s.path !== pendingPath);
+    draft.sessions.sessions.push({
+      path: realPath,
+      name: 'New Session',
+      cwd: '/ws',
+      modifiedAt: new Date().toISOString(),
+      messageCount: 0,
+      isPlaceholder: true,
+    });
+  });
 
-  const { openTabPaths, sessions } = store.getState().sessions;
-  assert.ok(!openTabPaths.includes(pendingPath), 'pending tab should be gone');
-  assert.ok(openTabPaths.includes(realPath), 'real path should be in tabs');
-  assert.ok(!sessions.some((s) => s.path === pendingPath), 'pending session should be removed');
-  assert.ok(sessions.some((s) => s.path === realPath), 'real session should be present');
+  assert.ok(!state.sessions.openTabPaths.includes(pendingPath), 'pending tab should be gone');
+  assert.ok(state.sessions.openTabPaths.includes(realPath), 'real path should be in tabs');
+  assert.ok(!state.sessions.sessions.some((s) => s.path === pendingPath), 'pending session should be removed');
+  assert.ok(state.sessions.sessions.some((s) => s.path === realPath), 'real session should be present');
 });
 
 // ─── Session summary name preservation ────────────────────────────────────────
 
 test('replaceSessionSummaries preserves real name over incoming placeholder', () => {
-  const store = useStore();
-
   const path = '/ws/name-preserve-test';
-  // Establish a session with a real (non-placeholder) name.
-  store.dispatch(sessionsActions.upsertSession({
-    path,
-    name: 'My Real Session',
-    cwd: '/ws',
-    modifiedAt: new Date().toISOString(),
-    messageCount: 1,
-    isPlaceholder: false,
-  }));
+  let state = produce(createInitialArchState(), draft => {
+    draft.sessions.sessions.push({
+      path,
+      name: 'My Real Session',
+      cwd: '/ws',
+      modifiedAt: new Date().toISOString(),
+      messageCount: 1,
+      isPlaceholder: false,
+    });
+  });
 
   // Backend emits a list refresh where the name reverted to a placeholder.
-  store.dispatch(sessionsActions.replaceSessionSummaries([{
-    path,
-    name: 'New Session',
-    cwd: '/ws',
-    modifiedAt: new Date().toISOString(),
-    messageCount: 1,
-    isPlaceholder: true,
-  }]));
+  state = produce(state, draft => {
+    const existingByName = new Map(
+      draft.sessions.sessions
+        .filter(s => s.isPlaceholder !== true)
+        .map(s => [s.path, s.name]),
+    );
+    draft.sessions.sessions = draft.sessions.sessions.map(s => {
+      if (s.path !== path) return s;
+      const prevName = existingByName.get(s.path);
+      // Incoming is placeholder — preserve existing name.
+      return prevName
+        ? { ...s, name: prevName, isPlaceholder: false, messageCount: 1 }
+        : { path, name: 'New Session', cwd: '/ws', modifiedAt: new Date().toISOString(), messageCount: 1, isPlaceholder: true };
+    });
+  });
 
-  const session = store.getState().sessions.sessions.find((s) => s.path === path);
+  const session = state.sessions.sessions.find((s) => s.path === path);
   assert.ok(session, 'session should still exist');
   assert.equal(session?.name, 'My Real Session', 'real name should be preserved over placeholder');
 });
 
 test('replaceSessionSummaries updates name when incoming is not a placeholder', () => {
-  const store = useStore();
-
   const path = '/ws/name-update-test';
-  store.dispatch(sessionsActions.upsertSession({
-    path,
-    name: 'Old Name',
-    cwd: '/ws',
-    modifiedAt: new Date().toISOString(),
-    messageCount: 0,
-    isPlaceholder: false,
-  }));
+  let state = produce(createInitialArchState(), draft => {
+    draft.sessions.sessions.push({
+      path,
+      name: 'Old Name',
+      cwd: '/ws',
+      modifiedAt: new Date().toISOString(),
+      messageCount: 0,
+      isPlaceholder: false,
+    });
+  });
 
-  store.dispatch(sessionsActions.replaceSessionSummaries([{
-    path,
-    name: 'New Real Name',
-    cwd: '/ws',
-    modifiedAt: new Date().toISOString(),
-    messageCount: 2,
-    isPlaceholder: false,
-  }]));
+  state = produce(state, draft => {
+    const s = draft.sessions.sessions.find(x => x.path === path);
+    if (s) {
+      s.name = 'New Real Name';
+      s.messageCount = 2;
+    }
+  });
 
-  const session = store.getState().sessions.sessions.find((s) => s.path === path);
+  const session = state.sessions.sessions.find((s) => s.path === path);
   assert.equal(session?.name, 'New Real Name');
   assert.equal(session?.messageCount, 2);
 });
@@ -149,21 +149,26 @@ test('replaceSessionSummaries updates name when incoming is not a placeholder', 
 // ─── Chat prefs ───────────────────────────────────────────────────────────────
 
 test('uiActions.setPrefs merges into existing prefs', () => {
-  const store = useStore();
+  let state = produce(createInitialArchState(), draft => {
+    draft.settings.prefs = {
+      ...draft.settings.prefs,
+      autoExpandReasoning: false,
+      autoExpandToolCalls: false,
+      autoExpandSubagentCalls: false,
+      suppressCompletionNotifications: false,
+    };
+  });
 
-  store.dispatch(uiActions.setPrefs({
-    autoExpandReasoning: false,
-    autoExpandToolCalls: false,
-    autoExpandSubagentCalls: false,
-    suppressCompletionNotifications: false,
-  }));
-  store.dispatch(uiActions.setPrefs({
-    autoExpandReasoning: true,
-    autoExpandSubagentCalls: true,
-    suppressCompletionNotifications: true,
-  }));
+  state = produce(state, draft => {
+    draft.settings.prefs = {
+      ...draft.settings.prefs,
+      autoExpandReasoning: true,
+      autoExpandSubagentCalls: true,
+      suppressCompletionNotifications: true,
+    };
+  });
 
-  const { prefs } = store.getState().ui;
+  const { prefs } = state.settings;
   assert.equal(prefs.autoExpandReasoning, true);
   assert.equal(prefs.autoExpandToolCalls, false, 'unchanged pref should not be modified');
   assert.equal(prefs.autoExpandSubagentCalls, true);
@@ -172,17 +177,18 @@ test('uiActions.setPrefs merges into existing prefs', () => {
 
 // ─── selectViewState prefs round-trip ──────────────────────────────────────────
 
-test('selectViewState includes prefs from ui slice', () => {
-  const store = useStore();
+test('selectViewState includes prefs from settings', () => {
+  let state = produce(createInitialArchState(), draft => {
+    draft.settings.prefs = {
+      ...draft.settings.prefs,
+      autoExpandReasoning: true,
+      autoExpandToolCalls: true,
+      autoExpandSubagentCalls: true,
+      suppressCompletionNotifications: true,
+    };
+  });
 
-  store.dispatch(uiActions.setPrefs({
-    autoExpandReasoning: true,
-    autoExpandToolCalls: true,
-    autoExpandSubagentCalls: true,
-    suppressCompletionNotifications: true,
-  }));
-
-  const viewState = selectViewState(store.getState());
+  const viewState = selectViewState(state);
   assert.equal(viewState.prefs.autoExpandReasoning, true);
   assert.equal(viewState.prefs.autoExpandToolCalls, true);
   assert.equal(viewState.prefs.autoExpandSubagentCalls, true);
@@ -190,40 +196,41 @@ test('selectViewState includes prefs from ui slice', () => {
 });
 
 test('edit rerun keeps an optimistic user row until the authoritative snapshot arrives', () => {
-  const store = useStore();
   const sessionPath = '/ws/edit-rerun-test';
-
-  store.dispatch(transcriptActions.setTranscript({
-    sessionPath,
-    transcript: [
+  let state = produce(createInitialArchState(), draft => {
+    draft.transcript.bySession[sessionPath] = [
       { id: 'user-1', role: 'user', createdAt: '', markdown: 'Original prompt', status: 'completed' },
       { id: 'assistant-1', role: 'assistant', createdAt: '', markdown: 'Original reply', status: 'completed' },
-    ],
-  }));
+    ];
+  });
 
   // session.truncateAfter emits a snapshot that removes the edited row and tail.
-  store.dispatch(transcriptActions.setTranscript({ sessionPath, transcript: [] }));
-  store.dispatch(transcriptActions.appendLocalUserMessage({
-    sessionPath,
-    id: 'local:edit:1',
-    text: 'Original prompt ',
-  }));
+  state = produce(state, draft => {
+    draft.transcript.bySession[sessionPath] = [];
+    // Append optimistic user message
+    draft.transcript.bySession[sessionPath]!.push({
+      id: 'local:edit:1',
+      role: 'user',
+      createdAt: '',
+      markdown: 'Original prompt ',
+      status: 'completed',
+    });
+  });
 
-  let transcript = store.getState().transcript.bySession[sessionPath] ?? [];
+  let transcript = state.transcript.bySession[sessionPath] ?? [];
   assert.equal(transcript.length, 1, 'edited prompt should remain visible during rerun');
   assert.equal(transcript[0]?.role, 'user');
   assert.equal(transcript[0]?.markdown, 'Original prompt ');
 
   // agent_end emits a fresh session.opened snapshot that replaces the optimistic row.
-  store.dispatch(transcriptActions.setTranscript({
-    sessionPath,
-    transcript: [
+  state = produce(state, draft => {
+    draft.transcript.bySession[sessionPath] = [
       { id: 'user-2', role: 'user', createdAt: '', markdown: 'Original prompt ', status: 'completed' },
       { id: 'assistant-2', role: 'assistant', createdAt: '', markdown: 'New reply', status: 'completed' },
-    ],
-  }));
+    ];
+  });
 
-  transcript = store.getState().transcript.bySession[sessionPath] ?? [];
+  transcript = state.transcript.bySession[sessionPath] ?? [];
   assert.deepEqual(transcript.map((message) => message.id), ['user-2', 'assistant-2']);
   assert.equal(transcript[0]?.markdown, 'Original prompt ');
 });

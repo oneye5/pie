@@ -107,7 +107,6 @@
   "devDependencies": {
     "@eslint/js": "^9.27.0",
     "@preact/signals": "^2.9.0",
-    "@reduxjs/toolkit": "^2.11.2",
     "@tailwindcss/postcss": "^4.3.0",
     "@tanstack/virtual-core": "^3.14.0",
     "@testing-library/preact": "^3.2.4",

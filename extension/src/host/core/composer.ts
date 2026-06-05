@@ -3,25 +3,28 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { type RunObserver } from '../stats-service';
-import {
-  getSessionByPath,
-  sessionStateActions,
-  store,
-  uiActions,
-} from '../store';
 import type {
   ComposerInput,
   ComposerInputDraft,
   UserContentPart,
 } from '../../shared/protocol';
+import type { ArchState } from './arch-state';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../../shared/image-constraints';
+
+export type GetArchState = () => ArchState;
+export type MutateArchState = (recipe: (draft: ArchState) => void) => void;
 
 export function normalizeAttachUris(uris: vscode.Uri[]): vscode.Uri[] {
   return uris.filter((uri) => uri.scheme === 'file');
 }
 
-export function upsertPendingComposerInput(sessionPath: string, input: ComposerInput): void {
-  const existingInputs = store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? [];
+export function upsertPendingComposerInput(
+  sessionPath: string,
+  input: ComposerInput,
+  getArchState: GetArchState,
+  mutateArchState: MutateArchState,
+): void {
+  const existingInputs = getArchState().composer.pendingComposerInputsBySession[sessionPath] ?? [];
   if (input.kind === 'filesystemPathRef') {
     const duplicate = existingInputs.some(
       (existing) => existing.kind === 'filesystemPathRef' && existing.path === input.path,
@@ -31,7 +34,10 @@ export function upsertPendingComposerInput(sessionPath: string, input: ComposerI
     }
   }
 
-  store.dispatch(sessionStateActions.addPendingComposerInput({ sessionPath, input }));
+  mutateArchState((draft) => {
+    const list = (draft.composer.pendingComposerInputsBySession[sessionPath] ??= []);
+    list.push(input);
+  });
 }
 
 export function validateAndMaterializeComposerInput(
@@ -40,11 +46,12 @@ export function validateAndMaterializeComposerInput(
   createComposerInputId: () => string,
   scheduleRender: () => void,
   runObserver: RunObserver,
+  mutateArchState: MutateArchState,
 ): ComposerInput | null {
   if (inputDraft.kind === 'filesystemPathRef') {
     const filesystemPath = inputDraft.path.trim();
     if (!filesystemPath) {
-      store.dispatch(uiActions.setNotice('Cannot attach file path: path is empty.'));
+      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach file path: path is empty.'; });
       scheduleRender();
       return null;
     }
@@ -61,24 +68,24 @@ export function validateAndMaterializeComposerInput(
   if (inputDraft.kind === 'imageBlob') {
     const mimeType = inputDraft.mimeType.trim().toLowerCase();
     if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
-      store.dispatch(uiActions.setNotice(`Cannot attach image: unsupported type ${inputDraft.mimeType}.`));
+      mutateArchState((draft) => { draft.settings.notice = `Cannot attach image: unsupported type ${inputDraft.mimeType}.`; });
       scheduleRender();
       return null;
     }
     if (!Number.isFinite(inputDraft.sizeBytes) || inputDraft.sizeBytes <= 0) {
-      store.dispatch(uiActions.setNotice('Cannot attach image: invalid size.'));
+      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach image: invalid size.'; });
       scheduleRender();
       return null;
     }
     if (inputDraft.sizeBytes > MAX_IMAGE_INPUT_BYTES) {
-      store.dispatch(uiActions.setNotice(
-        `Cannot attach image: exceeds the ${MAX_IMAGE_INPUT_BYTES} byte limit.`,
-      ));
+      mutateArchState((draft) => {
+        draft.settings.notice = `Cannot attach image: exceeds the ${MAX_IMAGE_INPUT_BYTES} byte limit.`;
+      });
       scheduleRender();
       return null;
     }
     if (!inputDraft.dataBase64.trim()) {
-      store.dispatch(uiActions.setNotice('Cannot attach image: missing image data.'));
+      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach image: missing image data.'; });
       scheduleRender();
       return null;
     }
@@ -86,7 +93,7 @@ export function validateAndMaterializeComposerInput(
       inputDraft.width !== undefined
       && (!Number.isFinite(inputDraft.width) || inputDraft.width <= 0)
     ) {
-      store.dispatch(uiActions.setNotice('Cannot attach image: invalid width.'));
+      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach image: invalid width.'; });
       scheduleRender();
       return null;
     }
@@ -94,12 +101,12 @@ export function validateAndMaterializeComposerInput(
       inputDraft.height !== undefined
       && (!Number.isFinite(inputDraft.height) || inputDraft.height <= 0)
     ) {
-      store.dispatch(uiActions.setNotice('Cannot attach image: invalid height.'));
+      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach image: invalid height.'; });
       scheduleRender();
       return null;
     }
     if (modelSupportsInputKind(sessionPath, undefined, 'image') === false) {
-      store.dispatch(uiActions.setNotice('The selected model does not support image inputs.'));
+      mutateArchState((draft) => { draft.settings.notice = 'The selected model does not support image inputs.'; });
       scheduleRender();
       return null;
     }
@@ -118,11 +125,10 @@ export function validateAndMaterializeComposerInput(
   }
 
   runObserver.onUnsupportedInputAttempt(sessionPath);
-  store.dispatch(
-    uiActions.setNotice(
-      'Arbitrary pasted file attachments are not supported yet. Please attach a filesystem path instead.',
-    ),
-  );
+  mutateArchState((draft) => {
+    draft.settings.notice =
+      'Arbitrary pasted file attachments are not supported yet. Please attach a filesystem path instead.';
+  });
   scheduleRender();
   return null;
 }
@@ -131,17 +137,18 @@ export function modelSupportsInputKind(
   sessionPath: string,
   requestedModelId: string | undefined,
   inputKind: 'text' | 'image',
+  getArchState: GetArchState = () => { throw new Error('getArchState not provided'); },
 ): boolean {
-  const state = store.getState();
+  const archState = getArchState();
   const modelId = requestedModelId
-    ?? getSessionByPath(state, sessionPath)?.modelId
-    ?? state.settings.modelSettings?.defaultModel;
+    ?? archState.sessions.sessions.find((s) => s.path === sessionPath)?.modelId
+    ?? archState.settings.modelSettings?.defaultModel;
   if (!modelId) {
     return inputKind === 'text';
   }
 
-  const directModels = state.settings.availableModelsBySession[sessionPath] ?? [];
-  const fallbackModels = Object.values(state.settings.availableModelsBySession)
+  const directModels = archState.settings.availableModelsBySession[sessionPath] ?? [];
+  const fallbackModels = Object.values(archState.settings.availableModelsBySession)
     .flatMap((models) => models);
   const model = [...directModels, ...fallbackModels].find((candidate) => candidate.id === modelId);
   if (!model) {
@@ -151,20 +158,25 @@ export function modelSupportsInputKind(
   return model.inputKinds.includes(inputKind);
 }
 
-export function clearPendingImageInputs(sessionPath: string): void {
-  const existingInputs = store.getState().sessionState.pendingComposerInputsBySession[sessionPath] ?? [];
+export function clearPendingImageInputs(
+  sessionPath: string,
+  getArchState: GetArchState,
+  mutateArchState: MutateArchState,
+): void {
+  const existingInputs = getArchState().composer.pendingComposerInputsBySession[sessionPath] ?? [];
   const remainingInputs = existingInputs.filter((input) => input.kind !== 'imageBlob');
   if (remainingInputs.length === existingInputs.length) {
     return;
   }
   if (remainingInputs.length === 0) {
-    store.dispatch(sessionStateActions.clearPendingComposerInputs(sessionPath));
+    mutateArchState((draft) => {
+      delete draft.composer.pendingComposerInputsBySession[sessionPath];
+    });
     return;
   }
-  store.dispatch(sessionStateActions.setPendingComposerInputs({
-    sessionPath,
-    inputs: remainingInputs,
-  }));
+  mutateArchState((draft) => {
+    draft.composer.pendingComposerInputsBySession[sessionPath] = remainingInputs;
+  });
 }
 
 export function buildPromptText(text: string, inputs: ComposerInput[]): string {

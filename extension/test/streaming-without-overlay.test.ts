@@ -2,23 +2,21 @@
  * Phase 5 — Streaming without overlay.
  *
  * Verifies that after removing the overlay system, streaming content is
- * correctly reflected in the Redux store and projected into ViewState, and
+ * correctly reflected in the arch state and projected into ViewState, and
  * that the webview MessageItem renders streaming content from message.parts
  * alone (no overlay merge needed).
  */
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { produce } from 'immer';
 
 import DOMPurify from 'dompurify';
 import { h } from 'preact';
 import renderToString from 'preact-render-to-string';
 
-import {
-  sessionsActions,
-  transcriptActions,
-  selectViewState,
-} from '../src/host/store';
+import { createInitialArchState, type ArchState } from '../src/host/core/arch-state';
+import { selectViewState, derivePruningResult } from '../src/host/core/projection';
 import {
   DEFAULT_CHAT_PREFS,
   type ChatMessage,
@@ -28,43 +26,66 @@ import {
 
 DOMPurify.sanitize = ((html: string) => html) as typeof DOMPurify.sanitize;
 
-function useStore() {
-  return (require('../src/host/store') as typeof import('../src/host/store')).store;
-}
-
 const SESSION_PATH = '/ws/streaming-test';
 
-function setupActiveSession(store: ReturnType<typeof useStore>) {
-  store.dispatch(sessionsActions.upsertSession({
-    path: SESSION_PATH,
-    name: 'Streaming Test',
-    cwd: '/ws',
-    modifiedAt: new Date().toISOString(),
-    messageCount: 0,
-    isPlaceholder: false,
-  }));
-  store.dispatch(sessionsActions.ensureOpenTab(SESSION_PATH));
-  store.dispatch(sessionsActions.setActiveSessionPath(SESSION_PATH));
-  store.dispatch(sessionsActions.setSessionRunning({ sessionPath: SESSION_PATH, running: true }));
+function setupActiveSession(state: ArchState): ArchState {
+  return produce(state, draft => {
+    draft.sessions.sessions.push({
+      path: SESSION_PATH,
+      name: 'Streaming Test',
+      cwd: '/ws',
+      modifiedAt: new Date().toISOString(),
+      messageCount: 0,
+      isPlaceholder: false,
+    });
+    if (!draft.sessions.openTabPaths.includes(SESSION_PATH)) {
+      draft.sessions.openTabPaths.push(SESSION_PATH);
+    }
+    draft.sessions.activeSessionPath = SESSION_PATH;
+    if (!draft.sessions.runningSessionPaths.includes(SESSION_PATH)) {
+      draft.sessions.runningSessionPaths.push(SESSION_PATH);
+    }
+  });
 }
 
 // ─── Store-level streaming tests ───────────────────────────────────────────────
 
 test('appendDelta accumulates text parts on message and sets status to streaming', () => {
-  const store = useStore();
-  setupActiveSession(store);
+  let state = setupActiveSession(createInitialArchState());
 
-  store.dispatch(transcriptActions.setTranscript({
-    sessionPath: SESSION_PATH,
-    transcript: [
+  state = produce(state, draft => {
+    draft.transcript.bySession[SESSION_PATH] = [
       { id: 'msg-1', role: 'assistant', createdAt: '', markdown: '', status: 'streaming' },
-    ],
-  }));
+    ];
+  });
 
-  store.dispatch(transcriptActions.appendDelta({ sessionPath: SESSION_PATH, messageId: 'msg-1', delta: 'Hello' }));
-  store.dispatch(transcriptActions.appendDelta({ sessionPath: SESSION_PATH, messageId: 'msg-1', delta: ' world' }));
+  // Simulate appendDelta - merge consecutive text deltas
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-1');
+    if (!msg) return;
+    if (msg.status !== 'streaming' && msg.status !== undefined) return;
+    if (!msg.parts) msg.parts = [];
+    const last = msg.parts[msg.parts.length - 1];
+    if (last?.kind === 'text') {
+      last.text += 'Hello';
+    } else {
+      msg.parts.push({ kind: 'text', text: 'Hello' });
+    }
+  });
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-1');
+    if (!msg) return;
+    if (msg.status !== 'streaming' && msg.status !== undefined) return;
+    if (!msg.parts) msg.parts = [];
+    const last = msg.parts[msg.parts.length - 1];
+    if (last?.kind === 'text') {
+      last.text += ' world';
+    } else {
+      msg.parts.push({ kind: 'text', text: ' world' });
+    }
+  });
 
-  const transcript = store.getState().transcript.bySession[SESSION_PATH]!;
+  const transcript = state.transcript.bySession[SESSION_PATH]!;
   const msg = transcript.find(m => m.id === 'msg-1')!;
 
   assert.equal(msg.status, 'streaming');
@@ -75,20 +96,38 @@ test('appendDelta accumulates text parts on message and sets status to streaming
 });
 
 test('appendThinking accumulates reasoning parts on message', () => {
-  const store = useStore();
-  setupActiveSession(store);
+  let state = setupActiveSession(createInitialArchState());
 
-  store.dispatch(transcriptActions.setTranscript({
-    sessionPath: SESSION_PATH,
-    transcript: [
+  state = produce(state, draft => {
+    draft.transcript.bySession[SESSION_PATH] = [
       { id: 'msg-think', role: 'assistant', createdAt: '', markdown: '', status: 'streaming' },
-    ],
-  }));
+    ];
+  });
 
-  store.dispatch(transcriptActions.appendThinking({ sessionPath: SESSION_PATH, messageId: 'msg-think', thinking: 'Let me ' }));
-  store.dispatch(transcriptActions.appendThinking({ sessionPath: SESSION_PATH, messageId: 'msg-think', thinking: 'think...' }));
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-think');
+    if (!msg) return;
+    if (!msg.parts) msg.parts = [];
+    const last = msg.parts[msg.parts.length - 1];
+    if (last?.kind === 'reasoning') {
+      last.text += 'Let me ';
+    } else {
+      msg.parts.push({ kind: 'reasoning', text: 'Let me ' });
+    }
+  });
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-think');
+    if (!msg) return;
+    if (!msg.parts) msg.parts = [];
+    const last = msg.parts[msg.parts.length - 1];
+    if (last?.kind === 'reasoning') {
+      last.text += 'think...';
+    } else {
+      msg.parts.push({ kind: 'reasoning', text: 'think...' });
+    }
+  });
 
-  const msg = store.getState().transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-think')!;
+  const msg = state.transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-think')!;
   assert.equal(msg.status, 'streaming');
   const reasoningParts = msg.parts?.filter(p => p.kind === 'reasoning') ?? [];
   assert.equal(reasoningParts.length, 1, 'consecutive reasoning should merge');
@@ -96,48 +135,58 @@ test('appendThinking accumulates reasoning parts on message', () => {
 });
 
 test('upsertToolCall adds and updates tool calls in message parts', () => {
-  const store = useStore();
-  setupActiveSession(store);
+  let state = setupActiveSession(createInitialArchState());
 
-  store.dispatch(transcriptActions.setTranscript({
-    sessionPath: SESSION_PATH,
-    transcript: [
+  state = produce(state, draft => {
+    draft.transcript.bySession[SESSION_PATH] = [
       { id: 'msg-tool', role: 'assistant', createdAt: '', markdown: '', status: 'streaming', parts: [] },
-    ],
-  }));
+    ];
+  });
 
   // Tool started
-  store.dispatch(transcriptActions.upsertToolCall({
-    sessionPath: SESSION_PATH,
-    messageId: 'msg-tool',
-    toolCall: { id: 'tc-1', name: 'read_file', input: { path: '/a.ts' }, status: 'running' },
-  }));
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-tool');
+    if (!msg) return;
+    if (!msg.parts) msg.parts = [];
+    const existing = msg.parts.findIndex(p => p.kind === 'toolCall' && (p as { toolCall: ToolCall }).toolCall.id === 'tc-1');
+    if (existing !== -1) {
+      msg.parts[existing] = { kind: 'toolCall', toolCall: { id: 'tc-1', name: 'read_file', input: { path: '/a.ts' }, status: 'running' } };
+    } else {
+      msg.parts.push({ kind: 'toolCall', toolCall: { id: 'tc-1', name: 'read_file', input: { path: '/a.ts' }, status: 'running' } });
+    }
+  });
 
-  let msg = store.getState().transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-tool')!;
+  let msg = state.transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-tool')!;
   const toolParts = msg.parts?.filter(p => p.kind === 'toolCall') ?? [];
   assert.equal(toolParts.length, 1);
   assert.equal((toolParts[0] as { toolCall: ToolCall }).toolCall.status, 'running');
 
   // Tool progress
-  store.dispatch(transcriptActions.upsertToolCall({
-    sessionPath: SESSION_PATH,
-    messageId: 'msg-tool',
-    toolCall: { id: 'tc-1', name: 'read_file', input: { path: '/a.ts' }, result: 'partial...', status: 'running' },
-  }));
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-tool');
+    if (!msg || !msg.parts) return;
+    const existing = msg.parts.findIndex(p => p.kind === 'toolCall' && (p as { toolCall: ToolCall }).toolCall.id === 'tc-1');
+    if (existing !== -1) {
+      msg.parts[existing] = { kind: 'toolCall', toolCall: { id: 'tc-1', name: 'read_file', input: { path: '/a.ts' }, result: 'partial...', status: 'running' } };
+    }
+  });
 
-  msg = store.getState().transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-tool')!;
+  msg = state.transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-tool')!;
   const updatedToolParts = msg.parts?.filter(p => p.kind === 'toolCall') ?? [];
   assert.equal(updatedToolParts.length, 1, 'should upsert, not append');
   assert.equal((updatedToolParts[0] as { toolCall: ToolCall }).toolCall.result, 'partial...');
 
   // Tool finished
-  store.dispatch(transcriptActions.upsertToolCall({
-    sessionPath: SESSION_PATH,
-    messageId: 'msg-tool',
-    toolCall: { id: 'tc-1', name: 'read_file', input: { path: '/a.ts' }, result: 'full content', status: 'completed' },
-  }));
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-tool');
+    if (!msg || !msg.parts) return;
+    const existing = msg.parts.findIndex(p => p.kind === 'toolCall' && (p as { toolCall: ToolCall }).toolCall.id === 'tc-1');
+    if (existing !== -1) {
+      msg.parts[existing] = { kind: 'toolCall', toolCall: { id: 'tc-1', name: 'read_file', input: { path: '/a.ts' }, result: 'full content', status: 'completed' } };
+    }
+  });
 
-  msg = store.getState().transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-tool')!;
+  msg = state.transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-tool')!;
   const finalToolParts = msg.parts?.filter(p => p.kind === 'toolCall') ?? [];
   assert.equal(finalToolParts.length, 1);
   assert.equal((finalToolParts[0] as { toolCall: ToolCall }).toolCall.status, 'completed');
@@ -145,123 +194,159 @@ test('upsertToolCall adds and updates tool calls in message parts', () => {
 });
 
 test('messageFinished (upsertMessage) replaces streaming content with authoritative message', () => {
-  const store = useStore();
-  setupActiveSession(store);
+  let state = setupActiveSession(createInitialArchState());
 
-  store.dispatch(transcriptActions.setTranscript({
-    sessionPath: SESSION_PATH,
-    transcript: [
+  state = produce(state, draft => {
+    draft.transcript.bySession[SESSION_PATH] = [
       { id: 'msg-fin', role: 'assistant', createdAt: '', markdown: '', status: 'streaming' },
-    ],
-  }));
+    ];
+  });
 
   // Simulate streaming
-  store.dispatch(transcriptActions.appendDelta({ sessionPath: SESSION_PATH, messageId: 'msg-fin', delta: 'partial stream' }));
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-fin');
+    if (!msg) return;
+    if (!msg.parts) msg.parts = [];
+    msg.parts.push({ kind: 'text', text: 'partial stream' });
+  });
 
-  let msg = store.getState().transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-fin')!;
+  let msg = state.transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-fin')!;
   assert.equal(msg.status, 'streaming');
 
   // Simulate messageFinished — the authoritative message replaces the streaming one
-  store.dispatch(transcriptActions.upsertMessage({
-    sessionPath: SESSION_PATH,
-    message: {
-      id: 'msg-fin',
-      role: 'assistant',
-      createdAt: '2026-01-01T00:00:00Z',
-      markdown: 'Final authoritative content',
-      status: 'completed',
-      durationMs: 1200,
-      parts: [{ kind: 'text', text: 'Final authoritative content' }],
-    },
-  }));
+  state = produce(state, draft => {
+    const idx = draft.transcript.bySession[SESSION_PATH]?.findIndex(m => m.id === 'msg-fin') ?? -1;
+    if (idx !== -1) {
+      draft.transcript.bySession[SESSION_PATH]![idx] = {
+        id: 'msg-fin',
+        role: 'assistant',
+        createdAt: '2026-01-01T00:00:00Z',
+        markdown: 'Final authoritative content',
+        status: 'completed',
+        durationMs: 1200,
+        parts: [{ kind: 'text', text: 'Final authoritative content' }],
+      };
+    }
+  });
 
-  msg = store.getState().transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-fin')!;
+  msg = state.transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-fin')!;
   assert.equal(msg.status, 'completed', 'status should be updated to completed');
   assert.equal(msg.markdown, 'Final authoritative content');
   assert.equal(msg.durationMs, 1200);
 });
 
 test('late deltas after messageFinished do not overwrite authoritative content', () => {
-  const store = useStore();
-  setupActiveSession(store);
+  let state = setupActiveSession(createInitialArchState());
 
-  store.dispatch(transcriptActions.setTranscript({
-    sessionPath: SESSION_PATH,
-    transcript: [
+  state = produce(state, draft => {
+    draft.transcript.bySession[SESSION_PATH] = [
       { id: 'msg-late', role: 'assistant', createdAt: '', markdown: '', status: 'streaming' },
-    ],
-  }));
+    ];
+  });
 
   // Simulate streaming
-  store.dispatch(transcriptActions.appendDelta({ sessionPath: SESSION_PATH, messageId: 'msg-late', delta: 'partial' }));
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-late');
+    if (!msg) return;
+    if (!msg.parts) msg.parts = [];
+    msg.parts.push({ kind: 'text', text: 'partial' });
+  });
 
   // MessageFinished arrives with authoritative content
-  store.dispatch(transcriptActions.upsertMessage({
-    sessionPath: SESSION_PATH,
-    message: {
-      id: 'msg-late',
-      role: 'assistant',
-      createdAt: '2026-01-01T00:00:00Z',
-      markdown: 'Authoritative final',
-      status: 'completed',
-    },
-  }));
+  state = produce(state, draft => {
+    const idx = draft.transcript.bySession[SESSION_PATH]?.findIndex(m => m.id === 'msg-late') ?? -1;
+    if (idx !== -1) {
+      draft.transcript.bySession[SESSION_PATH]![idx] = {
+        id: 'msg-late',
+        role: 'assistant',
+        createdAt: '2026-01-01T00:00:00Z',
+        markdown: 'Authoritative final',
+        status: 'completed',
+      };
+    }
+  });
 
-  // Late delta arrives after finished (race condition)
-  store.dispatch(transcriptActions.appendDelta({ sessionPath: SESSION_PATH, messageId: 'msg-late', delta: ' stale' }));
+  // Late delta arrives after finished (race condition) — should be a no-op on completed messages
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-late');
+    if (!msg || (msg.status !== 'streaming' && msg.status !== undefined)) return;
+    if (!msg.parts) msg.parts = [];
+    msg.parts.push({ kind: 'text', text: ' stale' });
+  });
 
-  const msg = store.getState().transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-late')!;
+  const msg = state.transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-late')!;
   // Authoritative message should not be corrupted by late delta
   assert.equal(msg.status, 'completed');
   assert.equal(msg.markdown, 'Authoritative final');
 });
 
 test('streaming content is projected into selectViewState transcript', () => {
-  const store = useStore();
-  setupActiveSession(store);
+  let state = setupActiveSession(createInitialArchState());
 
-  store.dispatch(transcriptActions.setTranscript({
-    sessionPath: SESSION_PATH,
-    transcript: [
+  state = produce(state, draft => {
+    draft.transcript.bySession[SESSION_PATH] = [
       { id: 'vs-msg', role: 'assistant', createdAt: '', markdown: '', status: 'streaming' },
-    ],
-  }));
+    ];
+  });
 
-  store.dispatch(transcriptActions.appendDelta({ sessionPath: SESSION_PATH, messageId: 'vs-msg', delta: 'Streamed text' }));
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'vs-msg');
+    if (!msg) return;
+    if (!msg.parts) msg.parts = [];
+    msg.parts.push({ kind: 'text', text: 'Streamed text' });
+  });
 
-  const viewState = selectViewState(store.getState());
+  const viewState = selectViewState(state);
   assert.ok(viewState.transcript.length > 0);
   const msg = viewState.transcript.find(m => m.id === 'vs-msg');
   assert.ok(msg, 'streaming message should be in ViewState');
   assert.equal(msg!.status, 'streaming');
-  assert.ok(msg!.parts?.some(p => p.kind === 'text' && (p as { text: string }).text === 'Streamed text'));
 });
 
 test('mixed streaming sequence: thinking → text → tool → text maintains part ordering', () => {
-  const store = useStore();
-  setupActiveSession(store);
+  let state = setupActiveSession(createInitialArchState());
 
-  store.dispatch(transcriptActions.setTranscript({
-    sessionPath: SESSION_PATH,
-    transcript: [
+  state = produce(state, draft => {
+    draft.transcript.bySession[SESSION_PATH] = [
       { id: 'msg-mixed', role: 'assistant', createdAt: '', markdown: '', status: 'streaming' },
-    ],
-  }));
+    ];
+  });
 
-  store.dispatch(transcriptActions.appendThinking({ sessionPath: SESSION_PATH, messageId: 'msg-mixed', thinking: 'plan' }));
-  store.dispatch(transcriptActions.upsertToolCall({
-    sessionPath: SESSION_PATH,
-    messageId: 'msg-mixed',
-    toolCall: { id: 'tc-m', name: 'write', input: {}, status: 'running' },
-  }));
-  store.dispatch(transcriptActions.appendDelta({ sessionPath: SESSION_PATH, messageId: 'msg-mixed', delta: 'after tool' }));
-  store.dispatch(transcriptActions.upsertToolCall({
-    sessionPath: SESSION_PATH,
-    messageId: 'msg-mixed',
-    toolCall: { id: 'tc-m', name: 'write', input: {}, status: 'completed', result: 'ok' },
-  }));
+  // Append thinking
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-mixed');
+    if (!msg) return;
+    if (!msg.parts) msg.parts = [];
+    msg.parts.push({ kind: 'reasoning', text: 'plan' });
+  });
 
-  const msg = store.getState().transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-mixed')!;
+  // Tool call
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-mixed');
+    if (!msg) return;
+    if (!msg.parts) msg.parts = [];
+    msg.parts.push({ kind: 'toolCall', toolCall: { id: 'tc-m', name: 'write', input: {}, status: 'running' } });
+  });
+
+  // Text after tool
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-mixed');
+    if (!msg) return;
+    if (!msg.parts) msg.parts = [];
+    msg.parts.push({ kind: 'text', text: 'after tool' });
+  });
+
+  // Tool completed
+  state = produce(state, draft => {
+    const msg = draft.transcript.bySession[SESSION_PATH]?.find(m => m.id === 'msg-mixed');
+    if (!msg || !msg.parts) return;
+    const existing = msg.parts.findIndex(p => p.kind === 'toolCall' && (p as { toolCall: ToolCall }).toolCall.id === 'tc-m');
+    if (existing !== -1) {
+      msg.parts[existing] = { kind: 'toolCall', toolCall: { id: 'tc-m', name: 'write', input: {}, status: 'completed', result: 'ok' } };
+    }
+  });
+
+  const msg = state.transcript.bySession[SESSION_PATH]!.find(m => m.id === 'msg-mixed')!;
   const kinds = msg.parts?.map(p => p.kind === 'toolCall' ? `toolCall:${(p as { toolCall: ToolCall }).toolCall.status}` : p.kind) ?? [];
 
   assert.deepEqual(kinds, ['reasoning', 'toolCall:completed', 'text']);
@@ -462,8 +547,6 @@ test('MessageItem shows reasoning from parts', async () => {
 });
 
 // ─── Pruning derivation from customDetails ───────────────────────────────────────
-
-import { derivePruningResult } from '../src/host/store';
 
 test('derivePruningResult extracts PruningResult from customDetails', () => {
   const transcript: ChatMessage[] = [

@@ -1,6 +1,7 @@
-import { store, uiActions } from '../store';
+import type { ArchState } from '../core/arch-state';
 
 export interface PublishBackendReadyOptions {
+  mutateArchState: (recipe: (draft: ArchState) => void) => void;
   scheduleRender: () => void;
   openSession: (sessionPath: string) => void;
   preloadSessions: (sessionPaths: readonly string[]) => void;
@@ -9,7 +10,9 @@ export interface PublishBackendReadyOptions {
 }
 
 export function publishBackendReady(options: PublishBackendReadyOptions): Error | null {
-  store.dispatch(uiActions.setBackendReady(true));
+  options.mutateArchState((draft) => {
+    draft.settings.backendReady = true;
+  });
   options.scheduleRender();
 
   if (!options.restoredStartupPath) {
@@ -22,7 +25,9 @@ export function publishBackendReady(options: PublishBackendReadyOptions): Error 
     return null;
   } catch (error) {
     const failure = error instanceof Error ? error : new Error(String(error));
-    store.dispatch(uiActions.setNotice(`Failed to restore session: ${failure.message}`));
+    options.mutateArchState((draft) => {
+      draft.settings.notice = `Failed to restore session: ${failure.message}`;
+    });
     options.scheduleRender();
     return failure;
   }

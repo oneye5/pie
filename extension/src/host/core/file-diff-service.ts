@@ -1,0 +1,126 @@
+import * as cp from 'node:child_process';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
+
+import * as vscode from 'vscode';
+
+import type { ArchState } from './reducer';
+
+export const EMPTY_DIFF_SCHEME = 'pie-empty-diff';
+
+export class EmptyDiffContentProvider implements vscode.TextDocumentContentProvider {
+  provideTextDocumentContent(): string {
+    return '';
+  }
+}
+
+export class FileDiffService {
+  constructor(private readonly getArchState: () => ArchState) {}
+
+  resolveFileChangePath(sessionPath: string, filePath: string): string {
+    if (path.isAbsolute(filePath)) {
+      return filePath;
+    }
+
+    const archState = this.getArchState();
+    const sessionCwd = archState.sessions.sessions.find(
+      (session) => session.path === sessionPath,
+    )?.cwd;
+    const basePath =
+      sessionCwd ||
+      archState.sessions.workspaceCwd ||
+      vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+    return basePath ? path.resolve(basePath, filePath) : filePath;
+  }
+
+  getFileChangeKind(
+    sessionPath: string,
+    filePath: string,
+    resolvedPath: string,
+  ): 'created' | 'modified' | 'deleted' {
+    const archState = this.getArchState();
+    const changes = archState.fileChanges.bySession[sessionPath] ?? [];
+    const change = changes.find((entry) => {
+      const entryPath = this.resolveFileChangePath(sessionPath, entry.path);
+      return entry.path === filePath || entryPath === resolvedPath;
+    });
+    return change?.kind ?? 'modified';
+  }
+
+  private toGitUri(uri: vscode.Uri, ref: string): vscode.Uri {
+    return uri.with({
+      scheme: 'git',
+      query: JSON.stringify({ path: uri.fsPath, ref }),
+    });
+  }
+
+  private toEmptyDiffUri(uri: vscode.Uri): vscode.Uri {
+    return uri.with({
+      scheme: EMPTY_DIFF_SCHEME,
+      query: '',
+      fragment: '',
+    });
+  }
+
+  async openFileDiff(sessionPath: string, filePath: string): Promise<void> {
+    const resolvedPath = this.resolveFileChangePath(sessionPath, filePath);
+    const uri = vscode.Uri.file(resolvedPath);
+    const kind = this.getFileChangeKind(sessionPath, filePath, resolvedPath);
+    const emptyUri = this.toEmptyDiffUri(uri);
+    const originalUri = kind === 'created' ? emptyUri : this.toGitUri(uri, 'HEAD');
+    const modifiedUri = kind === 'deleted' ? emptyUri : uri;
+
+    try {
+      await vscode.commands.executeCommand(
+        'vscode.diff',
+        originalUri,
+        modifiedUri,
+        `${path.basename(resolvedPath)} — agent changes`,
+        { preview: true },
+      );
+    } catch {
+      await vscode.commands.executeCommand('git.openChange', uri);
+    }
+  }
+
+  async revertFile(sessionPath: string, filePath: string): Promise<void> {
+    const resolvedPath = this.resolveFileChangePath(sessionPath, filePath);
+
+    try {
+      // Check whether the file is known to git (tracked or staged).
+      const tracked = await new Promise<boolean>((resolve) => {
+        cp.execFile(
+          'git',
+          ['ls-files', '--error-unmatch', resolvedPath],
+          { cwd: path.dirname(resolvedPath) },
+          (err) => resolve(!err),
+        );
+      });
+
+      if (tracked) {
+        // Restore to last committed version.
+        await new Promise<void>((resolve, reject) => {
+          cp.execFile(
+            'git',
+            ['checkout', 'HEAD', '--', resolvedPath],
+            { cwd: path.dirname(resolvedPath) },
+            (err) => (err ? reject(err) : resolve()),
+          );
+        });
+      } else {
+        // Untracked file created by the agent – delete it.
+        await fs.unlink(resolvedPath);
+      }
+    } catch {
+      // Last resort: if the file still exists, warn the user.
+      const exists = await fs.access(resolvedPath).then(() => true, () => false);
+      if (exists) {
+        void vscode.window.showWarningMessage(
+          `Could not revert ${filePath}. The file may not be under source control.`,
+        );
+        return;
+      }
+      // File is already gone – treat as success and remove the entry.
+    }
+  }
+}

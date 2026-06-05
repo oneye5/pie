@@ -1,22 +1,12 @@
 import * as vscode from 'vscode';
+import { produce } from 'immer';
 
 import { BackendClient } from '../backend/client';
 import { shouldFlashFinishedTab, requestWindowAttention } from '../sidebar/completion-notification';
-import { resolveSessionOpenedTranscript } from './session-opened-transcript';
+import { resolveSessionOpenedTranscript } from '../core/session-opened-transcript';
 import { type RunObserver } from '../stats-service';
 import { auditLog, bootLog } from '../util/audit';
-import {
-  fileChangesActions,
-  getSessionByPath,
-  selectActiveSessionPath,
-  sessionStateActions,
-  settingsActions,
-  sessionsActions,
-  store,
-  transcriptActions,
-  uiActions,
-} from '../store';
-import { deriveFileChangeFromToolCall, deriveFileChangesFromTranscript } from '../store/file-changes-slice';
+import { deriveFileChangeFromToolCall, deriveFileChangesFromTranscript } from '../core/file-change-derivation';
 import type {
   BusyChangedPayload,
   ContextUsageChangedPayload,
@@ -36,9 +26,10 @@ import type {
   ToolProgressPayload,
   ToolStartedPayload,
 } from '../../shared/protocol';
-import { dispatchSessionBackendEvent } from './event-dispatch';
+import { dispatchSessionBackendEvent } from '../core/event-dispatch';
 import type { OnSessionCompleted, OnSessionPathResolved, ScheduleRender } from './types';
 import type { BackendEvent } from '../core/events';
+import type { ArchState } from '../core/arch-state';
 import { SessionServiceState } from './state';
 
 interface SessionServiceEventsOptions {
@@ -49,6 +40,8 @@ interface SessionServiceEventsOptions {
   runObserver: RunObserver;
   state: SessionServiceState;
   dispatchArch: (event: BackendEvent) => void;
+  getArchState: () => ArchState;
+  mutateArchState: (recipe: (draft: ArchState) => void) => void;
 }
 
 export class SessionServiceEvents {
@@ -61,6 +54,8 @@ export class SessionServiceEvents {
   private eventDisposable?: vscode.Disposable;
   private exitDisposable?: vscode.Disposable;
   private readonly dispatchArch: (event: BackendEvent) => void;
+  private readonly getArchState: () => ArchState;
+  private readonly mutateArchState: (recipe: (draft: ArchState) => void) => void;
 
   constructor(options: SessionServiceEventsOptions) {
     this.context = options.context;
@@ -70,6 +65,8 @@ export class SessionServiceEvents {
     this.runObserver = options.runObserver;
     this.dispatchArch = options.dispatchArch;
     this.state = options.state;
+    this.getArchState = options.getArchState;
+    this.mutateArchState = options.mutateArchState;
   }
 
   attach(backend: BackendClient): void {
@@ -85,9 +82,11 @@ export class SessionServiceEvents {
         code,
         notice,
       });
-      store.dispatch(uiActions.setNotice(notice));
-      store.dispatch(uiActions.setBackendReady(false));
-      store.dispatch(sessionsActions.clearRunningPaths());
+      this.mutateArchState((draft) => {
+        draft.settings.notice = notice;
+        draft.settings.backendReady = false;
+        draft.sessions.runningSessionPaths = [];
+      });
       this.scheduleRender();
     });
   }
@@ -110,14 +109,14 @@ export class SessionServiceEvents {
       contextUsage,
       selectionToken,
     } = payload;
-    const state = store.getState();
+    const archState = this.getArchState();
     const selectionRequest = this.state.getSelectionRequest(selectionToken);
     const staleSessionData = selectionRequest?.requestEpoch !== undefined
       && this.state.getSessionDataEpoch(session.path) !== selectionRequest.requestEpoch;
-    const shouldOpenTab = !!selectionRequest || state.sessions.openTabPaths.includes(session.path);
+    const shouldOpenTab = !!selectionRequest || archState.sessions.openTabPaths.includes(session.path);
     const shouldActivate = selectionToken
       ? this.state.isCurrentSelectionToken(selectionToken)
-      : selectActiveSessionPath(state) === session.path;
+      : archState.sessions.activeSessionPath === session.path;
 
     auditLog(this.context, 'session-service', 'session.opened', {
       selectionToken: selectionToken ?? null,
@@ -128,7 +127,7 @@ export class SessionServiceEvents {
     });
 
     bootLog('session-events', 'session.opened', {
-      activeSessionPath: selectActiveSessionPath(state),
+      activeSessionPath: archState.sessions.activeSessionPath,
       selectionToken: selectionToken ?? null,
       sessionPath: session.path,
       shouldActivate,
@@ -137,79 +136,82 @@ export class SessionServiceEvents {
     });
 
     if (selectionRequest?.pendingPath && selectionRequest.pendingPath !== session.path) {
-      store.dispatch(
-        sessionsActions.replaceOpenTabPath({
-          oldPath: selectionRequest.pendingPath,
-          newPath: session.path,
-        }),
-      );
-      store.dispatch(sessionStateActions.replaceSessionPath({
-        oldPath: selectionRequest.pendingPath,
-        newPath: session.path,
-      }));
-      this.runObserver.replaceSessionPath(selectionRequest.pendingPath, session.path);
-      this.state.clearSessionScope(selectionRequest.pendingPath, true);
+      const pendingPath = selectionRequest.pendingPath;
+      this.mutateArchState((draft) => {
+        // replaceOpenTabPath
+        draft.sessions.openTabPaths = draft.sessions.openTabPaths.map(
+          (p) => (p === pendingPath ? session.path : p),
+        );
+        draft.sessions.unreadFinishedSessionPaths = [
+          ...new Set(draft.sessions.unreadFinishedSessionPaths
+            .map((p) => (p === pendingPath ? session.path : p))),
+        ];
+        // replaceSessionPath for session state (composer inputs, run summaries, analytics)
+        const oldInputs = draft.composer.pendingComposerInputsBySession[pendingPath];
+        if (oldInputs) {
+          const existingInputs = draft.composer.pendingComposerInputsBySession[session.path] ?? [];
+          draft.composer.pendingComposerInputsBySession[session.path] = [...existingInputs, ...oldInputs];
+          delete draft.composer.pendingComposerInputsBySession[pendingPath];
+        }
+        if (Object.prototype.hasOwnProperty.call(draft.composer.activeRunSummaryBySession, pendingPath)) {
+          draft.composer.activeRunSummaryBySession[session.path] =
+            draft.composer.activeRunSummaryBySession[pendingPath] ?? null;
+          delete draft.composer.activeRunSummaryBySession[pendingPath];
+        }
+        if (Object.prototype.hasOwnProperty.call(draft.sessions.analyticsFactorsBySession, pendingPath)) {
+          draft.sessions.analyticsFactorsBySession[session.path] =
+            draft.sessions.analyticsFactorsBySession[pendingPath] ?? null;
+          delete draft.sessions.analyticsFactorsBySession[pendingPath];
+        }
+      });
+      this.runObserver.replaceSessionPath(pendingPath, session.path);
+      this.state.clearSessionScope(pendingPath, true);
     }
 
-    store.dispatch(sessionsActions.upsertSession(session));
-    if (shouldOpenTab) {
-      store.dispatch(sessionsActions.ensureOpenTab(session.path));
-    }
-
-    if (shouldActivate) {
-      store.dispatch(sessionsActions.setActiveSessionPath(session.path));
-    }
+    // Resolve transcript: merge local ephemeral state with incoming authoritative data.
+    const localTranscript = archState.transcript.bySession[session.path] ?? [];
     const transcriptResolution = resolveSessionOpenedTranscript({
       busy: payload.busy || staleSessionData,
       incomingTranscript: transcript,
       incomingTranscriptWindow: transcriptWindow,
-      localTranscript: store.getState().transcript.bySession[session.path] ?? [],
+      localTranscript,
+    });
+    const preserveStreamingState = transcriptResolution.preserveLocal && (payload.busy || staleSessionData);
+
+    // Build modified payload with resolved transcript and conditionally preserve system prompts.
+    const resolvedPayload: SessionOpenedPayload = {
+      ...payload,
+      transcript: transcriptResolution.transcript,
+      transcriptWindow: transcriptResolution.transcriptWindow,
+      ...(preserveStreamingState && { systemPrompts: undefined }),
+    };
+
+    this.dispatchArch({
+      kind: 'SessionOpened',
+      sessionPath: session.path,
+      payload: resolvedPayload,
     });
 
-    const preserveStreamingState = transcriptResolution.preserveLocal && (payload.busy || staleSessionData);
-    store.dispatch(
-      transcriptActions.setTranscript({
-        sessionPath: session.path,
-        transcript: transcriptResolution.transcript,
-        transcriptWindow: transcriptResolution.transcriptWindow,
-        systemPrompts,
-        preserveCurrentTurn: preserveStreamingState,
-        preserveAliases: preserveStreamingState,
-      }),
-    );
-
-    store.dispatch(sessionStateActions.setAnalyticsFactors({
-      sessionPath: session.path,
-      factors: payload.analyticsFactors ?? null,
-    }));
-    this.runObserver.onSessionAnalyticsFactorsChanged(session.path, payload.analyticsFactors ?? null);
-
-    if (payload.analyticsFactors) {
-      store.dispatch(uiActions.setAvailableExtensions(
-        deriveAvailableExtensions(payload.analyticsFactors.selectedToolIds),
-      ));
-    }
-
-    if (modelSettings) {
-      store.dispatch(settingsActions.setModelSettings(modelSettings));
-    }
-    if (availableModels) {
-      store.dispatch(settingsActions.setAvailableModels({
-        sessionPath: session.path,
-        availableModels,
-      }));
-    }
-    store.dispatch(settingsActions.setContextUsage({
-      sessionPath: session.path,
-      contextUsage: contextUsage ?? null,
-    }));
-
-    // Derive file changes from the loaded transcript
-    const derivedChanges = deriveFileChangesFromTranscript(transcriptResolution.transcript);
-    store.dispatch(fileChangesActions.setFileChanges({
-      sessionPath: session.path,
-      changes: derivedChanges,
-    }));
+    // Post-dispatch: handle state the reducer doesn't manage.
+    this.mutateArchState((draft) => {
+      if (shouldOpenTab && !draft.sessions.openTabPaths.includes(session.path)) {
+        draft.sessions.openTabPaths.push(session.path);
+      }
+      if (shouldActivate) {
+        draft.sessions.activeSessionPath = session.path;
+        draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
+          .filter((p) => p !== session.path);
+      }
+      if (payload.analyticsFactors) {
+        draft.settings.availableExtensions = deriveAvailableExtensions(
+          payload.analyticsFactors.selectedToolIds,
+        );
+      }
+      // Derive file changes from the resolved transcript
+      draft.fileChanges.bySession[session.path] = deriveFileChangesFromTranscript(
+        transcriptResolution.transcript,
+      );
+    });
 
     this.state.touchSessionTranscript(session.path);
     this.state.evictInactiveTranscriptWindows();
@@ -247,7 +249,7 @@ export class SessionServiceEvents {
   }
 
   private onSessionListChanged(payload: SessionListChangedPayload): void {
-    store.dispatch(sessionsActions.replaceSessionSummaries(payload.sessions));
+    this.dispatchArch({ kind: 'SessionListChanged', sessionSummaries: payload.sessions });
     this.scheduleRender();
   }
 
@@ -270,13 +272,19 @@ export class SessionServiceEvents {
     this.runObserver.onAssistantTurnStarted(sessionPath, payload.messageId);
 
     if (payload.modelId) {
-      const session = getSessionByPath(store.getState(), sessionPath);
+      const archState = this.getArchState();
+      const session = archState.sessions.sessions.find((s) => s.path === sessionPath);
       if (session && (session.modelId !== payload.modelId || session.thinkingLevel !== payload.thinkingLevel)) {
-        store.dispatch(sessionsActions.upsertSession({
-          ...session,
-          modelId: payload.modelId,
-          thinkingLevel: payload.thinkingLevel,
-        }));
+        this.mutateArchState((draft) => {
+          const idx = draft.sessions.sessions.findIndex((s) => s.path === sessionPath);
+          if (idx !== -1) {
+            draft.sessions.sessions[idx] = {
+              ...draft.sessions.sessions[idx],
+              modelId: payload.modelId,
+              thinkingLevel: payload.thinkingLevel,
+            };
+          }
+        });
       }
     }
 
@@ -341,11 +349,27 @@ export class SessionServiceEvents {
     );
     console.log('[pie:fileChanges] onToolStarted', { name: payload.name, hasInput: !!payload.input, inputType: typeof payload.input, fileChange: fileChange ? fileChange.path : null });
     if (fileChange) {
-      store.dispatch(fileChangesActions.addFileChange({ sessionPath, change: fileChange }));
-      // Ensure the webview receives the file-change update even when the arch
-      // dispatch path has already scheduled its own render (the debounce timer
-      // from that ScheduleRender effect may have already been set before this
-      // dispatch, leaving the store update invisible to the next snapshot).
+      this.mutateArchState((draft) => {
+        const list = (draft.fileChanges.bySession[sessionPath] ??= []);
+        const existingIdx = list.findIndex((entry) => entry.path === fileChange.path);
+        if (existingIdx !== -1) {
+          const existing = list[existingIdx];
+          const change = fileChange;
+          if (change.kind === 'deleted' && existing.kind === 'created') {
+            list.splice(existingIdx, 1);
+            return;
+          }
+          const additions = (existing.additions ?? 0) + (change.additions ?? 0);
+          const deletions = (existing.deletions ?? 0) + (change.deletions ?? 0);
+          list[existingIdx] = {
+            ...change,
+            ...(additions > 0 && { additions }),
+            ...(deletions > 0 && { deletions }),
+          };
+        } else {
+          list.push(fileChange);
+        }
+      });
       this.scheduleRender();
     }
 
@@ -359,8 +383,7 @@ export class SessionServiceEvents {
     }
 
     // Look up existing tool call by toolCallId to carry forward name/input.
-    const existing = store
-      .getState()
+    const existing = this.getArchState()
       .transcript.bySession[sessionPath]
       ?.flatMap((message) => message.toolCalls ?? [])
       .find((toolCall) => toolCall.id === payload.toolCallId);
@@ -393,8 +416,7 @@ export class SessionServiceEvents {
     }
 
     // Look up existing tool call by toolCallId to carry forward name/input.
-    const existing = store
-      .getState()
+    const existing = this.getArchState()
       .transcript.bySession[sessionPath]
       ?.flatMap((message) => message.toolCalls ?? [])
       .find((toolCall) => toolCall.id === payload.toolCallId);
@@ -427,7 +449,7 @@ export class SessionServiceEvents {
     // Stamp errorDetail on error messages so the webview can display the reason.
     const message = payload.message;
     if (message.status === 'error' && !message.errorDetail) {
-      const notice = store.getState().ui.notice;
+      const notice = this.getArchState().settings.notice;
       if (notice) {
         message.errorDetail = notice;
       }
@@ -457,9 +479,11 @@ export class SessionServiceEvents {
       return;
     }
 
-    store.dispatch(
-      transcriptActions.upsertMessage({ sessionPath, message: payload.message }),
-    );
+    this.dispatchArch({
+      kind: 'CustomMessage',
+      sessionPath,
+      message: payload.message,
+    });
     this.scheduleRender();
     this.state.touchSessionTranscript(sessionPath);
   }
@@ -496,32 +520,44 @@ export class SessionServiceEvents {
       return;
     }
 
-    const state = store.getState();
-    const wasRunning = state.sessions.runningSessionPaths.includes(sessionPath);
+    const archState = this.getArchState();
+    const wasRunning = archState.sessions.runningSessionPaths.includes(sessionPath);
 
     if (payload.busy) {
       this.state.clearCompletionSuppression(sessionPath);
     }
 
-    store.dispatch(
-      sessionsActions.setSessionRunning({ sessionPath, running: payload.busy }),
-    );
+    this.dispatchArch({
+      kind: 'BusyChanged',
+      sessionPath,
+      running: payload.busy,
+    });
     this.runObserver.onBusyChanged(sessionPath, payload.busy);
 
     // Clear pending extension UI request when the session finishes.
-    if (!payload.busy && store.getState().ui.pendingExtensionUIRequest) {
-      store.dispatch(uiActions.setPendingExtensionUIRequest(null));
+    if (!payload.busy) {
+      const postState = this.getArchState();
+      if (postState.settings.pendingExtensionUIRequest) {
+        this.mutateArchState((draft) => {
+          draft.settings.pendingExtensionUIRequest = null;
+        });
+      }
     }
 
     if (wasRunning && !payload.busy && !this.state.consumeCompletionSuppression(sessionPath)) {
+      const postState = this.getArchState();
       if (
-        state.sessions.openTabPaths.includes(sessionPath) &&
+        postState.sessions.openTabPaths.includes(sessionPath) &&
         shouldFlashFinishedTab({
-          suppressNotifications: state.ui.prefs.suppressCompletionNotifications,
-          sessionIsActive: state.sessions.activeSessionPath === sessionPath,
+          suppressNotifications: postState.settings.prefs.suppressCompletionNotifications,
+          sessionIsActive: postState.sessions.activeSessionPath === sessionPath,
         })
       ) {
-        store.dispatch(sessionsActions.markSessionFinishedUnread(sessionPath));
+        this.mutateArchState((draft) => {
+          if (!draft.sessions.unreadFinishedSessionPaths.includes(sessionPath)) {
+            draft.sessions.unreadFinishedSessionPaths.push(sessionPath);
+          }
+        });
       }
 
       this.onSessionCompleted?.({
@@ -539,10 +575,11 @@ export class SessionServiceEvents {
       return;
     }
 
-    store.dispatch(settingsActions.setContextUsage({
+    this.dispatchArch({
+      kind: 'ContextUsageChanged',
       sessionPath,
       contextUsage: payload.contextUsage ?? null,
-    }));
+    });
     if (payload.contextUsage) {
       this.runObserver.onContextUsageChanged(
         sessionPath,
@@ -557,10 +594,10 @@ export class SessionServiceEvents {
     if (payload.method === 'notify') {
       // Notify is fire-and-forget; use the notice banner instead of blocking the prompt slot.
       const prefix = payload.notifyType === 'error' ? 'Error' : payload.notifyType === 'warning' ? 'Warning' : 'Info';
-      store.dispatch(uiActions.setNotice(`${prefix}: ${payload.message}`));
+      this.dispatchArch({ kind: 'Error', sessionPath: '', error: `${prefix}: ${payload.message}` });
       return;
     }
-    store.dispatch(uiActions.setPendingExtensionUIRequest(payload));
+    this.dispatchArch({ kind: 'ExtensionUIRequest', sessionPath: '', request: payload });
 
     // Flash the VS Code window to draw the user's attention to the question.
     requestWindowAttention(
@@ -578,9 +615,20 @@ export class SessionServiceEvents {
     // pollutes the wrong transcript and confuses the user.
     const sessionPath = this.state.resolveRequestSessionPath(payload.requestId);
     this.runObserver.onBackendError(sessionPath ?? undefined, payload.code);
-    store.dispatch(uiActions.setNotice(payload.message));
+    this.dispatchArch({ kind: 'Error', sessionPath: sessionPath ?? '', error: payload.message });
     if (sessionPath) {
-      store.dispatch(transcriptActions.setMessageError({ sessionPath, errorDetail: payload.message }));
+      this.mutateArchState((draft) => {
+        const list = draft.transcript.bySession[sessionPath];
+        if (!list) return;
+        const reversed = [...list].reverse();
+        const msg = reversed.find(
+          (m) => m.role === 'assistant' && (m.status === 'streaming' || m.status === 'error'),
+        ) ?? reversed.find((m) => m.role === 'assistant');
+        if (msg) {
+          msg.status = 'error';
+          msg.errorDetail = payload.message;
+        }
+      });
     } else {
       auditLog(this.context, 'session-service', 'protocol.defect', {
         eventName: 'error',
@@ -600,7 +648,11 @@ export class SessionServiceEvents {
       eventName,
       reason: 'missing sessionPath',
     });
-    store.dispatch(uiActions.setNotice(`Protocol defect: ${eventName} arrived without a sessionPath.`));
+    this.dispatchArch({
+      kind: 'Error',
+      sessionPath: '',
+      error: `Protocol defect: ${eventName} arrived without a sessionPath.`,
+    });
     this.scheduleRender();
     return null;
   }

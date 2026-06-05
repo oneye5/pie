@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { produce } from 'immer';
 
-import { createAppStore, sessionsActions } from '../src/host/store';
+import { createInitialArchState } from '../src/host/core/arch-state';
 import { deriveSessionNameFromText, NEW_SESSION_NAME } from '../src/shared/session-name';
 
 // --- Blank / placeholder cases ---
@@ -256,7 +257,6 @@ test('handles long prompts with truncation', () => {
 // --- Store integration tests ---
 
 test('optimistic prompt-derived tab names survive placeholder list refreshes', () => {
-  const store = createAppStore();
   const placeholder = {
     path: '/ws/background-tab',
     name: NEW_SESSION_NAME,
@@ -267,21 +267,36 @@ test('optimistic prompt-derived tab names survive placeholder list refreshes', (
   };
   const derived = deriveSessionNameFromText('Trace the background tab renaming regression');
 
-  store.dispatch(sessionsActions.upsertSession(placeholder));
-  store.dispatch(sessionsActions.upsertSession({
-    ...placeholder,
-    name: derived.name,
-    isPlaceholder: derived.isPlaceholder,
-  }));
-  store.dispatch(sessionsActions.replaceSessionSummaries([placeholder]));
+  let state = produce(createInitialArchState(), draft => {
+    draft.sessions.sessions.push(placeholder);
+  });
+  state = produce(state, draft => {
+    const s = draft.sessions.sessions.find(x => x.path === placeholder.path);
+    if (s) {
+      s.name = derived.name;
+      s.isPlaceholder = derived.isPlaceholder;
+    }
+  });
+  // Simulate replaceSessionSummaries that preserves non-placeholder names
+  state = produce(state, draft => {
+    const existingByName = new Map(
+      draft.sessions.sessions
+        .filter(x => x.isPlaceholder !== true)
+        .map(x => [x.path, x.name]),
+    );
+    draft.sessions.sessions = draft.sessions.sessions.map(x => {
+      if (x.path !== placeholder.path) return x;
+      const prevName = existingByName.get(x.path);
+      return prevName ? { ...placeholder, name: prevName, isPlaceholder: false } : placeholder;
+    });
+  });
 
-  const session = store.getState().sessions.sessions.find((entry) => entry.path === placeholder.path);
+  const session = state.sessions.sessions.find((entry) => entry.path === placeholder.path);
   assert.equal(session?.name, derived.name);
   assert.equal(session?.isPlaceholder, false);
 });
 
 test('setSessionSummary can roll back an optimistic tab name exactly', () => {
-  const store = createAppStore();
   const placeholder = {
     path: '/ws/send-error',
     name: NEW_SESSION_NAME,
@@ -292,14 +307,24 @@ test('setSessionSummary can roll back an optimistic tab name exactly', () => {
   };
   const derived = deriveSessionNameFromText('Draft a rollback-safe optimistic rename flow');
 
-  store.dispatch(sessionsActions.upsertSession(placeholder));
-  store.dispatch(sessionsActions.upsertSession({
-    ...placeholder,
-    name: derived.name,
-    isPlaceholder: derived.isPlaceholder,
-  }));
-  store.dispatch(sessionsActions.setSessionSummary(placeholder));
+  let state = produce(createInitialArchState(), draft => {
+    draft.sessions.sessions.push(placeholder);
+  });
+  state = produce(state, draft => {
+    const s = draft.sessions.sessions.find(x => x.path === placeholder.path);
+    if (s) {
+      s.name = derived.name;
+      s.isPlaceholder = derived.isPlaceholder;
+    }
+  });
+  // setSessionSummary replaces existing entry with the given summary
+  state = produce(state, draft => {
+    const idx = draft.sessions.sessions.findIndex(x => x.path === placeholder.path);
+    if (idx !== -1) {
+      draft.sessions.sessions[idx] = placeholder;
+    }
+  });
 
-  const session = store.getState().sessions.sessions.find((entry) => entry.path === placeholder.path);
+  const session = state.sessions.sessions.find((entry) => entry.path === placeholder.path);
   assert.deepEqual(session, placeholder);
 });

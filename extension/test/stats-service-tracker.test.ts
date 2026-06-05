@@ -1,12 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { produce } from 'immer';
+
 import { SessionRunTracker } from '../src/host/stats-service/tracker';
-import { createAppStore, sessionStateActions, sessionsActions, settingsActions } from '../src/host/store';
+import { createInitialArchState } from '../src/host/core/arch-state';
+import type { ArchState } from '../src/host/core/arch-state';
 import type { ComposerInput, RunOutcome, SessionAnalyticsFactors } from '../src/shared/protocol';
 
 function createHarness() {
-  const store = createAppStore();
   const sessionPath = '/workspace/session.jsonl';
   const persistCalls: Array<{ snapshot?: unknown; outcome?: unknown }> = [];
   let renderCount = 0;
@@ -14,22 +16,31 @@ function createHarness() {
   let nowMs = Date.UTC(2026, 0, 1, 0, 0, 0);
   let experimentAssignment: string | null = 'control';
 
-  store.dispatch(sessionsActions.upsertSession({
-    path: sessionPath,
-    name: 'Session',
-    cwd: '/workspace',
-    modifiedAt: new Date(nowMs).toISOString(),
-    messageCount: 0,
-    modelId: 'claude-test',
-  }));
-  store.dispatch(settingsActions.setModelSettings({
-    defaultModel: 'claude-test',
-    defaultThinkingLevel: 'medium',
-  }));
+  let archState = createInitialArchState();
+  // Seed session and model info
+  archState = produce(archState, (draft) => {
+    draft.sessions.sessions.push({
+      path: sessionPath,
+      name: 'Session',
+      cwd: '/workspace',
+      modifiedAt: new Date(nowMs).toISOString(),
+      messageCount: 0,
+      modelId: 'claude-test',
+    });
+    draft.settings.modelSettings = {
+      defaultModel: 'claude-test',
+      defaultThinkingLevel: 'medium',
+    };
+  });
+
+  const getArchState = () => archState;
+  const mutateArchState = (recipe: (draft: ArchState) => void) => {
+    archState = produce(archState, recipe);
+  };
 
   const tracker = new SessionRunTracker({
-    dispatch: store.dispatch,
-    getState: store.getState,
+    getArchState,
+    mutateArchState,
     scheduleRender: () => {
       renderCount += 1;
     },
@@ -43,7 +54,8 @@ function createHarness() {
 
   return {
     tracker,
-    store,
+    get archState() { return archState; },
+    getArchState,
     sessionPath,
     persistCalls,
     get renderCount() {
@@ -54,6 +66,11 @@ function createHarness() {
     },
     setExperimentAssignment(value: string | null) {
       experimentAssignment = value;
+    },
+    setAnalyticsFactors(sessionPath: string, factors: SessionAnalyticsFactors) {
+      mutateArchState((draft) => {
+        draft.sessions.analyticsFactorsBySession[sessionPath] = factors;
+      });
     },
   };
 }
@@ -102,13 +119,13 @@ test('prepareForSend carries queued unsupported inputs and startNewTask closes t
   assert.equal(currentRun?.runId, 'id-3');
   assert.equal(currentRun?.sendCount, 1);
   assert.equal(currentRun?.filesystemPathRefCount, 0);
-  assert.equal(harness.store.getState().sessionState.activeRunSummaryBySession[harness.sessionPath]?.runId, 'id-3');
+  assert.equal(harness.archState.composer.activeRunSummaryBySession[harness.sessionPath]?.runId, 'id-3');
   assert.ok(harness.renderCount >= 3);
 });
 
 test('assistant turns, busy windows, unsupported inputs, and experiment assignment changes update the active run', () => {
   const harness = createHarness();
-  harness.store.dispatch(sessionStateActions.setAnalyticsFactors({ sessionPath: harness.sessionPath, factors: sampleFactors }));
+  harness.setAnalyticsFactors(harness.sessionPath, sampleFactors);
 
   const runId = harness.tracker.prepareForSend(harness.sessionPath, []);
   harness.tracker.onAssistantTurnStarted(harness.sessionPath, 'turn-1');
@@ -164,7 +181,7 @@ test('replaceSessionPath, continueTask, and recordOutcome handle last-run state 
   assert.equal(lastRun?.status, 'scored');
   assert.deepEqual(lastRun?.outcome, outcome);
   assert.equal(lastRun?.sessionPath, '/workspace/renamed-session.jsonl');
-  assert.equal(harness.store.getState().sessionState.activeRunSummaryBySession[harness.sessionPath]?.status, 'scored');
+  assert.equal(harness.archState.composer.activeRunSummaryBySession[harness.sessionPath]?.status, 'scored');
 
   const persistCountBefore = harness.persistCalls.length;
   harness.tracker.recordOutcome('/workspace/renamed-session.jsonl', outcome);
@@ -187,7 +204,7 @@ test('tracker no-op guards and metadata updates behave correctly across inactive
   harness.tracker.onSessionAnalyticsFactorsChanged(harness.sessionPath, sampleFactors);
   assert.equal(harness.persistCalls.length, 0, 'no current run means no persistence side effects');
 
-  harness.store.dispatch(sessionStateActions.setAnalyticsFactors({ sessionPath: harness.sessionPath, factors: sampleFactors }));
+  harness.setAnalyticsFactors(harness.sessionPath, sampleFactors);
   const runId = harness.tracker.prepareForSend(harness.sessionPath, []);
   harness.tracker.onBackendError(harness.sessionPath, 'MESSAGE_SEND_FAILED');
   harness.tracker.onContextUsageChanged(harness.sessionPath, 50, 200);
@@ -221,7 +238,7 @@ test('onSessionClosed and finalizeOpenRunsForShutdown close active runs and clea
   harness.tracker.prepareForSend(harness.sessionPath, []);
   harness.tracker.onSessionClosed(harness.sessionPath);
   assert.equal(harness.tracker.serializeSessions()[harness.sessionPath], undefined);
-  assert.equal(harness.store.getState().sessionState.activeRunSummaryBySession[harness.sessionPath], undefined);
+  assert.equal(harness.archState.composer.activeRunSummaryBySession[harness.sessionPath], null);
 
   const second = createHarness();
   second.tracker.prepareForSend(second.sessionPath, []);

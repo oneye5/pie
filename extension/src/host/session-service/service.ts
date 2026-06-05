@@ -3,12 +3,6 @@ import * as vscode from 'vscode';
 import { BackendClient } from '../backend/client';
 import { resolveChatPrefs } from '../../shared/protocol';
 import type { ChatPrefs, ComposerInputDraft, PruningSettings, ThinkingLevel } from '../../shared/protocol';
-import {
-  sessionsActions,
-  settingsActions,
-  store,
-  uiActions,
-} from '../store';
 import { readPruningSettings, writePruningSettings } from './pruning-settings';
 import { NOOP_RUN_OBSERVER, type RunObserver } from '../stats-service';
 import { SessionServiceEvents } from './events';
@@ -18,12 +12,13 @@ import { startSessionBackend } from './startup';
 import { SessionTabActions } from './tab-actions';
 import type { OnSessionCompleted, OnSessionPathResolved, PostImperative, ScheduleRender } from './types';
 import type { BackendEvent } from '../core/events';
+import type { ArchState } from '../core/arch-state';
 
 const PREFS_STORAGE_KEY = 'chatPrefs';
 
 /**
- * Owns the PI backend process lifecycle and wires backend events to the Redux
- * store. All session commands (create, open, close, send, interrupt, etc.) go
+ * Owns the PI backend process lifecycle and wires backend events to the
+ * arch state. All session commands (create, open, close, send, interrupt, etc.) go
  * through this service.
  */
 export class SessionService implements vscode.Disposable {
@@ -31,6 +26,8 @@ export class SessionService implements vscode.Disposable {
   private readonly events: SessionServiceEvents;
   private readonly tabs: SessionTabActions;
   private readonly messages: SessionMessageActions;
+  private readonly getArchState: () => ArchState;
+  private readonly mutateArchState: (recipe: (draft: ArchState) => void) => void;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -38,11 +35,16 @@ export class SessionService implements vscode.Disposable {
     private readonly scheduleRender: ScheduleRender,
     postImperative: PostImperative,
     dispatchArch: (event: BackendEvent) => void,
+    getArchState: () => ArchState,
+    mutateArchState: (recipe: (draft: ArchState) => void) => void,
     onSessionCompleted?: OnSessionCompleted,
     runObserver: RunObserver = NOOP_RUN_OBSERVER,
     onSessionPathResolved?: OnSessionPathResolved,
   ) {
-    this.state = new SessionServiceState(context, backend, scheduleRender);
+    this.getArchState = getArchState;
+    this.mutateArchState = mutateArchState;
+
+    this.state = new SessionServiceState(context, backend, scheduleRender, getArchState, mutateArchState);
     this.events = new SessionServiceEvents({
       context,
       scheduleRender,
@@ -51,6 +53,8 @@ export class SessionService implements vscode.Disposable {
       runObserver,
       state: this.state,
       dispatchArch,
+      getArchState,
+      mutateArchState,
     });
     this.tabs = new SessionTabActions({
       context,
@@ -58,15 +62,18 @@ export class SessionService implements vscode.Disposable {
       scheduleRender,
       runObserver,
       state: this.state,
+      getArchState,
+      mutateArchState,
     });
     this.messages = new SessionMessageActions({
       context,
       backend,
       scheduleRender,
-      postImperative,
       runObserver,
       state: this.state,
       createNewSession: () => this.tabs.createNewSession(),
+      getArchState,
+      mutateArchState,
     });
     this.state.setPreloadedSessionOpenedHandler((payload) => {
       this.events.applySessionOpened(payload);
@@ -81,6 +88,8 @@ export class SessionService implements vscode.Disposable {
       events: this.events,
       state: this.state,
       openSession: (sessionPath) => this.tabs.openSession(sessionPath),
+      getArchState: this.getArchState,
+      mutateArchState: this.mutateArchState,
     });
   }
 
@@ -111,9 +120,11 @@ export class SessionService implements vscode.Disposable {
     this.events.detach();
     await this.backend.stop();
     this.state.resetRuntimeState();
-    store.dispatch(sessionsActions.clearRunningPaths());
-    store.dispatch(uiActions.setBackendReady(false));
-    store.dispatch(uiActions.setNotice(null));
+    this.mutateArchState((draft) => {
+      draft.sessions.runningSessionPaths = [];
+      draft.settings.backendReady = false;
+      draft.settings.notice = null;
+    });
     this.scheduleRender();
     await this.start();
   }
@@ -166,24 +177,6 @@ export class SessionService implements vscode.Disposable {
     this.messages.removeComposerInput(requestedSessionPath, inputId);
   }
 
-  /** @deprecated Phase 4: send now routes through the CQRS spine. */
-  async send(sessionPath: string, text: string): Promise<void> {
-    await this.messages.send(sessionPath, text);
-  }
-
-  /** @deprecated Phase 4: editMessage now routes through the CQRS spine. */
-  async editMessage(sessionPath: string, messageId: string, text: string): Promise<void> {
-    await this.messages.editMessage(sessionPath, messageId, text);
-  }
-
-  /**
-   * @deprecated Phase 3: interrupt now routes through the CQRS spine.
-   * See extension-host.ts handleWebviewMessage → dispatchArchEvent.
-   */
-  async interrupt(sessionPath: string): Promise<void> {
-    await this.messages.interrupt(sessionPath);
-  }
-
   async loadOlderTranscript(sessionPath?: string): Promise<void> {
     await this.messages.loadOlderTranscript(sessionPath);
   }
@@ -213,7 +206,7 @@ export class SessionService implements vscode.Disposable {
   }
 
   setPrefs(prefs: Partial<ChatPrefs>): void {
-    const current = store.getState().ui.prefs;
+    const current = this.getArchState().settings.prefs;
     // Deep-merge toggle maps so partial patches don't discard existing entries.
     const deepMerged: Partial<ChatPrefs> = {
       ...prefs,
@@ -225,10 +218,12 @@ export class SessionService implements vscode.Disposable {
       }),
     };
     const merged = resolveChatPrefs({ ...current, ...deepMerged });
-    store.dispatch(uiActions.setPrefs(merged));
-    if (merged.suppressCompletionNotifications) {
-      store.dispatch(sessionsActions.clearUnreadFinishedSessions());
-    }
+    this.mutateArchState((draft) => {
+      draft.settings.prefs = merged;
+      if (merged.suppressCompletionNotifications) {
+        draft.sessions.unreadFinishedSessionPaths = [];
+      }
+    });
     void this.context.globalState.update(PREFS_STORAGE_KEY, merged);
     void this.backend.request('runtimePrefs.set', {
       providerToggles: merged.providerToggles,
@@ -241,23 +236,29 @@ export class SessionService implements vscode.Disposable {
   async setPruningSettings(updates: Partial<PruningSettings>): Promise<void> {
     try {
       const result = await writePruningSettings(updates);
-      store.dispatch(settingsActions.setPruningSettings(result));
+      this.mutateArchState((draft) => {
+        draft.settings.pruningSettings = result;
+      });
     } catch (error) {
       const message = `Failed to update pruning settings: ${(error as Error).message}`;
       console.warn(`[pie] ${message}`);
       // Surface the failure in the UI — a silent console.warn after a user
       // action makes the GUI look broken ("I flipped the toggle and nothing
       // happened"). The notice gives the user something to debug from.
-      store.dispatch(uiActions.setNotice(message));
+      this.mutateArchState((draft) => {
+        draft.settings.notice = message;
+      });
     }
   }
 
   async loadPruningSettings(): Promise<void> {
     try {
       const settings = await readPruningSettings();
-      store.dispatch(settingsActions.setPruningSettings(settings));
+      this.mutateArchState((draft) => {
+        draft.settings.pruningSettings = settings;
+      });
     } catch {
-      // Non-fatal; defaults already in store.
+      // Non-fatal; defaults already in arch state.
     }
   }
 }

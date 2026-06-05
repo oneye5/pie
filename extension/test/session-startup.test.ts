@@ -1,19 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { publishBackendReady } from '../src/host/session-service/backend-ready';
-import { buildRestoredSessionSummaries } from '../src/host/session-service/restored-session-summaries';
-import { sessionsActions, store, uiActions } from '../src/host/store';
+import { produce } from 'immer';
 
-function resetStartupStoreState(): void {
-  store.dispatch(uiActions.setBackendReady(false));
-  store.dispatch(uiActions.setNotice(null));
-  store.dispatch(sessionsActions.setWorkspaceCwd(null));
-  store.dispatch(sessionsActions.replaceSessionSummaries([]));
-  store.dispatch(sessionsActions.setOpenTabPaths([]));
-  store.dispatch(sessionsActions.clearActiveSession());
-  store.dispatch(sessionsActions.clearRunningPaths());
-}
+import { publishBackendReady } from '../src/host/session-service/backend-ready';
+import { buildRestoredSessionSummaries } from '../src/host/core/restored-session-summaries';
+import { createInitialArchState } from '../src/host/core/arch-state';
+import type { ArchState } from '../src/host/core/arch-state';
 
 test('buildRestoredSessionSummaries creates placeholders for string-only restored tabs', () => {
   const summaries = buildRestoredSessionSummaries(
@@ -46,15 +39,20 @@ test('buildRestoredSessionSummaries preserves persisted tab names', () => {
 });
 
 test('publishBackendReady sets backendReady before restore open and keeps it true on restore failure', () => {
-  resetStartupStoreState();
+  let archState = createInitialArchState();
+  const getArchState = () => archState;
+  const mutateArchState = (recipe: (draft: ArchState) => void) => {
+    archState = produce(archState, recipe);
+  };
 
   const calls: string[] = [];
   const failure = publishBackendReady({
+    mutateArchState,
     scheduleRender: () => {
-      calls.push(`render:${store.getState().ui.backendReady}`);
+      calls.push(`render:${getArchState().settings.backendReady}`);
     },
     openSession: () => {
-      calls.push(`open:${store.getState().ui.backendReady}`);
+      calls.push(`open:${getArchState().settings.backendReady}`);
       throw new Error('boom');
     },
     preloadSessions: () => {
@@ -66,8 +64,6 @@ test('publishBackendReady sets backendReady before restore open and keeps it tru
 
   assert.equal(failure?.message, 'boom');
   assert.deepEqual(calls, ['render:true', 'open:true', 'render:true']);
-  assert.equal(store.getState().ui.backendReady, true);
-  assert.equal(store.getState().ui.notice, 'Failed to restore session: boom');
-
-  resetStartupStoreState();
+  assert.equal(getArchState().settings.backendReady, true);
+  assert.equal(getArchState().settings.notice, 'Failed to restore session: boom');
 });

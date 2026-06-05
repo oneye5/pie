@@ -1,5 +1,4 @@
 import { defaultCreateId, defaultNow } from './helpers';
-import { store } from '../store';
 import type { RunAnalyticsExportPayload, RunAnalyticsQueryResult } from '../run-analytics/query';
 import type {
   AssistantUsage,
@@ -11,7 +10,7 @@ import type {
 } from '../../shared/protocol';
 import { RunAnalyticsStorage } from './storage';
 import { SessionRunTracker } from './tracker';
-import type { RunObserver, StatsServiceOptions } from './types';
+import type { GetArchState, MutateArchState, RunObserver, StatsServiceOptions } from './types';
 
 export class StatsService implements RunObserver {
   private readonly scheduleRender: () => void;
@@ -22,8 +21,8 @@ export class StatsService implements RunObserver {
 
   constructor(options: StatsServiceOptions) {
     this.scheduleRender = options.scheduleRender ?? (() => undefined);
-    const dispatch = options.dispatch ?? store.dispatch;
-    const getState = options.getState ?? store.getState;
+    const mutateArchState = options.mutateArchState ?? ((recipe) => { /* no-op if not provided */ });
+    const getArchState = options.getArchState ?? (() => { throw new Error('getArchState not provided'); });
     const now = options.now ?? defaultNow;
     const createId = options.createId ?? defaultCreateId;
     const getExperimentAssignment = options.getExperimentAssignment ?? (() => null);
@@ -38,8 +37,8 @@ export class StatsService implements RunObserver {
       serializeSessions: () => trackerRef.current?.serializeSessions() ?? {},
     });
     const tracker = new SessionRunTracker({
-      dispatch,
-      getState,
+      getArchState,
+      mutateArchState,
       scheduleRender: this.scheduleRender,
       schedulePersist: (snapshotToAppend, outcomeToAppend) => (
         this.storage.schedulePersist(snapshotToAppend, outcomeToAppend)

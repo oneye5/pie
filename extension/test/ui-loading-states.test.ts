@@ -17,7 +17,7 @@ import renderToString from 'preact-render-to-string';
 import { buildTranscriptRows, estimateTranscriptRowSize } from '../src/webview/panel/transcript/virtual-list-rows';
 import { AGENT_ACTIVITY_LABELS, derivePendingActivityLabel, deriveTurnActivityState } from '../src/webview/panel/transcript/activity';
 import { isPanelBooting, resolvePanelSurface } from '../src/webview/panel/panel-state';
-import { derivePruningResult } from '../src/host/store';
+import { derivePruningResult } from '../src/host/core/projection';
 import { DEFAULT_CHAT_PREFS, DEFAULT_PRUNING_SETTINGS, type ChatMessage } from '../src/shared/protocol';
 import type { TurnActivityState } from '../src/webview/panel/transcript/activity';
 
@@ -528,31 +528,18 @@ test('useBufferedText returns full text immediately when not streaming', async (
 
 // ─── Pruning banner gates ────────────────────────────────────────────────────
 
-test('selectViewState hides pruning banner when skill-pruner extension toggled off', () => {
-  const {
-    store,
-    sessionsActions: sa,
-    transcriptActions: ta,
-    uiActions: ua,
-    selectViewState,
-  } = require('../src/host/store') as typeof import('../src/host/store');
+test('selectViewState hides pruning banner when skill-pruner extension toggled off', async () => {
+  const { createInitialArchState } = await import('../src/host/core/arch-state');
+  const { selectViewState } = await import('../src/host/core/projection');
+  const { produce } = await import('immer');
 
   const sessionPath = '/ws/prune-toggle-off';
-  store.dispatch(sa.upsertSession({
-    path: sessionPath,
-    name: 'test',
-    folder: '/ws',
-    workspaceFolder: '/ws',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    lastModified: '2026-01-01T00:00:00.000Z',
-    isPlaceholder: false,
-  } as any));
-  store.dispatch(sa.ensureOpenTab(sessionPath));
-  store.dispatch(sa.setActiveSessionPath(sessionPath));
-
-  store.dispatch(ta.setTranscript({
-    sessionPath,
-    transcript: [
+  let state = createInitialArchState();
+  state = produce(state, draft => {
+    draft.sessions.sessions = [{ path: sessionPath, name: 'test', isPlaceholder: false, cwd: '', modifiedAt: '', messageCount: 0 }];
+    draft.sessions.openTabPaths = [sessionPath];
+    draft.sessions.activeSessionPath = sessionPath;
+    draft.transcript.bySession[sessionPath] = [
       makeMessage('user-1', 'user'),
       {
         id: 'prune-1',
@@ -570,45 +557,33 @@ test('selectViewState hides pruning banner when skill-pruner extension toggled o
           toolTokensSaved: 0,
         },
       } as any,
-    ],
-  }));
+    ];
+  });
 
   // With extension enabled (default), pruning banner shows.
-  assert.ok(selectViewState(store.getState()).pruningResult, 'banner shown by default');
+  assert.ok(selectViewState(state).pruningResult, 'banner shown by default');
 
   // Toggling extension off hides the banner even though the pruning-result message exists.
-  store.dispatch(ua.setPrefs({ extensionToggles: { 'skill-pruner': false } }));
-  assert.equal(selectViewState(store.getState()).pruningResult, null, 'banner hidden when extension off');
+  state = produce(state, draft => {
+    draft.settings.prefs.extensionToggles = { 'skill-pruner': false };
+  });
+  assert.equal(selectViewState(state).pruningResult, null, 'banner hidden when extension off');
 });
 
-test('selectViewState hides pruning banner when pruningSettings.mode is off', () => {
-  const {
-    store,
-    sessionsActions: sa,
-    transcriptActions: ta,
-    uiActions: ua,
-    settingsActions,
-    selectViewState,
-  } = require('../src/host/store') as typeof import('../src/host/store');
+test('selectViewState hides pruning banner when pruningSettings.mode is off', async () => {
+  const { createInitialArchState } = await import('../src/host/core/arch-state');
+  const { selectViewState } = await import('../src/host/core/projection');
+  const { produce } = await import('immer');
 
   const sessionPath = '/ws/prune-mode-off';
-  store.dispatch(sa.upsertSession({
-    path: sessionPath,
-    name: 'test',
-    folder: '/ws',
-    workspaceFolder: '/ws',
-    createdAt: '2026-01-01T00:00:00.000Z',
-    lastModified: '2026-01-01T00:00:00.000Z',
-    isPlaceholder: false,
-  } as any));
-  store.dispatch(sa.ensureOpenTab(sessionPath));
-  store.dispatch(sa.setActiveSessionPath(sessionPath));
-  // Re-enable extension in case a prior test toggled it off.
-  store.dispatch(ua.setPrefs({ extensionToggles: { 'skill-pruner': true } }));
-
-  store.dispatch(ta.setTranscript({
-    sessionPath,
-    transcript: [
+  let state = createInitialArchState();
+  state = produce(state, draft => {
+    draft.sessions.sessions = [{ path: sessionPath, name: 'test', isPlaceholder: false, cwd: '', modifiedAt: '', messageCount: 0 }];
+    draft.sessions.openTabPaths = [sessionPath];
+    draft.sessions.activeSessionPath = sessionPath;
+    // Re-enable extension in case a prior test toggled it off.
+    draft.settings.prefs.extensionToggles = { 'skill-pruner': true };
+    draft.transcript.bySession[sessionPath] = [
       makeMessage('user-1', 'user'),
       {
         id: 'prune-1',
@@ -626,24 +601,26 @@ test('selectViewState hides pruning banner when pruningSettings.mode is off', ()
           toolTokensSaved: 0,
         },
       } as any,
-    ],
-  }));
+    ];
+  });
 
   // Default mode 'auto': banner shows.
-  assert.ok(selectViewState(store.getState()).pruningResult, 'banner shown when mode=auto');
+  assert.ok(selectViewState(state).pruningResult, 'banner shown when mode=auto');
 
   // Mode 'off': banner hidden.
-  store.dispatch(settingsActions.setPruningSettings({
-    mode: 'off',
-    skillCeiling: 5,
-    toolCeiling: 5,
-    skillAlwaysKeep: [],
-    toolAlwaysKeep: [],
-    model: 'gpt-5.4-mini',
-    provider: 'github-copilot',
-    thinkingLevel: 'minimal',
-  }));
-  assert.equal(selectViewState(store.getState()).pruningResult, null, 'banner hidden when mode=off');
+  state = produce(state, draft => {
+    draft.settings.pruningSettings = {
+      mode: 'off',
+      skillCeiling: 5,
+      toolCeiling: 5,
+      skillAlwaysKeep: [],
+      toolAlwaysKeep: [],
+      model: 'gpt-5.4-mini',
+      provider: 'github-copilot',
+      thinkingLevel: 'minimal',
+    };
+  });
+  assert.equal(selectViewState(state).pruningResult, null, 'banner hidden when mode=off');
 });
 
 // ─── Optimistic running state ────────────────────────────────────────────────
@@ -656,7 +633,7 @@ test('Send command optimistically marks session as running for instant Stop butt
   const { reducer, createInitialArchState } = await import('../src/host/core/reducer');
   const state = createInitialArchState();
   state.sessions.openTabPaths = ['/test'];
-  state.sessions.sessions = [{ path: '/test', name: 'Test', isPlaceholder: false }];
+  state.sessions.sessions = [{ path: '/test', name: 'Test', isPlaceholder: false, cwd: '', modifiedAt: '', messageCount: 0 }];
   state.settings.backendReady = true;
 
   const result = reducer(state, {
@@ -686,7 +663,7 @@ test('SendResult failure removes optimistic message from transcript', async () =
   const { reducer, createInitialArchState } = await import('../src/host/core/reducer');
   const state = createInitialArchState();
   state.sessions.openTabPaths = ['/test'];
-  state.sessions.sessions = [{ path: '/test', name: 'Test', isPlaceholder: false }];
+  state.sessions.sessions = [{ path: '/test', name: 'Test', isPlaceholder: false, cwd: '', modifiedAt: '', messageCount: 0 }];
 
   // First, send a message to create optimistic state.
   const afterSend = reducer(state, {

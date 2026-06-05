@@ -54,12 +54,10 @@ See git history (commit d581d83, file docs/internal/archive/ARCH-MIGRATION-PLAN.
 |-----|-------------|-------------|
 | Reducer | `extension/src/host/core/reducer.ts` | (same) |
 | EffectRunner | `extension/src/host/core/effect-runner.ts` | (same) |
-| Projection | `extension/src/host/store/index.ts` | `extension/src/host/core/projection.ts` |
+| Projection | `extension/src/host/core/projection.ts` | (same) |
 | Patch/Snapshot transport | `extension/src/host/sidebar/sync.ts`, `extension/src/host/sidebar/provider.ts` | (same) |
-| Webview mirror | `extension/src/webview/panel/hooks/use-host-sync.ts` | (same) |
-| Render | `extension/src/webview/panel/app.tsx` | (same) |
-| Backend event parser | `extension/src/host/session-service/events.ts` | `extension/src/host/core/backend-event-parser.ts` |
-| Message router | `extension/src/host/extension-host.ts` (`handleWebviewMessage`) | `extension/src/host/core/message-router.ts` |
+| Backend event parser | `extension/src/host/core/backend-event-parser.ts` | (same) |
+| Message router | `extension/src/host/core/message-router.ts` | (same) |
 
 ---
 
@@ -152,9 +150,9 @@ State-shape constraint: all keyed collections in host state use `Record<string, 
 
 Full allowlist of webview-local state: see `STATE_CONTRACT.md § Webview-Local State`.
 
-### Migration note
+### Migration complete
 
-State currently held in Redux Toolkit slices (`transcript-slice`, `sessions-slice`, etc.) will be consolidated into `ArchState` as part of the CQRS migration (see §10). After the migration completes, the Redux store and its slices will be removed, and the SyncEffectSink bridge will be eliminated. All state transitions will go through the reducer; all side-effects through the EffectRunner.
+All state previously held in Redux Toolkit slices (`transcript-slice`, `sessions-slice`, etc.) has been consolidated into `ArchState`. The Redux store and its slices have been removed. The `SyncEffectSink` bridge has been eliminated. All state transitions go through the reducer; all side-effects through the EffectRunner. Transcript mutations use Immer's `produce()` so that mutation-style helpers can operate on the draft directly.
 
 ---
 
@@ -248,22 +246,44 @@ The original CQRS migration (phases 1–5) left a dual-path architecture: backen
 - [x] **Step 7:** Remove `dispatchArch` flag and all `else` branches — unconditional CQRS path in `session-service/events.ts`
 - [x] **Step 8:** Remove `TransitionalArchState`; reducer now uses full `ArchState` with all 6 sub-states. `SyncEffectSink` bridge still in place but reducer handles all state mutations.
 - [x] **Step 9 (partial):** Create `backend-event-parser.ts` — pure function replacing `SessionServiceEvents`. Full dissolution of `session-service/` deferred to step 10.
-- [ ] **Step 10:** Remove Redux store — delete slice files, store creation, RTK dependency
-- [ ] **Step 11:** Thin `PieExtension` — extract `MessageRouter`, `QueueManager`, `FileDiffService`
-- [ ] **Step 12:** Remove `SyncEffectSink` bridge, dissolve `session-service/`, update tests
+- [x] **Step 10:** Remove Redux store — delete slice files, store creation, RTK dependency. All transcript mutations moved into the reducer using Immer `produce()`. All `SyncEffect` types removed. Redux store directory deleted. `@reduxjs/toolkit` dependency removed.
+- [x] **Step 11:** `PieExtension` is a thin orchestrator (~466 lines). `MessageRouter` extracted to `core/message-router.ts`. `FileDiffService` extracted to `core/file-diff-service.ts`. `QueueManager` extracted to `core/queue-manager.ts`. `MessageRouter` uses CQRS dispatches instead of direct mutations. Core modules have zero `mutateArchState` calls.
+- [x] **Step 12:** `SyncEffectSink` bridge removed. Pure modules moved from `session-service/` to `core/`. Auto-projection via `subscribeToArchState`. New command/event types for UI state: `SetEditingMessage`, `DismissNotice`, `SetOutcomeDialog`, `RespondExtensionUI`, `NoticeShown`, `OptimisticMessageInserted`, `OptimisticMessageRemoved`, `SessionNameDerived`, `FileChangeRemoved`. `FileDiff`, `FileRevert`, `ExportRunAnalytics` effects wired in EffectRunner.
+- [x] **Step 6.5:** Auto-projection — `ViewState` computed after every reducer cycle via `subscribeToArchState` listener in PieExtension. No explicit `ScheduleRender` effect needed.
+- [x] **Step 9.5:** `dispatch()` function in `core/dispatch.ts` wired into PieExtension — replaces direct `reducer()` call, provides state change notification for auto-projection.
+
+### Remaining work (Phase 3+)
+- Migrate `mutateArchState` calls in `core/composer.ts` (15 sites) to return values dispatched as events by callers
+- Migrate `mutateArchState` calls in `session-service/` modules (80 sites) to dispatch events through the CQRS spine
+- Dissolve `session-service/` class structure: promote `SessionServiceState` methods, `SessionTabActions`, and `SessionMessageActions` to proper command handlers
+- Add comprehensive reducer unit tests for all handler paths
 
 ### Completed files
 
 | File | Status |
 |------|--------|
-| `extension/src/host/core/arch-state.ts` | New — target `ArchState` type with 6 sub-states, `TransitionalArchState` for backward compatibility, `createInitialArchState()`, `createInitialTransitionalArchState()` |
-| `extension/src/host/core/effects.ts` | Updated — 5 new namespace groups (FileOperation, Notification, Analytics, Eviction, Derivation) with 7 new effect types and 5 type guards |
-| `extension/src/host/core/events.ts` | Updated — 8 new backend event variants (BusyChanged, BusyCompleted, ContextUsageChanged, SessionListChanged, CustomMessage, ExtensionUIRequest, Error, SessionOpened) |
-| `extension/src/host/core/commands.ts` | Updated — 9 new command variants (SetModel, SetPrefs, SelectSession, CloseTab, ReorderTabs, OpenFileDiff, RevertFile, ExportAnalytics, CloseSession) |
-| `extension/src/host/core/reducer.ts` | Updated — 21 new handler stubs with TODO comments for new event and command kinds |
-| `extension/src/host/core/projection.ts` | New — `selectViewState(ArchState): ViewState` projection function with `derivePruningResult` and `selectActivePruningCatalog` helpers |
-| `extension/src/host/core/backend-event-parser.ts` | New — pure function `parseBackendEvent(raw: string): BackendEvent | null` that parses backend JSON lines into typed events (replaces `SessionServiceEvents`) |
-| `extension/src/host/core/dispatch.ts` | New — `dispatch()` function wrapping reducer call with state change notification, `subscribeToArchState()` listener API |
+| `extension/src/host/core/arch-state.ts` | Complete — `ArchState` type with 6 sub-states, `createInitialArchState()` |
+| `extension/src/host/core/effects.ts` | Complete — 17 real side-effect types in 5 namespace groups. `SyncEffect` types and `SyncEffectSink` removed. |
+| `extension/src/host/core/events.ts` | Complete — 8 backend event variants + command variants + `NoticeShown`, `OptimisticMessageInserted`, `OptimisticMessageRemoved`, `SessionNameDerived`, `FileChangeRemoved` events |
+| `extension/src/host/core/commands.ts` | Complete — All command variants including `SetEditingMessage`, `DismissNotice`, `SetOutcomeDialog`, `RespondExtensionUI` |
+| `extension/src/host/core/reducer.ts` | Complete — All 21+ handlers with real logic. Transcript mutations via Immer `produce()`. |
+| `extension/src/host/core/projection.ts` | Complete — `selectViewState(ArchState): ViewState` with `derivePruningResult` and `selectActivePruningCatalog` helpers |
+| `extension/src/host/core/backend-event-parser.ts` | Complete — pure function `parseBackendEvent(raw: string): BackendEvent | null` |
+| `extension/src/host/core/dispatch.ts` | Complete — `dispatch()` function with state change notification, `subscribeToArchState()` listener API |
+| `extension/src/host/core/transcript-helpers.ts` | Complete — moved from `store/transcript-helpers.ts` |
+| `extension/src/host/core/file-change-derivation.ts` | Complete — moved from `store/file-changes-slice.ts` |
+| `extension/src/host/extension-host.ts` | **Thin orchestrator** — ~466 lines. Handles lifecycle, registration, wiring. CQRS dispatch via `dispatch()`. Render via `subscribeToArchState`. Message handling delegated to `MessageRouter`. |
+| `extension/src/host/core/message-router.ts` | **New** — `MessageRouter` class. No `mutateArchState` calls — all state changes via CQRS events. |
+| `extension/src/host/core/file-diff-service.ts` | **New** — `FileDiffService` class. `openFileDiff`, `revertFile`, file path resolution |
+| `extension/src/host/core/dispatch.ts` | Complete — `dispatch()` function with auto-projection. Wired into PieExtension. |
+| `extension/src/host/core/composer.ts` | Moved from `session-service/` — pure functions for prompt text and composer input handling |
+| `extension/src/host/core/transcript-window.ts` | Moved from `session-service/` — pure window math for transcript pagination |
+| `extension/src/host/core/event-dispatch.ts` | Moved from `session-service/` — pure switch-dispatch for backend events |
+| `extension/src/host/core/session-opened-transcript.ts` | Moved from `session-service/` — pure transcript resolution logic |
+| `extension/src/host/core/restored-session-plan.ts` | Moved from `session-service/` — pure tab restoration logic |
+| `extension/src/host/core/restored-session-summaries.ts` | Moved from `session-service/` — pure summary derivation |
+| `extension/src/host/core/queue-manager.ts` | **New** — `QueueManager` class. Pending send and backend-ready queues. Uses CQRS events for state changes. |
+| `extension/src/host/store/` | **Deleted** — All Redux slices, store creation, and `@reduxjs/toolkit` dependency removed |
 
 ## 11. Further Reading
 

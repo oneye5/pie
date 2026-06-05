@@ -1,7 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { produce } from 'immer';
+
 import { NOOP_RUN_OBSERVER } from '../src/host/stats-service';
+import { createInitialArchState } from '../src/host/core/arch-state';
+import type { ArchState } from '../src/host/core/arch-state';
 import { SessionServiceState } from '../src/host/session-service/state';
 import { SessionTabActions } from '../src/host/session-service/tab-actions';
 
@@ -50,13 +54,20 @@ test('openSession serializes backend session.open requests through the lifecycle
   } as any;
 
   const context = createExtensionContext();
-  const state = new SessionServiceState(context, backend, () => undefined);
+  let archState = createInitialArchState();
+  const getArchState = () => archState;
+  const mutateArchState = (recipe: (draft: ArchState) => void) => {
+    archState = produce(archState, recipe);
+  };
+  const state = new SessionServiceState(context, backend, () => undefined, getArchState, mutateArchState);
   const tabs = new SessionTabActions({
     context,
     backend,
     scheduleRender: () => undefined,
     runObserver: NOOP_RUN_OBSERVER,
     state,
+    getArchState,
+    mutateArchState,
   });
 
   tabs.openSession(sessionPaths[0]);

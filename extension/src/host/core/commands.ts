@@ -96,6 +96,28 @@ export interface RemoveComposerInputCommand extends CommandBase {
   inputId: string;
 }
 
+export interface SetEditingMessageCommand extends CommandBase {
+  kind: 'SetEditingMessage';
+  sessionPath: string;
+  messageId: string | null;
+}
+
+export interface SetOutcomeDialogCommand extends CommandBase {
+  kind: 'SetOutcomeDialog';
+  sessionPath: string;
+  visible: boolean;
+}
+
+export interface DismissNoticeCommand extends CommandBase {
+  kind: 'DismissNotice';
+}
+
+export interface RespondExtensionUICommand extends CommandBase {
+  kind: 'RespondExtensionUI';
+  sessionPath: string;
+  approved: boolean;
+}
+
 export type Command =
   | SendCommand
   | EditCommand
@@ -114,7 +136,11 @@ export type Command =
   | OpenFileDiffCommand
   | RevertFileCommand
   | ExportAnalyticsCommand
-  | CloseSessionCommand;
+  | CloseSessionCommand
+  | SetEditingMessageCommand
+  | SetOutcomeDialogCommand
+  | DismissNoticeCommand
+  | RespondExtensionUICommand;
 export interface SetModelCommand extends CommandBase {
   kind: 'SetModel';
   sessionPath: string;
