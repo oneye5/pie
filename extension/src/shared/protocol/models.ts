@@ -1,0 +1,64 @@
+
+export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+
+export interface ModelSettings {
+  defaultModel: string;
+  defaultThinkingLevel: ThinkingLevel;
+}
+
+export type ModelInputKind = 'text' | 'image';
+
+/**
+ * Per-model metadata sourced from the shared `<agentDir>/model-profiles.{yaml,json}`.
+ * Drives ordering and warning badges in the model picker.
+ */
+export interface ModelSubagentInfo {
+  /** True when the model is allowed as a subagent target (profile `eligible`). */
+  eligible: boolean;
+  /** Sum of precision+creativity+thoroughness+reasoning (0-20). Used as overall rating. */
+  aggregate: number;
+  /** Optional human-readable reason recorded in the profile when ineligible. */
+  disabledReason?: string;
+  /** Normalized selector cost on the 0–30+ scale, derived from real token pricing when available. */
+  normalizedCost?: number;
+  /** Real token pricing in USD per 1M tokens, when known. */
+  pricing?: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+  };
+}
+
+export interface ModelInfo {
+  id: string;
+  name: string;
+  provider: string;
+  reasoning: boolean;
+  /** Explicit input capabilities. Backends must default to `['text']` when unsure. */
+  inputKinds: ModelInputKind[];
+  contextWindow?: number;
+  maxTokens?: number;
+  /** Present when a matching subagent profile exists; absent for unprofiled models. */
+  subagent?: ModelSubagentInfo;
+}
+
+export interface ContextWindowUsage {
+  tokens: number | null;
+  contextWindow: number;
+  percent: number | null;
+}
+
+/**
+ * Per-assistant-message token usage. Mirrors the fields on the pi-ai `Usage`
+ * object — kept optional so older messages (or aborted/errored ones) can omit
+ * fields the provider didn't report.
+ */
+export interface AssistantUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+

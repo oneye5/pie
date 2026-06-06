@@ -1,5 +1,6 @@
 import type { ToolCall } from '../protocol';
-import { isRecord, normalizeToolCallName } from './summary';
+import { normalizeToolCallName } from './summary';
+import { isRecord } from '../type-guards';
 import type { EditSizeStats } from './mutation-types';
 import {
   TEXT_CONTAINER_KEYS,

@@ -8,9 +8,8 @@ interface ToolCallLikeInput {
   input: unknown;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from '../../shared/type-guards';
+
 
 /** Count the number of lines in a string. Empty string → 0, no trailing-newline inflation. */
 function countLines(text: string): number {

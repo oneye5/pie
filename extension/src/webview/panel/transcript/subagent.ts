@@ -69,9 +69,8 @@ interface RawToolResultSnapshot {
   status: ToolCall['status'];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from '../../../shared/type-guards';
+
 
 function rawMessageParts(message: RawMessage): RawContentPart[] {
   return Array.isArray(message.content) ? message.content : [];

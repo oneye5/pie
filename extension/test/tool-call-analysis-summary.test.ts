@@ -3,10 +3,11 @@ import test from 'node:test';
 
 import {
   getSkillNameFromToolCall,
-  isRecord,
+  
   normalizeToolCallName,
   summarizeSubagentToolCallInput,
 } from '../src/shared/tool-call-analysis/summary';
+import { isRecord } from '../src/shared/type-guards';;
 import type { ToolCall } from '../src/shared/protocol';
 
 function makeToolCall(overrides: Partial<ToolCall> = {}): ToolCall {

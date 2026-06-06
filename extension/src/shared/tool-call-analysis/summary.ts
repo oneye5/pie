@@ -21,9 +21,7 @@ function summarizeText(text: string, maxLength = TOOL_CALL_SUMMARY_MAX_LENGTH): 
   return normalized ? truncateText(normalized, maxLength) : null;
 }
 
-export function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from '../type-guards';
 
 function summarizeStringList(value: unknown, maxItems = 3): string | null {
   if (!Array.isArray(value)) return null;

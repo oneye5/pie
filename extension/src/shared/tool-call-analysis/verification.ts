@@ -1,4 +1,4 @@
-import { isRecord } from './summary';
+import { isRecord } from '../type-guards';
 
 export interface SubagentTaskScoreRollup {
   precision:    { sum: number; count: number; max: number };

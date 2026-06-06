@@ -1,5 +1,6 @@
 import type { ToolCall } from '../protocol';
-import { isRecord, normalizeToolCallName } from './summary';
+import { normalizeToolCallName } from './summary';
+import { isRecord } from '../type-guards';
 import type { FileExtensionOperation } from './mutation-types';
 
 export const DIRECT_FILE_PATH_KEYS = [

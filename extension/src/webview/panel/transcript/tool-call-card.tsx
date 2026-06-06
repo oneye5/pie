@@ -111,9 +111,8 @@ export function formatToolCallResultForDisplay(toolCall: Pick<ToolCall, 'name' |
   return readableText ?? JSON.stringify(toolCall.result, null, 2);
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from '../../../shared/type-guards';
+
 
 function normalizeInlineText(value: string): string {
   return value.replace(/\s+/g, ' ').trim();

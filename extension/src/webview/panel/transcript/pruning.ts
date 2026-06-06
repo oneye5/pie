@@ -4,9 +4,8 @@ export type PruningHeaderState =
   | { kind: 'pending'; label: string }
   | { kind: 'result'; details: PruningDetails; fallbackText?: string };
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object';
-}
+import { isRecord } from '../../../shared/type-guards';
+
 
 function stringArray(value: unknown): string[] {
   if (!Array.isArray(value)) return [];

@@ -97,8 +97,11 @@ export class SessionTabActions {
       }
       // setActiveSessionPath
       draft.sessions.activeSessionPath = pendingPath;
+      draft.sessions.runningSessionPaths = draft.sessions.runningSessionPaths
+        .filter((p) => p !== pendingPath);
       draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
         .filter((p) => p !== pendingPath);
+      draft.composer.activeRunSummaryBySession[pendingPath] = null;
     });
     this.state.saveOpenTabs();
     this.scheduleRender();
@@ -345,8 +348,11 @@ export class SessionTabActions {
 
       // setActiveSessionPath
       draft.sessions.activeSessionPath = pendingPath;
+      draft.sessions.runningSessionPaths = draft.sessions.runningSessionPaths
+        .filter((p) => p !== pendingPath);
       draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
         .filter((p) => p !== pendingPath);
+      draft.composer.activeRunSummaryBySession[pendingPath] = null;
     });
 
     this.state.saveOpenTabs();

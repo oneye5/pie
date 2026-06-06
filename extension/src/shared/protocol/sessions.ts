@@ -1,0 +1,233 @@
+import type { PROTOCOL_VERSION } from './core.js';
+import type { ThinkingLevel, ModelSettings, ModelInfo, ContextWindowUsage } from './models.js';
+import type { ChatMessage, ToolCall } from './messages.js';
+
+export interface SessionSummary {
+  path: string;
+  name: string;
+  cwd: string;
+  modifiedAt: string;
+  messageCount: number;
+  modelId?: string;
+  thinkingLevel?: ThinkingLevel;
+  /**
+   * True when `name` is a backend-generated placeholder (not a user-meaningful
+   * label). Lets the host preserve a real local name on top of placeholder
+   * refreshes without resorting to string-content heuristics.
+   */
+  isPlaceholder?: boolean;
+}
+
+export type TranscriptPageDirection = 'older' | 'newer' | 'latest';
+
+/**
+ * Metadata describing the currently loaded transcript window inside the full
+ * display transcript for a session.
+ */
+export interface TranscriptWindow {
+  /** Total display-message rows currently available in the backend cache. */
+  totalCount: number;
+  /** Inclusive start index (0-based) of the loaded window in the full transcript. */
+  loadedStart: number;
+  /** Exclusive end index of the loaded window in the full transcript. */
+  loadedEnd: number;
+  /** True when there are undisplayed older rows before `loadedStart`. */
+  hasOlder: boolean;
+  /** True when there are undisplayed newer rows after `loadedEnd`. */
+  hasNewer: boolean;
+  /** True when the loaded window is only a subset of the full transcript. */
+  isPartial: boolean;
+  /** True when the full transcript contains at least one user message. */
+  hasUserMessages: boolean;
+}
+
+export interface TranscriptPagePayload {
+  sessionPath: string;
+  transcript: ChatMessage[];
+  transcriptWindow: TranscriptWindow;
+  busy: boolean;
+}
+
+export type SystemPromptSource = 'provider' | 'harness' | 'user';
+
+export type SystemPromptAvailability = 'available' | 'missing' | 'hidden' | 'unknown';
+
+export interface SystemPromptEntry {
+  source: SystemPromptSource;
+  title: string;
+  text: string;
+  summary: string;
+  availability: SystemPromptAvailability;
+  /** Full path or extra detail shown on hover when the title is shortened. */
+  tooltip?: string;
+}
+
+export interface SessionContextFileFactor {
+  path: string;
+  hash: string;
+}
+
+export interface SessionToolSnippetFactor {
+  toolId: string;
+  hash: string;
+}
+
+export interface SessionSkillFactor {
+  name: string;
+  contentHash: string | null;
+  sourceHash: string | null;
+  disableModelInvocation: boolean;
+  lastModifiedAt: string | null;
+}
+
+export interface SessionAnalyticsFactors {
+  promptFamily: string | null;
+  promptHash: string | null;
+  harnessPromptHash: string | null;
+  customPromptHash: string | null;
+  appendSystemPromptHash: string | null;
+  promptGuidelineHashes: string[];
+  contextFiles: SessionContextFileFactor[];
+  selectedToolIds: string[];
+  toolSnippetHashes: SessionToolSnippetFactor[];
+  toolSetHash: string | null;
+  skills: SessionSkillFactor[];
+  skillSetHash: string | null;
+  /** Names of extensions active during this run (e.g. 'subagent', 'safeguard'). */
+  activeExtensions: string[];
+}
+
+export interface BackendReadyPayload {
+  sdkPath: string;
+  agentDir: string;
+  /** Version string of the loaded `@mariozechner/pi-coding-agent` SDK. */
+  sdkVersion: string;
+  /** Wire protocol version. Must match `PROTOCOL_VERSION` in the host. */
+  protocolVersion: number;
+  /** Resolved path to the auth.json file used by the backend. */
+  authPath?: string;
+}
+
+export interface SessionOpenedPayload {
+  session: SessionSummary;
+  transcript: ChatMessage[];
+  transcriptWindow: TranscriptWindow;
+  busy: boolean;
+  selectionToken?: string;
+  systemPrompts?: SystemPromptEntry[];
+  analyticsFactors?: SessionAnalyticsFactors;
+  modelSettings?: ModelSettings;
+  availableModels?: ModelInfo[];
+  contextUsage?: ContextWindowUsage;
+}
+
+export interface SessionListChangedPayload {
+  sessions: SessionSummary[];
+  activeSessionPath?: string;
+}
+
+export interface MessageStartedPayload {
+  requestId: string;
+  messageId: string;
+  sessionPath: string;
+  modelId?: string;
+  thinkingLevel?: ThinkingLevel;
+}
+
+export interface MessageDeltaPayload {
+  requestId: string;
+  sessionPath: string;
+  messageId: string;
+  delta: string;
+}
+
+export interface MessageThinkingPayload {
+  requestId: string;
+  sessionPath: string;
+  messageId: string;
+  thinking: string;
+}
+
+export interface ToolStartedPayload {
+  requestId: string;
+  sessionPath: string;
+  messageId: string;
+  toolCallId: string;
+  name: string;
+  input: unknown;
+  /** Epoch milliseconds when the backend began executing the tool call. */
+  startedAt: number;
+}
+
+export interface ToolFinishedPayload {
+  requestId: string;
+  sessionPath: string;
+  messageId: string;
+  toolCallId: string;
+  result: unknown;
+  status: Extract<ToolCall['status'], 'completed' | 'failed'>;
+  /** Wall-clock execution time in milliseconds for this tool call. */
+  durationMs?: number;
+}
+
+export interface CustomMessagePayload {
+  requestId: string;
+  sessionPath: string;
+  message: ChatMessage;
+}
+
+export interface ToolProgressPayload {
+  requestId: string;
+  sessionPath: string;
+  messageId: string;
+  toolCallId: string;
+  /** Partial result from onUpdate callback — same shape as the final result. */
+  partialResult: unknown;
+}
+
+export interface MessageFinishedPayload {
+  requestId: string;
+  sessionPath: string;
+  message: ChatMessage;
+}
+
+export interface MessageAbortedPayload {
+  requestId: string;
+  sessionPath: string;
+  messageId?: string;
+}
+
+export interface BusyChangedPayload {
+  sessionPath: string;
+  busy: boolean;
+  /**
+   * Monotonic per-session sequence number. The host drops out-of-order events
+   * for a session (e.g. a stale `busy=false` arriving after an optimistic set).
+   */
+  seq?: number;
+}
+
+export interface ContextUsageChangedPayload {
+  sessionPath: string;
+  contextUsage: ContextWindowUsage | null;
+}
+
+export interface ErrorPayload {
+  code: string;
+  message: string;
+  requestId?: string;
+}
+
+export type FileChangeKind = 'created' | 'modified' | 'deleted';
+
+export interface FileChangeEntry {
+  path: string;
+  kind: FileChangeKind;
+  toolCallId: string;
+  messageId: string;
+  description: string;
+  timestamp: string;
+  additions?: number;
+  deletions?: number;
+}
+

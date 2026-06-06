@@ -341,7 +341,6 @@ export class MessageRouter {
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetEditingMessage', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, messageId: null } });
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetOutcomeDialog', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, visible: false } });
     this.service.openSession(msg.sessionPath);
-    this.sidebarProvider.reveal();
     this.sidebarProvider.postState();
   }
 

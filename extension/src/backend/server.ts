@@ -16,14 +16,12 @@ import {
   type TranscriptPageDirection,
   type TranscriptPagePayload,
 } from '../shared/protocol';
-import { prepareContextFiles } from './context-files';
+import { getDefaultAuthDir, ensureDir, isInsideGitWorkTree, migrateAuthFile } from './auth.js';
 import { deriveFallbackContextUsageFromBranch } from './context-usage';
 import { ExtensionUIBridge } from './extension-ui-bridge';
 import { handleBackendRequest } from './request-handler';
-import { buildSessionAnalyticsFactors } from './session-analytics';
 import { handleSdkSessionEvent } from './session-event-handler';
 import {
-  buildCurrentSummary,
   listAvailableModels,
   listSessions as listSessionSummaries,
 } from './session-metadata';
@@ -53,85 +51,8 @@ import {
   isDisplayTranscriptCacheStale,
 } from './transcript-window';
 import type { SessionEntryLike } from './transcript';
-
-function resolveEditorVersion(): string | undefined {
-  const configured = process.env.PIE_EDITOR_VERSION?.trim();
-  return configured || undefined;
-}
-
-/**
- * Walk up from a file path looking for a `.git` directory. Returns true if the
- * file resides inside a Git working tree.
- */
-async function isInsideGitWorkTree(filePath: string): Promise<boolean> {
-  let dir = path.dirname(path.resolve(filePath));
-  const root = path.parse(dir).root;
-  while (true) {
-    try {
-      const stat = await fs.stat(path.join(dir, '.git'));
-      if (stat.isDirectory() || stat.isFile()) {
-        return true;
-      }
-    } catch {
-      // .git not found at this level — continue walking up.
-    }
-    if (dir === root) {
-      break;
-    }
-    dir = path.dirname(dir);
-  }
-  return false;
-}
-
-/**
- * Returns the platform-standard directory for pie credentials.
- * - Windows: %LOCALAPPDATA%\pie
- * - macOS/Linux: ~/.config/pie
- */
-function getDefaultAuthDir(): string {
-  if (process.platform === 'win32') {
-    const localAppData = process.env.LOCALAPPDATA;
-    if (localAppData) {
-      return path.join(localAppData, 'pie');
-    }
-  }
-  const home = process.env.HOME ?? process.env.USERPROFILE ?? '';
-  return path.join(home, '.config', 'pie');
-}
-
-/**
- * Ensures a directory exists, creating it (and parents) if needed.
- */
-async function ensureDir(dir: string): Promise<void> {
-  await fs.mkdir(dir, { recursive: true });
-}
-
-/**
- * If `source` exists and `dest` does not, copy source to dest and remove the
- * original. Returns true if a migration occurred.
- */
-async function migrateAuthFile(source: string, dest: string): Promise<boolean> {
-  try {
-    await fs.access(source);
-  } catch {
-    return false; // source doesn't exist — nothing to migrate
-  }
-  try {
-    await fs.access(dest);
-    return false; // dest already exists — don't overwrite
-  } catch {
-    // dest doesn't exist — proceed with migration
-  }
-  await ensureDir(path.dirname(dest));
-  await fs.copyFile(source, dest);
-  // Verify copy matches before removing original
-  const [srcBuf, dstBuf] = await Promise.all([fs.readFile(source), fs.readFile(dest)]);
-  if (srcBuf.equals(dstBuf)) {
-    await fs.unlink(source);
-    return true;
-  }
-  return false;
-}
+import { createRuntimeFactory } from './runtime-factory.js';
+import { buildSessionOpenedPayload as buildSessionOpenedPayloadHelper } from './session-opened.js';
 
 export class BackendServer {
   private sdk!: SdkModule;
@@ -201,33 +122,7 @@ export class BackendServer {
   }
 
   private createRuntimeFactory() {
-    return async ({ cwd, agentDir, sessionManager, sessionStartEvent }: any) => {
-      const services = (await this.sdk.createAgentSessionServices({
-        cwd,
-        agentDir,
-        authStorage: this.authStorage,
-        editorVersion: resolveEditorVersion(),
-        resourceLoaderOptions: {
-          agentsFilesOverride: (base: { agentsFiles: Array<{ path: string; content: string }> }) => ({
-            agentsFiles: prepareContextFiles(base.agentsFiles).map((contextFile) => ({
-              path: contextFile.path,
-              content: contextFile.content,
-            })),
-          }),
-        },
-      })) as Record<string, unknown>;
-
-      const created = (await this.sdk.createAgentSessionFromServices({
-        services,
-        sessionManager,
-        sessionStartEvent,
-      })) as Record<string, unknown>;
-
-      return {
-        ...created,
-        services,
-      };
-    };
+    return createRuntimeFactory(this.sdk, this.authStorage, this.startupCwd);
   }
 
   private resolveSessionPath(session: SdkSession): string | undefined {
@@ -242,6 +137,24 @@ export class BackendServer {
     sessionManager: SdkSessionManager,
     reason: SessionContextCreationReason,
   ): Promise<SessionContext> {
+    const context = await this.buildSessionContext({ sessionManager, reason });
+
+    const existing = this.sessionContexts.get(context.sessionPath);
+    if (existing) {
+      context.busySeq = existing.busySeq;
+      existing.unsubscribe();
+      await existing.runtime.dispose();
+    }
+
+    this.sessionContexts.set(context.sessionPath, context);
+    return context;
+  }
+
+  private async buildSessionContext(options: {
+    sessionManager: SdkSessionManager;
+    reason: SessionContextCreationReason;
+  }): Promise<SessionContext> {
+    const { sessionManager, reason } = options;
     const previousSessionFile = this.viewedSessionPath;
     const runtime = await this.sdk.createAgentSessionRuntime(this.createRuntimeFactory(), {
       cwd: sessionManager.getCwd() || this.startupCwd,
@@ -263,19 +176,12 @@ export class BackendServer {
       throw new Error('The PI session did not expose a session path.');
     }
 
-    const existing = this.sessionContexts.get(sessionPath);
-    const initialBusySeq = existing?.busySeq ?? 0;
-    if (existing) {
-      existing.unsubscribe();
-      await existing.runtime.dispose();
-    }
-
     const context: SessionContext = {
       runtime,
       session,
       sessionPath,
       unsubscribe: () => undefined,
-      busySeq: initialBusySeq,
+      busySeq: 0,
       lastContextUsage: undefined,
     };
 
@@ -291,7 +197,6 @@ export class BackendServer {
       this.handleSessionEvent(context, event);
     });
 
-    this.sessionContexts.set(sessionPath, context);
     return context;
   }
 
@@ -495,41 +400,16 @@ export class BackendServer {
     sessionPath: string,
     selectionToken?: string,
   ): Promise<SessionOpenedPayload> {
-    const context = this.getSessionContext(sessionPath);
-    if (!context) {
-      throw new Error(`Unknown session: ${sessionPath}`);
-    }
-
-    const harnessPrompt = await this.readHarnessSystemPrompt(context);
-    const [systemPrompts, modelSettings, analyticsFactors] = await Promise.all([
-      this.buildSystemPrompts(context, harnessPrompt),
-      this.readModelSettings(),
-      buildSessionAnalyticsFactors({
-        harnessPrompt,
-        promptOptions: this.getSessionPromptState(context)._baseSystemPromptOptions,
-      }),
-    ]);
-
-    const contextUsage = this.getContextUsage(context) ?? null;
-    context.lastContextUsage = contextUsage;
-
-    const cache = this.ensureDisplayTranscriptCache(context);
-    const transcriptSlice = buildTailTranscriptWindow(cache, {
-      pinnedMessageId: this.getPinnedStreamingMessageId(context),
-    });
-
-    return {
-      session: buildCurrentSummary(context, this.startupCwd),
-      transcript: transcriptSlice.transcript,
-      transcriptWindow: transcriptSlice.transcriptWindow,
-      busy: context.session.isStreaming || !!context.activeRequest,
-      selectionToken,
-      systemPrompts,
-      analyticsFactors,
-      modelSettings,
-      availableModels: listAvailableModels(context, this.agentDir),
-      contextUsage: contextUsage ?? undefined,
-    };
+    return buildSessionOpenedPayloadHelper(sessionPath, {
+      getContextUsage: (context) => this.getContextUsage(context),
+      readHarnessSystemPrompt: (context) => this.readHarnessSystemPrompt(context),
+      buildSystemPrompts: (context, override) => this.buildSystemPrompts(context, override),
+      readModelSettings: () => this.readModelSettings(),
+      getPinnedStreamingMessageId: (context) => this.getPinnedStreamingMessageId(context),
+      getSessionContext: (path) => this.getSessionContext(path),
+      agentDir: this.agentDir,
+      startupCwd: this.startupCwd,
+    }, selectionToken);
   }
 
   private async emitSessionListChanged(): Promise<void> {

@@ -1,0 +1,126 @@
+import type { ThinkingLevel, AssistantUsage } from './models.js';
+import type { PruningDetails } from './settings.js';
+
+export interface ToolCall {
+  id: string;
+  name: string;
+  input: unknown;
+  result?: unknown;
+  status: 'running' | 'completed' | 'failed';
+  /** Epoch milliseconds when the backend began executing this tool call. */
+  startedAt?: number;
+  /** Wall-clock execution time in milliseconds, set when the call resolves. */
+  durationMs?: number;
+}
+
+export interface FilesystemPathComposerInput {
+  id: string;
+  kind: 'filesystemPathRef';
+  path: string;
+  name: string;
+  source: 'picker' | 'drop';
+}
+
+export interface ImageBlobComposerInput {
+  id: string;
+  kind: 'imageBlob';
+  mimeType: string;
+  name: string;
+  sizeBytes: number;
+  dataBase64: string;
+  width?: number;
+  height?: number;
+  source: 'paste' | 'drop';
+}
+
+export interface FileBlobComposerInput {
+  id: string;
+  kind: 'fileBlob';
+  mimeType: string;
+  name: string;
+  sizeBytes: number;
+  dataBase64: string;
+  source: 'paste' | 'drop';
+}
+
+export type ComposerInput =
+  | FilesystemPathComposerInput
+  | ImageBlobComposerInput
+  | FileBlobComposerInput;
+
+export type ComposerInputDraft =
+  | Omit<FilesystemPathComposerInput, 'id'>
+  | Omit<ImageBlobComposerInput, 'id'>
+  | Omit<FileBlobComposerInput, 'id'>;
+
+export interface UserContentTextPart {
+  kind: 'text';
+  text: string;
+}
+
+export interface UserContentImagePart {
+  kind: 'image';
+  mimeType: string;
+  dataBase64: string;
+  name?: string;
+  width?: number;
+  height?: number;
+}
+
+export type UserContentPart = UserContentTextPart | UserContentImagePart;
+
+export interface ChatMessageTextPart {
+  kind: 'text';
+  text: string;
+}
+
+export interface ChatMessageReasoningPart {
+  kind: 'reasoning';
+  text: string;
+}
+
+export interface ChatMessageToolCallPart {
+  kind: 'toolCall';
+  toolCall: ToolCall;
+}
+
+export type ChatMessagePart =
+  | ChatMessageTextPart
+  | ChatMessageReasoningPart
+  | ChatMessageToolCallPart;
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  createdAt: string;
+  markdown: string;
+  /** Ordered user content blocks when the message contains structured user input (e.g. pasted images). */
+  userParts?: UserContentPart[];
+  /** Ordered assistant content blocks as emitted by the agent. */
+  parts?: ChatMessagePart[];
+  /** Accumulated reasoning/thinking content (only present on assistant messages from reasoning models). */
+  thinking?: string;
+  /** Model id used for this assistant response, when the backend can determine it. */
+  modelId?: string;
+  /** Reasoning/thinking level used for this assistant response, when available. */
+  thinkingLevel?: ThinkingLevel;
+  status: 'streaming' | 'completed' | 'interrupted' | 'error';
+  /** Human-readable error detail when status is 'error'. */
+  errorDetail?: string;
+  toolCalls?: ToolCall[];
+  /** How long the response took to complete, in milliseconds. Only set on finished assistant messages. */
+  durationMs?: number;
+  /** Token accounting reported by the provider for this assistant turn, when available. */
+  usage?: AssistantUsage;
+  /** Custom message type from a pi extension (e.g. 'pruning-result'). Present on system messages mapped from custom_message entries. */
+  customType?: string;
+  /** Structured details from a custom_message entry, when provided by the source extension. Typed per customType. */
+  customDetails?: CustomMessageDetails;
+}
+
+/**
+ * Discriminated detail payloads keyed by `customType`.
+ * Fallback `unknown` covers future extension types that haven't been typed yet.
+ */
+export type CustomMessageDetails = PruningDetails | unknown;
+

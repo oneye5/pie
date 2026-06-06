@@ -37,9 +37,8 @@ function summarizeText(text: string, maxLength = TOOL_CALL_SUMMARY_MAX_LENGTH): 
   return normalized ? truncateText(normalized, maxLength) : null;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value);
-}
+import { isRecord } from '../../shared/type-guards';
+
 
 function normalizePathSeparators(value: string): string {
   return value.replace(/\\/g, '/');

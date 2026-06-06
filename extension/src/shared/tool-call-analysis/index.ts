@@ -1,7 +1,7 @@
 import type { ToolCall } from '../protocol';
+import { isRecord } from '../type-guards';
 import {
   getSkillNameFromToolCall,
-  isRecord,
   normalizeToolCallName,
   summarizeSubagentToolCallInput,
 } from './summary';
