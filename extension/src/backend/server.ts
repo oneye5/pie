@@ -47,7 +47,6 @@ import {
 import {
   buildDisplayTranscriptCache,
   buildPagedTranscriptWindow,
-  buildTailTranscriptWindow,
   isDisplayTranscriptCacheStale,
 } from './transcript-window';
 import type { SessionEntryLike } from './transcript';

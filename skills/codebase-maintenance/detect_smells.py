@@ -89,9 +89,9 @@ def run_semgrep(directory: Path, rules: str) -> dict:
     if semgrep_bin is None:
         print(
             "Error: semgrep not found in PATH.\n"
-            "Install via: uv run detect_smells.py <directory>\n"
-            "The PEP 723 metadata at the top of this script declares semgrep "
-            "as a dependency — uv will install it automatically.",
+            "Install via: uv run codebase-maintenance/detect_smells.py <directory>\n"
+            "The PEP 723 metadata in this script declares semgrep as a dependency — "
+            "uv run will install it automatically.",
             file=sys.stderr,
         )
         sys.exit(2)

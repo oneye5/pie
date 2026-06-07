@@ -16,6 +16,8 @@
 
 node_modules/
 out/
+.vscode-test/
+coverage/
 *.min.js
 *.bundle.*
 *.chunk.*

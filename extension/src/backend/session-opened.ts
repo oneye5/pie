@@ -5,7 +5,6 @@
 
 import { buildSessionAnalyticsFactors } from './session-analytics';
 import { buildCurrentSummary, listAvailableModels } from './session-metadata';
-import { buildSessionSystemPrompts } from './system-prompts';
 import { buildTailTranscriptWindow, buildDisplayTranscriptCache, isDisplayTranscriptCacheStale } from './transcript-window';
 import type { SessionOpenedPayload, SystemPromptEntry } from '../shared/protocol';
 import type { SessionContext, SessionPromptState } from './server-types';

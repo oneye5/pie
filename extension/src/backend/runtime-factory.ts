@@ -6,7 +6,7 @@
 import { prepareContextFiles } from './context-files';
 import type { SdkModule } from './sdk';
 
-export function createRuntimeFactory(sdk: SdkModule, authStorage: unknown, startupCwd: string) {
+export function createRuntimeFactory(sdk: SdkModule, authStorage: unknown, _startupCwd: string) {
   return async ({ cwd, agentDir, sessionManager, sessionStartEvent }: any) => {
     const services = (await sdk.createAgentSessionServices({
       cwd,
