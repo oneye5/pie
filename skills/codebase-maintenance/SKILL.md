@@ -8,18 +8,19 @@ description: >
 
 Execute these steps sequentially:
 
-- Run tests, type checks and linters. If any fail, fix them before proceeding.
+- Run tests, type checks and linters, check codebase documentation / files for commands to use. Fix the reported issues, then re-run this step until no findings remain.
 
-- Run `codebase-maintenance/find_large_files.py <directory> [max_lines]` to find
-  source files that exceed a line-count threshold.
+- Run `uv run codebase-maintenance/find_large_files.py <directory>` to find source files that exceed a line-count threshold.
 
   **Arguments:**
   - `<directory>` — root directory to scan (required)
-  - `[max_lines]` — line threshold; files strictly over this are reported (default: 500)
+  - `[max_lines]` — line threshold; files over this are reported (default: 500)
 
-  **Output:** Files grouped by directory (largest-first). Directories with no
-  over-threshold files are omitted. If no files exceed the threshold, prints
-  `none ><N>loc`.
+    - After running, scan each file sequentially, analyse the file and make a call if the file size is justified or not.
+    - Files that are single consern, and cannot be cleanly split into smaller modules may be justified in being large.
+    - If a file is deemed to be unjustifiably large, refactor it into smaller modules before proceeding.
+
+  After performing the refactors, run this step again, if there are no unjustifiably large files, proceed to the next step.
 
 - Run `uv run codebase-maintenance/detect_smells.py <directory> [options]` to
   detect code smells and potential bugs via semgrep static analysis.
@@ -27,28 +28,12 @@ Execute these steps sequentially:
   **Arguments:**
   - `<directory>` — root directory to scan (required)
   - `--max-findings N` — cap printed findings (default: 50; 0 = unlimited)
-  - `--rules CONFIG` — semgrep rule-set or local path (default: `p/default`)
   - `--exclude-categories CATEGORIES` — comma-separated categories to exclude
     (default: `security`)
 
-  **Prerequisites:** Requires [uv](https://docs.astral.sh/uv/). The script declares
-  semgrep as a dependency via PEP 723 inline metadata — `uv run` installs it
-  automatically on first use.
+  Fix the reported issues, then re-run this step until no findings remain.
 
-  **Output:** One line per finding, sorted worst-first:
-  ```
-  src/handlers.py:42 [WARNING] Variable 'user' may be null
-  src/db.py:108 [ERROR] SQL injection via string concatenation
-  ```
-  If no findings, prints `no findings`. If more findings exist than
-  `--max-findings`, a one-line summary of the remainder is printed.
-
-  **Category filtering:** By default, findings tagged `security` are excluded
-  since this is a personal tool, not a distributed application. Pass
-  `--exclude-categories ""` to include all categories, or
-  `--exclude-categories security,performance` to exclude multiple.
-
-- Run `python codebase-maintenance/analyze_complexity.py <directory> [options]` to
+- Run `uv run codebase-maintenance/analyze_complexity.py <directory> [options]` to
   measure function-level code complexity and quality scores via Qualitas.
 
   **Arguments:**
@@ -57,23 +42,19 @@ Execute these steps sequentially:
   - `--min-grade GRADE` — minimum grade to show: A, B, C, D, F
     (default: `C` — shows C, D, F only)
 
-  **Prerequisites:** Requires Node.js and npm. Qualitas is invoked via `npx`
-  which downloads it on first use. No Python dependencies beyond stdlib.
+  Fix the reported issues, then re-run this step until no findings remain.
 
-  **Output:** One primary line per flagged function, sorted worst-first (lowest
-  score first), with additional flag details indented below:
-  ```
-  src/handlers.ts:51 handleBackendRequest [F] score 31 — Cognitive flow complexity is 100 (threshold: 19)
-    Halstead effort is 67075 (threshold: 5000)
-    Identifier reference complexity is 879.4 (threshold: 71)
-  ```
-  If no flagged functions meet the grade filter, prints `no flagged functions`.
 
-  **Supported languages:** TypeScript/JS, Python, Rust, Go, Java.
+## Ignoring files:
 
-**Ignoring files:** Patterns live in `codebase-maintenance/.ignore`.
-Patterns before any `context` line apply to every scan. Patterns after
-`context <working-directory>` only apply when the directory passed to the
-script matches that working-directory path or glob. Ignore patterns are then
-evaluated relative to the scan root, and patterns ending in `/` match
+Make additions when you get cache, build or other similar 'noise' or non code files in the output of the above steps. \
+
+- Patterns live in `codebase-maintenance/.ignore`.
+
+- Patterns before any `context` line apply to every scan.
+
+- Patterns after `context <working-directory>` only apply when the directory passed to the
+script matches that working-directory path or glob.
+
+- Ignore patterns are then evaluated relative to the scan root, and patterns ending in `/` match
 directories.

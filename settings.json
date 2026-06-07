@@ -2,7 +2,7 @@
   "lastChangelogVersion": "0.78.0",
   "defaultProvider": "ollama",
   "defaultModel": "deepseek-v4-flash:cloud",
-  "defaultThinkingLevel": "low",
+  "defaultThinkingLevel": "medium",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
     {
