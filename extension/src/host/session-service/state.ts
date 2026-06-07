@@ -204,6 +204,13 @@ export class SessionServiceState {
         const fallbackPath = request.previousActivePath && archState.sessions.openTabPaths.includes(request.previousActivePath)
           ? request.previousActivePath
           : archState.sessions.openTabPaths[0] ?? null;
+        bootLog('session-service', 'selection.fallback', {
+          notice,
+          previousActivePath: request.previousActivePath ?? null,
+          fallbackPath,
+          openTabPaths: archState.sessions.openTabPaths,
+          currentActivePath: archState.sessions.activeSessionPath,
+        });
         this.mutateArchState_((draft) => {
           draft.sessions.activeSessionPath = fallbackPath;
           if (fallbackPath) {

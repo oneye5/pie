@@ -1,0 +1,25 @@
+# Canonical ignore file for codebase-maintenance scans.
+#
+# Patterns before any `context` line apply to every scan root.
+# Patterns after `context <working-directory>` apply only when the directory
+# passed to find_large_files.py matches that working-directory suffix or glob.
+#
+# Ignore patterns are relative to the scan root.
+# - `cache/` ignores any directory named `cache` at any depth.
+# - `*.generated.ts` ignores matching files anywhere in the scan.
+# - `*/__pycache__` ignores matching directories via glob.
+#
+# Example:
+# context */pi-config/
+# analysis/data/exports/
+# *.generated.ts
+
+node_modules/
+out/
+*.min.js
+*.bundle.*
+*.chunk.*
+*.generated.*
+*.pb.*
+*_pb2.py
+*_pb2_grpc.py

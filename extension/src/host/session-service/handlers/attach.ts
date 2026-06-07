@@ -42,14 +42,19 @@ export function applySessionOpenedPayload(
   const shouldOpenTab = !!selectionRequest || deps.getArchState().sessions.openTabPaths.includes(session.path);
   const shouldActivate = selectionToken
     ? deps.state.isCurrentSelectionToken(selectionToken)
-    : deps.getArchState().sessions.activeSessionPath === session.path;
+    : (deps.getArchState().sessions.activeSessionPath === session.path
+        || (!!selectionRequest?.pendingPath
+            && selectionRequest.pendingPath !== session.path
+            && deps.getArchState().sessions.activeSessionPath === selectionRequest.pendingPath));
 
-  auditLog(deps.context, 'session-service', 'session.opened', {
+  bootLog('session-service', 'session.opened', {
     selectionToken: selectionToken ?? null,
     sessionPath: session.path,
     shouldActivate,
     shouldOpenTab,
     staleSessionData,
+    activeSessionPath: deps.getArchState().sessions.activeSessionPath,
+    isCurrentSelectionToken: selectionToken ? deps.state.isCurrentSelectionToken(selectionToken) : 'no-token',
   });
 
   bootLog('session-events', 'session.opened', {
@@ -127,6 +132,17 @@ export function applySessionOpenedPayload(
       draft.sessions.activeSessionPath = session.path;
       draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
         .filter((p) => p !== session.path);
+    }
+    // Defensive: if activeSessionPath still points to the pending path that
+    // was just replaced, update it to the real session path so the UI doesn't
+    // lose track of the active tab.
+    if (
+      !shouldActivate
+      && selectionRequest?.pendingPath
+      && selectionRequest.pendingPath !== session.path
+      && draft.sessions.activeSessionPath === selectionRequest.pendingPath
+    ) {
+      draft.sessions.activeSessionPath = session.path;
     }
     if (payload.analyticsFactors) {
       draft.settings.availableExtensions = deriveAvailableExtensions(

@@ -31,10 +31,15 @@ node_modules/
 
 # Package build artifacts
 /extension/out/
+/extension/qualitas-report.json
+/extension/.qualitas.config.js
+/extension/src/-
 /analysis/site/dist/
 *.vsix
 
 # Build / test caches
+__pycache__/
+*.pyc
 coverage/
 .nyc_output/
 *.tsbuildinfo

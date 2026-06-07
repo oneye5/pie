@@ -46,6 +46,7 @@ export function validateAndMaterializeComposerInput(
   createComposerInputId: () => string,
   scheduleRender: () => void,
   runObserver: RunObserver,
+  getArchState: GetArchState,
   mutateArchState: MutateArchState,
 ): ComposerInput | null {
   if (inputDraft.kind === 'filesystemPathRef') {
@@ -105,7 +106,7 @@ export function validateAndMaterializeComposerInput(
       scheduleRender();
       return null;
     }
-    if (modelSupportsInputKind(sessionPath, undefined, 'image') === false) {
+    if (modelSupportsInputKind(sessionPath, undefined, 'image', getArchState) === false) {
       mutateArchState((draft) => { draft.settings.notice = 'The selected model does not support image inputs.'; });
       scheduleRender();
       return null;

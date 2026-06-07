@@ -1,0 +1,307 @@
+#!/usr/bin/env python3
+# /// script
+# requires-python = ">=3.10"
+# dependencies = [
+#     "semgrep",
+# ]
+# ///
+"""
+Detect code smells and potential bugs via semgrep static analysis.
+
+Usage:
+    uv run detect_smells.py <directory> [--max-findings N] [--rules CONFIG]
+
+Analyzes source files using semgrep and reports findings in a concise,
+agent-friendly format. Filters results using the shared .ignore file (see
+find_large_files.py for format details).
+
+Arguments:
+    directory            Root directory to scan (required)
+    --max-findings N     Maximum findings to print (default: 50; 0 = unlimited)
+    --rules CONFIG       Semgrep config: rule-set name or local path
+                         (default: p/default — community rules, no login needed)
+    --exclude-categories CATEGORIES
+                         Comma-separated categories to exclude from output
+                         (default: security)
+                         Findings whose extra.metadata.category matches one
+                         of these are dropped.  Findings without a category
+                         are kept.
+
+Output:
+    One line per finding, sorted worst-first:
+
+        path/to/file.py:42 [WARNING] Variable 'x' may be null
+
+    If findings exceed --max-findings a one-line summary of the remainder is
+    printed.  If no findings: prints "no findings".
+
+Exit codes:
+    0  no findings, or findings only (semgrep exit 1 is remapped to 0)
+    2  semgrep itself errored
+"""
+
+import importlib.util
+import json
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Re-use the shared ignore-file logic from find_large_files.py
+# ---------------------------------------------------------------------------
+_MODULE_PATH = Path(__file__).parent / "find_large_files.py"
+try:
+    _SPEC = importlib.util.spec_from_file_location("_find_large_files", _MODULE_PATH)
+    _MOD = importlib.util.module_from_spec(_SPEC)  # type: ignore[arg-type]
+    _SPEC.loader.exec_module(_MOD)  # type: ignore[union-attr]
+except (FileNotFoundError, AttributeError) as exc:
+    print(f"Error: could not load {_MODULE_PATH}: {exc}", file=sys.stderr)
+    sys.exit(2)
+
+load_ignore_patterns = _MOD.load_ignore_patterns
+collect_active_ignore_patterns = _MOD.collect_active_ignore_patterns
+matches_ignore_patterns = _MOD.matches_ignore_patterns
+
+# ---------------------------------------------------------------------------
+# Severity ranking (worst first)
+# ---------------------------------------------------------------------------
+SEVERITY_ORDER: dict[str, int] = {
+    "CRITICAL": 0,
+    "ERROR": 1,
+    "HIGH": 2,
+    "WARNING": 3,
+    "MEDIUM": 4,
+    "LOW": 5,
+    "INFO": 6,
+    "EXPERIMENT": 7,
+    "INVENTORY": 7,
+}
+
+
+# ---------------------------------------------------------------------------
+# Core logic
+# ---------------------------------------------------------------------------
+
+def run_semgrep(directory: Path, rules: str) -> dict:
+    """Run ``semgrep scan`` and return the parsed JSON payload."""
+    semgrep_bin = shutil.which("semgrep")
+    if semgrep_bin is None:
+        print(
+            "Error: semgrep not found in PATH.\n"
+            "Install via: uv run detect_smells.py <directory>\n"
+            "The PEP 723 metadata at the top of this script declares semgrep "
+            "as a dependency — uv will install it automatically.",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    cmd = [
+        semgrep_bin,
+        "scan",
+        "--json",
+        "--metrics", "off",
+        "--config", rules,
+        str(directory),
+    ]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        print("Error: semgrep scan timed out after 300 s", file=sys.stderr)
+        sys.exit(2)
+    except OSError as exc:
+        print(f"Error: could not run semgrep: {exc}", file=sys.stderr)
+        sys.exit(2)
+
+    # semgrep exit 0 = no findings, exit 1 = findings (not an error).
+    if result.returncode >= 2:
+        # Try to salvage partial JSON — some findings may still be present.
+        try:
+            data = json.loads(result.stdout)
+            if data.get("results"):
+                return data
+        except json.JSONDecodeError:
+            pass
+        print(
+            f"semgrep error (exit {result.returncode}): "
+            f"{result.stderr.strip()[:500]}",
+            file=sys.stderr,
+        )
+        sys.exit(result.returncode)
+
+    if not result.stdout.strip():
+        return {"results": [], "errors": []}
+
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        print("Error: semgrep produced invalid JSON output", file=sys.stderr)
+        sys.exit(2)
+
+
+def filter_results(
+    results: list[dict],
+    directory: Path,
+    active_patterns: list[str],
+) -> list[dict]:
+    """Remove findings whose file path matches an ignore pattern."""
+    if not active_patterns:
+        return results
+
+    kept: list[dict] = []
+    for r in results:
+        raw_path: str = r.get("path", "")
+        try:
+            rel_path = Path(raw_path).relative_to(directory).as_posix()
+        except ValueError:
+            # Path is not under directory — keep it (unlikely but safe).
+            rel_path = raw_path
+        if not matches_ignore_patterns(rel_path, active_patterns):
+            kept.append(r)
+    return kept
+
+
+def filter_categories(
+    results: list[dict],
+    exclude_categories: set[str],
+) -> list[dict]:
+    """Remove findings whose category is in the exclusion set.
+
+    Categories are read from ``finding["extra"]["metadata"]["category"]"``.
+    Findings that have no category field are **kept** — only an explicit
+    match causes exclusion.
+    """
+    if not exclude_categories:
+        return results
+
+    kept: list[dict] = []
+    for r in results:
+        category = r.get("extra", {}).get("metadata", {}).get("category")
+        if category is not None and category in exclude_categories:
+            continue
+        kept.append(r)
+    return kept
+
+
+def format_findings(results: list[dict], directory: Path, max_findings: int) -> None:
+    """Print findings in a concise, agent-friendly format."""
+    if not results:
+        print("no findings")
+        return
+
+    ranked = sorted(
+        results,
+        key=lambda r: SEVERITY_ORDER.get(
+            r.get("extra", {}).get("severity", "INFO"), 8
+        ),
+    )
+
+    shown = ranked[:max_findings] if max_findings > 0 else ranked
+    remaining = len(ranked) - len(shown)
+
+    for r in shown:
+        raw_path: str = r.get("path", "")
+        try:
+            rel_path = Path(raw_path).relative_to(directory).as_posix()
+        except ValueError:
+            rel_path = Path(raw_path).name
+
+        line = r.get("start", {}).get("line", "?")
+        severity = r.get("extra", {}).get("severity", "INFO")
+        message = r.get("extra", {}).get("message", r.get("check_id", ""))
+        if len(message) > 200:
+            message = message[:197] + "..."
+
+        print(f"{rel_path}:{line} [{severity}] {message}")
+
+    if remaining > 0:
+        totals: dict[str, int] = {}
+        for r in ranked[len(shown):]:
+            sev = r.get("extra", {}).get("severity", "INFO")
+            totals[sev] = totals.get(sev, 0) + 1
+        parts = [f"{v} {k.lower()}" for k, v in sorted(totals.items())]
+        print(f"... {remaining} more finding(s): {', '.join(parts)}")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def parse_args() -> tuple[Path, int, str, set[str]]:
+    if len(sys.argv) < 2:
+        print(
+            "usage: detect_smells.py <directory> "
+            "[--max-findings N] [--rules CONFIG] [--exclude-categories CATEGORIES]",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    directory = Path(sys.argv[1]).resolve()
+    if not directory.is_dir():
+        print(f"error: not a directory: {sys.argv[1]}", file=sys.stderr)
+        sys.exit(2)
+
+    max_findings = 50
+    rules = "p/default"
+    exclude_categories: set[str] = {"security"}
+
+    i = 2
+    while i < len(sys.argv):
+        if sys.argv[i] == "--max-findings" and i + 1 < len(sys.argv):
+            try:
+                max_findings = int(sys.argv[i + 1])
+            except ValueError:
+                print("error: --max-findings must be an integer", file=sys.stderr)
+                sys.exit(2)
+            i += 2
+        elif sys.argv[i] == "--rules" and i + 1 < len(sys.argv):
+            rules = sys.argv[i + 1]
+            i += 2
+        elif sys.argv[i] == "--exclude-categories" and i + 1 < len(sys.argv):
+            exclude_categories = set(c for c in sys.argv[i + 1].split(",") if c)
+            i += 2
+        else:
+            print(f"unknown argument: {sys.argv[i]}", file=sys.stderr)
+            sys.exit(2)
+
+    return directory, max_findings, rules, exclude_categories
+
+
+def main() -> None:
+    directory, max_findings, rules, exclude_categories = parse_args()
+
+    # Load the shared .ignore patterns (same convention as find_large_files.py).
+    script_dir = Path(__file__).parent.resolve()
+    global_patterns, context_patterns = load_ignore_patterns(script_dir)
+    active_patterns = collect_active_ignore_patterns(
+        directory, global_patterns, context_patterns,
+    )
+
+    data = run_semgrep(directory, rules)
+
+    # Guard against semgrep returning null instead of []  (see: JSON null)
+    results: list[dict] = data.get("results") or []
+    errors: list[dict] = data.get("errors") or []
+
+    results = filter_results(results, directory, active_patterns)
+    results = filter_categories(results, exclude_categories)
+    format_findings(results, directory, max_findings)
+
+    if errors:
+        print(
+            f"\n({len(errors)} semgrep parse/rule error(s) — "
+            "re-run with --json to see details)",
+            file=sys.stderr,
+        )
+
+
+if __name__ == "__main__":
+    main()

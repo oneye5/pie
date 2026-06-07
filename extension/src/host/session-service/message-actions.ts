@@ -94,6 +94,7 @@ export class SessionMessageActions {
         () => this.state.createComposerInputId(),
         this.scheduleRender,
         this.runObserver,
+        this.getArchState,
         this.mutateArchState,
       );
       if (!input) {
@@ -120,6 +121,7 @@ export class SessionMessageActions {
       () => this.state.createComposerInputId(),
       this.scheduleRender,
       this.runObserver,
+      this.getArchState,
       this.mutateArchState,
     );
     if (!input) {

@@ -25,6 +25,38 @@ test('reducer: unhandled event returns unchanged state with no effects', () => {
   assert.deepEqual(result.effects, []);
 });
 
+test('reducer: SessionListChanged preserves summaries for open active tabs missing from payload', () => {
+  const existingSummary = {
+    path: '/session/a',
+    name: 'New Session',
+    cwd: '/workspace',
+    modifiedAt: new Date().toISOString(),
+    messageCount: 0,
+    isPlaceholder: true,
+  };
+
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: {
+      ...initialArchState.sessions,
+      sessions: [existingSummary],
+      openTabPaths: ['/session/a'],
+      activeSessionPath: '/session/a',
+    },
+  };
+
+  const event: Event = {
+    kind: 'SessionListChanged',
+    sessionSummaries: [],
+  };
+
+  const result = reducer(state, event);
+
+  assert.equal(result.state.sessions.sessions.length, 1);
+  assert.equal(result.state.sessions.sessions[0]?.path, '/session/a');
+  assert.equal(result.state.sessions.activeSessionPath, '/session/a');
+});
+
 test('reducer: Interrupt command sets interruptInFlight and returns InterruptRpc effect', () => {
   const event: Event = {
     kind: 'Command',
@@ -632,4 +664,74 @@ test('reducer: full alias lifecycle — multi-turn accumulation', () => {
   msg = state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'req1:1');
   assert.ok(msg, 'canonical message should persist');
   assert.equal(msg!.status, 'completed');
+});
+
+test('reducer: BusyChanged running=true adds session to runningSessionPaths', () => {
+  const result = reducer(initialArchState, {
+    kind: 'BusyChanged',
+    sessionPath: '/s',
+    running: true,
+  });
+
+  assert.ok(result.state.sessions.runningSessionPaths.includes('/s'));
+  assert.equal(result.state.sessions.unreadFinishedSessionPaths.length, 0);
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: BusyChanged running=false when was running adds to unreadFinishedSessionPaths', () => {
+  // First mark the session as running
+  let state = reducer(initialArchState, {
+    kind: 'BusyChanged',
+    sessionPath: '/s',
+    running: true,
+  }).state;
+
+  assert.ok(state.sessions.runningSessionPaths.includes('/s'));
+
+  // Now mark it as not running
+  const result = reducer(state, {
+    kind: 'BusyChanged',
+    sessionPath: '/s',
+    running: false,
+  });
+
+  assert.equal(result.state.sessions.runningSessionPaths.includes('/s'), false);
+  assert.ok(result.state.sessions.unreadFinishedSessionPaths.includes('/s'));
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: BusyChanged running=false when never running does NOT add to unreadFinishedSessionPaths', () => {
+  const result = reducer(initialArchState, {
+    kind: 'BusyChanged',
+    sessionPath: '/s',
+    running: false,
+  });
+
+  assert.equal(result.state.sessions.runningSessionPaths.includes('/s'), false);
+  assert.equal(result.state.sessions.unreadFinishedSessionPaths.includes('/s'), false);
+  assert.equal(result.state.sessions.unreadFinishedSessionPaths.length, 0);
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: BusyChanged running=false for a session that finished earlier does not re-add to unreadFinishedSessionPaths', () => {
+  // Mark as running, then finished
+  let state = reducer(initialArchState, {
+    kind: 'BusyChanged', sessionPath: '/s', running: true,
+  }).state;
+  state = reducer(state, {
+    kind: 'BusyChanged', sessionPath: '/s', running: false,
+  }).state;
+
+  assert.equal(state.sessions.runningSessionPaths.includes('/s'), false);
+  assert.ok(state.sessions.unreadFinishedSessionPaths.includes('/s'));
+
+  // A second BusyChanged(false) should not re-add
+  const result = reducer(state, {
+    kind: 'BusyChanged', sessionPath: '/s', running: false,
+  });
+
+  assert.equal(result.state.sessions.runningSessionPaths.includes('/s'), false);
+  assert.ok(result.state.sessions.unreadFinishedSessionPaths.includes('/s'));
+  assert.equal(result.state.sessions.unreadFinishedSessionPaths.length, 1);
+  assert.deepEqual(result.effects, []);
 });

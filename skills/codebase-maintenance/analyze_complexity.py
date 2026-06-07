@@ -1,0 +1,417 @@
+#!/usr/bin/env python3
+"""
+Analyze code complexity and structural quality via Qualitas.
+
+Usage:
+    python analyze_complexity.py <directory> [options]
+
+    Walks the target directory respecting the shared .ignore file, finds
+    source directories that Qualitas supports (TS/JS, Python, Rust, Go,
+    Java), and runs Qualitas on each one.  Results are merged and formatted
+    for agent consumption.
+
+Arguments:
+    directory          Root directory to scan (required)
+    --max-findings N   Maximum flagged functions to print (default: 50; 0 = unlimited)
+    --min-grade GRADE  Only show functions with this grade or worse.
+                       Grades: A (best), B, C, D, F (worst).
+                       Default: C (shows C, D, F — skips A and B).
+
+Output:
+    One line per flagged function, sorted worst-first (lowest score first):
+
+        src/handlers.ts:51 handleBackendRequest [F] score 31 — Cognitive flow complexity is 100 (threshold: 19)
+
+    If no flagged functions meet the grade filter: prints "no flagged functions".
+
+Prerequisites:
+    Node.js and npm must be available on PATH.  Qualitas is invoked via npx
+    which downloads it on first use.  Supports TypeScript/JS, Python, Rust, Go,
+    and Java.
+
+    No Python dependencies beyond the standard library are required.
+"""
+
+import importlib.util
+import json
+import shutil
+import subprocess
+import sys
+import tempfile
+from pathlib import Path, PurePosixPath
+
+# ---------------------------------------------------------------------------
+# Re-use the shared ignore-file logic from find_large_files.py
+# ---------------------------------------------------------------------------
+_MODULE_PATH = Path(__file__).parent / "find_large_files.py"
+try:
+    _SPEC = importlib.util.spec_from_file_location("_find_large_files", _MODULE_PATH)
+    _MOD = importlib.util.module_from_spec(_SPEC)  # type: ignore[arg-type]
+    _SPEC.loader.exec_module(_MOD)  # type: ignore[union-attr]
+except (FileNotFoundError, AttributeError) as exc:
+    print(f"Error: could not load {_MODULE_PATH}: {exc}", file=sys.stderr)
+    sys.exit(2)
+
+load_ignore_patterns = _MOD.load_ignore_patterns
+collect_active_ignore_patterns = _MOD.collect_active_ignore_patterns
+matches_ignore_patterns = _MOD.matches_ignore_patterns
+
+# Also import CODE_EXTENSIONS and SKIP_DIRS so we can find source dirs.
+CODE_EXTENSIONS: frozenset[str] = _MOD.CODE_EXTENSIONS
+SKIP_DIRS: frozenset[str] = _MOD.SKIP_DIRS
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+GRADE_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3, "F": 4}
+FLAG_SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
+
+# Qualitas only supports these languages.
+QUALITAS_LANG_EXTENSIONS: frozenset[str] = frozenset({
+    ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs",
+    ".py", ".pyw", ".pyi",
+    ".rs",
+    ".go",
+    ".java",
+})
+
+
+# ---------------------------------------------------------------------------
+# Source-directory discovery (respects .ignore and SKIP_DIRS)
+# ---------------------------------------------------------------------------
+
+def _find_scan_roots(
+    root: Path,
+    active_patterns: list[str],
+) -> list[Path]:
+    """Find the shallowest directories to pass to Qualitas.
+
+    Walks *root* pruning directories that match SKIP_DIRS or .ignore patterns.
+    Returns a list of directories to scan such that:
+      - Every qualifying source file is reachable from exactly one root.
+      - No root contains a sub-directory that should be skipped (node_modules,
+        out, etc.), so Qualitas won't waste time on generated/dependency dirs.
+      - Shallow roots are preferred (``src/`` over ``src/module/``).
+    """
+    # BFS to find the shallowest directories that are "clean"
+    # (no ignored children) and contain Qualitas-supported source files.
+    from collections import deque
+
+    queue: deque[Path] = deque([root])
+    scan_roots: list[Path] = []
+
+    while queue:
+        current = queue.popleft()
+        try:
+            entries = list(current.iterdir())
+        except PermissionError:
+            continue
+
+        has_ignored_child = False
+        has_source_file = False
+        subdirs: list[Path] = []
+
+        for entry in entries:
+            if entry.is_dir():
+                # Prune directories matching SKIP_DIRS or .ignore.
+                if entry.name in SKIP_DIRS:
+                    has_ignored_child = True
+                    continue
+                try:
+                    rel = str(PurePosixPath(entry.relative_to(root)))
+                except ValueError:
+                    rel = entry.name
+                if matches_ignore_patterns(rel, active_patterns):
+                    has_ignored_child = True
+                    continue
+                subdirs.append(entry)
+            elif entry.is_file():
+                if entry.suffix.lower() in QUALITAS_LANG_EXTENSIONS:
+                    has_source_file = True
+
+        if not subdirs and not has_source_file:
+            # Empty leaf (no source files, no subdirs) — skip.
+            continue
+
+        if has_ignored_child:
+            # This directory has at least one child we want to skip.
+            # We can't pass this directory to Qualitas because it would scan
+            # the ignored children too.  Instead, recurse into non-ignored
+            # sub-directories and look for source roots there.
+            queue.extend(subdirs)
+            # Also include this dir if it has its own source files;
+            # they'll be covered when we scan it (if it has no more
+            # ignored children deeper).  But since it already has ignored
+            # children we *must not* use it as a scan root, so only
+            # recurse deeper.
+        else:
+            # Clean directory — no ignored children.
+            if has_source_file:
+                # This is a valid scan root.  Qualitas will recursively
+                # scan its sub-directories too, so we don't need to visit
+                # them individually.
+                scan_roots.append(current)
+            else:
+                # No source files yet, but clean.  Recurse to find
+                # source roots deeper in the tree.
+                queue.extend(subdirs)
+
+    return sorted(set(scan_roots))
+
+
+# ---------------------------------------------------------------------------
+# Qualitas invocation
+# ---------------------------------------------------------------------------
+
+def _run_qualitas_on_dir(directory: Path, npx_bin: str) -> dict | None:
+    """Run Qualitas on a single directory.  Returns parsed JSON or None."""
+    out_tmp = tempfile.NamedTemporaryFile(
+        suffix=".json", prefix="qualitas-", delete=False,
+    )
+    out_path = out_tmp.name
+    out_tmp.close()
+
+    cmd = [npx_bin, "qualitas", str(directory), "-f", "json", "-o", out_path]
+
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=60,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        Path(out_path).unlink(missing_ok=True)
+        return None
+
+    report = Path(out_path)
+    data = None
+    if report.exists() and report.stat().st_size > 0:
+        try:
+            data = json.loads(report.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            pass
+    report.unlink(missing_ok=True)
+    return data
+
+
+def run_qualitas(
+    root: Path,
+    source_dirs: list[Path],
+) -> dict:
+    """Run Qualitas on each source directory, merge results, and return."""
+    npx_bin = shutil.which("npx")
+    if npx_bin is None:
+        print(
+            "Error: npx not found in PATH.\n"
+            "Node.js and npm are required. Install from https://nodejs.org/",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    if not source_dirs:
+        print("no source directories found for qualitas analysis", file=sys.stderr)
+        return {"files": []}
+
+    merged_files: list[dict] = []
+
+    for src_dir in source_dirs:
+        data = _run_qualitas_on_dir(src_dir, npx_bin)
+        if data is None:
+            continue
+
+        # Normalise single-file and directory output shapes.
+        if "files" in data:
+            file_entries = data["files"]
+        else:
+            file_entries = [data]
+
+        for fe in file_entries:
+            # Qualitas may return filePaths relative to their scan dir;
+            # make them relative to root so our .ignore matching works.
+            fp = fe.get("filePath", "")
+            fe_path = Path(fp)
+            if not fe_path.is_absolute():
+                try:
+                    fe["filePath"] = str(
+                        (src_dir / fp).relative_to(root).as_posix()
+                    )
+                except ValueError:
+                    pass  # leave as-is
+            merged_files.append(fe)
+
+    return {"files": merged_files}
+
+
+# ---------------------------------------------------------------------------
+# Result extraction and formatting
+# ---------------------------------------------------------------------------
+
+def extract_flagged_functions(
+    data: dict,
+    root: Path,
+    active_patterns: list[str],
+    min_grade: str,
+) -> list[dict]:
+    """Extract flagged functions from merged qualitas JSON."""
+    min_grade_rank = GRADE_ORDER.get(min_grade, 2)
+    flagged: list[dict] = []
+
+    file_entries = data.get("files", [])
+
+    for file_entry in file_entries:
+        file_path: str = file_entry.get("filePath", "")
+
+        # filePath was already made relative to root above.
+        rel_path = file_path if file_path else ""
+
+        # Apply .ignore patterns.
+        if active_patterns and matches_ignore_patterns(rel_path, active_patterns):
+            continue
+
+        # Skip files whose extension qualitas doesn't support.
+        # (Can happen if a source dir also contains config files, etc.)
+        ext = Path(file_path).suffix.lower() if file_path else ""
+        if ext and ext not in QUALITAS_LANG_EXTENSIONS:
+            continue
+
+        for fn in file_entry.get("functions", []):
+            grade: str = fn.get("grade", "A")
+            grade_rank = GRADE_ORDER.get(grade, 0)
+
+            if grade_rank < min_grade_rank:
+                continue
+
+            flags = fn.get("flags", [])
+            if not flags:
+                continue
+
+            flagged.append({
+                "path": file_path,
+                "rel_path": rel_path,
+                "name": fn.get("name", "<anonymous>"),
+                "line": fn.get("location", {}).get("startLine", "?"),
+                "grade": grade,
+                "score": fn.get("score", 0),
+                "flags": flags,
+            })
+
+    return flagged
+
+
+def format_output(flagged: list[dict], max_findings: int) -> None:
+    """Print flagged functions in a concise, agent-friendly format."""
+    if not flagged:
+        print("no flagged functions")
+        return
+
+    ranked = sorted(flagged, key=lambda f: f["score"])
+
+    shown = ranked[:max_findings] if max_findings > 0 else ranked
+    remaining = len(ranked) - len(shown)
+
+    for f in shown:
+        flags = sorted(
+            f["flags"],
+            key=lambda fl: FLAG_SEVERITY_ORDER.get(fl.get("severity", "info"), 3),
+        )
+        primary = flags[0]
+        msg = primary.get("message", "complexity threshold exceeded")
+        if len(msg) > 120:
+            msg = msg[:117] + "..."
+
+        print(
+            f"{f['rel_path']}:{f['line']} "
+            f"{f['name']} [{f['grade']}] score {f['score']:.0f} — "
+            f"{msg}"
+        )
+
+        for fl in flags[1:3]:
+            fl_msg = fl.get("message", "")
+            if len(fl_msg) > 100:
+                fl_msg = fl_msg[:97] + "..."
+            print(f"  {fl_msg}")
+
+    if remaining > 0:
+        grade_counts: dict[str, int] = {}
+        for f in ranked[len(shown):]:
+            g = f["grade"]
+            grade_counts[g] = grade_counts.get(g, 0) + 1
+        parts = [f"{v} {k}" for k, v in sorted(grade_counts.items())]
+        print(f"... {remaining} more flagged function(s): {', '.join(parts)}")
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def parse_args() -> tuple[Path, int, str]:
+    if len(sys.argv) < 2:
+        print(
+            "usage: analyze_complexity.py <directory> "
+            "[--max-findings N] [--min-grade GRADE]",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+
+    directory = Path(sys.argv[1]).resolve()
+    if not directory.is_dir():
+        print(f"error: not a directory: {sys.argv[1]}", file=sys.stderr)
+        sys.exit(2)
+
+    max_findings = 50
+    min_grade = "C"
+
+    i = 2
+    while i < len(sys.argv):
+        if sys.argv[i] == "--max-findings" and i + 1 < len(sys.argv):
+            try:
+                max_findings = int(sys.argv[i + 1])
+            except ValueError:
+                print("error: --max-findings must be an integer", file=sys.stderr)
+                sys.exit(2)
+            i += 2
+        elif sys.argv[i] == "--min-grade" and i + 1 < len(sys.argv):
+            grade = sys.argv[i + 1].upper()
+            if grade not in GRADE_ORDER:
+                print(
+                    f"error: invalid grade '{grade}'. "
+                    f"Must be one of: {', '.join(GRADE_ORDER)}",
+                    file=sys.stderr,
+                )
+                sys.exit(2)
+            min_grade = grade
+            i += 2
+        else:
+            print(f"unknown argument: {sys.argv[i]}", file=sys.stderr)
+            sys.exit(2)
+
+    return directory, max_findings, min_grade
+
+
+def main() -> None:
+    directory, max_findings, min_grade = parse_args()
+
+    # Load shared .ignore patterns
+    script_dir = Path(__file__).parent.resolve()
+    global_patterns, context_patterns = load_ignore_patterns(script_dir)
+    active_patterns = collect_active_ignore_patterns(
+        directory, global_patterns, context_patterns,
+    )
+
+    # Find shallow scan roots — directories that Qualitas can scan
+    # without encountering ignored sub-trees (node_modules, out, etc.).
+    scan_roots = _find_scan_roots(directory, active_patterns)
+
+    # Run Qualitas on each scan root and merge results.
+    data = run_qualitas(directory, scan_roots)
+
+    # Extract, filter, and print flagged functions.
+    flagged = extract_flagged_functions(data, directory, active_patterns, min_grade)
+    format_output(flagged, max_findings)
+
+
+if __name__ == "__main__":
+    main()
