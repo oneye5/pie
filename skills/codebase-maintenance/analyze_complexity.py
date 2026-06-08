@@ -84,14 +84,17 @@ def _find_scan_roots(
     root: Path,
     active_patterns: list[str],
 ) -> list[Path]:
-    """Find the shallowest directories to pass to Qualitas.
+    """Find directories and individual source files to pass to Qualitas.
 
     Walks *root* pruning directories that match SKIP_DIRS or .ignore patterns.
-    Returns a list of directories to scan such that:
-      - Every qualifying source file is reachable from exactly one root.
-      - No root contains a sub-directory that should be skipped (node_modules,
-        out, etc.), so Qualitas won't waste time on generated/dependency dirs.
-      - Shallow roots are preferred (``src/`` over ``src/module/``).
+    Returns a list of paths (directories or individual files) to scan such that:
+      - Every qualifying source file is reachable from exactly one scan target.
+      - No directory-level target contains a sub-directory that should be
+        skipped (node_modules, out, etc.).
+      - Shallow directory roots are preferred (``src/`` over ``src/module/``).
+      - When a directory has both source files and ignored children, its
+        source files are scanned individually (prevents Qualitas from
+        recursing into ignored sub-directories).
     """
     # BFS to find the shallowest directories that are "clean"
     # (no ignored children) and contain Qualitas-supported source files.
@@ -109,6 +112,7 @@ def _find_scan_roots(
 
         has_ignored_child = False
         has_source_file = False
+        source_files: list[Path] = []
         subdirs: list[Path] = []
 
         for entry in entries:
@@ -128,6 +132,7 @@ def _find_scan_roots(
             elif entry.is_file():
                 if entry.suffix.lower() in QUALITAS_LANG_EXTENSIONS:
                     has_source_file = True
+                    source_files.append(entry)
 
         if not subdirs and not has_source_file:
             # Empty leaf (no source files, no subdirs) — skip.
@@ -136,14 +141,10 @@ def _find_scan_roots(
         if has_ignored_child:
             # This directory has at least one child we want to skip.
             # We can't pass this directory to Qualitas because it would scan
-            # the ignored children too.  Instead, recurse into non-ignored
-            # sub-directories and look for source roots there.
+            # the ignored children too.  Instead, scan source files
+            # individually and recurse into non-ignored sub-directories.
+            scan_roots.extend(source_files)
             queue.extend(subdirs)
-            # Also include this dir if it has its own source files;
-            # they'll be covered when we scan it (if it has no more
-            # ignored children deeper).  But since it already has ignored
-            # children we *must not* use it as a scan root, so only
-            # recurse deeper.
         else:
             # Clean directory — no ignored children.
             if has_source_file:
@@ -229,17 +230,21 @@ def run_qualitas(
             file_entries = [data]
 
         for fe in file_entries:
-            # Qualitas may return filePaths relative to their scan dir;
-            # make them relative to root so our .ignore matching works.
+            # Qualitas may return filePaths relative to their scan dir or
+            # absolute.  Normalise everything to a forward-slash relative
+            # path so .ignore matching and output formatting are consistent.
             fp = fe.get("filePath", "")
             fe_path = Path(fp)
-            if not fe_path.is_absolute():
+            if fe_path.is_absolute():
                 try:
-                    fe["filePath"] = str(
-                        (src_dir / fp).relative_to(root).as_posix()
-                    )
+                    fe["filePath"] = fe_path.relative_to(root).as_posix()
                 except ValueError:
-                    pass  # leave as-is
+                    fe["filePath"] = fe_path.as_posix()
+            else:
+                try:
+                    fe["filePath"] = (src_dir / fp).relative_to(root).as_posix()
+                except ValueError:
+                    fe["filePath"] = PurePosixPath(Path(fp).as_posix()).as_posix()
             merged_files.append(fe)
 
     return {"files": merged_files}
@@ -320,7 +325,10 @@ def format_output(flagged: list[dict], max_findings: int) -> None:
         primary = flags[0]
         msg = primary.get("message", "complexity threshold exceeded")
         if len(msg) > 120:
-            msg = msg[:117] + "..."
+            cut = msg.rfind(" ", 0, 117)
+            if cut == -1:
+                cut = 117
+            msg = msg[:cut] + "..."
 
         print(
             f"{f['rel_path']}:{f['line']} "
@@ -331,7 +339,10 @@ def format_output(flagged: list[dict], max_findings: int) -> None:
         for fl in flags[1:3]:
             fl_msg = fl.get("message", "")
             if len(fl_msg) > 100:
-                fl_msg = fl_msg[:97] + "..."
+                cut = fl_msg.rfind(" ", 0, 97)
+                if cut == -1:
+                    cut = 97
+                fl_msg = fl_msg[:cut] + "..."
             print(f"  {fl_msg}")
 
     if remaining > 0:

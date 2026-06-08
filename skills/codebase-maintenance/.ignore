@@ -18,6 +18,8 @@ node_modules/
 out/
 .vscode-test/
 coverage/
+git/
+skills/codebase-maintenance/
 *.min.js
 *.bundle.*
 *.chunk.*

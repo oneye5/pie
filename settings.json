@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.78.0",
   "defaultProvider": "ollama",
-  "defaultModel": "glm-5.1:cloud",
-  "defaultThinkingLevel": "high",
+  "defaultModel": "minimax-m3:cloud",
+  "defaultThinkingLevel": "medium",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
     {

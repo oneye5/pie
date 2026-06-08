@@ -310,9 +310,11 @@ def find_large_files(
         if loc > max_lines:
             # Build a display path that includes the input directory's own name,
             # e.g. "myproject/src/utils" rather than just "src/utils".
-            rel_dir = str(
-                Path(directory.name) / file.parent.relative_to(directory)
-            )
+            # Use forward slashes for cross-platform consistency.
+            rel_dir = (
+                PurePosixPath(directory.name)
+                / PurePosixPath(file.parent.relative_to(directory).as_posix())
+            ).as_posix()
             results[rel_dir].append((file.name, loc))
 
     return {

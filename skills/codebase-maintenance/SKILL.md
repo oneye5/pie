@@ -34,7 +34,7 @@ Execute these steps sequentially:
   - `<directory>` — root directory to scan (required)
   - `--max-findings N` — cap printed findings (default: 50; 0 = unlimited)
   - `--exclude-categories CATEGORIES` — comma-separated categories to exclude
-    (default: `security`)
+    (default: none — all findings shown)
 
   Fix the reported issues, then re-run this step until no findings remain.
 

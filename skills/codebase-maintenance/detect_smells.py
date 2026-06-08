@@ -22,7 +22,7 @@ Arguments:
                          (default: p/default — community rules, no login needed)
     --exclude-categories CATEGORIES
                          Comma-separated categories to exclude from output
-                         (default: security)
+                         (default: none — all findings shown)
                          Findings whose extra.metadata.category matches one
                          of these are dropped.  Findings without a category
                          are kept.
@@ -218,7 +218,11 @@ def format_findings(results: list[dict], directory: Path, max_findings: int) -> 
         severity = r.get("extra", {}).get("severity", "INFO")
         message = r.get("extra", {}).get("message", r.get("check_id", ""))
         if len(message) > 200:
-            message = message[:197] + "..."
+            # Try to break at a word boundary
+            cut = message.rfind(" ", 0, 197)
+            if cut == -1:
+                cut = 197
+            message = message[:cut] + "..."
 
         print(f"{rel_path}:{line} [{severity}] {message}")
 
@@ -251,7 +255,7 @@ def parse_args() -> tuple[Path, int, str, set[str]]:
 
     max_findings = 50
     rules = "p/default"
-    exclude_categories: set[str] = {"security"}
+    exclude_categories: set[str] = set()
 
     i = 2
     while i < len(sys.argv):
@@ -296,11 +300,18 @@ def main() -> None:
     format_findings(results, directory, max_findings)
 
     if errors:
-        print(
-            f"\n({len(errors)} semgrep parse/rule error(s) — "
-            "re-run with --json to see details)",
-            file=sys.stderr,
-        )
+        for err in errors[:5]:  # cap at 5 to avoid flooding stderr
+            epath = err.get("path", "<unknown>")
+            try:
+                epath = Path(epath).relative_to(directory).as_posix()
+            except ValueError:
+                pass
+            emsg = err.get("message", "") or err.get("short_msg", "") or ""
+            if len(emsg) > 120:
+                emsg = emsg[:117] + "..."
+            print(f"semgrep: {epath}: {emsg}", file=sys.stderr)
+        if len(errors) > 5:
+            print(f"... {len(errors) - 5} more error(s)", file=sys.stderr)
 
 
 if __name__ == "__main__":
