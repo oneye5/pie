@@ -57,6 +57,33 @@ Execute these steps sequentially:
   Domain-appropriate complexity (such as a request dispatcher or data
   transformation pipeline) is acceptable and need not be eliminated.
 
+- Run `uv run codebase-maintenance/find_duplicates_and_dead_code.py <directory> [options]`
+  to detect copy/paste duplicates (jscpd, 150+ languages) and unused code
+  (skylos, Python/TS-JS/Java/Go/PHP/Rust/Dart) in a single pass. Use
+  `--skip-duplicates` or `--skip-dead-code` to run only one tool.
+
+  **Arguments:**
+  - `<directory>` — root directory to scan (required)
+  - `--max-findings N` — cap findings per section (default: 50; 0 = unlimited)
+  - `--min-lines N` — jscpd: minimum duplicated lines per block (default: 5)
+  - `--min-tokens N` — jscpd: minimum duplicated tokens per block (default: 50)
+  - `--confidence N` — skylos: minimum confidence 0-100 (default: 60)
+  - `--exclude-reasons REASONS` — skylos: comma-separated reason substrings to
+    exclude (e.g. `"unused import,unused variable"`); findings whose trailing
+    reason text matches a substring are dropped (default: none)
+  - `--skip-duplicates` — run only skylos
+  - `--skip-dead-code` — run only jscpd
+
+  Review each duplicate and judge whether it is justified. Remove unused
+  exports/files outright; for code intentionally retained (plugin re-exports,
+  dynamic dispatch), add a `// skylos-ignore` annotation per the skylos docs.
+
+  jscpd is downloaded on first run via npx and cached under `~/.npm/_npx/`;
+  skylos is installed automatically by `uv run` via PEP 723 metadata. Both
+  dependencies are transparent to callers. skylos's `--exclude-folder`
+  accepts directory names only, so file-glob patterns from `.ignore`
+  cannot be honoured — add a project-level skylos config to extend coverage.
+
 ## Ignoring files:
 
 Make additions when you get cache, build or other similar 'noise' or non code files in the output of the above steps. \

@@ -26,16 +26,22 @@ export function applySessionOpenedPayload(
   payload: SessionOpenedPayload,
   deps: ApplySessionOpenedDeps,
 ): void {
-  const {
-    session,
-    transcript,
-    transcriptWindow,
-    systemPrompts,
-    modelSettings,
-    availableModels,
-    contextUsage,
-    selectionToken,
-  } = payload;
+  const { session, selectionToken } = payload;
+  const flags = computeOpeningFlags(payload, deps);
+
+  logSessionOpened(payload, deps, flags);
+
+  handlePendingPathReplacement(deps, flags.selectionRequest, session.path);
+
+  const transcriptResolution = resolveAndDispatch(payload, deps, session.path, flags.staleSessionData);
+
+  applyPostDispatchState(deps, payload, session.path, flags, transcriptResolution.transcript);
+
+  finalizeSessionOpening(deps, session.path, selectionToken, flags.selectionRequest);
+}
+
+function computeOpeningFlags(payload: SessionOpenedPayload, deps: ApplySessionOpenedDeps) {
+  const { session, selectionToken } = payload;
   const selectionRequest = deps.state.getSelectionRequest(selectionToken);
   const staleSessionData = selectionRequest?.requestEpoch !== undefined
     && deps.state.getSessionDataEpoch(session.path) !== selectionRequest.requestEpoch;
@@ -47,12 +53,21 @@ export function applySessionOpenedPayload(
             && selectionRequest.pendingPath !== session.path
             && deps.getArchState().sessions.activeSessionPath === selectionRequest.pendingPath));
 
+  return { selectionRequest, staleSessionData, shouldOpenTab, shouldActivate };
+}
+
+function logSessionOpened(
+  payload: SessionOpenedPayload,
+  deps: ApplySessionOpenedDeps,
+  flags: ReturnType<typeof computeOpeningFlags>,
+): void {
+  const { session, selectionToken } = payload;
   bootLog('session-service', 'session.opened', {
     selectionToken: selectionToken ?? null,
     sessionPath: session.path,
-    shouldActivate,
-    shouldOpenTab,
-    staleSessionData,
+    shouldActivate: flags.shouldActivate,
+    shouldOpenTab: flags.shouldOpenTab,
+    staleSessionData: flags.staleSessionData,
     activeSessionPath: deps.getArchState().sessions.activeSessionPath,
     isCurrentSelectionToken: selectionToken ? deps.state.isCurrentSelectionToken(selectionToken) : 'no-token',
   });
@@ -61,55 +76,68 @@ export function applySessionOpenedPayload(
     activeSessionPath: deps.getArchState().sessions.activeSessionPath,
     selectionToken: selectionToken ?? null,
     sessionPath: session.path,
-    shouldActivate,
-    shouldOpenTab,
+    shouldActivate: flags.shouldActivate,
+    shouldOpenTab: flags.shouldOpenTab,
     transcriptLoaded: true,
   });
+}
 
-  if (selectionRequest?.pendingPath && selectionRequest.pendingPath !== session.path) {
-    const pendingPath = selectionRequest.pendingPath;
-    deps.mutateArchState((draft) => {
-      // replaceOpenTabPath
-      draft.sessions.openTabPaths = draft.sessions.openTabPaths.map(
-        (p: string) => (p === pendingPath ? session.path : p),
-      );
-      draft.sessions.unreadFinishedSessionPaths = [
-        ...new Set(draft.sessions.unreadFinishedSessionPaths
-          .map((p: string) => (p === pendingPath ? session.path : p))),
-      ];
-      // replaceSessionPath for session state (composer inputs, run summaries, analytics)
-      const oldInputs = draft.composer.pendingComposerInputsBySession[pendingPath];
-      if (oldInputs) {
-        const existingInputs = draft.composer.pendingComposerInputsBySession[session.path] ?? [];
-        draft.composer.pendingComposerInputsBySession[session.path] = [...existingInputs, ...oldInputs];
-        delete draft.composer.pendingComposerInputsBySession[pendingPath];
-      }
-      if (Object.prototype.hasOwnProperty.call(draft.composer.activeRunSummaryBySession, pendingPath)) {
-        draft.composer.activeRunSummaryBySession[session.path] =
-          draft.composer.activeRunSummaryBySession[pendingPath] ?? null;
-        delete draft.composer.activeRunSummaryBySession[pendingPath];
-      }
-      if (Object.prototype.hasOwnProperty.call(draft.sessions.analyticsFactorsBySession, pendingPath)) {
-        draft.sessions.analyticsFactorsBySession[session.path] =
-          draft.sessions.analyticsFactorsBySession[pendingPath] ?? null;
-        delete draft.sessions.analyticsFactorsBySession[pendingPath];
-      }
-    });
-    deps.runObserver.replaceSessionPath(pendingPath, session.path);
-    deps.state.clearSessionScope(pendingPath, true);
+function handlePendingPathReplacement(
+  deps: ApplySessionOpenedDeps,
+  selectionRequest: ReturnType<typeof computeOpeningFlags>['selectionRequest'],
+  sessionPath: string,
+): void {
+  if (!selectionRequest?.pendingPath || selectionRequest.pendingPath === sessionPath) {
+    return;
   }
 
-  // Resolve transcript: merge local ephemeral state with incoming authoritative data.
-  const localTranscript = deps.getArchState().transcript.bySession[session.path] ?? [];
+  const pendingPath = selectionRequest.pendingPath;
+
+  deps.mutateArchState((draft) => {
+    draft.sessions.openTabPaths = draft.sessions.openTabPaths.map(
+      (p: string) => (p === pendingPath ? sessionPath : p),
+    );
+    draft.sessions.unreadFinishedSessionPaths = [
+      ...new Set(draft.sessions.unreadFinishedSessionPaths
+        .map((p: string) => (p === pendingPath ? sessionPath : p))),
+    ];
+    const oldInputs = draft.composer.pendingComposerInputsBySession[pendingPath];
+    if (oldInputs) {
+      const existingInputs = draft.composer.pendingComposerInputsBySession[sessionPath] ?? [];
+      draft.composer.pendingComposerInputsBySession[sessionPath] = [...existingInputs, ...oldInputs];
+      delete draft.composer.pendingComposerInputsBySession[pendingPath];
+    }
+    if (Object.prototype.hasOwnProperty.call(draft.composer.activeRunSummaryBySession, pendingPath)) {
+      draft.composer.activeRunSummaryBySession[sessionPath] =
+        draft.composer.activeRunSummaryBySession[pendingPath] ?? null;
+      delete draft.composer.activeRunSummaryBySession[pendingPath];
+    }
+    if (Object.prototype.hasOwnProperty.call(draft.sessions.analyticsFactorsBySession, pendingPath)) {
+      draft.sessions.analyticsFactorsBySession[sessionPath] =
+        draft.sessions.analyticsFactorsBySession[pendingPath] ?? null;
+      delete draft.sessions.analyticsFactorsBySession[pendingPath];
+    }
+  });
+
+  deps.runObserver.replaceSessionPath(pendingPath, sessionPath);
+  deps.state.clearSessionScope(pendingPath, true);
+}
+
+function resolveAndDispatch(
+  payload: SessionOpenedPayload,
+  deps: ApplySessionOpenedDeps,
+  sessionPath: string,
+  staleSessionData: boolean,
+) {
+  const localTranscript = deps.getArchState().transcript.bySession[sessionPath] ?? [];
   const transcriptResolution = resolveSessionOpenedTranscript({
     busy: payload.busy || staleSessionData,
-    incomingTranscript: transcript,
-    incomingTranscriptWindow: transcriptWindow,
+    incomingTranscript: payload.transcript,
+    incomingTranscriptWindow: payload.transcriptWindow,
     localTranscript,
   });
   const preserveStreamingState = transcriptResolution.preserveLocal && (payload.busy || staleSessionData);
 
-  // Build modified payload with resolved transcript and conditionally preserve system prompts.
   const resolvedPayload: SessionOpenedPayload = {
     ...payload,
     transcript: transcriptResolution.transcript,
@@ -119,54 +147,61 @@ export function applySessionOpenedPayload(
 
   deps.dispatchArch({
     kind: 'SessionOpened',
-    sessionPath: session.path,
+    sessionPath,
     payload: resolvedPayload,
   });
 
-  // Post-dispatch: handle state the reducer doesn't manage.
+  return transcriptResolution;
+}
+
+function applyPostDispatchState(
+  deps: ApplySessionOpenedDeps,
+  payload: SessionOpenedPayload,
+  sessionPath: string,
+  flags: ReturnType<typeof computeOpeningFlags>,
+  transcript: any[],
+): void {
   deps.mutateArchState((draft) => {
-    if (shouldOpenTab && !draft.sessions.openTabPaths.includes(session.path)) {
-      draft.sessions.openTabPaths.push(session.path);
+    if (flags.shouldOpenTab && !draft.sessions.openTabPaths.includes(sessionPath)) {
+      draft.sessions.openTabPaths.push(sessionPath);
     }
-    if (shouldActivate) {
-      draft.sessions.activeSessionPath = session.path;
+    if (flags.shouldActivate) {
+      draft.sessions.activeSessionPath = sessionPath;
       draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-        .filter((p) => p !== session.path);
+        .filter((p) => p !== sessionPath);
     }
-    // Defensive: if activeSessionPath still points to the pending path that
-    // was just replaced, update it to the real session path so the UI doesn't
-    // lose track of the active tab.
     if (
-      !shouldActivate
-      && selectionRequest?.pendingPath
-      && selectionRequest.pendingPath !== session.path
-      && draft.sessions.activeSessionPath === selectionRequest.pendingPath
+      !flags.shouldActivate
+      && flags.selectionRequest?.pendingPath
+      && flags.selectionRequest.pendingPath !== sessionPath
+      && draft.sessions.activeSessionPath === flags.selectionRequest.pendingPath
     ) {
-      draft.sessions.activeSessionPath = session.path;
+      draft.sessions.activeSessionPath = sessionPath;
     }
     if (payload.analyticsFactors) {
       draft.settings.availableExtensions = deriveAvailableExtensions(
         payload.analyticsFactors.selectedToolIds,
       );
     }
-    // Derive file changes from the resolved transcript
-    draft.fileChanges.bySession[session.path] = deriveFileChangesFromTranscript(
-      transcriptResolution.transcript,
-    );
+    draft.fileChanges.bySession[sessionPath] = deriveFileChangesFromTranscript(transcript);
   });
+}
 
-  deps.state.touchSessionTranscript(session.path);
+function finalizeSessionOpening(
+  deps: ApplySessionOpenedDeps,
+  sessionPath: string,
+  selectionToken: SessionOpenedPayload['selectionToken'],
+  selectionRequest: ReturnType<typeof computeOpeningFlags>['selectionRequest'],
+): void {
+  deps.state.touchSessionTranscript(sessionPath);
   deps.state.evictInactiveTranscriptWindows();
-
   deps.state.finishSelectionRequest(selectionToken);
   deps.state.assertSelectionInvariant('onSessionOpened');
-
   deps.state.saveOpenTabs();
   deps.scheduleRender();
 
-  // Drain any queued sends that arrived while the session was pending.
-  if (selectionRequest?.pendingPath && selectionRequest.pendingPath !== session.path) {
-    deps.onSessionPathResolved?.(selectionRequest.pendingPath, session.path);
+  if (selectionRequest?.pendingPath && selectionRequest.pendingPath !== sessionPath) {
+    deps.onSessionPathResolved?.(selectionRequest.pendingPath, sessionPath);
   }
 }
 

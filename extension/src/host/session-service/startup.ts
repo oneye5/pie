@@ -56,32 +56,24 @@ function mergeSessionSummary(
   };
 }
 
-export async function startSessionBackend(options: StartSessionBackendOptions): Promise<void> {
-  options.state.resetRuntimeState();
-
-  const workspaceCwd = resolveWorkspaceCwd();
-  const { getArchState, mutateArchState } = options;
-
-  mutateArchState((draft) => {
-    draft.sessions.workspaceCwd = workspaceCwd;
-  });
-
+function applyStoredPrefs(options: StartSessionBackendOptions): void {
   const storedPrefs = options.context.globalState.get<Partial<ChatPrefs>>(PREFS_STORAGE_KEY);
   if (storedPrefs) {
-    mutateArchState((draft) => {
+    options.mutateArchState((draft) => {
       draft.settings.prefs = resolveChatPrefs({ ...draft.settings.prefs, ...storedPrefs });
     });
   }
+}
 
-  // Load pruning settings from settings.json (non-blocking).
+function loadPruningSettingsAsync(options: StartSessionBackendOptions): void {
   readPruningSettings().then(
-    (ps) => mutateArchState((draft) => { draft.settings.pruningSettings = ps; }),
+    (ps) => options.mutateArchState((draft) => { draft.settings.pruningSettings = ps; }),
     () => { /* defaults remain */ },
   );
+}
 
-  const storedRawTabs = options.context.globalState.get<unknown[]>(
-    'openTabPaths',
-  ) ?? [];
+function computeRestorePlan(options: StartSessionBackendOptions) {
+  const storedRawTabs = options.context.globalState.get<unknown[]>('openTabPaths') ?? [];
   // Skip fs.existsSync checks during restore — session files may be temporarily
   // inaccessible during rapid extension host restarts (Windows file locks, race
   // conditions). Missing sessions are handled gracefully when the backend tries
@@ -93,14 +85,32 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
   const preferredStartupPath = options.context.globalState.get<string>('activeSessionPath') ?? null;
   const restoredSessionPlan = buildRestoredSessionPlan(restoredTabs, preferredStartupPath);
   const { startupPath: restoredStartupPath, preloadPaths } = restoredSessionPlan;
+  return {
+    storedRawTabs,
+    rawTabs,
+    restoredTabs,
+    droppedPaths,
+    preferredStartupPath,
+    restoredStartupPath,
+    preloadPaths,
+  };
+}
 
-  mutateArchState((draft) => {
-    // setOpenTabPaths
+function applyRestoredTabPaths(options: StartSessionBackendOptions, restoredTabs: string[]): void {
+  options.mutateArchState((draft) => {
     draft.sessions.openTabPaths = restoredTabs;
     draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
       .filter((p) => restoredTabs.includes(p));
   });
+}
 
+function persistIfTabStateChanged(
+  options: StartSessionBackendOptions,
+  storedRawTabs: unknown[],
+  rawTabs: unknown[],
+  preferredStartupPath: string | null,
+  restoredStartupPath: string | null,
+): void {
   if (
     rawTabs.length !== storedRawTabs.length
     || preferredStartupPath !== (restoredStartupPath ?? undefined)
@@ -108,52 +118,45 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
     void options.context.globalState.update('openTabPaths', rawTabs);
     void options.context.globalState.update('activeSessionPath', restoredStartupPath ?? undefined);
   }
+}
 
-  const cachedSessions = buildRestoredSessionSummaries(rawTabs, restoredTabs, workspaceCwd);
-  if (cachedSessions.length > 0) {
-    mutateArchState((draft) => {
-      // replaceSessionSummaries
-      const mergedByPath = new Map<string, SessionSummary>();
-      for (const incoming of cachedSessions) {
-        const existing = mergedByPath.get(incoming.path) ?? draft.sessions.sessions.find((s) => s.path === incoming.path);
-        mergedByPath.set(incoming.path, mergeSessionSummary(existing, incoming));
-      }
-      // Keep open-tab sessions not in the incoming list.
-      for (const s of draft.sessions.sessions) {
-        if (!mergedByPath.has(s.path) && draft.sessions.openTabPaths.includes(s.path)) {
-          mergedByPath.set(s.path, s);
-        }
-      }
-      // Keep the active session if it's not in the list.
-      const activeSession = draft.sessions.activeSessionPath
-        ? draft.sessions.sessions.find((session) => session.path === draft.sessions.activeSessionPath)
-        : undefined;
-      draft.sessions.sessions = [...mergedByPath.values()];
-      if (activeSession && !mergedByPath.has(activeSession.path) && draft.sessions.openTabPaths.includes(activeSession.path)) {
-        draft.sessions.sessions.push(activeSession);
-      }
-    });
+function replaceSessionSummaries(draft: ArchState, incoming: SessionSummary[]): void {
+  const mergedByPath = new Map<string, SessionSummary>();
+  for (const item of incoming) {
+    const existing = mergedByPath.get(item.path) ?? draft.sessions.sessions.find((s) => s.path === item.path);
+    mergedByPath.set(item.path, mergeSessionSummary(existing, item));
   }
-  if (restoredStartupPath) {
-    mutateArchState((draft) => {
-      // setActiveSessionPath
-      draft.sessions.activeSessionPath = restoredStartupPath;
-      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-        .filter((p) => p !== restoredStartupPath);
-    });
+  for (const s of draft.sessions.sessions) {
+    if (!mergedByPath.has(s.path) && draft.sessions.openTabPaths.includes(s.path)) {
+      mergedByPath.set(s.path, s);
+    }
   }
+  const activeSession = draft.sessions.activeSessionPath
+    ? draft.sessions.sessions.find((session) => session.path === draft.sessions.activeSessionPath)
+    : undefined;
+  draft.sessions.sessions = [...mergedByPath.values()];
+  if (activeSession && !mergedByPath.has(activeSession.path) && draft.sessions.openTabPaths.includes(activeSession.path)) {
+    draft.sessions.sessions.push(activeSession);
+  }
+}
 
+function bootLogRestorePrepared(
+  restoredStartupPath: string | null,
+  cachedSessionCount: number,
+  droppedTabCount: number,
+  openTabCount: number,
+  preloadCount: number,
+): void {
   bootLog('session-startup', 'restore.prepared', {
     activeSessionPath: restoredStartupPath,
-    cachedSessionCount: cachedSessions.length,
-    droppedTabCount: droppedPaths.length,
-    openTabCount: restoredTabs.length,
-    preloadCount: preloadPaths.length,
+    cachedSessionCount,
+    droppedTabCount,
+    openTabCount,
+    preloadCount,
   });
+}
 
-  let nodePath: string;
-  let sdkPath: string;
-
+async function resolveAndCacheRuntimePaths(options: StartSessionBackendOptions): Promise<{ nodePath: string; sdkPath: string } | null> {
   try {
     const config = vscode.workspace.getConfiguration('pie');
     const rootConfig = vscode.workspace.getConfiguration();
@@ -171,11 +174,11 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
       ? options.context.globalState.get<string>(SDK_PATH_CACHE_KEY)
       : undefined;
 
-    nodePath = resolveNodePath({
+    const nodePath = resolveNodePath({
       configuredPath: configuredNodePath,
       env: process.env as NodeJS.ProcessEnv,
     });
-    sdkPath = await resolveSdkPath({
+    const sdkPath = await resolveSdkPath({
       configuredPath: configuredSdkPath,
       cachedPath: cachedSdkPath,
       env: process.env as NodeJS.ProcessEnv,
@@ -184,28 +187,34 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
     if (shouldUseSdkCache) {
       void options.context.globalState.update(SDK_PATH_CACHE_KEY, sdkPath);
     }
+    return { nodePath, sdkPath };
   } catch (err) {
-    mutateArchState((draft) => {
+    options.mutateArchState((draft) => {
       draft.settings.notice =
         `pie setup error: ${(err as Error).message}. ` +
           'Set pie.nodePath and pie.sdkPath in settings.';
     });
-    options.scheduleRender();
-    return;
+    return null;
   }
+}
 
-  const backendPath = path.join(options.context.extensionPath, 'out', 'backend.js');
-
-  // Pass the in-tree auth opt-in setting to the backend via env.
+function setupInTreeAuthEnv(): void {
   const allowInTreeAuth = vscode.workspace.getConfiguration('pie').get<boolean>('allowInTreeAuth', false);
   if (allowInTreeAuth) {
     process.env.PIE_ALLOW_IN_TREE_AUTH = '1';
   } else {
     delete process.env.PIE_ALLOW_IN_TREE_AUTH;
   }
+}
 
-  options.events.attach(options.backend);
-
+async function startBackendWithLogging(
+  options: StartSessionBackendOptions,
+  nodePath: string,
+  sdkPath: string,
+  backendPath: string,
+  workspaceCwd: string,
+  restoredStartupPath: string | null,
+): Promise<boolean> {
   try {
     bootLog('session-startup', 'backend.starting', {
       backendPath,
@@ -216,20 +225,24 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
     bootLog('session-startup', 'backend.started', {
       restoredStartupPath,
     });
+    return true;
   } catch (err) {
-    mutateArchState((draft) => {
+    options.mutateArchState((draft) => {
       draft.settings.notice = `Failed to start PI backend: ${(err as Error).message}`;
     });
     bootLog('session-startup', 'backend.startFailed', {
       message: (err as Error).message,
     });
-    options.events.detach();
-    options.scheduleRender();
-    return;
+    return false;
   }
+}
 
+async function sendRuntimePrefsWithLogging(
+  options: StartSessionBackendOptions,
+  restoredStartupPath: string | null,
+): Promise<void> {
   try {
-    const archState = getArchState();
+    const archState = options.getArchState();
     bootLog('session-startup', 'runtimePrefs.set.requested', {
       backendReady: archState.settings.backendReady,
       restoredStartupPath,
@@ -239,16 +252,106 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
       extensionToggles: archState.settings.prefs.extensionToggles,
     });
     bootLog('session-startup', 'runtimePrefs.set.completed', {
-      backendReady: getArchState().settings.backendReady,
+      backendReady: options.getArchState().settings.backendReady,
       restoredStartupPath,
     });
   } catch {
-    // Non-fatal: older/failed backends simply won't expose provider toggles to pi extensions.
     bootLog('session-startup', 'runtimePrefs.set.failed', {
-      backendReady: getArchState().settings.backendReady,
+      backendReady: options.getArchState().settings.backendReady,
       restoredStartupPath,
     });
   }
+}
+
+function bootLogBackendReadyDispatched(options: StartSessionBackendOptions): void {
+  bootLog('session-startup', 'backend.readyDispatched', {
+    activeSessionPath: options.getArchState().sessions.activeSessionPath,
+    backendReady: options.getArchState().settings.backendReady,
+    notice: options.getArchState().settings.notice,
+    openTabCount: options.getArchState().sessions.openTabPaths.length,
+  });
+}
+
+async function listAndOpenFirstSession(options: StartSessionBackendOptions): Promise<void> {
+  try {
+    const sessions = await options.backend.request<SessionSummary[]>('session.list');
+    options.mutateArchState((draft) => {
+      replaceSessionSummaries(draft, sessions);
+    });
+    options.scheduleRender();
+
+    const toOpen = sessions[0]?.path;
+    if (toOpen) {
+      options.openSession(toOpen);
+    }
+  } catch {
+    // Non-fatal; session list may be empty on a fresh install.
+  }
+}
+
+export async function startSessionBackend(options: StartSessionBackendOptions): Promise<void> {
+  options.state.resetRuntimeState();
+
+  const workspaceCwd = resolveWorkspaceCwd();
+  const { mutateArchState } = options;
+
+  mutateArchState((draft) => {
+    draft.sessions.workspaceCwd = workspaceCwd;
+  });
+
+  applyStoredPrefs(options);
+  loadPruningSettingsAsync(options);
+
+  const {
+    storedRawTabs,
+    rawTabs,
+    restoredTabs,
+    droppedPaths,
+    preferredStartupPath,
+    restoredStartupPath,
+    preloadPaths,
+  } = computeRestorePlan(options);
+
+  applyRestoredTabPaths(options, restoredTabs);
+  persistIfTabStateChanged(options, storedRawTabs, rawTabs, preferredStartupPath, restoredStartupPath);
+
+  const cachedSessions = buildRestoredSessionSummaries(rawTabs, restoredTabs, workspaceCwd);
+  if (cachedSessions.length > 0) {
+    mutateArchState((draft) => {
+      replaceSessionSummaries(draft, cachedSessions);
+    });
+  }
+
+  if (restoredStartupPath) {
+    mutateArchState((draft) => {
+      draft.sessions.activeSessionPath = restoredStartupPath;
+      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
+        .filter((p) => p !== restoredStartupPath);
+    });
+  }
+
+  bootLogRestorePrepared(restoredStartupPath, cachedSessions.length, droppedPaths.length, restoredTabs.length, preloadPaths.length);
+
+  const paths = await resolveAndCacheRuntimePaths(options);
+  if (!paths) {
+    options.scheduleRender();
+    return;
+  }
+  const { nodePath, sdkPath } = paths;
+
+  const backendPath = path.join(options.context.extensionPath, 'out', 'backend.js');
+  setupInTreeAuthEnv();
+
+  options.events.attach(options.backend);
+
+  const started = await startBackendWithLogging(options, nodePath, sdkPath, backendPath, workspaceCwd, restoredStartupPath);
+  if (!started) {
+    options.events.detach();
+    options.scheduleRender();
+    return;
+  }
+
+  await sendRuntimePrefsWithLogging(options, restoredStartupPath);
 
   const restoreError = publishBackendReady({
     mutateArchState,
@@ -259,12 +362,7 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
     preloadPaths,
   });
 
-  bootLog('session-startup', 'backend.readyDispatched', {
-    activeSessionPath: getArchState().sessions.activeSessionPath,
-    backendReady: getArchState().settings.backendReady,
-    notice: getArchState().settings.notice,
-    openTabCount: getArchState().sessions.openTabPaths.length,
-  });
+  bootLogBackendReadyDispatched(options);
 
   if (restoreError) {
     bootLog('session-startup', 'restore.failed', {
@@ -282,35 +380,5 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
     return;
   }
 
-  try {
-    const sessions = await options.backend.request<SessionSummary[]>('session.list');
-    mutateArchState((draft) => {
-      // replaceSessionSummaries
-      const mergedByPath = new Map<string, SessionSummary>();
-      for (const incoming of sessions) {
-        const existing = mergedByPath.get(incoming.path) ?? draft.sessions.sessions.find((s) => s.path === incoming.path);
-        mergedByPath.set(incoming.path, mergeSessionSummary(existing, incoming));
-      }
-      for (const s of draft.sessions.sessions) {
-        if (!mergedByPath.has(s.path) && draft.sessions.openTabPaths.includes(s.path)) {
-          mergedByPath.set(s.path, s);
-        }
-      }
-      const activeSession = draft.sessions.activeSessionPath
-        ? draft.sessions.sessions.find((session) => session.path === draft.sessions.activeSessionPath)
-        : undefined;
-      draft.sessions.sessions = [...mergedByPath.values()];
-      if (activeSession && !mergedByPath.has(activeSession.path) && draft.sessions.openTabPaths.includes(activeSession.path)) {
-        draft.sessions.sessions.push(activeSession);
-      }
-    });
-    options.scheduleRender();
-
-    const toOpen = sessions[0]?.path;
-    if (toOpen) {
-      options.openSession(toOpen);
-    }
-  } catch {
-    // Non-fatal; session list may be empty on a fresh install.
-  }
+  await listAndOpenFirstSession(options);
 }

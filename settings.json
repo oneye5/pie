@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.78.0",
   "defaultProvider": "ollama",
-  "defaultModel": "minimax-m3:cloud",
-  "defaultThinkingLevel": "medium",
+  "defaultModel": "deepseek-v4-pro:cloud",
+  "defaultThinkingLevel": "high",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
     {

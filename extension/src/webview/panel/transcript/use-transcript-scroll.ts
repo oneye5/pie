@@ -1,9 +1,6 @@
 ﻿import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
 import type { TranscriptWindow } from '../../../shared/protocol';
-// Phase 4: auto-scroll.ts utilities kept for isNearBottom / resolveAutoFollowState.
-// advanceSmoothScrollTop, captureScrollAnchor, resolveScrollAnchorDelta are no longer
-// used here - candidates for deletion in Phase 8.
 import { isNearBottom, resolveAutoFollowState } from '../auto-scroll';
 import {
   captureMessageScrollAnchor,
@@ -35,32 +32,10 @@ interface UseTranscriptScrollResult {
 
 const MANUAL_SCROLL_INTENT_GRACE_MS = 280;
 
-export function useTranscriptScroll({
-  sessionKey,
-  transcriptWindow,
-  transcriptLength,
-  busy,
-  hasStreamingContent,
-  onLoadOlder,
-  onLoadNewer,
-  onJumpToLatest,
-}: UseTranscriptScrollOptions): UseTranscriptScrollResult {
+function useScrollState(scrollRef: { current: HTMLDivElement | null }) {
   const [isAtBottom, setIsAtBottom] = useState(true);
-  const [isInitialPositioning, setIsInitialPositioning] = useState(true);
-  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
-  const [isLoadingNewer, setIsLoadingNewer] = useState(false);
-
-  const scrollRef = useRef<HTMLDivElement>(null);
   const autoFollowRef = useRef(true);
   const lastScrollTopRef = useRef(0);
-  const manualScrollIntentUntilRef = useRef(0);
-  const pointerScrollIntentRef = useRef(false);
-  const pendingJumpToLatestSnapRef = useRef(false);
-  const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null);
-  const loadingOlderRef = useRef(false);
-  const loadingNewerRef = useRef(false);
-  const previousLoadedStartRef = useRef(transcriptWindow.loadedStart);
-  const previousLoadedEndRef = useRef(transcriptWindow.loadedEnd);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -68,7 +43,36 @@ export function useTranscriptScroll({
     el.scrollTop = el.scrollHeight;
     lastScrollTopRef.current = el.scrollTop;
     setIsAtBottom(true);
+  }, [scrollRef]);
+
+  return { isAtBottom, setIsAtBottom, autoFollowRef, lastScrollTopRef, scrollToBottom };
+}
+
+function useManualScrollIntent() {
+  const manualScrollIntentUntilRef = useRef(0);
+  const pointerScrollIntentRef = useRef(false);
+
+  const markManual = useCallback(() => {
+    manualScrollIntentUntilRef.current = Date.now() + MANUAL_SCROLL_INTENT_GRACE_MS;
   }, []);
+
+  const clearPointer = useCallback(() => {
+    pointerScrollIntentRef.current = false;
+  }, []);
+
+  return { manualScrollIntentUntilRef, pointerScrollIntentRef, markManual, clearPointer };
+}
+
+function usePaginationState(
+  scrollRef: { current: HTMLDivElement | null },
+  onLoadOlder: () => void,
+  onLoadNewer: () => void,
+) {
+  const [isLoadingOlder, setIsLoadingOlder] = useState(false);
+  const [isLoadingNewer, setIsLoadingNewer] = useState(false);
+  const loadingOlderRef = useRef(false);
+  const loadingNewerRef = useRef(false);
+  const pendingOlderAnchorRef = useRef<MessageScrollAnchor | null>(null);
 
   const requestOlderPage = useCallback(() => {
     if (loadingOlderRef.current) return;
@@ -77,7 +81,7 @@ export function useTranscriptScroll({
     loadingOlderRef.current = true;
     setIsLoadingOlder(true);
     onLoadOlder();
-  }, [onLoadOlder]);
+  }, [onLoadOlder, scrollRef]);
 
   const requestNewerPage = useCallback(() => {
     if (loadingNewerRef.current) return;
@@ -86,17 +90,57 @@ export function useTranscriptScroll({
     onLoadNewer();
   }, [onLoadNewer]);
 
-  const jumpToLatest = useCallback(() => {
+  return {
+    isLoadingOlder,
+    setIsLoadingOlder,
+    isLoadingNewer,
+    setIsLoadingNewer,
+    loadingOlderRef,
+    loadingNewerRef,
+    pendingOlderAnchorRef,
+    requestOlderPage,
+    requestNewerPage,
+  };
+}
+
+function useJumpToLatest(
+  scrollRef: { current: HTMLDivElement | null },
+  autoFollowRef: { current: boolean },
+  hasNewer: boolean,
+  onJumpToLatest: () => void,
+  scrollToBottom: () => void,
+  pendingJumpToLatestSnapRef: { current: boolean },
+) {
+  return useCallback(() => {
     autoFollowRef.current = true;
-    if (transcriptWindow.hasNewer) {
+    if (hasNewer) {
       pendingJumpToLatestSnapRef.current = true;
       onJumpToLatest();
       return;
     }
     scrollToBottom();
-  }, [onJumpToLatest, scrollToBottom, transcriptWindow.hasNewer]);
+  }, [hasNewer, onJumpToLatest, scrollToBottom]);
+}
 
-  // Session switch: reset
+function useSessionResetEffect(
+  sessionKey: string | null,
+  scrollToBottom: () => void,
+  setIsInitialPositioning: (v: boolean) => void,
+  setIsLoadingOlder: (v: boolean) => void,
+  setIsLoadingNewer: (v: boolean) => void,
+  loadedStart: number,
+  loadedEnd: number,
+  autoFollowRef: { current: boolean },
+  lastScrollTopRef: { current: number },
+  manualScrollIntentUntilRef: { current: number },
+  pointerScrollIntentRef: { current: boolean },
+  pendingJumpToLatestSnapRef: { current: boolean },
+  pendingOlderAnchorRef: { current: MessageScrollAnchor | null },
+  loadingOlderRef: { current: boolean },
+  loadingNewerRef: { current: boolean },
+  previousLoadedStartRef: { current: number },
+  previousLoadedEndRef: { current: number },
+) {
   useLayoutEffect(() => {
     autoFollowRef.current = true;
     lastScrollTopRef.current = 0;
@@ -109,11 +153,9 @@ export function useTranscriptScroll({
     setIsLoadingOlder(false);
     setIsLoadingNewer(false);
     setIsInitialPositioning(true);
-    previousLoadedStartRef.current = transcriptWindow.loadedStart;
-    previousLoadedEndRef.current = transcriptWindow.loadedEnd;
+    previousLoadedStartRef.current = loadedStart;
+    previousLoadedEndRef.current = loadedEnd;
     scrollToBottom();
-    // Clear positioning after one frame — virtualizer measures synchronously
-    // during _willUpdate, so by next frame sizes are known.
     let frame: number | null = requestAnimationFrame(() => {
       frame = null;
       scrollToBottom();
@@ -121,14 +163,24 @@ export function useTranscriptScroll({
     });
     return () => { if (frame !== null) cancelAnimationFrame(frame); };
   }, [sessionKey]);
+}
 
-  // Scroll event handling
+function useScrollEventsEffect(
+  scrollRef: { current: HTMLDivElement | null },
+  autoFollowRef: { current: boolean },
+  lastScrollTopRef: { current: number },
+  setIsAtBottom: (v: boolean) => void,
+  manualScrollIntentUntilRef: { current: number },
+  pointerScrollIntentRef: { current: boolean },
+  hasOlder: boolean,
+  requestOlderPage: () => void,
+  markManual: () => void,
+  clearPointer: () => void,
+  sessionKey: string | null,
+) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-
-    const markManual = () => { manualScrollIntentUntilRef.current = Date.now() + MANUAL_SCROLL_INTENT_GRACE_MS; };
-    const clearPointer = () => { pointerScrollIntentRef.current = false; };
 
     const onScroll = () => {
       const next = el.scrollTop;
@@ -144,13 +196,18 @@ export function useTranscriptScroll({
       autoFollowRef.current = follow;
       lastScrollTopRef.current = next;
       setIsAtBottom(follow || isNearBottom(metrics));
-      if (el.scrollTop <= 120 && transcriptWindow.hasOlder) requestOlderPage();
+      if (el.scrollTop <= 120 && hasOlder) requestOlderPage();
     };
 
     const onWheel = () => markManual();
     const onTouchStart = () => markManual();
     const onTouchMove = () => markManual();
-    const onPointerDown = (e: PointerEvent) => { if (e.target === el) { pointerScrollIntentRef.current = true; markManual(); } };
+    const onPointerDown = (e: PointerEvent) => {
+      if (e.target === el) {
+        pointerScrollIntentRef.current = true;
+        markManual();
+      }
+    };
 
     el.addEventListener('wheel', onWheel, { passive: true });
     el.addEventListener('touchstart', onTouchStart, { passive: true });
@@ -171,49 +228,89 @@ export function useTranscriptScroll({
       window.removeEventListener('pointercancel', clearPointer);
       window.removeEventListener('blur', clearPointer);
     };
-  }, [requestOlderPage, sessionKey, transcriptWindow.hasOlder]);
+  }, [scrollRef, requestOlderPage, sessionKey, hasOlder, autoFollowRef, lastScrollTopRef, setIsAtBottom, manualScrollIntentUntilRef, pointerScrollIntentRef, markManual, clearPointer]);
+}
 
-  // Pagination window tracking
+function usePaginationTrackingEffect(
+  scrollRef: { current: HTMLDivElement | null },
+  scrollToBottom: () => void,
+  transcriptLength: number,
+  loadedStart: number,
+  loadedEnd: number,
+  hasNewer: boolean,
+  hasOlder: boolean,
+  loadingOlderRef: { current: boolean },
+  loadingNewerRef: { current: boolean },
+  pendingOlderAnchorRef: { current: MessageScrollAnchor | null },
+  setIsLoadingOlder: (v: boolean) => void,
+  setIsLoadingNewer: (v: boolean) => void,
+  previousLoadedStartRef: { current: number },
+  previousLoadedEndRef: { current: number },
+  pendingJumpToLatestSnapRef: { current: boolean },
+  autoFollowRef: { current: boolean },
+) {
   useLayoutEffect(() => {
     const prevStart = previousLoadedStartRef.current;
     const prevEnd = previousLoadedEndRef.current;
-    previousLoadedStartRef.current = transcriptWindow.loadedStart;
-    previousLoadedEndRef.current = transcriptWindow.loadedEnd;
+    previousLoadedStartRef.current = loadedStart;
+    previousLoadedEndRef.current = loadedEnd;
 
     const el = scrollRef.current;
     if (!el) return;
 
-    if (loadingOlderRef.current && transcriptWindow.loadedStart < prevStart) {
+    if (loadingOlderRef.current && loadedStart < prevStart) {
       restoreMessageScrollAnchor(el, pendingOlderAnchorRef.current);
       loadingOlderRef.current = false;
       setIsLoadingOlder(false);
       pendingOlderAnchorRef.current = null;
     }
-    if (loadingNewerRef.current && transcriptWindow.loadedEnd > prevEnd) {
+    if (loadingNewerRef.current && loadedEnd > prevEnd) {
       loadingNewerRef.current = false;
       setIsLoadingNewer(false);
     }
-    if (!transcriptWindow.hasOlder) { loadingOlderRef.current = false; setIsLoadingOlder(false); pendingOlderAnchorRef.current = null; }
-    if (!transcriptWindow.hasNewer) { loadingNewerRef.current = false; setIsLoadingNewer(false); }
+    if (!hasOlder) {
+      loadingOlderRef.current = false;
+      setIsLoadingOlder(false);
+      pendingOlderAnchorRef.current = null;
+    }
+    if (!hasNewer) {
+      loadingNewerRef.current = false;
+      setIsLoadingNewer(false);
+    }
 
-    if (pendingJumpToLatestSnapRef.current && !transcriptWindow.hasNewer) {
+    if (pendingJumpToLatestSnapRef.current && !hasNewer) {
       pendingJumpToLatestSnapRef.current = false;
       autoFollowRef.current = true;
       scrollToBottom();
     }
-  }, [scrollToBottom, transcriptLength, transcriptWindow.hasNewer, transcriptWindow.hasOlder, transcriptWindow.loadedEnd, transcriptWindow.loadedStart]);
+  }, [scrollToBottom, transcriptLength, hasNewer, hasOlder, loadedEnd, loadedStart]);
+}
 
-  // Auto-follow: instant scroll to bottom when content changes
+function useAutoFollowLayoutEffect(
+  scrollRef: { current: HTMLDivElement | null },
+  autoFollowRef: { current: boolean },
+  lastScrollTopRef: { current: number },
+  setIsAtBottom: (v: boolean) => void,
+  hasNewer: boolean,
+  busy: boolean,
+  hasStreamingContent: boolean,
+  transcriptLength: number,
+) {
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || !autoFollowRef.current || transcriptWindow.hasNewer) return;
+    if (!el || !autoFollowRef.current || hasNewer) return;
     el.scrollTop = el.scrollHeight;
     lastScrollTopRef.current = el.scrollTop;
     setIsAtBottom(true);
-  }, [busy, hasStreamingContent, transcriptLength, transcriptWindow.hasNewer]);
+  }, [busy, hasStreamingContent, transcriptLength, hasNewer]);
+}
 
-  // Auto-follow during buffered text streaming: ResizeObserver keeps scroll pinned
-  // to bottom as content height grows incrementally from the buffered reveal.
+function useStreamingResizeObserver(
+  scrollRef: { current: HTMLDivElement | null },
+  hasStreamingContent: boolean,
+  autoFollowRef: { current: boolean },
+  lastScrollTopRef: { current: number },
+) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !hasStreamingContent) return;
@@ -224,12 +321,131 @@ export function useTranscriptScroll({
       lastScrollTopRef.current = el.scrollTop;
     });
 
-    // Observe the inner content wrapper (first child) or the container itself
     const target = el.firstElementChild ?? el;
     ro.observe(target);
 
     return () => ro.disconnect();
   }, [hasStreamingContent]);
+}
 
-  return { scrollRef, isAtBottom, isInitialPositioning, isLoadingOlder, isLoadingNewer, requestOlderPage, requestNewerPage, jumpToLatest };
+export function useTranscriptScroll({
+  sessionKey,
+  transcriptWindow,
+  transcriptLength,
+  busy,
+  hasStreamingContent,
+  onLoadOlder,
+  onLoadNewer,
+  onJumpToLatest,
+}: UseTranscriptScrollOptions): UseTranscriptScrollResult {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isInitialPositioning, setIsInitialPositioning] = useState(true);
+  const previousLoadedStartRef = useRef(transcriptWindow.loadedStart);
+  const previousLoadedEndRef = useRef(transcriptWindow.loadedEnd);
+  const pendingJumpToLatestSnapRef = useRef(false);
+
+  const { isAtBottom, setIsAtBottom, autoFollowRef, lastScrollTopRef, scrollToBottom } = useScrollState(scrollRef);
+  const { manualScrollIntentUntilRef, pointerScrollIntentRef, markManual, clearPointer } = useManualScrollIntent();
+  const {
+    isLoadingOlder,
+    setIsLoadingOlder,
+    isLoadingNewer,
+    setIsLoadingNewer,
+    loadingOlderRef,
+    loadingNewerRef,
+    pendingOlderAnchorRef,
+    requestOlderPage,
+    requestNewerPage,
+  } = usePaginationState(scrollRef, onLoadOlder, onLoadNewer);
+
+  const jumpToLatest = useJumpToLatest(
+    scrollRef,
+    autoFollowRef,
+    transcriptWindow.hasNewer,
+    onJumpToLatest,
+    scrollToBottom,
+    pendingJumpToLatestSnapRef,
+  );
+
+  useSessionResetEffect(
+    sessionKey,
+    scrollToBottom,
+    setIsInitialPositioning,
+    setIsLoadingOlder,
+    setIsLoadingNewer,
+    transcriptWindow.loadedStart,
+    transcriptWindow.loadedEnd,
+    autoFollowRef,
+    lastScrollTopRef,
+    manualScrollIntentUntilRef,
+    pointerScrollIntentRef,
+    pendingJumpToLatestSnapRef,
+    pendingOlderAnchorRef,
+    loadingOlderRef,
+    loadingNewerRef,
+    previousLoadedStartRef,
+    previousLoadedEndRef,
+  );
+
+  useScrollEventsEffect(
+    scrollRef,
+    autoFollowRef,
+    lastScrollTopRef,
+    setIsAtBottom,
+    manualScrollIntentUntilRef,
+    pointerScrollIntentRef,
+    transcriptWindow.hasOlder,
+    requestOlderPage,
+    markManual,
+    clearPointer,
+    sessionKey,
+  );
+
+  usePaginationTrackingEffect(
+    scrollRef,
+    scrollToBottom,
+    transcriptLength,
+    transcriptWindow.loadedStart,
+    transcriptWindow.loadedEnd,
+    transcriptWindow.hasNewer,
+    transcriptWindow.hasOlder,
+    loadingOlderRef,
+    loadingNewerRef,
+    pendingOlderAnchorRef,
+    setIsLoadingOlder,
+    setIsLoadingNewer,
+    previousLoadedStartRef,
+    previousLoadedEndRef,
+    pendingJumpToLatestSnapRef,
+    autoFollowRef,
+  );
+
+  useAutoFollowLayoutEffect(
+    scrollRef,
+    autoFollowRef,
+    lastScrollTopRef,
+    setIsAtBottom,
+    transcriptWindow.hasNewer,
+    busy,
+    hasStreamingContent,
+    transcriptLength,
+  );
+
+  useStreamingResizeObserver(
+    scrollRef,
+    hasStreamingContent,
+    autoFollowRef,
+    lastScrollTopRef,
+  );
+
+  return {
+    scrollRef,
+    isAtBottom,
+    isInitialPositioning,
+    isLoadingOlder,
+    isLoadingNewer,
+    requestOlderPage,
+    requestNewerPage,
+    jumpToLatest,
+  };
 }

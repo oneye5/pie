@@ -1,0 +1,4 @@
+export const TAB_DRAG_THRESHOLD_PX = 6;
+export const TAB_DRAG_EDGE_SCROLL_PX = 40;
+export const TAB_DRAG_EDGE_SCROLL_MAX_STEP_PX = 14;
+export const TAB_DRAG_VERTICAL_SLOP_PX = 20;

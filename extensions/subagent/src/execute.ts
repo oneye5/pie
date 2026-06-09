@@ -144,117 +144,136 @@ export const checkTrailLoop = (agentName: string, trail: string[]): boolean => {
 	return occurrences >= 2;
 };
 
-/** Main execute function for the subagent tool. */
-export async function execute(
-	_toolCallId: string,
-	params: SubagentParams,
-	signal: AbortSignal,
-	onUpdate: OnUpdateCallback,
-	ctx: ToolContext,
-	pi: ExtensionAPI,
-	isDisabled: () => boolean,
-) {
-	if (isDisabled()) {
-		return {
-			content: [{ type: "text", text: "Sub agents are disabled. Enable them by removing the --no-subagent flag or unsetting the PI_SUBAGENT_DISABLED environment variable." }],
-			details: {
-				mode: "single" as const,
-				agentScope: params.agentScope ?? "user",
-				projectAgentsDir: null,
-				results: [],
+/** Standard error response shape used by early returns. */
+type Mode = "single" | "parallel" | "chain";
+type ErrorResponse = { content: { type: "text"; text: string }[]; details: SubagentDetails; isError: true };
+
+/** Returns the standard response when the tool is disabled. */
+function disabledErrorResponse(params: SubagentParams): ErrorResponse {
+	return {
+		content: [
+			{
+				type: "text",
+				text: "Sub agents are disabled. Enable them by removing the --no-subagent flag or unsetting the PI_SUBAGENT_DISABLED environment variable.",
 			},
-			isError: true,
-		};
-	}
+		],
+		details: {
+			mode: "single" as const,
+			agentScope: params.agentScope ?? "user",
+			projectAgentsDir: null,
+			results: [],
+		},
+		isError: true,
+	};
+}
 
-	const agentScope: AgentScope = params.agentScope ?? "user";
-	const runtimeCtx = readRuntimeContext();
-	if (runtimeCtx.depth >= MAX_DEPTH) {
-		return {
-			content: [
-				{
-					type: "text",
-					text: `Subagent depth limit reached (max ${MAX_DEPTH}). Cannot spawn further subagents.`,
-				},
-			],
-			details: { mode: "single", agentScope, projectAgentsDir: null, results: [] },
-			isError: true,
-		};
-	}
+/** Returns the standard response when subagent depth limit is reached. */
+function depthLimitResponse(agentScope: AgentScope): ErrorResponse {
+	return {
+		content: [
+			{
+				type: "text",
+				text: `Subagent depth limit reached (max ${MAX_DEPTH}). Cannot spawn further subagents.`,
+			},
+		],
+		details: { mode: "single", agentScope, projectAgentsDir: null, results: [] },
+		isError: true,
+	};
+}
 
+/** Builds a counter that returns an error message after `MAX_SESSIONS_PER_CALL` invocations. */
+function createSessionLimitChecker(): () => string | undefined {
 	let sessionsSpawned = 0;
-	const checkSessionLimit = (): string | undefined => {
+	return () => {
 		if (++sessionsSpawned > MAX_SESSIONS_PER_CALL) {
 			return `Sub-agent session limit reached (max ${MAX_SESSIONS_PER_CALL} sessions per reply).`;
 		}
 		return undefined;
 	};
+}
 
-	const discovery = discoverAgents(ctx.cwd, agentScope);
-	const agents = discovery.agents;
+/** Returns a response when the caller provided zero or multiple execution modes. */
+function modeCountErrorResponse(
+	agents: AgentConfig[],
+	agentScope: AgentScope,
+	projectAgentsDir: string | null,
+): ErrorResponse {
+	const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
+	return {
+		content: [
+			{
+				type: "text",
+				text: `Invalid parameters. Provide exactly one mode.\nAvailable agents: ${available}`,
+			},
+		],
+		details: makeDetails("single", [], agentScope, projectAgentsDir),
+		isError: true,
+	};
+}
 
-	const { mode, invalidResults } = validateSubagentParams(params, agents);
+/** Returns a response when one or more requested agent names do not exist. */
+function invalidAgentsResponse(
+	invalidResults: SingleResult[],
+	mode: Mode,
+	agentScope: AgentScope,
+	projectAgentsDir: string | null,
+): ErrorResponse {
+	return {
+		content: [{ type: "text", text: summarizeInvalidAgentResults(invalidResults) }],
+		details: makeDetails(mode, invalidResults, agentScope, projectAgentsDir),
+		isError: true,
+	};
+}
 
-	// High-level parameter validation
-	const hasChain = (params.chain?.length ?? 0) > 0;
-	const hasTasks = (params.tasks?.length ?? 0) > 0;
-	const hasSingle = Boolean(params.agent && params.task);
-	const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
+/** Collect the unique agent names referenced by `params` (chain, tasks, or single). */
+function collectRequestedAgentNames(params: SubagentParams): Set<string> {
+	const names = new Set<string>();
+	if (params.chain) for (const step of params.chain) names.add(step.agent);
+	if (params.tasks) for (const t of params.tasks) names.add(t.agent);
+	if (params.agent) names.add(params.agent);
+	return names;
+}
 
-	if (modeCount !== 1) {
-		const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
-		return {
-			content: [
-				{
-					type: "text",
-					text: `Invalid parameters. Provide exactly one mode.\nAvailable agents: ${available}`,
-				},
-			],
-			details: makeDetails("single", [], agentScope, discovery.projectAgentsDir),
-			isError: true,
-		};
-	}
-
-	if (invalidResults.length > 0) {
-		return {
-			content: [{ type: "text", text: summarizeInvalidAgentResults(invalidResults) }],
-			details: makeDetails(mode, invalidResults, agentScope, discovery.projectAgentsDir),
-			isError: true,
-		};
-	}
-
-	// Project agent approval
+/** Confirms project-local agent usage with the user; returns undefined on approval, response on cancel. */
+async function maybeApproveProjectAgents(
+	params: SubagentParams,
+	agents: AgentConfig[],
+	discovery: ReturnType<typeof discoverAgents>,
+	agentScope: AgentScope,
+	mode: Mode,
+	ctx: ToolContext,
+): Promise<ErrorResponse | undefined> {
 	if (
-		(agentScope === "project" || agentScope === "both") &&
-		(params.confirmProjectAgents ?? true) &&
-		ctx.hasUI
+		!(agentScope === "project" || agentScope === "both") ||
+		!(params.confirmProjectAgents ?? true) ||
+		!ctx.hasUI
 	) {
-		const requestedAgentNames = new Set<string>();
-		if (params.chain) for (const step of params.chain) requestedAgentNames.add(step.agent);
-		if (params.tasks) for (const t of params.tasks) requestedAgentNames.add(t.agent);
-		if (params.agent) requestedAgentNames.add(params.agent);
-
-		const projectAgentsRequested = Array.from(requestedAgentNames)
-			.map((name) => agents.find((a) => a.name === name))
-			.filter((a): a is AgentConfig => a?.source === "project");
-
-		if (projectAgentsRequested.length > 0) {
-			const names = projectAgentsRequested.map((a) => a.name).join(", ");
-			const dir = discovery.projectAgentsDir ?? "(unknown)";
-			const ok = await ctx.ui.confirm(
-				"Run project-local agents?",
-				`Agents: ${names}\nSource: ${dir}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
-			);
-			if (!ok)
-				return {
-					content: [{ type: "text", text: "Canceled: project-local agents not approved." }],
-					details: makeDetails(mode, [], agentScope, discovery.projectAgentsDir),
-					isError: true,
-				};
-		}
+		return undefined;
 	}
 
-	// Model selection setup
+	const projectAgentsRequested = Array.from(collectRequestedAgentNames(params))
+		.map((name) => agents.find((a) => a.name === name))
+		.filter((a): a is AgentConfig => a?.source === "project");
+
+	if (projectAgentsRequested.length === 0) return undefined;
+
+	const names = projectAgentsRequested.map((a) => a.name).join(", ");
+	const dir = discovery.projectAgentsDir ?? "(unknown)";
+	const ok = await ctx.ui.confirm(
+		"Run project-local agents?",
+		`Agents: ${names}\nSource: ${dir}\n\nProject agents are repo-controlled. Only continue for trusted repositories.`,
+	);
+	if (ok) return undefined;
+
+	return {
+		content: [{ type: "text", text: "Canceled: project-local agents not approved." }],
+		details: makeDetails(mode, [], agentScope, discovery.projectAgentsDir),
+		isError: true,
+	};
+}
+
+/** Loads selection config, normalizes pricing, and resolves provider/model allowlists. */
+function setupModelSelection(ctx: ToolContext): SelectionContext {
 	const selectionConfigPath = path.join(CONFIG_ROOT, "model-profiles.json");
 	let selectionConfig: ReturnType<typeof loadSelectionConfig> | undefined;
 	try {
@@ -262,11 +281,11 @@ export async function execute(
 	} catch {
 		/* ignore */
 	}
+
 	if (selectionConfig) {
 		const pricingRecords = loadModelPricing(path.join(CONFIG_ROOT, "models.json"));
 		for (const profile of selectionConfig.profiles) {
-			const dimAggregate =
-				profile.precision + profile.creativity + profile.thoroughness + profile.reasoning;
+			const dimAggregate = profile.precision + profile.creativity + profile.thoroughness + profile.reasoning;
 			const resolved = resolveModelCost(profile.id, pricingRecords, profile.cost, dimAggregate);
 			if (resolved.usedSource === "pricing") profile.normalizedCost = resolved.normalizedCost;
 		}
@@ -277,50 +296,91 @@ export async function execute(
 		disabledProviders.size > 0
 			? getAllowedModelIdsForProviders(ctx.modelRegistry.getAvailable(), disabledProviders)
 			: undefined;
-	const selectionCtx: SelectionContext = { selectionConfig, disabledProviders, allowedModelIds };
 
-	// Mode-specific imports to avoid circular dependencies
+	return { selectionConfig, disabledProviders, allowedModelIds };
+}
+
+/** Routes the validated request to the mode-specific execution function. */
+async function dispatchToMode(
+	mode: Mode,
+	params: SubagentParams,
+	ctx: ToolContext,
+	agents: AgentConfig[],
+	checkSessionLimit: () => string | undefined,
+	runtimeCtx: SubagentRuntimeContext,
+	makeDetailsBound: (m: Mode, res: SingleResult[]) => SubagentDetails,
+	onUpdate: OnUpdateCallback,
+	signal: AbortSignal,
+	selectionCtx: SelectionContext,
+) {
+	// Lazy import to avoid circular dependencies.
 	const { executeChainMode, executeParallelMode, executeSingleMode } = await import("./modes.js");
 
-	// Delegate to mode-specific execution
-	const makeDetailsBound = (m: "single" | "parallel" | "chain", res: SingleResult[]) =>
+	const modeArgs = [
+		params,
+		ctx,
+		agents,
+		checkSessionLimit,
+		runtimeCtx,
+		makeDetailsBound,
+		onUpdate,
+		signal,
+		selectionCtx,
+	] as const;
+	if (mode === "chain") return executeChainMode(...modeArgs);
+	if (mode === "parallel") return executeParallelMode(...modeArgs);
+	return executeSingleMode(...modeArgs);
+}
+
+/** Main execute function for the subagent tool. */
+export async function execute(
+	_toolCallId: string,
+	params: SubagentParams,
+	signal: AbortSignal,
+	onUpdate: OnUpdateCallback,
+	ctx: ToolContext,
+	_pi: ExtensionAPI,
+	isDisabled: () => boolean,
+) {
+	if (isDisabled()) return disabledErrorResponse(params);
+
+	const agentScope: AgentScope = params.agentScope ?? "user";
+	const runtimeCtx = readRuntimeContext();
+	if (runtimeCtx.depth >= MAX_DEPTH) return depthLimitResponse(agentScope);
+
+	const checkSessionLimit = createSessionLimitChecker();
+	const discovery = discoverAgents(ctx.cwd, agentScope);
+	const agents = discovery.agents;
+	const { mode, invalidResults } = validateSubagentParams(params, agents);
+
+	const hasChain = (params.chain?.length ?? 0) > 0;
+	const hasTasks = (params.tasks?.length ?? 0) > 0;
+	const hasSingle = Boolean(params.agent && params.task);
+	const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
+	if (modeCount !== 1) {
+		return modeCountErrorResponse(agents, agentScope, discovery.projectAgentsDir);
+	}
+	if (invalidResults.length > 0) {
+		return invalidAgentsResponse(invalidResults, mode, agentScope, discovery.projectAgentsDir);
+	}
+
+	const approvalError = await maybeApproveProjectAgents(params, agents, discovery, agentScope, mode, ctx);
+	if (approvalError) return approvalError;
+
+	const selectionCtx = setupModelSelection(ctx);
+	const makeDetailsBound = (m: Mode, res: SingleResult[]) =>
 		makeDetails(m, res, agentScope, discovery.projectAgentsDir);
 
-	if (mode === "chain") {
-		return executeChainMode(
-			params,
-			ctx,
-			agents,
-			checkSessionLimit,
-			runtimeCtx,
-			makeDetailsBound,
-			onUpdate,
-			signal,
-			selectionCtx,
-		);
-	} else if (mode === "parallel") {
-		return executeParallelMode(
-			params,
-			ctx,
-			agents,
-			checkSessionLimit,
-			runtimeCtx,
-			makeDetailsBound,
-			onUpdate,
-			signal,
-			selectionCtx,
-		);
-	} else {
-		return executeSingleMode(
-			params,
-			ctx,
-			agents,
-			checkSessionLimit,
-			runtimeCtx,
-			makeDetailsBound,
-			onUpdate,
-			signal,
-			selectionCtx,
-		);
-	}
+	return dispatchToMode(
+		mode,
+		params,
+		ctx,
+		agents,
+		checkSessionLimit,
+		runtimeCtx,
+		makeDetailsBound,
+		onUpdate,
+		signal,
+		selectionCtx,
+	);
 }

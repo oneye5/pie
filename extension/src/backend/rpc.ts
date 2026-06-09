@@ -1,4 +1,4 @@
-import type { ComposerInput, ModelSettings, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
+import type { ComposerInput, FilesystemPathComposerInput, ImageBlobComposerInput, ModelSettings, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../shared/image-constraints';
 
 export { MAX_IMAGE_INPUT_BYTES } from '../shared/image-constraints';
@@ -203,95 +203,88 @@ export function validateTruncateAfter(params: unknown): TruncateAfterParams {
   return { sessionPath: sp as string, entryId: eid as string };
 }
 
-function validateComposerInput(input: unknown, index: number): ComposerInput {
-  if (!isObj(input)) {
-    fail('message.send', `inputs[${index}] must be an object`);
+function readNonEmptyString(method: string, field: string, value: unknown): string {
+  if (typeof value !== 'string' || !value) {
+    fail(method, `${field} must be a non-empty string`);
   }
+  return value;
+}
 
-  const id = input['id'];
-  const kind = input['kind'];
-  if (typeof id !== 'string' || !id) {
-    fail('message.send', `inputs[${index}].id must be a non-empty string`);
+function readAllowedString<T extends string>(method: string, field: string, value: unknown, allowed: readonly T[]): T {
+  if (typeof value !== 'string' || !allowed.includes(value as T)) {
+    fail(method, `${field} must be ${allowed.map((a) => `"${a}"`).join(' or ')}`);
   }
-  if (typeof kind !== 'string' || !kind) {
-    fail('message.send', `inputs[${index}].kind must be a non-empty string`);
+  return value as T;
+}
+
+function readPositiveNumber(method: string, field: string, value: unknown): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) {
+    fail(method, `${field} must be a positive number`);
   }
+  return value;
+}
+
+function readOptionalPositiveNumber(method: string, field: string, value: unknown): number | undefined {
+  if (value === undefined) return undefined;
+  return readPositiveNumber(method, `${field} must be a positive number when provided`, value);
+}
+
+function readEnvelope(method: string, index: number, input: unknown): Record<string, unknown> {
+  if (!isObj(input)) {
+    fail(method, `inputs[${index}] must be an object`);
+  }
+  return input;
+}
+
+function readIdAndKind(method: string, index: number, input: Record<string, unknown>): { id: string; kind: string } {
+  const id = readNonEmptyString(method, `inputs[${index}].id`, input['id']);
+  const kind = readNonEmptyString(method, `inputs[${index}].kind`, input['kind']);
+  return { id, kind };
+}
+
+function validateFilesystemPathRefInput(method: string, index: number, id: string, kind: string, input: Record<string, unknown>): FilesystemPathComposerInput {
+  const path = readNonEmptyString(method, `inputs[${index}].path`, input['path']);
+  const name = readNonEmptyString(method, `inputs[${index}].name`, input['name']);
+  const source = readAllowedString(method, `inputs[${index}].source`, input['source'], ['picker', 'drop']);
+  return { id, kind: 'filesystemPathRef', path, name, source };
+}
+
+function validateImageBlobInput(method: string, index: number, id: string, kind: string, input: Record<string, unknown>): ImageBlobComposerInput {
+  const rawMimeType = input['mimeType'];
+  if (typeof rawMimeType !== 'string' || !ALLOWED_IMAGE_MIME_TYPES.has(rawMimeType.toLowerCase())) {
+    fail(method, `inputs[${index}].mimeType must be one of ${[...ALLOWED_IMAGE_MIME_TYPES].join(', ')}`);
+  }
+  const mimeType = rawMimeType as string;
+  const name = readNonEmptyString(method, `inputs[${index}].name`, input['name']);
+  const sizeBytes = readPositiveNumber(method, `inputs[${index}].sizeBytes`, input['sizeBytes']);
+  if (sizeBytes > MAX_IMAGE_INPUT_BYTES) {
+    fail(method, `inputs[${index}] exceeds the ${MAX_IMAGE_INPUT_BYTES} byte image limit`);
+  }
+  const dataBase64 = input['dataBase64'];
+  if (typeof dataBase64 !== 'string' || !dataBase64.trim()) {
+    fail(method, `inputs[${index}].dataBase64 must be a non-empty string`);
+  }
+  const source = readAllowedString(method, `inputs[${index}].source`, input['source'], ['paste', 'drop']);
+  const width = readOptionalPositiveNumber(method, `inputs[${index}].width`, input['width']);
+  const height = readOptionalPositiveNumber(method, `inputs[${index}].height`, input['height']);
+  return { id, kind: 'imageBlob', mimeType, name, sizeBytes, dataBase64, width, height, source };
+}
+
+function validateComposerInput(input: unknown, index: number): ComposerInput {
+  const method = 'message.send';
+  const envelope = readEnvelope(method, index, input);
+  const { id, kind } = readIdAndKind(method, index, envelope);
 
   if (kind === 'filesystemPathRef') {
-    const path = input['path'];
-    const name = input['name'];
-    const source = input['source'];
-    if (typeof path !== 'string' || !path) {
-      fail('message.send', `inputs[${index}].path must be a non-empty string`);
-    }
-    if (typeof name !== 'string' || !name) {
-      fail('message.send', `inputs[${index}].name must be a non-empty string`);
-    }
-    if (source !== 'picker' && source !== 'drop') {
-      fail('message.send', `inputs[${index}].source must be "picker" or "drop"`);
-    }
-
-    return {
-      id,
-      kind,
-      path,
-      name,
-      source,
-    };
+    return validateFilesystemPathRefInput(method, index, id, kind, envelope);
   }
-
   if (kind === 'imageBlob') {
-    const mimeType = input['mimeType'];
-    const name = input['name'];
-    const sizeBytes = input['sizeBytes'];
-    const dataBase64 = input['dataBase64'];
-    const source = input['source'];
-    const width = input['width'];
-    const height = input['height'];
-
-    if (typeof mimeType !== 'string' || !ALLOWED_IMAGE_MIME_TYPES.has(mimeType.toLowerCase())) {
-      fail('message.send', `inputs[${index}].mimeType must be one of ${[...ALLOWED_IMAGE_MIME_TYPES].join(', ')}`);
-    }
-    if (typeof name !== 'string' || !name) {
-      fail('message.send', `inputs[${index}].name must be a non-empty string`);
-    }
-    if (typeof sizeBytes !== 'number' || !Number.isFinite(sizeBytes) || sizeBytes <= 0) {
-      fail('message.send', `inputs[${index}].sizeBytes must be a positive number`);
-    }
-    if (sizeBytes > MAX_IMAGE_INPUT_BYTES) {
-      fail('message.send', `inputs[${index}] exceeds the ${MAX_IMAGE_INPUT_BYTES} byte image limit`);
-    }
-    if (typeof dataBase64 !== 'string' || !dataBase64.trim()) {
-      fail('message.send', `inputs[${index}].dataBase64 must be a non-empty string`);
-    }
-    if (source !== 'paste' && source !== 'drop') {
-      fail('message.send', `inputs[${index}].source must be "paste" or "drop"`);
-    }
-    if (width !== undefined && (typeof width !== 'number' || !Number.isFinite(width) || width <= 0)) {
-      fail('message.send', `inputs[${index}].width must be a positive number when provided`);
-    }
-    if (height !== undefined && (typeof height !== 'number' || !Number.isFinite(height) || height <= 0)) {
-      fail('message.send', `inputs[${index}].height must be a positive number when provided`);
-    }
-
-    return {
-      id,
-      kind,
-      mimeType,
-      name,
-      sizeBytes,
-      dataBase64,
-      width,
-      height,
-      source,
-    };
+    return validateImageBlobInput(method, index, id, kind, envelope);
   }
-
   if (kind === 'fileBlob') {
-    fail('message.send', 'Arbitrary pasted file attachments are not supported yet. Please attach a filesystem path instead.');
+    fail(method, 'Arbitrary pasted file attachments are not supported yet. Please attach a filesystem path instead.');
   }
-
-  fail('message.send', `inputs[${index}].kind is not supported: ${String(kind)}`);
+  fail(method, `inputs[${index}].kind is not supported: ${String(kind)}`);
 }
 
 export function validateMessageSend(params: unknown): MessageSendParams {

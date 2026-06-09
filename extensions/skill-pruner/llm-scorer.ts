@@ -138,56 +138,56 @@ export interface ParsedLlmResponse {
 	toolsExplicitlyEmpty: boolean;
 }
 
-/** Parse the LLM response JSON, with fallback regex extraction. */
-export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownTools: Set<string>): ParsedLlmResponse {
-	// Try strict JSON parse first
+/**
+ * Convert an already-parsed object into a `ParsedLlmResponse`, filtering
+ * against the known name sets. Returns `null` if the input is not a plain
+ * object, allowing the caller to fall through to the next strategy.
+ */
+function buildParsedResponse(
+	parsed: unknown,
+	knownSkills: Set<string>,
+	knownTools: Set<string>,
+): ParsedLlmResponse | null {
+	if (!parsed || typeof parsed !== "object") return null;
+	const rawSkills = Array.isArray((parsed as { skills?: unknown }).skills)
+		? (parsed as { skills: unknown[] }).skills
+		: undefined;
+	const rawTools = Array.isArray((parsed as { tools?: unknown }).tools)
+		? (parsed as { tools: unknown[] }).tools
+		: undefined;
+	const skills = rawSkills
+		? rawSkills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s))
+		: [];
+	const tools = rawTools
+		? rawTools.filter((t: unknown) => typeof t === "string" && knownTools.has(t))
+		: [];
+	const reasoningRaw = (parsed as { reasoning?: unknown }).reasoning;
+	const reasoning = typeof reasoningRaw === "string" && reasoningRaw.length > 0 ? reasoningRaw : undefined;
+	const result: ParsedLlmResponse = {
+		skills,
+		tools,
+		skillsExplicitlyEmpty: rawSkills !== undefined && rawSkills.length === 0,
+		toolsExplicitlyEmpty: rawTools !== undefined && rawTools.length === 0,
+	};
+	if (reasoning) result.reasoning = reasoning;
+	return result;
+}
+
+/** Try to JSON.parse `candidate` and convert the result. Returns `null` on any failure. */
+function tryParseJson(candidate: string, knownSkills: Set<string>, knownTools: Set<string>): ParsedLlmResponse | null {
 	try {
-		const parsed = JSON.parse(raw);
-		if (parsed && typeof parsed === "object") {
-			const rawSkills = Array.isArray(parsed.skills) ? parsed.skills : undefined;
-			const rawTools = Array.isArray(parsed.tools) ? parsed.tools : undefined;
-			const skills = rawSkills ? rawSkills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s)) : [];
-			const tools = rawTools ? rawTools.filter((t: unknown) => typeof t === "string" && knownTools.has(t)) : [];
-			const reasoning = typeof parsed.reasoning === "string" && parsed.reasoning.length > 0 ? parsed.reasoning : undefined;
-			const result: ParsedLlmResponse = {
-				skills,
-				tools,
-				skillsExplicitlyEmpty: rawSkills !== undefined && rawSkills.length === 0,
-				toolsExplicitlyEmpty: rawTools !== undefined && rawTools.length === 0,
-			};
-			if (reasoning) result.reasoning = reasoning;
-			return result;
-		}
+		return buildParsedResponse(JSON.parse(candidate), knownSkills, knownTools);
 	} catch {
-		// Fall through to regex extraction
+		return null;
 	}
+}
 
-	// Fallback: try to extract JSON from markdown code block or partial response
-	const jsonMatch = raw.match(/\{[\s\S]*\}/);
-	if (jsonMatch) {
-		try {
-			const parsed = JSON.parse(jsonMatch[0]);
-			if (parsed && typeof parsed === "object") {
-				const rawSkills = Array.isArray(parsed.skills) ? parsed.skills : undefined;
-				const rawTools = Array.isArray(parsed.tools) ? parsed.tools : undefined;
-				const skills = rawSkills ? rawSkills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s)) : [];
-				const tools = rawTools ? rawTools.filter((t: unknown) => typeof t === "string" && knownTools.has(t)) : [];
-				const reasoning = typeof parsed.reasoning === "string" && parsed.reasoning.length > 0 ? parsed.reasoning : undefined;
-				const result: ParsedLlmResponse = {
-					skills,
-					tools,
-					skillsExplicitlyEmpty: rawSkills !== undefined && rawSkills.length === 0,
-					toolsExplicitlyEmpty: rawTools !== undefined && rawTools.length === 0,
-				};
-				if (reasoning) result.reasoning = reasoning;
-				return result;
-			}
-		} catch {
-			// Fall through
-		}
-	}
-
-	// Last resort: extract quoted strings that match known names
+/** Last-resort: extract known names that appear verbatim in the raw text. */
+function extractKnownNamesFromText(
+	raw: string,
+	knownSkills: Set<string>,
+	knownTools: Set<string>,
+): ParsedLlmResponse {
 	const skills: string[] = [];
 	const tools: string[] = [];
 	for (const name of knownSkills) {
@@ -196,8 +196,24 @@ export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownToo
 	for (const name of knownTools) {
 		if (raw.includes(name)) tools.push(name);
 	}
-
 	return { skills, tools, skillsExplicitlyEmpty: false, toolsExplicitlyEmpty: false };
+}
+
+/** Parse the LLM response JSON, with fallback regex extraction. */
+export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownTools: Set<string>): ParsedLlmResponse {
+	// Phase 1: strict JSON parse of the whole response.
+	const strict = tryParseJson(raw, knownSkills, knownTools);
+	if (strict) return strict;
+
+	// Phase 2: pull the first {...} block out of the response and try again.
+	const jsonMatch = raw.match(/\{[\s\S]*\}/);
+	if (jsonMatch) {
+		const extracted = tryParseJson(jsonMatch[0], knownSkills, knownTools);
+		if (extracted) return extracted;
+	}
+
+	// Phase 3: last-resort name extraction from raw text.
+	return extractKnownNamesFromText(raw, knownSkills, knownTools);
 }
 
 export type CompleteSimpleFn = (

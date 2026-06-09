@@ -2,8 +2,7 @@ import path from "node:path";
 import type { Skill, ToolInfo, BeforeAgentStartEvent } from "@mariozechner/pi-coding-agent";
 import { loadConfig } from "../config.js";
 import { runLlmPruning, type CompleteSimpleFn, type LlmPruningInput } from "../llm-scorer.js";
-import { appendDecision, estimateTokens, recordKnownSkills } from "../logger.js";
-import type { PruningConfig, PruningDecision, PruningResult } from "../types.js";
+import type { PruningConfig } from "../types.js";
 import {
 	state,
 	getConfigOverrideForTesting,
@@ -12,6 +11,25 @@ import {
 	CONFIG_ROOT,
 	PROCESS_SESSION_ID,
 } from "./state.js";
+import {
+	ensureCopilotHeaders,
+	withCopilotHeaders,
+	withCopilotOptions,
+	COPILOT_IDE_HEADERS,
+} from "./copilot-headers.js";
+import type { PrepassRunResult, SkillPruningResult, ToolPruningResult } from "./pruning-types.js";
+
+export {
+	buildPruningPayload,
+	buildHint,
+	buildReplacement,
+	buildDecision,
+	buildFeedbackMessage,
+	estimateToolTokens,
+	type PrepassDiagnostics,
+} from "./message-builders.js";
+export { COPILOT_IDE_HEADERS, ensureCopilotHeaders, withCopilotHeaders, withCopilotOptions } from "./copilot-headers.js";
+export type { PrepassRunResult, SkillPruningResult, ToolPruningResult } from "./pruning-types.js";
 
 export const SKILLS_BLOCK_RE = /\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
 export const MIN_PROMPT_LENGTH = 8;
@@ -21,16 +39,6 @@ export const LLM_TIMEOUT_MS_BY_THINKING_LEVEL: Record<string, number> = {
 	medium: 15_000,
 	high: 20_000,
 	xhigh: 25_000,
-};
-
-/**
- * Required GitHub Copilot IDE-auth headers.
- */
-export const COPILOT_IDE_HEADERS: Record<string, string> = {
-	"User-Agent": "GitHubCopilotChat/0.35.0",
-	"Editor-Version": "vscode/1.107.0",
-	"Editor-Plugin-Version": "copilot-chat/0.35.0",
-	"Copilot-Integration-Id": "vscode-chat",
 };
 
 /** Returns the pi API facade, falling back to no-ops when pi hasn't been initialized. */
@@ -174,32 +182,6 @@ export function applyToolSelection(
 	return { includedToolNames, excludedToolNames, failOpenReason };
 }
 
-export interface SkillPruningResult {
-	included: string[];
-	excluded: string[];
-	tokensSaved: number;
-}
-
-export interface ToolPruningResult {
-	included: string[];
-	excluded: string[];
-	tokensSaved: number;
-}
-
-export interface PrepassRunResult {
-	selectedSkills: string[] | null;
-	selectedTools: string[] | null;
-	skillsExplicitlyEmpty: boolean;
-	toolsExplicitlyEmpty: boolean;
-	error: string | null;
-	rawResponse: string;
-	rawThinking: string;
-	rawSystemPrompt: string;
-	rawUserMessage: string;
-	latencyMs: number;
-	thinkingLevel: string;
-}
-
 export function isExtensionDisabledByToggle(extensionId: string): boolean {
 	const raw = process.env["PIE_EXTENSION_TOGGLES_JSON"];
 	if (!raw) return false;
@@ -311,21 +293,6 @@ export function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 	return adapter;
 }
 
-export function ensureCopilotHeaders(model: Record<string, unknown>): Record<string, unknown> {
-	if (model.provider !== "github-copilot") return model;
-	const existing = (model.headers ?? {}) as Record<string, string>;
-	let patched = false;
-	const merged = { ...existing };
-	for (const [key, value] of Object.entries(COPILOT_IDE_HEADERS)) {
-		if (!merged[key]) {
-			merged[key] = value;
-			patched = true;
-		}
-	}
-	if (!patched) return model;
-	return { ...model, headers: merged };
-}
-
 export function resolveModel(ctx: unknown, _config: PruningConfig): unknown {
 	const ctxObj = ctx as Record<string, unknown>;
 	const modelRegistry = ctxObj?.modelRegistry as { find?: (provider: string, id: string) => unknown } | undefined;
@@ -356,32 +323,6 @@ export async function resolveAuth(ctx: unknown, model: unknown): Promise<{ apiKe
 	}
 
 	return isCopilot ? { headers: { ...COPILOT_IDE_HEADERS } } : {};
-}
-
-export function withCopilotHeaders(headers: Record<string, string> | undefined, isCopilot: boolean): Record<string, string> | undefined {
-	if (!isCopilot) return headers;
-	const merged: Record<string, string> = { ...headers };
-	for (const [key, value] of Object.entries(COPILOT_IDE_HEADERS)) {
-		if (!merged[key]) merged[key] = value;
-	}
-	return merged;
-}
-
-export function withCopilotOptions(
-	options: Record<string, unknown>,
-	model: Record<string, unknown>,
-): Record<string, unknown> {
-	if (model.provider !== "github-copilot") return options;
-	const existing = { ...(options.headers ?? {}) } as Record<string, string>;
-	let changed = false;
-	for (const [key, value] of Object.entries(COPILOT_IDE_HEADERS)) {
-		if (!existing[key]) {
-			existing[key] = value;
-			changed = true;
-		}
-	}
-	if (!changed) return options;
-	return { ...options, headers: existing };
 }
 
 export function prepassTimeoutMs(thinkingLevel: string): number {
@@ -509,224 +450,5 @@ export async function runPruningPrepass(
 	return {
 		...latestResult,
 		error: "LLM pruning failed: returned no text response",
-	};
-}
-
-export function buildPruningPayload(
-	skillResult: SkillPruningResult | null,
-	toolResult: ToolPruningResult | null,
-	activeConfig: PruningConfig,
-	pruningError: string | null,
-	latencyMs: number,
-	prepassThinkingLevel: string,
-	rawResponse: string,
-	rawThinking: string,
-	rawSystemPrompt: string,
-	rawUserMessage: string,
-	skillFailOpenReason?: string | null,
-	toolFailOpenReason?: string | null,
-	_excludedSkillPaths?: string[],
-	_includedSkillPaths?: string[],
-): { result: PruningResult; decision?: PruningDecision } {
-	const failOpenReason = (skillFailOpenReason && toolFailOpenReason)
-		? `${skillFailOpenReason} · ${toolFailOpenReason}`
-		: (skillFailOpenReason ?? toolFailOpenReason ?? undefined);
-
-	const result: PruningResult = {
-		includedSkills: skillResult?.included ?? [],
-		excludedSkills: skillResult?.excluded ?? [],
-		includedTools: toolResult?.included ?? [],
-		excludedTools: toolResult?.excluded ?? [],
-		mode: activeConfig.mode,
-		skillTokensSaved: skillResult?.tokensSaved ?? 0,
-		toolTokensSaved: toolResult?.tokensSaved ?? 0,
-		prepassModel: activeConfig.model,
-		prepassThinkingLevel: prepassThinkingLevel,
-		prepassResponse: rawResponse || undefined,
-		prepassThinking: rawThinking || undefined,
-		prepassSystemPrompt: rawSystemPrompt || undefined,
-		prepassUserMessage: rawUserMessage || undefined,
-		prepassLatencyMs: latencyMs,
-		prepassError: pruningError || undefined,
-		prepassFailOpenReason: failOpenReason,
-	};
-
-	return { result };
-}
-
-export function buildHint(excludedNames: string[]): string {
-	if (excludedNames.length === 0) {
-		return "";
-	}
-	return `<!-- Pruned skills (not shown to save attention): ${excludedNames.join(", ")}. Use /skill:name to load one. -->`;
-}
-
-export function buildReplacement(newBlock: string, hint: string): string {
-	const stripped = newBlock.replace(/^\n\n/, "");
-	if (hint === "") {
-		return `\n\n${stripped}`;
-	}
-	return `\n\n${stripped}\n${hint}`;
-}
-
-export function buildDecision(input: {
-	sessionId: string;
-	sessionPath: string;
-	mode: PruningConfig["mode"];
-	query: string;
-	contextFilePath?: string;
-	llmModel: string;
-	llmThinkingLevel: string;
-	llmResponse: string;
-	llmLatencyMs: number;
-	included: string[];
-	excluded: string[];
-	pinned: string[];
-	newBlock: string;
-	originalBlock: string;
-}): PruningDecision {
-	return {
-		timestamp: new Date().toISOString(),
-		sessionId: input.sessionId,
-		sessionPath: input.sessionPath,
-		mode: input.mode,
-		query: input.query,
-		contextFile: input.contextFilePath,
-		llmModel: input.llmModel,
-		llmThinkingLevel: input.llmThinkingLevel,
-		llmResponse: input.llmResponse,
-		llmLatencyMs: input.llmLatencyMs,
-		pinned: input.pinned,
-		included: input.included,
-		excluded: input.excluded,
-		skillBlockTokens: estimateTokens(input.newBlock),
-		originalBlockTokens: estimateTokens(input.originalBlock),
-	};
-}
-
-export function estimateToolTokens(allTools: ToolInfo[], excludedToolNames: string[]): number {
-	const excludedSet = new Set(excludedToolNames);
-	let chars = 0;
-	for (const tool of allTools) {
-		if (excludedSet.has(tool.name)) {
-			chars += tool.name.length + (tool.description?.length ?? 0) + 50;
-		}
-	}
-	return Math.ceil(chars / 4);
-}
-
-export interface PrepassDiagnostics {
-	model: string;
-	thinkingLevel: string;
-	response: string;
-	thinking: string;
-	systemPrompt: string;
-	userMessage: string;
-	latencyMs: number;
-	error?: string | null;
-	failOpenReason?: string | null;
-}
-
-export function buildFeedbackMessage(
-	skillResult: SkillPruningResult | null,
-	toolResult: ToolPruningResult | null,
-	mode: PruningConfig["mode"],
-	prepass?: PrepassDiagnostics,
-): Pick<PruningResult, "customType" | "content" | "display" | "details"> | null {
-	const hasSkillPruning = skillResult && skillResult.excluded.length > 0;
-	const hasToolPruning = toolResult && toolResult.excluded.length > 0;
-
-	if (prepass?.error) {
-		const details: PruningResult & {
-			prepassModel?: string;
-			prepassThinkingLevel?: string;
-			prepassError?: string;
-			prepassResponse?: string;
-			prepassThinking?: string;
-			prepassSystemPrompt?: string;
-			prepassUserMessage?: string;
-			prepassLatencyMs?: number;
-		} = {
-			includedSkills: skillResult?.included ?? [],
-			excludedSkills: skillResult?.excluded ?? [],
-			includedTools: toolResult?.included ?? [],
-			excludedTools: toolResult?.excluded ?? [],
-			mode,
-			skillTokensSaved: 0,
-			toolTokensSaved: 0,
-			prepassModel: prepass.model,
-			prepassThinkingLevel: prepass.thinkingLevel,
-			prepassError: prepass.error,
-		};
-		if (prepass.response) details.prepassResponse = prepass.response;
-		if (prepass.thinking) details.prepassThinking = prepass.thinking;
-		if (prepass.systemPrompt) details.prepassSystemPrompt = prepass.systemPrompt;
-		if (prepass.userMessage) details.prepassUserMessage = prepass.userMessage;
-		details.prepassLatencyMs = prepass.latencyMs;
-		return {
-			customType: "pruning-result",
-			content: `Pruning error: ${prepass.error}`,
-			display: true,
-			details,
-		};
-	}
-
-	if (!skillResult && !toolResult) {
-		return null;
-	}
-
-	const parts: string[] = [];
-	const details: PruningResult & {
-		prepassModel?: string;
-		prepassThinkingLevel?: string;
-		prepassResponse?: string;
-		prepassThinking?: string;
-		prepassSystemPrompt?: string;
-		prepassUserMessage?: string;
-		prepassLatencyMs?: number;
-	} = {
-		includedSkills: skillResult?.included ?? [],
-		excludedSkills: skillResult?.excluded ?? [],
-		includedTools: toolResult?.included ?? [],
-		excludedTools: toolResult?.excluded ?? [],
-		mode,
-		skillTokensSaved: skillResult?.tokensSaved ?? 0,
-		toolTokensSaved: toolResult?.tokensSaved ?? 0,
-	};
-
-	if (prepass) {
-		details.prepassModel = prepass.model;
-		details.prepassThinkingLevel = prepass.thinkingLevel;
-		if (prepass.response) details.prepassResponse = prepass.response;
-		if (prepass.thinking) details.prepassThinking = prepass.thinking;
-		if (prepass.systemPrompt) details.prepassSystemPrompt = prepass.systemPrompt;
-		if (prepass.userMessage) details.prepassUserMessage = prepass.userMessage;
-		details.prepassLatencyMs = prepass.latencyMs;
-		if (prepass.failOpenReason) details.prepassFailOpenReason = prepass.failOpenReason;
-	}
-
-	if (hasSkillPruning) {
-		parts.push(`Kept ${skillResult!.included.length}/${skillResult!.included.length + skillResult!.excluded.length} skills`);
-	} else if (skillResult) {
-		parts.push(`All ${skillResult.included.length} skills kept`);
-	}
-	if (hasToolPruning) {
-		parts.push(`Kept ${toolResult!.included.length}/${toolResult!.included.length + toolResult!.excluded.length} tools`);
-	} else if (toolResult) {
-		parts.push(`All ${toolResult.included.length} tools kept`);
-	}
-
-	const tokensSaved = details.skillTokensSaved + details.toolTokensSaved;
-	const tokenNote = tokensSaved > 0 ? ` · Saved ~${tokensSaved} tokens` : "";
-
-	const content = hasSkillPruning || hasToolPruning
-		? `${parts.join(", ")}${tokenNote}`
-		: `Pruning: ${parts.join(", ")} (nothing removed)`;
-
-	return {
-		customType: "pruning-result",
-		content,
-		display: true,
-		details,
 	};
 }

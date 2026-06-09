@@ -16,3 +16,4 @@ npm run webview:dev # browser-hosted panel UI backed by the real PI backend; no 
 npm run test       # unit tests
 npm run typecheck  # type-check only
 npm run package    # produce .vsix
+```

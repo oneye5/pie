@@ -176,6 +176,20 @@ export function classifyVerificationCommandKindsFromInput(input: unknown): Verif
   return [...kinds];
 }
 
+function mergeCoercedIntoRollup(
+  coerced: Record<string, number>,
+  rollup: SubagentTaskScoreRollup,
+): void {
+  for (const dim of ['precision', 'creativity', 'reasoning', 'thoroughness'] as const) {
+    const value = coerced[dim];
+    if (value !== undefined) {
+      rollup[dim].sum += value;
+      rollup[dim].count += 1;
+      rollup[dim].max = Math.max(rollup[dim].max, value);
+    }
+  }
+}
+
 /**
  * Extract task scores from subagent result objects.
  *
@@ -205,18 +219,93 @@ function extractResultTaskScores(result: unknown): {
     const coerced = coerceTaskScores(entry.taskScores);
     if (coerced) {
       scoredTaskCount += 1;
-      for (const dim of ['precision', 'creativity', 'reasoning', 'thoroughness'] as const) {
-        const value = coerced[dim];
-        if (value !== undefined) {
-          taskScores[dim].sum += value;
-          taskScores[dim].count += 1;
-          taskScores[dim].max = Math.max(taskScores[dim].max, value);
-        }
-      }
+      mergeCoercedIntoRollup(coerced, taskScores);
     }
   }
 
   return scoredTaskCount > 0 ? { scoredTaskCount, taskScores } : null;
+}
+
+function extractFromTaskArray(
+  entries: unknown[],
+  result: unknown | undefined,
+): {
+  taskCount: number;
+  agents: string[];
+  scoredTaskCount: number;
+  taskScores: SubagentTaskScoreRollup;
+} {
+  const agents = new Set<string>();
+  let taskCount = 0;
+  let scoredTaskCount = 0;
+  const taskScores = createEmptySubagentTaskScoreRollup();
+
+  for (const entry of entries) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    if (typeof entry.task === 'string' && entry.task.trim()) {
+      taskCount += 1;
+    }
+    if (typeof entry.agent === 'string' && entry.agent.trim()) {
+      agents.add(normalizeText(entry.agent));
+    }
+    const coerced = coerceTaskScores(entry.taskScores);
+    if (coerced) {
+      scoredTaskCount += 1;
+      mergeCoercedIntoRollup(coerced, taskScores);
+    }
+  }
+
+  // Fallback: if input didn't carry per-task scores, try the result object
+  if (scoredTaskCount === 0 && result !== undefined) {
+    const resultScores = extractResultTaskScores(result);
+    if (resultScores) {
+      scoredTaskCount = resultScores.scoredTaskCount;
+      taskScores.precision = resultScores.taskScores.precision;
+      taskScores.creativity = resultScores.taskScores.creativity;
+      taskScores.reasoning = resultScores.taskScores.reasoning;
+      taskScores.thoroughness = resultScores.taskScores.thoroughness;
+    }
+  }
+
+  return { taskCount, agents: [...agents], scoredTaskCount, taskScores };
+}
+
+function extractFromSingleTask(
+  input: Record<string, unknown>,
+  result: unknown | undefined,
+): {
+  taskCount: number;
+  agents: string[];
+  scoredTaskCount: number;
+  taskScores: SubagentTaskScoreRollup;
+} {
+  const taskCount = typeof input.task === 'string' && input.task.trim() ? 1 : 0;
+  const agents = typeof input.agent === 'string' && input.agent.trim()
+    ? [normalizeText(input.agent)]
+    : [];
+  const coerced = coerceTaskScores(input.taskScores);
+  let scoredTaskCount = 0;
+  const taskScores = createEmptySubagentTaskScoreRollup();
+  if (coerced) {
+    scoredTaskCount = 1;
+    mergeCoercedIntoRollup(coerced, taskScores);
+  }
+
+  // Fallback: single-task input without taskScores — try the result object
+  if (scoredTaskCount === 0 && result !== undefined) {
+    const resultScores = extractResultTaskScores(result);
+    if (resultScores) {
+      scoredTaskCount = resultScores.scoredTaskCount;
+      taskScores.precision = resultScores.taskScores.precision;
+      taskScores.creativity = resultScores.taskScores.creativity;
+      taskScores.reasoning = resultScores.taskScores.reasoning;
+      taskScores.thoroughness = resultScores.taskScores.thoroughness;
+    }
+  }
+
+  return { taskCount, agents, scoredTaskCount, taskScores };
 }
 
 export function extractSubagentUsage(input: unknown, result?: unknown): {
@@ -241,79 +330,8 @@ export function extractSubagentUsage(input: unknown, result?: unknown): {
     : null;
 
   if (taskEntries) {
-    const agents = new Set<string>();
-    let taskCount = 0;
-    let scoredTaskCount = 0;
-    const taskScores = createEmptySubagentTaskScoreRollup();
-    for (const entry of taskEntries) {
-      if (!isRecord(entry)) {
-        continue;
-      }
-      if (typeof entry.task === 'string' && entry.task.trim()) {
-        taskCount += 1;
-      }
-      if (typeof entry.agent === 'string' && entry.agent.trim()) {
-        agents.add(normalizeText(entry.agent));
-      }
-      const coerced = coerceTaskScores(entry.taskScores);
-      if (coerced) {
-        scoredTaskCount += 1;
-        for (const dim of ['precision', 'creativity', 'reasoning', 'thoroughness'] as const) {
-          const value = coerced[dim];
-          if (value !== undefined) {
-            taskScores[dim].sum += value;
-            taskScores[dim].count += 1;
-            taskScores[dim].max = Math.max(taskScores[dim].max, value);
-          }
-        }
-      }
-    }
-
-    // Fallback: if input didn't carry per-task scores, try the result object
-    if (scoredTaskCount === 0 && result !== undefined) {
-      const resultScores = extractResultTaskScores(result);
-      if (resultScores) {
-        scoredTaskCount = resultScores.scoredTaskCount;
-        taskScores.precision = resultScores.taskScores.precision;
-        taskScores.creativity = resultScores.taskScores.creativity;
-        taskScores.reasoning = resultScores.taskScores.reasoning;
-        taskScores.thoroughness = resultScores.taskScores.thoroughness;
-      }
-    }
-
-    return { taskCount, agents: [...agents], scoredTaskCount, taskScores };
+    return extractFromTaskArray(taskEntries, result);
   }
 
-  const task = typeof input.task === 'string' && input.task.trim() ? 1 : 0;
-  const agents = typeof input.agent === 'string' && input.agent.trim()
-    ? [normalizeText(input.agent)]
-    : [];
-  const coerced = coerceTaskScores(input.taskScores);
-  let scoredTaskCount = 0;
-  const taskScores = createEmptySubagentTaskScoreRollup();
-  if (coerced) {
-    scoredTaskCount = 1;
-    for (const dim of ['precision', 'creativity', 'reasoning', 'thoroughness'] as const) {
-      const value = coerced[dim];
-      if (value !== undefined) {
-        taskScores[dim].sum += value;
-        taskScores[dim].count += 1;
-        taskScores[dim].max = Math.max(taskScores[dim].max, value);
-      }
-    }
-  }
-
-  // Fallback: single-task input without taskScores — try the result object
-  if (scoredTaskCount === 0 && result !== undefined) {
-    const resultScores = extractResultTaskScores(result);
-    if (resultScores) {
-      scoredTaskCount = resultScores.scoredTaskCount;
-      taskScores.precision = resultScores.taskScores.precision;
-      taskScores.creativity = resultScores.taskScores.creativity;
-      taskScores.reasoning = resultScores.taskScores.reasoning;
-      taskScores.thoroughness = resultScores.taskScores.thoroughness;
-    }
-  }
-
-  return { taskCount: task, agents, scoredTaskCount, taskScores };
+  return extractFromSingleTask(input, result);
 }

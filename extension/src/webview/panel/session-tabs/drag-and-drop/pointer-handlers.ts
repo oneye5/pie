@@ -1,0 +1,143 @@
+import { TAB_DRAG_THRESHOLD_PX } from './constants';
+
+import type { TabDragCandidate, SessionTabDragState } from '../types';
+
+export function runPointerDown(
+  event: PointerEvent,
+  sourceIndex: number,
+  sourcePath: string,
+  openTabPaths: string[],
+  dragCandidateRef: { current: TabDragCandidate | null },
+  pointerPositionRef: { current: { x: number; y: number } | null },
+  beginTracking: () => void,
+): void {
+  if (openTabPaths.length <= 1 || dragCandidateRef.current || event.button !== 0 || !event.isPrimary) {
+    return;
+  }
+
+  const currentTarget = event.currentTarget as HTMLElement | null;
+  const tabElement = currentTarget?.closest('.session-tab') as HTMLElement | null;
+  const rect = tabElement?.getBoundingClientRect() ?? currentTarget?.getBoundingClientRect();
+  if (!rect) {
+    return;
+  }
+
+  dragCandidateRef.current = {
+    pointerId: event.pointerId,
+    sourceIndex,
+    sourcePath,
+    startX: event.clientX,
+    startY: event.clientY,
+    offsetX: event.clientX - rect.left,
+    tabWidth: rect.width,
+    tabHeight: rect.height,
+    tabTop: rect.top,
+  };
+  pointerPositionRef.current = { x: event.clientX, y: event.clientY };
+  beginTracking();
+  currentTarget?.setPointerCapture?.(event.pointerId);
+}
+
+export function runPointerMove(
+  event: PointerEvent,
+  dragCandidateRef: { current: TabDragCandidate | null },
+  dragStateRef: { current: SessionTabDragState | null },
+  pointerPositionRef: { current: { x: number; y: number } | null },
+  setDragState: (state: SessionTabDragState | null) => void,
+  syncDragFromPointer: (clientX: number, clientY: number) => void,
+  ensureAutoScrollLoop: () => void,
+): void {
+  const candidate = dragCandidateRef.current;
+  if (!candidate || event.pointerId !== candidate.pointerId) {
+    return;
+  }
+
+  pointerPositionRef.current = { x: event.clientX, y: event.clientY };
+
+  if (!dragStateRef.current) {
+    const deltaX = event.clientX - candidate.startX;
+    const deltaY = event.clientY - candidate.startY;
+    if (Math.hypot(deltaX, deltaY) < TAB_DRAG_THRESHOLD_PX) {
+      return;
+    }
+
+    const nextState: SessionTabDragState = {
+      pointerId: candidate.pointerId,
+      sourceIndex: candidate.sourceIndex,
+      sourcePath: candidate.sourcePath,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      offsetX: candidate.offsetX,
+      tabWidth: candidate.tabWidth,
+      tabHeight: candidate.tabHeight,
+      tabTop: candidate.tabTop,
+      dropIndex: candidate.sourceIndex,
+    };
+    dragStateRef.current = nextState;
+    setDragState(nextState);
+    document.body.classList.add('session-tab-dragging');
+    ensureAutoScrollLoop();
+    event.preventDefault();
+    return;
+  }
+
+  syncDragFromPointer(event.clientX, event.clientY);
+  event.preventDefault();
+}
+
+export function runPointerUp(
+  event: PointerEvent,
+  dragCandidateRef: { current: TabDragCandidate | null },
+  dragStateRef: { current: SessionTabDragState | null },
+  pointerPositionRef: { current: { x: number; y: number } | null },
+  syncDragFromPointer: (clientX: number, clientY: number) => void,
+  commitDrag: () => void,
+  endTracking: () => void,
+): void {
+  const candidate = dragCandidateRef.current;
+  if (!candidate || event.pointerId !== candidate.pointerId) {
+    return;
+  }
+
+  if (dragStateRef.current) {
+    pointerPositionRef.current = { x: event.clientX, y: event.clientY };
+    syncDragFromPointer(event.clientX, event.clientY);
+    commitDrag();
+    return;
+  }
+
+  dragCandidateRef.current = null;
+  pointerPositionRef.current = null;
+  endTracking();
+}
+
+export function runPointerCancel(
+  dragCandidateRef: { current: TabDragCandidate | null },
+  resetDrag: (suppressClick: boolean) => void,
+): void {
+  if (!dragCandidateRef.current) {
+    return;
+  }
+  resetDrag(false);
+}
+
+export function runWindowBlur(
+  dragCandidateRef: { current: TabDragCandidate | null },
+  resetDrag: (suppressClick: boolean) => void,
+): void {
+  if (!dragCandidateRef.current) {
+    return;
+  }
+  resetDrag(false);
+}
+
+export function runOnClick(
+  tabPath: string,
+  suppressNextClickRef: { current: boolean },
+  onSelect: (tabPath: string) => void,
+): void {
+  if (suppressNextClickRef.current) {
+    return;
+  }
+  onSelect(tabPath);
+}

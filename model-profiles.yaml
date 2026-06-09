@@ -302,17 +302,6 @@ profiles:
     eligible: true
     cost: 10
 
-  # --- DeepSeek (old gen) ---
-  - id: deepseek-v3.1:671b-cloud
-    precision: 4
-    creativity: 3
-    thoroughness: 4
-    reasoning: 4
-    thinking: [low, medium, high]
-    eligible: false
-    disabled_reason: Superseded by deepseek-v3.2
-    cost: 10
-
   # --- Cogito ---
   - id: cogito-2.1:671b-cloud
     precision: 4
@@ -341,48 +330,6 @@ profiles:
     thinking: [minimal, low, medium]
     eligible: true
     cost: 9
-
-  # --- Gemma (old gen) ---
-  - id: gemma3:27b-cloud
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
-    thinking: [minimal]
-    eligible: false
-    disabled_reason: Superseded by gemma4:31b
-    cost: 9
-
-  - id: gemma3:12b-cloud
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
-    thinking: [minimal]
-    eligible: false
-    disabled_reason: Superseded by gemma4:31b
-    cost: 6
-
-  - id: gemma3:4b-cloud
-    precision: 1
-    creativity: 1
-    thoroughness: 1
-    reasoning: 1
-    thinking: [minimal]
-    eligible: false
-    disabled_reason: Too small for agentic work
-    cost: 3
-
-  # --- RNJ ---
-  - id: rnj-1:8b-cloud
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
-    thinking: [minimal]
-    eligible: false
-    disabled_reason: Too small for agentic work
-    cost: 5
 
   # --- Qwen (current gen) ---
   - id: qwen3.5:397b-cloud
@@ -469,27 +416,6 @@ profiles:
     eligible: true
     cost: 9
 
-  # --- Kimi (old gen) ---
-  - id: kimi-k2-thinking:cloud
-    precision: 3
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [medium, high]
-    eligible: false
-    disabled_reason: Superseded by kimi-k2.5/k2.6
-    cost: 9
-
-  - id: kimi-k2:1t-cloud
-    precision: 3
-    creativity: 2
-    thoroughness: 3
-    reasoning: 2
-    thinking: [minimal]
-    eligible: false
-    disabled_reason: Superseded by kimi-k2.5/k2.6
-    cost: 9
-
   # --- Nemotron ---
   - id: nemotron-3-super:cloud
     precision: 3
@@ -509,6 +435,15 @@ profiles:
     eligible: true
     cost: 9
 
+  - id: nemotron-3-ultra:cloud
+    precision: 5
+    creativity: 3
+    thoroughness: 5
+    reasoning: 5
+    thinking: [low, medium, high, xhigh]
+    eligible: true
+    cost: 6
+
   # --- GLM (current gen) ---
   - id: glm-5.1:cloud
     precision: 5
@@ -526,27 +461,6 @@ profiles:
     reasoning: 3
     thinking: [low, medium]
     eligible: true
-    cost: 9
-
-  # --- GLM (old gen) ---
-  - id: glm-5:cloud
-    precision: 3
-    creativity: 3
-    thoroughness: 3
-    reasoning: 3
-    thinking: [low, medium, high]
-    eligible: false
-    disabled_reason: Superseded by glm-5.1
-    cost: 10
-
-  - id: glm-4.6:cloud
-    precision: 3
-    creativity: 2
-    thoroughness: 3
-    reasoning: 3
-    thinking: [low, medium]
-    eligible: false
-    disabled_reason: Superseded by glm-4.7
     cost: 9
 
   # --- GPT-OSS ---
@@ -579,36 +493,14 @@ profiles:
     eligible: true
     cost: 5
 
-  # --- Minimax (old gen) ---
-  - id: minimax-m2.5:cloud
-    precision: 3
-    creativity: 3
-    thoroughness: 3
-    reasoning: 3
-    thinking: [low, medium]
-    eligible: false
-    disabled_reason: Superseded by m2.7
-    cost: 5
-
-  - id: minimax-m2.1:cloud
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
-    thinking: [minimal]
-    eligible: false
-    disabled_reason: Superseded by m2.5/m2.7
-    cost: 5
-
-  - id: minimax-m2:cloud
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
-    thinking: [minimal]
-    eligible: false
-    disabled_reason: Superseded by m2.5/m2.7
-    cost: 5
+  - id: minimax-m3:cloud
+    precision: 4
+    creativity: 4
+    thoroughness: 4
+    reasoning: 4
+    thinking: [low, medium, high, xhigh]
+    eligible: true
+    cost: 7
 
   # --- Devstral / Mistral ---
   - id: devstral-2:123b-cloud
@@ -646,27 +538,6 @@ profiles:
     thinking: [minimal]
     eligible: true
     cost: 6
-
-  # --- Ministral (old/too small) ---
-  - id: ministral-3:8b-cloud
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
-    thinking: [minimal]
-    eligible: false
-    disabled_reason: 14b variant is a better trade-off for only slightly more cost
-    cost: 5
-
-  - id: ministral-3:3b-cloud
-    precision: 1
-    creativity: 1
-    thoroughness: 1
-    reasoning: 1
-    thinking: [minimal]
-    eligible: false
-    disabled_reason: Too small for agentic work
-    cost: 3
 
   # === OLLAMA LOCAL MODELS ===
 

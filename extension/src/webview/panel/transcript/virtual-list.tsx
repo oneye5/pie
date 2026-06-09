@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { Virtualizer, elementScroll, observeElementOffset, observeElementRect } from '@tanstack/virtual-core';
+import { VirtualItem, Virtualizer, elementScroll, observeElementOffset, observeElementRect } from '@tanstack/virtual-core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { type ChatMessage, type ChatPrefs, type PruningResult, type PruningSettings, type SystemPromptEntry, type ThinkingLevel, type ToolCall, type TranscriptWindow } from '../../../shared/protocol';
@@ -40,31 +40,33 @@ function fallbackTranscriptRow(rows: readonly TranscriptRow[]): TranscriptRow {
   return rows[rows.length - 1] ?? { kind: 'bottomGap', key: 'fallback-gap' };
 }
 
-export function TranscriptVirtualList({
-  sessionKey,
+function getRowRole(row: TranscriptRow | undefined): string | null {
+  if (row?.kind === 'message') return row.message.role;
+  if (row?.kind === 'systemPrompts') return 'system';
+  return null;
+}
+
+function useTranscriptRows({
   transcript,
+  systemPrompts,
   transcriptWindow,
   busy,
+  pruningResult,
   prefs,
   pruningSettings,
-  systemPrompts,
-  pruningResult,
   pendingAssistantModelId,
   pendingAssistantThinkingLevel,
-  workingDirectory,
-  editingId,
-  onEditRequest,
-  onEditConfirm,
-  onEditCancel,
-  onOpenFile,
-  onContextMenu,
-  onLoadOlder,
-  onLoadNewer,
-  onJumpToLatest,
-}: TranscriptVirtualListProps) {
-  const [, setRenderTick] = useState(0);
-  const renderFrameRef = useRef<number | null>(null);
-
+}: {
+  transcript: ChatMessage[];
+  systemPrompts: SystemPromptEntry[];
+  transcriptWindow: TranscriptWindow;
+  busy: boolean;
+  pruningResult: PruningResult | null;
+  prefs: ChatPrefs;
+  pruningSettings: PruningSettings;
+  pendingAssistantModelId?: string;
+  pendingAssistantThinkingLevel?: ThinkingLevel;
+}) {
   const activityState = useMemo(() => deriveTurnActivityState({
     busy,
     transcript,
@@ -87,25 +89,15 @@ export function TranscriptVirtualList({
     pendingAssistantThinkingLevel,
   }), [systemPrompts.length, transcript, transcriptWindow.hasOlder, transcriptWindow.hasNewer, busy, pruningResult, prefs.showPruningMessages, activityState, pendingAssistantModelId, pendingAssistantThinkingLevel]);
 
-  const {
-    scrollRef,
-    isAtBottom,
-    isInitialPositioning,
-    isLoadingOlder,
-    isLoadingNewer,
-    requestOlderPage,
-    requestNewerPage,
-    jumpToLatest,
-  } = useTranscriptScroll({
-    sessionKey,
-    transcriptWindow,
-    transcriptLength: transcript.length,
-    busy,
-    hasStreamingContent: busy && transcript.some(m => m.status === 'streaming'),
-    onLoadOlder,
-    onLoadNewer,
-    onJumpToLatest,
-  });
+  return rows;
+}
+
+function useTranscriptVirtualizer(
+  rows: readonly TranscriptRow[],
+  scrollRef: { current: HTMLDivElement | null },
+) {
+  const [, setRenderTick] = useState(0);
+  const renderFrameRef = useRef<number | null>(null);
 
   const scheduleVirtualRender = useCallback(() => {
     if (renderFrameRef.current !== null) {
@@ -144,7 +136,6 @@ export function TranscriptVirtualList({
 
   const virtualizer = virtualizerRef.current;
 
-  // Update virtualizer options only when relevant deps change
   useLayoutEffect(() => {
     virtualizer.setOptions({
       ...virtualizer.options,
@@ -171,6 +162,18 @@ export function TranscriptVirtualList({
     }
   }, []);
 
+  return virtualizer;
+}
+
+function useTranscriptRenderToolCall({
+  prefs,
+  workingDirectory,
+  onOpenFile,
+}: {
+  prefs: ChatPrefs;
+  workingDirectory: string | null;
+  onOpenFile: (path: string) => void;
+}) {
   const renderToolCallRef = useRef<RenderToolCall>((_toolCall, _contextMenuHandler) => null);
   const renderToolCall = useCallback<RenderToolCall>((toolCall: ToolCall, contextMenuHandler: TranscriptContextMenuHandler) => (
     <ToolCallItem
@@ -183,6 +186,205 @@ export function TranscriptVirtualList({
     />
   ), [onOpenFile, prefs, workingDirectory]);
   renderToolCallRef.current = renderToolCall;
+  return renderToolCall;
+}
+
+function useTranscriptClickHandler() {
+  const handlers: Record<string, (target: HTMLElement, btn: Element) => void> = {
+    '.code-block-copy': (_target, btn) => {
+      const code = btn.closest('.code-block')?.querySelector('code');
+      const text = code?.textContent ?? '';
+      if (text) {
+        void navigator.clipboard?.writeText(text);
+        btn.classList.add('copied');
+        window.setTimeout(() => btn.classList.remove('copied'), 1200);
+      }
+    },
+    '.code-block-toggle': (_target, btn) => {
+      const block = btn.closest('.code-block');
+      if (!block) return;
+      // Preserve the original "Show all N lines" label for re-collapse.
+      if (!btn.getAttribute('data-collapsed-label')) {
+        btn.setAttribute('data-collapsed-label', btn.textContent ?? 'Show all');
+      }
+      const collapsed = block.classList.toggle('code-block-collapsed');
+      btn.setAttribute('aria-expanded', String(!collapsed));
+      btn.textContent = collapsed
+        ? btn.getAttribute('data-collapsed-label') ?? 'Show all'
+        : 'Show less';
+    },
+  };
+
+  return useCallback((event: MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (!target) return;
+
+    for (const [selector, handler] of Object.entries(handlers)) {
+      const btn = target.closest(selector);
+      if (btn) {
+        handler(target, btn);
+        return;
+      }
+    }
+  }, []);
+}
+
+interface VirtualRowProps {
+  virtualRow: VirtualItem;
+  rows: readonly TranscriptRow[];
+  lastRow: TranscriptRow | undefined;
+  busy: boolean;
+  prefs: ChatPrefs;
+  systemPrompts: SystemPromptEntry[];
+  pruningResult: PruningResult | null;
+  workingDirectory: string | null;
+  editingId: string | null;
+  isLoadingOlder: boolean;
+  isLoadingNewer: boolean;
+  onEditRequest: (messageId: string) => void;
+  onEditConfirm: (messageId: string, text: string) => void;
+  onEditCancel: () => void;
+  onOpenFile: (path: string) => void;
+  onContextMenu: TranscriptContextMenuHandler;
+  onRequestOlder: () => void;
+  onRequestNewer: () => void;
+  renderToolCall: RenderToolCall;
+  transcript: ChatMessage[];
+  transcriptWindow: TranscriptWindow;
+  measureRowElement: (element: HTMLDivElement | null) => void;
+}
+
+function VirtualRow({
+  virtualRow,
+  rows,
+  lastRow,
+  busy,
+  prefs,
+  systemPrompts,
+  pruningResult,
+  workingDirectory,
+  editingId,
+  isLoadingOlder,
+  isLoadingNewer,
+  onEditRequest,
+  onEditConfirm,
+  onEditCancel,
+  onOpenFile,
+  onContextMenu,
+  onRequestOlder,
+  onRequestNewer,
+  renderToolCall,
+  transcript,
+  transcriptWindow,
+  measureRowElement,
+}: VirtualRowProps) {
+  const row = rows[virtualRow.index];
+  if (!row) {
+    return null;
+  }
+
+  const previousRole = getRowRole(rows[virtualRow.index - 1]);
+  const currentRole = getRowRole(row);
+  const isRoleTransition = !!previousRole && !!currentRole && previousRole !== currentRole;
+
+  return (
+    <div
+      data-index={virtualRow.index}
+      ref={measureRowElement}
+      class={cx(
+        'absolute start-0 top-0 box-border flex w-full flex-col items-start',
+        isRoleTransition ? 'pb-4' : 'pb-1.5',
+      )}
+      style={{ transform: `translateY(${virtualRow.start}px)` }}
+    >
+      <TranscriptVirtualRow
+        row={row}
+        busy={busy}
+        prefs={prefs}
+        systemPrompts={systemPrompts}
+        pruningResult={pruningResult}
+        workingDirectory={workingDirectory}
+        editingId={editingId}
+        isLoadingOlder={isLoadingOlder}
+        isLoadingNewer={isLoadingNewer}
+        isLastRow={row === lastRow}
+        onEditRequest={onEditRequest}
+        onEditConfirm={onEditConfirm}
+        onEditCancel={onEditCancel}
+        onOpenFile={onOpenFile}
+        onContextMenu={onContextMenu}
+        onRequestOlder={onRequestOlder}
+        onRequestNewer={onRequestNewer}
+        renderToolCall={renderToolCall}
+        transcript={transcript}
+        transcriptIndex={row.kind === 'message' ? row.transcriptIndex : undefined}
+        hasOlder={transcriptWindow.hasOlder}
+      />
+    </div>
+  );
+}
+
+export function TranscriptVirtualList({
+  sessionKey,
+  transcript,
+  transcriptWindow,
+  busy,
+  prefs,
+  pruningSettings,
+  systemPrompts,
+  pruningResult,
+  pendingAssistantModelId,
+  pendingAssistantThinkingLevel,
+  workingDirectory,
+  editingId,
+  onEditRequest,
+  onEditConfirm,
+  onEditCancel,
+  onOpenFile,
+  onContextMenu,
+  onLoadOlder,
+  onLoadNewer,
+  onJumpToLatest,
+}: TranscriptVirtualListProps) {
+  const rows = useTranscriptRows({
+    transcript,
+    systemPrompts,
+    transcriptWindow,
+    busy,
+    pruningResult,
+    prefs,
+    pruningSettings,
+    pendingAssistantModelId,
+    pendingAssistantThinkingLevel,
+  });
+
+  const {
+    scrollRef,
+    isAtBottom,
+    isInitialPositioning,
+    isLoadingOlder,
+    isLoadingNewer,
+    requestOlderPage,
+    requestNewerPage,
+    jumpToLatest,
+  } = useTranscriptScroll({
+    sessionKey,
+    transcriptWindow,
+    transcriptLength: transcript.length,
+    busy,
+    hasStreamingContent: busy && transcript.some(m => m.status === 'streaming'),
+    onLoadOlder,
+    onLoadNewer,
+    onJumpToLatest,
+  });
+
+  const virtualizer = useTranscriptVirtualizer(rows, scrollRef);
+
+  const renderToolCall = useTranscriptRenderToolCall({
+    prefs,
+    workingDirectory,
+    onOpenFile,
+  });
 
   // Re-affirm the row element with the virtualizer on every render. A stable
   // useCallback ref only fires on mount/unmount, so subsequent renders never
@@ -197,43 +399,11 @@ export function TranscriptVirtualList({
     }
   };
 
+  const handleTranscriptClick = useTranscriptClickHandler();
+
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
   const lastRow = rows[rows.length - 1];
-
-  // Delegated handler for code-block affordances injected by renderMarkdown.
-  const handleTranscriptClick = useCallback((event: MouseEvent) => {
-    const target = event.target as HTMLElement | null;
-    if (!target) return;
-
-    const copyBtn = target.closest('.code-block-copy');
-    if (copyBtn) {
-      const code = copyBtn.closest('.code-block')?.querySelector('code');
-      const text = code?.textContent ?? '';
-      if (text) {
-        void navigator.clipboard?.writeText(text);
-        copyBtn.classList.add('copied');
-        window.setTimeout(() => copyBtn.classList.remove('copied'), 1200);
-      }
-      return;
-    }
-
-    const toggleBtn = target.closest('.code-block-toggle');
-    if (toggleBtn) {
-      const block = toggleBtn.closest('.code-block');
-      if (block) {
-        // Preserve the original "Show all N lines" label for re-collapse.
-        if (!toggleBtn.getAttribute('data-collapsed-label')) {
-          toggleBtn.setAttribute('data-collapsed-label', toggleBtn.textContent ?? 'Show all');
-        }
-        const collapsed = block.classList.toggle('code-block-collapsed');
-        toggleBtn.setAttribute('aria-expanded', String(!collapsed));
-        toggleBtn.textContent = collapsed
-          ? toggleBtn.getAttribute('data-collapsed-label') ?? 'Show all'
-          : 'Show less';
-      }
-    }
-  }, []);
 
   return (
     <div
@@ -242,62 +412,33 @@ export function TranscriptVirtualList({
       onClick={handleTranscriptClick}
     >
       <div class="transcript-virtual-inner" style={{ height: `${totalSize}px` }}>
-        {virtualRows.map((virtualRow) => {
-          const row = rows[virtualRow.index];
-          if (!row) {
-            return null;
-          }
-
-          const previousRow = rows[virtualRow.index - 1];
-          const previousRole = previousRow?.kind === 'message'
-            ? previousRow.message.role
-            : previousRow?.kind === 'systemPrompts'
-              ? 'system'
-              : null;
-          const currentRole = row.kind === 'message'
-            ? row.message.role
-            : row.kind === 'systemPrompts'
-              ? 'system'
-              : null;
-          const isRoleTransition = !!previousRole && !!currentRole && previousRole !== currentRole;
-
-          return (
-            <div
-              key={row.key}
-              data-index={virtualRow.index}
-              ref={measureRowElement}
-              class={cx(
-                'absolute start-0 top-0 box-border flex w-full flex-col items-start',
-                isRoleTransition ? 'pb-4' : 'pb-1.5',
-              )}
-              style={{ transform: `translateY(${virtualRow.start}px)` }}
-            >
-              <TranscriptVirtualRow
-                row={row}
-                busy={busy}
-                prefs={prefs}
-                systemPrompts={systemPrompts}
-                pruningResult={pruningResult}
-                workingDirectory={workingDirectory}
-                editingId={editingId}
-                isLoadingOlder={isLoadingOlder}
-                isLoadingNewer={isLoadingNewer}
-                isLastRow={row === lastRow}
-                onEditRequest={onEditRequest}
-                onEditConfirm={onEditConfirm}
-                onEditCancel={onEditCancel}
-                onOpenFile={onOpenFile}
-                onContextMenu={onContextMenu}
-                onRequestOlder={requestOlderPage}
-                onRequestNewer={requestNewerPage}
-                renderToolCall={renderToolCall}
-                transcript={transcript}
-                transcriptIndex={row.kind === 'message' ? row.transcriptIndex : undefined}
-                hasOlder={transcriptWindow.hasOlder}
-              />
-            </div>
-          );
-        })}
+        {virtualRows.map((virtualRow) => (
+          <VirtualRow
+            key={virtualRow.key}
+            virtualRow={virtualRow}
+            rows={rows}
+            lastRow={lastRow}
+            busy={busy}
+            prefs={prefs}
+            systemPrompts={systemPrompts}
+            pruningResult={pruningResult}
+            workingDirectory={workingDirectory}
+            editingId={editingId}
+            isLoadingOlder={isLoadingOlder}
+            isLoadingNewer={isLoadingNewer}
+            onEditRequest={onEditRequest}
+            onEditConfirm={onEditConfirm}
+            onEditCancel={onEditCancel}
+            onOpenFile={onOpenFile}
+            onContextMenu={onContextMenu}
+            onRequestOlder={requestOlderPage}
+            onRequestNewer={requestNewerPage}
+            renderToolCall={renderToolCall}
+            transcript={transcript}
+            transcriptWindow={transcriptWindow}
+            measureRowElement={measureRowElement}
+          />
+        ))}
       </div>
 
       {(!isAtBottom || transcriptWindow.hasNewer) && (

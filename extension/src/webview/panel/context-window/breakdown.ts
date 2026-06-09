@@ -213,124 +213,8 @@ function buildContributors(
   return { items, otherEstimated };
 }
 
-export function buildContextWindowBreakdown({
-  contextUsage,
-  effectiveContextWindow,
-  systemPrompts,
-  transcript,
-  isPartial,
-}: BuildContextWindowBreakdownOptions): ContextWindowBreakdown {
-  const reportedUsedTokens = contextUsage?.tokens ?? null;
-  const totalWindow = contextUsage?.contextWindow ?? effectiveContextWindow;
-
-  const notes: string[] = [];
-
-  if (isPartial) {
-    const usedTokens = reportedUsedTokens;
-    const usedKind: ContextWindowBreakdownKind = reportedUsedTokens !== null ? 'exact' : 'unknown';
-    const remainingTokens =
-      totalWindow > 0 && usedTokens !== null
-        ? Math.max(totalWindow - usedTokens, 0)
-        : null;
-    const remainingKind: ContextWindowBreakdownKind =
-      totalWindow > 0 && usedTokens !== null
-        ? 'exact'
-        : 'unknown';
-
-    notes.push('Only a partial transcript window is loaded; contributor rows are hidden to avoid misleading attribution.');
-    if (reportedUsedTokens !== null) {
-      notes.push('Used tokens come from PI’s live context-window snapshot, not just the loaded transcript window.');
-    } else {
-      notes.push('Exact used/remaining values are unavailable until PI reports a live context-window snapshot.');
-    }
-
-    const summary: ContextWindowSummary = {
-      usedTokens,
-      usedKind,
-      remainingTokens,
-      remainingKind,
-      totalWindow,
-    };
-
-    const footerEntries: ContextWindowBreakdownEntry[] = [
-      {
-        key: 'window.used',
-        label: 'Used',
-        value: formatTokenValue(summary.usedTokens, summary.usedKind),
-        kind: summary.usedKind,
-      },
-      {
-        key: 'window.remaining',
-        label: 'Remaining',
-        value: formatTokenValue(summary.remainingTokens, summary.remainingKind),
-        kind: summary.remainingKind,
-      },
-      {
-        key: 'window.total',
-        label: 'Total',
-        value: totalWindow > 0 ? formatTokenValue(totalWindow, 'exact') : 'unknown',
-        kind: totalWindow > 0 ? 'exact' : 'unknown',
-      },
-    ];
-
-    return {
-      entries: [],
-      footerEntries,
-      summary,
-      notes,
-      title: buildTooltipText([], footerEntries, notes),
-    };
-  }
-
-  const { items: contributors, otherEstimated } = buildContributors(systemPrompts, transcript);
-  const explicitTokens = contributors.reduce((sum, item) => sum + item.tokens, 0);
-  const estimatedUsedTokens = explicitTokens + otherEstimated;
-
-  const usedTokens = reportedUsedTokens ?? estimatedUsedTokens;
-  const usedKind: ContextWindowBreakdownKind = reportedUsedTokens !== null ? 'exact' : 'estimated';
-  const remainingTokens =
-    totalWindow > 0
-      ? Math.max(totalWindow - usedTokens, 0)
-      : null;
-  const remainingKind: ContextWindowBreakdownKind =
-    totalWindow > 0
-      ? (reportedUsedTokens !== null ? 'exact' : 'estimated')
-      : 'unknown';
-
-  const otherTokens = reportedUsedTokens !== null
-    ? Math.max(reportedUsedTokens - explicitTokens, 0)
-    : otherEstimated;
-  const otherKind: ContextWindowBreakdownKind = reportedUsedTokens !== null ? 'derived' : 'estimated';
-  const otherNote = reportedUsedTokens !== null
-    ? 'Unattributed: assistant responses, tool schemas, provider prompt, tokenizer drift.'
-    : 'Assistant responses, reasoning, and misc tool calls.';
-
-  const entries: ContextWindowBreakdownEntry[] = [
-    ...contributors.map((item, index) => ({
-      key: `contributor:${index}`,
-      label: item.label,
-      value: formatTokenValue(item.tokens, 'estimated'),
-      kind: 'estimated' as ContextWindowBreakdownKind,
-      note: item.note,
-    })),
-    {
-      key: 'other',
-      label: 'Other',
-      value: formatTokenValue(otherTokens, otherKind),
-      kind: otherKind,
-      note: otherNote,
-    },
-  ];
-
-  const summary: ContextWindowSummary = {
-    usedTokens,
-    usedKind,
-    remainingTokens,
-    remainingKind,
-    totalWindow,
-  };
-
-  const footerEntries: ContextWindowBreakdownEntry[] = [
+function buildFooterEntries(summary: ContextWindowSummary): ContextWindowBreakdownEntry[] {
+  return [
     {
       key: 'window.used',
       label: 'Used',
@@ -346,11 +230,88 @@ export function buildContextWindowBreakdown({
     {
       key: 'window.total',
       label: 'Total',
-      value: totalWindow > 0 ? formatTokenValue(totalWindow, 'exact') : 'unknown',
-      kind: totalWindow > 0 ? 'exact' : 'unknown',
+      value: summary.totalWindow > 0 ? formatTokenValue(summary.totalWindow, 'exact') : 'unknown',
+      kind: summary.totalWindow > 0 ? 'exact' : 'unknown',
     },
   ];
+}
 
+function buildPartialNotes(reportedUsedTokens: number | null): string[] {
+  const notes: string[] = [];
+  notes.push('Only a partial transcript window is loaded; contributor rows are hidden to avoid misleading attribution.');
+  if (reportedUsedTokens !== null) {
+    notes.push('Used tokens come from PI’s live context-window snapshot, not just the loaded transcript window.');
+  } else {
+    notes.push('Exact used/remaining values are unavailable until PI reports a live context-window snapshot.');
+  }
+  return notes;
+}
+
+function buildPartialBreakdown(
+  reportedUsedTokens: number | null,
+  totalWindow: number,
+): ContextWindowBreakdown {
+  const usedTokens = reportedUsedTokens;
+  const usedKind: ContextWindowBreakdownKind = reportedUsedTokens !== null ? 'exact' : 'unknown';
+
+  let remainingTokens: number | null = null;
+  let remainingKind: ContextWindowBreakdownKind = 'unknown';
+  if (totalWindow > 0 && usedTokens !== null) {
+    remainingTokens = Math.max(totalWindow - usedTokens, 0);
+    remainingKind = 'exact';
+  }
+
+  const notes = buildPartialNotes(reportedUsedTokens);
+
+  const summary: ContextWindowSummary = {
+    usedTokens,
+    usedKind,
+    remainingTokens,
+    remainingKind,
+    totalWindow,
+  };
+
+  const footerEntries = buildFooterEntries(summary);
+
+  return {
+    entries: [],
+    footerEntries,
+    summary,
+    notes,
+    title: buildTooltipText([], footerEntries, notes),
+  };
+}
+
+function buildFullEntries(
+  contributors: ContributorItem[],
+  otherTokens: number,
+  otherKind: ContextWindowBreakdownKind,
+  otherNote: string,
+): ContextWindowBreakdownEntry[] {
+  return [
+    ...contributors.map((item, index) => ({
+      key: `contributor:${index}`,
+      label: item.label,
+      value: formatTokenValue(item.tokens, 'estimated'),
+      kind: 'estimated' as ContextWindowBreakdownKind,
+      note: item.note,
+    })),
+    {
+      key: 'other',
+      label: 'Other',
+      value: formatTokenValue(otherTokens, otherKind),
+      kind: otherKind,
+      note: otherNote,
+    },
+  ];
+}
+
+function buildFullNotes(
+  entries: readonly ContextWindowBreakdownEntry[],
+  reportedUsedTokens: number | null,
+  totalWindow: number,
+): string[] {
+  const notes: string[] = [];
   if (reportedUsedTokens !== null) {
     notes.push('Used tokens come from PI’s live context-window snapshot, not just the next prompt.');
   } else if (totalWindow > 0) {
@@ -362,6 +323,67 @@ export function buildContextWindowBreakdown({
   if (entries.some((entry) => entry.kind === 'derived')) {
     notes.push('Derived rows are the PI-reported remainder after subtracting explicit rows.');
   }
+  return notes;
+}
+
+function computeUsedKind(reportedUsedTokens: number | null): ContextWindowBreakdownKind {
+  return reportedUsedTokens !== null ? 'exact' : 'estimated';
+}
+
+function computeRemainingKind(totalWindow: number, reportedUsedTokens: number | null): ContextWindowBreakdownKind {
+  if (totalWindow <= 0) return 'unknown';
+  return reportedUsedTokens !== null ? 'exact' : 'estimated';
+}
+
+function computeOtherTokens(reportedUsedTokens: number | null, explicitTokens: number, otherEstimated: number): number {
+  return reportedUsedTokens !== null ? Math.max(reportedUsedTokens - explicitTokens, 0) : otherEstimated;
+}
+
+function computeOtherKind(reportedUsedTokens: number | null): ContextWindowBreakdownKind {
+  return reportedUsedTokens !== null ? 'derived' : 'estimated';
+}
+
+function computeOtherNote(reportedUsedTokens: number | null): string {
+  return reportedUsedTokens !== null
+    ? 'Unattributed: assistant responses, tool schemas, provider prompt, tokenizer drift.'
+    : 'Assistant responses, reasoning, and misc tool calls.';
+}
+
+function buildFullBreakdown(options: BuildContextWindowBreakdownOptions): ContextWindowBreakdown {
+  const { contextUsage, effectiveContextWindow, systemPrompts, transcript } = options;
+  const reportedUsedTokens = contextUsage?.tokens ?? null;
+  const totalWindow = contextUsage?.contextWindow ?? effectiveContextWindow;
+
+  const { items: contributors, otherEstimated } = buildContributors(systemPrompts, transcript);
+  const explicitTokens = contributors.reduce((sum, item) => sum + item.tokens, 0);
+  const estimatedUsedTokens = explicitTokens + otherEstimated;
+
+  const usedTokens = reportedUsedTokens ?? estimatedUsedTokens;
+  const usedKind = computeUsedKind(reportedUsedTokens);
+
+  let remainingTokens: number | null = null;
+  let remainingKind: ContextWindowBreakdownKind = 'unknown';
+  if (totalWindow > 0) {
+    remainingTokens = Math.max(totalWindow - usedTokens, 0);
+    remainingKind = computeRemainingKind(totalWindow, reportedUsedTokens);
+  }
+
+  const otherTokens = computeOtherTokens(reportedUsedTokens, explicitTokens, otherEstimated);
+  const otherKind = computeOtherKind(reportedUsedTokens);
+  const otherNote = computeOtherNote(reportedUsedTokens);
+
+  const entries = buildFullEntries(contributors, otherTokens, otherKind, otherNote);
+
+  const summary: ContextWindowSummary = {
+    usedTokens,
+    usedKind,
+    remainingTokens,
+    remainingKind,
+    totalWindow,
+  };
+
+  const footerEntries = buildFooterEntries(summary);
+  const notes = buildFullNotes(entries, reportedUsedTokens, totalWindow);
 
   return {
     entries,
@@ -370,4 +392,27 @@ export function buildContextWindowBreakdown({
     notes,
     title: buildTooltipText(entries, footerEntries, notes),
   };
+}
+
+export function buildContextWindowBreakdown({
+  contextUsage,
+  effectiveContextWindow,
+  systemPrompts,
+  transcript,
+  isPartial,
+}: BuildContextWindowBreakdownOptions): ContextWindowBreakdown {
+  const reportedUsedTokens = contextUsage?.tokens ?? null;
+  const totalWindow = contextUsage?.contextWindow ?? effectiveContextWindow;
+
+  if (isPartial) {
+    return buildPartialBreakdown(reportedUsedTokens, totalWindow);
+  }
+
+  return buildFullBreakdown({
+    contextUsage,
+    effectiveContextWindow,
+    systemPrompts,
+    transcript,
+    isPartial,
+  });
 }

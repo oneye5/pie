@@ -22,7 +22,8 @@ Arguments:
                          (default: p/default — community rules, no login needed)
     --exclude-categories CATEGORIES
                          Comma-separated categories to exclude from output
-                         (default: none — all findings shown)
+                         (default: security — known false-positive-heavy
+                         community rules)
                          Findings whose extra.metadata.category matches one
                          of these are dropped.  Findings without a category
                          are kept.
@@ -255,7 +256,7 @@ def parse_args() -> tuple[Path, int, str, set[str]]:
 
     max_findings = 50
     rules = "p/default"
-    exclude_categories: set[str] = set()
+    exclude_categories: set[str] = {"security"}
 
     i = 2
     while i < len(sys.argv):

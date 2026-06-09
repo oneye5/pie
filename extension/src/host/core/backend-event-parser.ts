@@ -31,7 +31,6 @@ import type {
   ChatMessage,
   ContextWindowUsage,
   ExtensionUIRequestPayload,
-  MessageStartedPayload,
   SessionOpenedPayload,
   SessionSummary,
   ToolCall,
@@ -45,6 +44,150 @@ interface RawBackendEvent {
   payload?: Record<string, unknown>;
   id?: string;
 }
+
+function getSessionPath(parsed: RawBackendEvent): string {
+  return (parsed.sessionPath ?? parsed.params?.sessionPath ?? '') as string;
+}
+
+function getPayload(parsed: RawBackendEvent): Record<string, unknown> {
+  return parsed.payload ?? parsed.params ?? {};
+}
+
+type EventParser = (parsed: RawBackendEvent) => BackendEvent | null;
+
+function parseToolCall(parsed: RawBackendEvent): BackendEvent {
+  const payload = getPayload(parsed);
+  return {
+    kind: 'ToolCall',
+    sessionPath: getSessionPath(parsed),
+    messageId: payload.messageId as string,
+    toolCall: payload.toolCall as ToolCall,
+  } satisfies ToolCallEvent;
+}
+
+const eventParsers: Record<string, EventParser> = {
+  'message.started'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'MessageStarted',
+      sessionPath: getSessionPath(parsed),
+      messageId: payload.messageId as string,
+      requestId: payload.requestId as string | undefined,
+      modelId: payload.modelId as string | undefined,
+      thinkingLevel: payload.thinkingLevel as ChatMessage['thinkingLevel'] | undefined,
+    } satisfies MessageStartedEvent;
+  },
+
+  'message.delta'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'MessageDelta',
+      sessionPath: getSessionPath(parsed),
+      messageId: payload.messageId as string,
+      delta: payload.delta as string,
+    } satisfies MessageDeltaEvent;
+  },
+
+  'message.thinking'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'MessageThinking',
+      sessionPath: getSessionPath(parsed),
+      messageId: payload.messageId as string,
+      thinking: payload.thinking as string,
+    } satisfies MessageThinkingEvent;
+  },
+
+  'message.aborted'(parsed) {
+    return {
+      kind: 'MessageAborted',
+      sessionPath: getSessionPath(parsed),
+      messageId: (parsed.payload?.messageId ?? parsed.params?.messageId) as string | undefined,
+    } satisfies MessageAbortedEvent;
+  },
+
+  'message.finished'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'MessageFinished',
+      sessionPath: getSessionPath(parsed),
+      message: payload.message as ChatMessage,
+    } satisfies MessageFinishedEvent;
+  },
+
+  'tool.started': parseToolCall,
+  'tool.finished': parseToolCall,
+  'tool.progress': parseToolCall,
+
+  'busy.changed'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'BusyChanged',
+      sessionPath: getSessionPath(parsed),
+      running: payload.running as boolean,
+    } satisfies BusyChangedEvent;
+  },
+
+  'session.opened'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'SessionOpened',
+      sessionPath: getSessionPath(parsed),
+      payload: payload as unknown as SessionOpenedPayload,
+    } satisfies SessionOpenedEvent;
+  },
+
+  'session.list_changed'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'SessionListChanged',
+      sessionSummaries: (payload.sessions ?? payload.sessionSummaries ?? []) as SessionSummary[],
+    } satisfies SessionListChangedEvent;
+  },
+
+  'session.closed'(parsed) {
+    return {
+      kind: 'SessionClosed',
+      sessionPath: getSessionPath(parsed),
+    } satisfies SessionClosedEvent;
+  },
+
+  'context.usage.changed'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'ContextUsageChanged',
+      sessionPath: getSessionPath(parsed),
+      contextUsage: (payload.contextUsage ?? payload.usage ?? null) as ContextWindowUsage | null,
+    } satisfies ContextUsageChangedEvent;
+  },
+
+  'extension_ui.request'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'ExtensionUIRequest',
+      sessionPath: getSessionPath(parsed),
+      request: payload as ExtensionUIRequestPayload,
+    } satisfies ExtensionUIRequestEvent;
+  },
+
+  'custom'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'CustomMessage',
+      sessionPath: getSessionPath(parsed),
+      message: payload.message as ChatMessage,
+    } satisfies CustomMessageEvent;
+  },
+
+  'error'(parsed) {
+    const payload = getPayload(parsed);
+    return {
+      kind: 'Error',
+      sessionPath: getSessionPath(parsed),
+      error: (payload.error ?? payload.message ?? 'Unknown error') as string,
+    } satisfies ErrorEvent;
+  },
+};
 
 /**
  * Parse a raw JSON string from the PI backend into a typed BackendEvent.
@@ -63,142 +206,8 @@ export function parseBackendEvent(raw: string): BackendEvent | null {
   const eventName = parsed.method;
   if (!eventName) return null;
 
-  // Extract sessionPath from top level or params
-  const sessionPath = (parsed.sessionPath ?? parsed.params?.sessionPath ?? '') as string;
+  const parser = eventParsers[eventName];
+  if (!parser) return null;
 
-  switch (eventName) {
-    case 'message.started': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'MessageStarted',
-        sessionPath,
-        messageId: payload.messageId as string,
-        requestId: payload.requestId as string | undefined,
-        modelId: payload.modelId as string | undefined,
-        thinkingLevel: payload.thinkingLevel as ChatMessage['thinkingLevel'] | undefined,
-      } satisfies MessageStartedEvent;
-    }
-
-    case 'message.delta': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'MessageDelta',
-        sessionPath,
-        messageId: payload.messageId as string,
-        delta: payload.delta as string,
-      } satisfies MessageDeltaEvent;
-    }
-
-    case 'message.thinking': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'MessageThinking',
-        sessionPath,
-        messageId: payload.messageId as string,
-        thinking: payload.thinking as string,
-      } satisfies MessageThinkingEvent;
-    }
-
-    case 'message.aborted': {
-      return {
-        kind: 'MessageAborted',
-        sessionPath,
-        messageId: (parsed.payload?.messageId ?? parsed.params?.messageId) as string | undefined,
-      } satisfies MessageAbortedEvent;
-    }
-
-    case 'message.finished': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'MessageFinished',
-        sessionPath,
-        message: payload.message as ChatMessage,
-      } satisfies MessageFinishedEvent;
-    }
-
-    case 'tool.started':
-    case 'tool.finished':
-    case 'tool.progress': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'ToolCall',
-        sessionPath,
-        messageId: payload.messageId as string,
-        toolCall: payload.toolCall as ToolCall,
-      } satisfies ToolCallEvent;
-    }
-
-    case 'busy.changed': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'BusyChanged',
-        sessionPath,
-        running: payload.running as boolean,
-      } satisfies BusyChangedEvent;
-    }
-
-    case 'session.opened': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'SessionOpened',
-        sessionPath,
-        payload: payload as unknown as SessionOpenedPayload,
-      } satisfies SessionOpenedEvent;
-    }
-
-    case 'session.list_changed': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'SessionListChanged',
-        sessionSummaries: (payload.sessions ?? payload.sessionSummaries ?? []) as SessionSummary[],
-      } satisfies SessionListChangedEvent;
-    }
-
-    case 'session.closed': {
-      return {
-        kind: 'SessionClosed',
-        sessionPath,
-      } satisfies SessionClosedEvent;
-    }
-
-    case 'context.usage.changed': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'ContextUsageChanged',
-        sessionPath,
-        contextUsage: (payload.contextUsage ?? payload.usage ?? null) as ContextWindowUsage | null,
-      } satisfies ContextUsageChangedEvent;
-    }
-
-    case 'extension_ui.request': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'ExtensionUIRequest',
-        sessionPath,
-        request: payload as ExtensionUIRequestPayload,
-      } satisfies ExtensionUIRequestEvent;
-    }
-
-    case 'custom': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'CustomMessage',
-        sessionPath,
-        message: payload.message as ChatMessage,
-      } satisfies CustomMessageEvent;
-    }
-
-    case 'error': {
-      const payload = parsed.payload ?? parsed.params ?? {};
-      return {
-        kind: 'Error',
-        sessionPath,
-        error: (payload.error ?? payload.message ?? 'Unknown error') as string,
-      } satisfies ErrorEvent;
-    }
-
-    default:
-      // Unknown event type — skip
-      return null;
-  }
+  return parser(parsed);
 }

@@ -88,7 +88,7 @@ test("real registry keeps moderate tasks off expensive frontier overkill models"
 
 	assert.ok(result);
 	assert.equal(result.thinkingLevel, "medium");
-	assert.equal(result.pool[0], "nemotron-3-super:cloud");
+	assert.equal(result.pool[0], "minimax-m2.7:cloud");
 	assert.equal(result.fitScores.length, result.pool.length);
 	assert.deepEqual([...result.fitScores].sort((a, b) => b - a), result.fitScores);
 
@@ -101,15 +101,15 @@ test("real registry selects top capability models for x-high reasoning tasks", (
 
 	assert.ok(result);
 	assert.equal(result.thinkingLevel, "xhigh");
-	assert.equal(result.pool[0], "gpt-5.5");
-	assert.equal(result.modelId, "gpt-5.5");
+	assert.equal(result.pool[0], "nemotron-3-ultra:cloud");
+	assert.equal(result.modelId, "nemotron-3-ultra:cloud");
 });
 
 test("real registry retry exclusion picks the next best compatible model", () => {
 	const result = selectReal(
 		{ precision: 5, creativity: 4, thoroughness: 5, reasoning: 5 },
 		1,
-		new Set(["deepseek-v4-pro:cloud"]),
+		new Set(["deepseek-v4-pro:cloud", "nemotron-3-ultra:cloud"]),
 	);
 
 	assert.ok(result);

@@ -80,54 +80,12 @@ export interface HostSyncState {
   addOptimisticMessage: (msg: OptimisticUserMessage) => void;
 }
 
-/**
- * Encapsulates protocol-sync and transport bookkeeping between the webview and
- * host. This state is webview-local per the STATE_CONTRACT allowlist.
- */
-export function useHostSync(
-  postMessage: (msg: WebviewToHostMessage) => void,
-  initialState?: ViewState,
-): HostSyncState {
-  const [viewState, setViewState] = useState<ViewState>(initialState ?? EMPTY_VIEW_STATE);
-  const [draftRestore, setDraftRestore] = useState<{ text: string; nonce: number } | null>(null);
-  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
-  const [pendingStateApplied, setPendingStateApplied] = useState<{
-    revision: number;
-    backendReady: boolean;
-    transcriptLoaded: boolean;
-    openTabCount: number;
-    transcriptCount: number;
-    systemPromptCount: number;
-  } | null>(null);
+/* ------------------------------------------------------------------ */
+//  Sub-hooks
+/* ------------------------------------------------------------------ */
 
-  const revisionMapRef = useRef<Map<string, number>>(new Map());
-
-  const awaitingSnapshotRef = useRef(false);
-  const hostInstanceIdRef = useRef('');
-  const activeSessionPathRef = useRef<string | null>(null);
-  const committedSessionPathRef = useRef<string | null>(null);
-  const sentStateAppliedRevisionRef = useRef<number>(-1);
-  const pendingDraftRestoreRef = useRef(new Map<string, { text: string }>());
-
-  const clearTransientUi = useCallback(() => {
-    setDraftRestore(null);
-    setOptimisticMessages([]);
-  }, []);
-
-  const resetPerSessionState = useCallback(() => {
-    revisionMapRef.current.clear();
-  }, []);
-
-  useEffect(() => {
-    return () => resetPerSessionState();
-  }, [resetPerSessionState]);
-
-  const addOptimisticMessage = useCallback((msg: OptimisticUserMessage) => {
-    setOptimisticMessages((prev) => [...prev, msg]);
-  }, []);
-
-  /** Merge optimistic messages with the host transcript. */
-  const mergedTranscript = useMemo(() => {
+function useMergedTranscript(viewState: ViewState, optimisticMessages: OptimisticUserMessage[]): ChatMessage[] {
+  return useMemo(() => {
     if (optimisticMessages.length === 0) {
       return viewState.transcript;
     }
@@ -137,8 +95,6 @@ export function useHostSync(
       return viewState.transcript;
     }
 
-    // Find which optimistic messages are NOT already in the host transcript.
-    // The host uses the same localId we provide, so we match by id.
     const hostIds = new Set(viewState.transcript.map((m) => m.id));
     const pendingForSession = optimisticMessages.filter(
       (m) => m.sessionPath === activeSessionPath && !hostIds.has(m.localId),
@@ -148,7 +104,6 @@ export function useHostSync(
       return viewState.transcript;
     }
 
-    // Create ChatMessage objects for each pending message and append to transcript.
     const now = new Date().toISOString();
     const chatMessages: ChatMessage[] = pendingForSession.map((m) => ({
       id: m.localId,
@@ -160,84 +115,23 @@ export function useHostSync(
 
     return [...viewState.transcript, ...chatMessages];
   }, [viewState.transcript, viewState.activeSession?.path, optimisticMessages]);
+}
 
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      const msg = event.data as HostToWebviewMessage;
+interface PendingStateApplied {
+  revision: number;
+  backendReady: boolean;
+  transcriptLoaded: boolean;
+  openTabCount: number;
+  transcriptCount: number;
+  systemPromptCount: number;
+}
 
-      if (msg.type === 'state') {
-        resetPerSessionState();
-        const hostChanged = hostInstanceIdRef.current && msg.hostInstanceId !== hostInstanceIdRef.current;
-        const nextActiveSessionPath = msg.state.activeSession?.path ?? null;
-        const sessionChanged = committedSessionPathRef.current !== null && committedSessionPathRef.current !== nextActiveSessionPath;
-        const queuedDraftRestore = nextActiveSessionPath
-          ? pendingDraftRestoreRef.current.get(nextActiveSessionPath) ?? null
-          : null;
+function useStateAppliedDiagnostics(
+  pendingStateApplied: PendingStateApplied | null,
+  postMessage: (msg: WebviewToHostMessage) => void,
+) {
+  const sentStateAppliedRevisionRef = useRef<number>(-1);
 
-        awaitingSnapshotRef.current = false;
-        hostInstanceIdRef.current = msg.hostInstanceId;
-        activeSessionPathRef.current = nextActiveSessionPath;
-        committedSessionPathRef.current = nextActiveSessionPath;
-
-        // Reconcile optimistic messages: remove any that now appear in the host transcript.
-        if (hostChanged || sessionChanged) {
-          clearTransientUi();
-        } else {
-          // Remove optimistic messages whose localId is now present in the host transcript.
-          const hostIds = new Set(msg.state.transcript.map((m) => m.id));
-          setOptimisticMessages((prev) => {
-            if (prev.length === 0) return prev;
-            const remaining = prev.filter((m) => !hostIds.has(m.localId));
-            return remaining.length === prev.length ? prev : remaining;
-          });
-        }
-
-        if (queuedDraftRestore && nextActiveSessionPath) {
-          pendingDraftRestoreRef.current.delete(nextActiveSessionPath);
-          setDraftRestore({ text: queuedDraftRestore.text, nonce: Date.now() });
-        }
-        setViewState(hydrateViewState(msg.state));
-        setPendingStateApplied({
-          revision: msg.revision,
-          backendReady: msg.state.backendReady,
-          transcriptLoaded: msg.state.transcriptLoaded,
-          openTabCount: msg.state.openTabPaths.length,
-          transcriptCount: msg.state.transcript.length,
-          systemPromptCount: msg.state.systemPrompts.length,
-        });
-        return;
-      }
-
-      if (msg.type === 'playCompletionSound') {
-        playCompletionSound(msg.volume);
-        return;
-      }
-
-      if (msg.type === 'sendRejected') {
-        // Remove the rejected optimistic message from the local overlay.
-        if (msg.localId) {
-          setOptimisticMessages((prev) => prev.filter((m) => m.localId !== msg.localId));
-        } else {
-          // Legacy fallback: clear all optimistic messages for the session.
-          setOptimisticMessages((prev) => prev.filter((m) => m.sessionPath !== msg.sessionPath));
-        }
-
-        if (msg.sessionPath === activeSessionPathRef.current) {
-          setDraftRestore({ text: msg.text, nonce: Date.now() });
-        } else {
-          pendingDraftRestoreRef.current.set(msg.sessionPath, { text: msg.text });
-        }
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    postMessage({ type: 'ready' });
-    postMessage({ type: 'refreshState' });
-    return () => window.removeEventListener('message', handleMessage);
-  }, [clearTransientUi, postMessage, resetPerSessionState]);
-
-  // Emit state-applied diagnostics after the corresponding DOM commit so
-  // loader/connecting selectors reflect what the user actually sees.
   useLayoutEffect(() => {
     if (!pendingStateApplied) {
       return;
@@ -261,7 +155,9 @@ export function useHostSync(
       },
     });
   }, [pendingStateApplied, postMessage]);
+}
 
+function useFocusRefresh(postMessage: (msg: WebviewToHostMessage) => void) {
   useEffect(() => {
     const refreshState = () => postMessage({ type: 'refreshState' });
     const handleVisibilityChange = () => {
@@ -277,6 +173,214 @@ export function useHostSync(
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [postMessage]);
+}
+
+/* ------------------------------------------------------------------ */
+//  Per-type message handlers
+/* ------------------------------------------------------------------ */
+
+interface OptimisticMessageOps {
+  clear: () => void;
+  reconcileWithHostIds: (hostIds: Set<string>) => void;
+  removeByLocalId: (localId: string) => void;
+  removeBySessionPath: (sessionPath: string) => void;
+}
+
+interface DraftRestoreOps {
+  applyQueued: (sessionPath: string) => boolean;
+  queueForSession: (sessionPath: string, text: string) => void;
+  restoreNow: (text: string) => void;
+}
+
+interface HostMessageContext {
+  resetPerSessionState: () => void;
+  hostInstanceIdRef: { current: string };
+  awaitingSnapshotRef: { current: boolean };
+  activeSessionPathRef: { current: string | null };
+  committedSessionPathRef: { current: string | null };
+  clearTransientUi: () => void;
+  optimisticOps: OptimisticMessageOps;
+  draftOps: DraftRestoreOps;
+  setViewState: (v: ViewState) => void;
+  setPendingStateApplied: (v: PendingStateApplied | null) => void;
+}
+
+function handleStateMessage(msg: HostToWebviewMessage, ctx: HostMessageContext) {
+  const m = msg as Extract<HostToWebviewMessage, { type: 'state' }>;
+  ctx.resetPerSessionState();
+  const hostChanged = ctx.hostInstanceIdRef.current && m.hostInstanceId !== ctx.hostInstanceIdRef.current;
+  const nextActiveSessionPath = m.state.activeSession?.path ?? null;
+  const sessionChanged = ctx.committedSessionPathRef.current !== null && ctx.committedSessionPathRef.current !== nextActiveSessionPath;
+
+  ctx.awaitingSnapshotRef.current = false;
+  ctx.hostInstanceIdRef.current = m.hostInstanceId;
+  ctx.activeSessionPathRef.current = nextActiveSessionPath;
+  ctx.committedSessionPathRef.current = nextActiveSessionPath;
+
+  if (hostChanged || sessionChanged) {
+    ctx.clearTransientUi();
+  } else {
+    const hostIds = new Set(m.state.transcript.map((msgItem) => msgItem.id));
+    ctx.optimisticOps.reconcileWithHostIds(hostIds);
+  }
+
+  if (nextActiveSessionPath) {
+    ctx.draftOps.applyQueued(nextActiveSessionPath);
+  }
+
+  ctx.setViewState(hydrateViewState(m.state));
+  ctx.setPendingStateApplied({
+    revision: m.revision,
+    backendReady: m.state.backendReady,
+    transcriptLoaded: m.state.transcriptLoaded,
+    openTabCount: m.state.openTabPaths.length,
+    transcriptCount: m.state.transcript.length,
+    systemPromptCount: m.state.systemPrompts.length,
+  });
+}
+
+function handlePlayCompletionSound(msg: HostToWebviewMessage) {
+  const m = msg as Extract<HostToWebviewMessage, { type: 'playCompletionSound' }>;
+  playCompletionSound(m.volume);
+}
+
+function handleSendRejectedMessage(
+  msg: HostToWebviewMessage,
+  ctx: Pick<HostMessageContext, 'optimisticOps' | 'draftOps' | 'activeSessionPathRef'>,
+) {
+  const m = msg as Extract<HostToWebviewMessage, { type: 'sendRejected' }>;
+  if (m.localId) {
+    ctx.optimisticOps.removeByLocalId(m.localId);
+  } else {
+    ctx.optimisticOps.removeBySessionPath(m.sessionPath);
+  }
+
+  if (m.sessionPath === ctx.activeSessionPathRef.current) {
+    ctx.draftOps.restoreNow(m.text);
+  } else {
+    ctx.draftOps.queueForSession(m.sessionPath, m.text);
+  }
+}
+
+type HostMessageHandler = (msg: HostToWebviewMessage, ctx: HostMessageContext) => void;
+
+const HOST_MESSAGE_HANDLERS: Record<string, HostMessageHandler | undefined> = {
+  state: handleStateMessage,
+  playCompletionSound: (msg, _ctx) => handlePlayCompletionSound(msg),
+  sendRejected: handleSendRejectedMessage,
+};
+
+function dispatchHostMessage(msg: HostToWebviewMessage, ctx: HostMessageContext) {
+  const handler = HOST_MESSAGE_HANDLERS[msg.type];
+  if (handler) {
+    handler(msg, ctx);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+//  Main hook
+/* ------------------------------------------------------------------ */
+
+/**
+ * Encapsulates protocol-sync and transport bookkeeping between the webview and
+ * host. This state is webview-local per the STATE_CONTRACT allowlist.
+ */
+export function useHostSync(
+  postMessage: (msg: WebviewToHostMessage) => void,
+  initialState?: ViewState,
+): HostSyncState {
+  const [viewState, setViewState] = useState<ViewState>(initialState ?? EMPTY_VIEW_STATE);
+  const [draftRestore, setDraftRestore] = useState<{ text: string; nonce: number } | null>(null);
+  const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
+  const [pendingStateApplied, setPendingStateApplied] = useState<PendingStateApplied | null>(null);
+
+  const revisionMapRef = useRef<Map<string, number>>(new Map());
+
+  const awaitingSnapshotRef = useRef(false);
+  const hostInstanceIdRef = useRef('');
+  const activeSessionPathRef = useRef<string | null>(null);
+  const committedSessionPathRef = useRef<string | null>(null);
+  const pendingDraftRestoreRef = useRef(new Map<string, { text: string }>());
+
+  const clearTransientUi = useCallback(() => {
+    setDraftRestore(null);
+    setOptimisticMessages([]);
+  }, []);
+
+  const resetPerSessionState = useCallback(() => {
+    revisionMapRef.current.clear();
+  }, []);
+
+  useEffect(() => {
+    return () => resetPerSessionState();
+  }, [resetPerSessionState]);
+
+  const addOptimisticMessage = useCallback((msg: OptimisticUserMessage) => {
+    setOptimisticMessages((prev) => [...prev, msg]);
+  }, []);
+
+  const mergedTranscript = useMergedTranscript(viewState, optimisticMessages);
+
+  const optimisticOpsRef = useRef<OptimisticMessageOps>({
+    clear: () => setOptimisticMessages([]),
+    reconcileWithHostIds: (hostIds) => {
+      setOptimisticMessages((prev) => {
+        if (prev.length === 0) return prev;
+        const remaining = prev.filter((m) => !hostIds.has(m.localId));
+        return remaining.length === prev.length ? prev : remaining;
+      });
+    },
+    removeByLocalId: (localId) => {
+      setOptimisticMessages((prev) => prev.filter((m) => m.localId !== localId));
+    },
+    removeBySessionPath: (sessionPath) => {
+      setOptimisticMessages((prev) => prev.filter((m) => m.sessionPath !== sessionPath));
+    },
+  });
+
+  const draftOpsRef = useRef<DraftRestoreOps>({
+    applyQueued: (sessionPath) => {
+      const queued = pendingDraftRestoreRef.current.get(sessionPath) ?? null;
+      if (queued) {
+        pendingDraftRestoreRef.current.delete(sessionPath);
+        setDraftRestore({ text: queued.text, nonce: Date.now() });
+        return true;
+      }
+      return false;
+    },
+    queueForSession: (sessionPath, text) => {
+      pendingDraftRestoreRef.current.set(sessionPath, { text });
+    },
+    restoreNow: (text) => {
+      setDraftRestore({ text, nonce: Date.now() });
+    },
+  });
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      dispatchHostMessage(event.data as HostToWebviewMessage, {
+        resetPerSessionState,
+        hostInstanceIdRef,
+        awaitingSnapshotRef,
+        activeSessionPathRef,
+        committedSessionPathRef,
+        clearTransientUi,
+        optimisticOps: optimisticOpsRef.current,
+        draftOps: draftOpsRef.current,
+        setViewState,
+        setPendingStateApplied,
+      });
+    };
+
+    window.addEventListener('message', handleMessage);
+    postMessage({ type: 'ready' });
+    postMessage({ type: 'refreshState' });
+    return () => window.removeEventListener('message', handleMessage);
+  }, [clearTransientUi, postMessage, resetPerSessionState]);
+
+  useStateAppliedDiagnostics(pendingStateApplied, postMessage);
+
+  useFocusRefresh(postMessage);
 
   // Suppress unused refs (they participate in the transport protocol but
   // aren't surfaced to the caller yet).

@@ -116,6 +116,103 @@ function collectRawToolResults(rawMessages: RawMessage[]): Map<string, RawToolRe
   return toolResultMap;
 }
 
+function shouldSkipMessage(msg: RawMessage): boolean {
+  if (msg.role === 'toolResult') {
+    return true;
+  }
+
+  const contentParts = rawMessageParts(msg);
+  if (msg.role === 'user' && contentParts.length > 0 && contentParts.every((part) => part.type === 'toolResult')) {
+    return true;
+  }
+
+  return false;
+}
+
+function createUserChatMessage(msg: RawMessage, idPrefix: string, idx: number): ChatMessage {
+  return {
+    id: `${idPrefix}-${idx}`,
+    role: 'user',
+    createdAt: msg.timestamp ? new Date(msg.timestamp).toISOString() : new Date().toISOString(),
+    markdown: rawMessageText(msg),
+    status: 'completed',
+  };
+}
+
+function appendRawContentPart(
+  part: RawContentPart,
+  orderedParts: ChatMessagePart[],
+  toolResultMap: Map<string, RawToolResultSnapshot>,
+): void {
+  if (part.type === 'text') {
+    appendAssistantTextPart(orderedParts, 'text', part.text ?? '');
+    return;
+  }
+
+  if (part.type === 'thinking') {
+    appendAssistantTextPart(orderedParts, 'reasoning', part.thinking ?? '');
+    return;
+  }
+
+  if (part.type === 'toolCall' && part.id && part.name) {
+    const toolResult = toolResultMap.get(String(part.id));
+    upsertAssistantToolPart(orderedParts, {
+      id: part.id,
+      name: part.name,
+      input: part.arguments ?? {},
+      result: toolResult?.result,
+      status: toolResult?.status ?? 'running',
+    });
+  }
+}
+
+function buildAssistantParts(
+  msg: RawMessage,
+  toolResultMap: Map<string, RawToolResultSnapshot>,
+): ChatMessagePart[] {
+  const orderedParts: ChatMessagePart[] = [];
+
+  if (typeof msg.content === 'string') {
+    appendAssistantTextPart(orderedParts, 'text', msg.content);
+  }
+
+  for (const part of rawMessageParts(msg)) {
+    appendRawContentPart(part, orderedParts, toolResultMap);
+  }
+
+  return orderedParts;
+}
+
+function mergeIntoAssistant(currentAssistant: ChatMessage, orderedParts: ChatMessagePart[]): void {
+  const mergedParts = mergeAssistantParts(assistantPartsFromMessage(currentAssistant), orderedParts);
+  currentAssistant.parts = mergedParts;
+  currentAssistant.markdown = textFromMessageParts(mergedParts);
+  currentAssistant.thinking = reasoningFromMessageParts(mergedParts);
+  currentAssistant.toolCalls = toolCallsFromMessageParts(mergedParts);
+}
+
+function createAssistantChatMessage(
+  msg: RawMessage,
+  orderedParts: ChatMessagePart[],
+  idPrefix: string,
+  idx: number,
+): ChatMessage {
+  const markdown = textFromMessageParts(orderedParts);
+  const thinking = reasoningFromMessageParts(orderedParts);
+  const toolCalls = toolCallsFromMessageParts(orderedParts);
+
+  return {
+    id: `${idPrefix}-${idx}`,
+    role: 'assistant',
+    createdAt: msg.timestamp ? new Date(msg.timestamp).toISOString() : new Date().toISOString(),
+    markdown,
+    parts: orderedParts.length > 0 ? orderedParts : undefined,
+    thinking,
+    status: 'completed',
+    toolCalls,
+  };
+}
+
 export function rawMessagesToChatMessages(rawMessages: RawMessage[], idPrefix: string): ChatMessage[] {
   const chatMessages: ChatMessage[] = [];
   const toolResultMap = collectRawToolResults(rawMessages);
@@ -124,80 +221,23 @@ export function rawMessagesToChatMessages(rawMessages: RawMessage[], idPrefix: s
   let currentAssistant: ChatMessage | undefined;
 
   for (const msg of rawMessages) {
-    if (msg.role === 'toolResult') {
-      continue;
-    }
-
-    const contentParts = rawMessageParts(msg);
-
-    // Skip legacy user messages that only carried tool result payloads.
-    if (msg.role === 'user' && contentParts.length > 0 && contentParts.every((part) => part.type === 'toolResult')) {
+    if (shouldSkipMessage(msg)) {
       continue;
     }
 
     if (msg.role === 'user') {
       currentAssistant = undefined;
-      chatMessages.push({
-        id: `${idPrefix}-${idx++}`,
-        role: 'user',
-        createdAt: msg.timestamp ? new Date(msg.timestamp).toISOString() : new Date().toISOString(),
-        markdown: rawMessageText(msg),
-        status: 'completed',
-      });
+      chatMessages.push(createUserChatMessage(msg, idPrefix, idx++));
       continue;
     }
 
     if (msg.role === 'assistant') {
-      const orderedParts: ChatMessagePart[] = [];
-
-      if (typeof msg.content === 'string') {
-        appendAssistantTextPart(orderedParts, 'text', msg.content);
-      }
-
-      for (const part of contentParts) {
-        if (part.type === 'text') {
-          appendAssistantTextPart(orderedParts, 'text', part.text ?? '');
-          continue;
-        }
-
-        if (part.type === 'thinking') {
-          appendAssistantTextPart(orderedParts, 'reasoning', part.thinking ?? '');
-          continue;
-        }
-
-        if (part.type === 'toolCall' && part.id && part.name) {
-          const toolResult = toolResultMap.get(String(part.id));
-          upsertAssistantToolPart(orderedParts, {
-            id: part.id,
-            name: part.name,
-            input: part.arguments ?? {},
-            result: toolResult?.result,
-            status: toolResult?.status ?? 'running',
-          });
-        }
-      }
-
-      const markdown = textFromMessageParts(orderedParts);
-      const thinking = reasoningFromMessageParts(orderedParts);
-      const toolCalls = toolCallsFromMessageParts(orderedParts);
+      const orderedParts = buildAssistantParts(msg, toolResultMap);
 
       if (currentAssistant) {
-        const mergedParts = mergeAssistantParts(assistantPartsFromMessage(currentAssistant), orderedParts);
-        currentAssistant.parts = mergedParts;
-        currentAssistant.markdown = textFromMessageParts(mergedParts);
-        currentAssistant.thinking = reasoningFromMessageParts(mergedParts);
-        currentAssistant.toolCalls = toolCallsFromMessageParts(mergedParts);
+        mergeIntoAssistant(currentAssistant, orderedParts);
       } else {
-        currentAssistant = {
-          id: `${idPrefix}-${idx++}`,
-          role: 'assistant',
-          createdAt: msg.timestamp ? new Date(msg.timestamp).toISOString() : new Date().toISOString(),
-          markdown,
-          parts: orderedParts.length > 0 ? orderedParts : undefined,
-          thinking,
-          status: 'completed',
-          toolCalls,
-        };
+        currentAssistant = createAssistantChatMessage(msg, orderedParts, idPrefix, idx++);
         chatMessages.push(currentAssistant);
       }
     }

@@ -29,6 +29,167 @@ interface BuildTranscriptRowsOptions {
 
 type ResultPruningHeaderState = Extract<PruningHeaderState, { kind: 'result' }>;
 
+interface TranscriptAccumulator {
+  rows: TranscriptRow[];
+  pendingPruning: { state: ResultPruningHeaderState; message: ChatMessage } | null;
+  lastAssistantRowIndexSinceUser: number | null;
+  latestUserMessage: ChatMessage | null;
+}
+
+function handlePruningMessage(
+  acc: TranscriptAccumulator,
+  message: ChatMessage,
+  index: number,
+  showPruningMessages: boolean,
+): void {
+  const details = showPruningMessages ? pruningDetailsFromMessage(message) : null;
+  if (!details) {
+    acc.pendingPruning = null;
+    if (showPruningMessages) {
+      acc.rows.push({ kind: 'message', key: `message:${message.id}`, message, transcriptIndex: index });
+    }
+    return;
+  }
+
+  const pruningHeaderState: ResultPruningHeaderState = {
+    kind: 'result',
+    details,
+    fallbackText: message.markdown,
+  };
+
+  if (acc.lastAssistantRowIndexSinceUser !== null) {
+    const row = acc.rows[acc.lastAssistantRowIndexSinceUser];
+    if (row?.kind === 'message' && row.message.role === 'assistant') {
+      acc.rows[acc.lastAssistantRowIndexSinceUser] = {
+        ...row,
+        pruningHeaderState,
+      };
+    }
+    acc.pendingPruning = null;
+  } else {
+    acc.pendingPruning = { state: pruningHeaderState, message };
+  }
+}
+
+function pushAssistantRow(
+  acc: TranscriptAccumulator,
+  message: ChatMessage,
+  index: number,
+): void {
+  const row: TranscriptRow = acc.pendingPruning
+    ? {
+        kind: 'message',
+        key: `message:${message.id}`,
+        message,
+        pruningHeaderState: acc.pendingPruning.state,
+        transcriptIndex: index,
+      }
+    : { kind: 'message', key: `message:${message.id}`, message, transcriptIndex: index };
+  acc.rows.push(row);
+  acc.lastAssistantRowIndexSinceUser = acc.rows.length - 1;
+  acc.pendingPruning = null;
+}
+
+function processSingleMessage(
+  acc: TranscriptAccumulator,
+  message: ChatMessage,
+  index: number,
+  showPruningMessages: boolean,
+): void {
+  if (isPruningResultMessage(message)) {
+    handlePruningMessage(acc, message, index, showPruningMessages);
+    return;
+  }
+  if (message.role === 'user') {
+    acc.pendingPruning = null;
+    acc.lastAssistantRowIndexSinceUser = null;
+    acc.latestUserMessage = message;
+  } else if (message.role === 'assistant') {
+    pushAssistantRow(acc, message, index);
+    return;
+  }
+  acc.rows.push({ kind: 'message', key: `message:${message.id}`, message, transcriptIndex: index });
+}
+
+function processTranscriptMessages(
+  transcript: readonly ChatMessage[],
+  showPruningMessages: boolean,
+): TranscriptAccumulator {
+  const acc: TranscriptAccumulator = {
+    rows: [],
+    pendingPruning: null,
+    lastAssistantRowIndexSinceUser: null,
+    latestUserMessage: null,
+  };
+
+  for (let i = 0; i < transcript.length; i++) {
+    processSingleMessage(acc, transcript[i], i, showPruningMessages);
+  }
+
+  return acc;
+}
+
+function maybeAddPlaceholderAssistant(
+  rows: TranscriptRow[],
+  pendingPruning: { state: ResultPruningHeaderState; message: ChatMessage } | null,
+  lastAssistantRowIndexSinceUser: number | null,
+  latestUserMessage: ChatMessage | null,
+  busy: boolean,
+  pendingAssistantModelId: string | undefined,
+  pendingAssistantThinkingLevel: ChatMessage['thinkingLevel'] | undefined,
+): void {
+  const placeholderPruningHeaderState: PruningHeaderState | null = pendingPruning?.state ?? null;
+  const placeholderAssistantId = latestUserMessage
+    ? `assistant-placeholder:${latestUserMessage.id}`
+    : pendingPruning
+      ? `assistant-placeholder:${pendingPruning.message.id}`
+      : null;
+  const placeholderCreatedAt = latestUserMessage?.createdAt || pendingPruning?.message.createdAt || '';
+
+  const shouldRenderPlaceholderAssistant = !!placeholderAssistantId
+    && lastAssistantRowIndexSinceUser === null
+    && (busy || placeholderPruningHeaderState?.kind === 'result');
+  if (!shouldRenderPlaceholderAssistant || !placeholderAssistantId) {
+    return;
+  }
+
+  const baseMessage: ChatMessage = {
+    id: placeholderAssistantId,
+    role: 'assistant',
+    createdAt: placeholderCreatedAt,
+    markdown: '',
+    modelId: pendingAssistantModelId,
+    thinkingLevel: pendingAssistantThinkingLevel,
+    status: 'completed',
+    parts: [],
+    toolCalls: [],
+  };
+
+  if (placeholderPruningHeaderState) {
+    rows.push({
+      kind: 'message',
+      key: `message:${placeholderAssistantId}`,
+      message: baseMessage,
+      pruningHeaderState: placeholderPruningHeaderState,
+    });
+  } else {
+    rows.push({
+      kind: 'message',
+      key: `message:${placeholderAssistantId}`,
+      message: baseMessage,
+    });
+  }
+}
+
+function attachActivityState(rows: TranscriptRow[], activityState: TurnActivityState): void {
+  const lastVisibleRow = rows[rows.length - 1];
+  if (lastVisibleRow?.kind === 'message' && lastVisibleRow.message.role === 'assistant') {
+    rows[rows.length - 1] = { ...lastVisibleRow, activityState };
+  } else {
+    rows.push({ kind: 'typingIndicator', key: 'typing-indicator', activityState });
+  }
+}
+
 export function buildTranscriptRows({
   transcript,
   systemPromptCount,
@@ -48,135 +209,21 @@ export function buildTranscriptRows({
     rows.push({ kind: 'topGap', key: 'gap:older' });
   }
 
-  let pendingPruning: { state: ResultPruningHeaderState; message: ChatMessage } | null = null;
-  let lastAssistantRowIndexSinceUser: number | null = null;
-  let latestUserMessage: ChatMessage | null = null;
+  const acc = processTranscriptMessages(transcript, showPruningMessages);
+  rows.push(...acc.rows);
 
-  for (let i = 0; i < transcript.length; i++) {
-    const message = transcript[i];
-    if (isPruningResultMessage(message)) {
-      const details = showPruningMessages ? pruningDetailsFromMessage(message) : null;
-      if (!details) {
-        pendingPruning = null;
-        if (showPruningMessages) {
-          rows.push({ kind: 'message', key: `message:${message.id}`, message, transcriptIndex: i });
-        }
-        continue;
-      }
+  maybeAddPlaceholderAssistant(
+    rows,
+    acc.pendingPruning,
+    acc.lastAssistantRowIndexSinceUser,
+    acc.latestUserMessage,
+    busy,
+    pendingAssistantModelId,
+    pendingAssistantThinkingLevel,
+  );
 
-      const pruningHeaderState: ResultPruningHeaderState = {
-        kind: 'result',
-        details,
-        fallbackText: message.markdown,
-      };
-
-      // Normal ordering is: pruning custom message, then assistant start. In
-      // that case, keep the details pending and fold them into the following
-      // assistant row. Some live streams can deliver the pruning custom message
-      // after the assistant row has already been created; fold it backward into
-      // that same assistant row instead of rendering a separate pruning card.
-      if (lastAssistantRowIndexSinceUser !== null) {
-        const row = rows[lastAssistantRowIndexSinceUser];
-        if (row?.kind === 'message' && row.message.role === 'assistant') {
-          rows[lastAssistantRowIndexSinceUser] = {
-            ...row,
-            pruningHeaderState,
-          };
-        }
-        pendingPruning = null;
-      } else {
-        pendingPruning = { state: pruningHeaderState, message };
-      }
-      continue;
-    }
-
-    if (message.role === 'user') {
-      pendingPruning = null;
-      lastAssistantRowIndexSinceUser = null;
-      latestUserMessage = message;
-    }
-
-    if (message.role === 'assistant') {
-      const row: TranscriptRow = pendingPruning
-        ? {
-          kind: 'message',
-          key: `message:${message.id}`,
-          message,
-          pruningHeaderState: pendingPruning.state,
-          transcriptIndex: i,
-        }
-        : { kind: 'message', key: `message:${message.id}`, message, transcriptIndex: i };
-      rows.push(row);
-      lastAssistantRowIndexSinceUser = rows.length - 1;
-      pendingPruning = null;
-      continue;
-    }
-
-    rows.push({ kind: 'message', key: `message:${message.id}`, message, transcriptIndex: i });
-  }
-
-  const placeholderPruningHeaderState: PruningHeaderState | null = pendingPruning?.state ?? null;
-  const placeholderAssistantId = placeholderPruningHeaderState
-    ? latestUserMessage
-      ? `assistant-placeholder:${latestUserMessage.id}`
-      : pendingPruning
-        ? `assistant-placeholder:${pendingPruning.message.id}`
-        : null
-    : latestUserMessage
-      ? `assistant-placeholder:${latestUserMessage.id}`
-      : null;
-  const placeholderCreatedAt = latestUserMessage?.createdAt || pendingPruning?.message.createdAt || '';
-
-  // Keep a single assistant shell visible through pre-assistant phases so
-  // users always find busy status in the same footer location.
-  const shouldRenderPlaceholderAssistant = !!placeholderAssistantId
-    && lastAssistantRowIndexSinceUser === null
-    && (busy || placeholderPruningHeaderState?.kind === 'result');
-  if (shouldRenderPlaceholderAssistant && placeholderPruningHeaderState && placeholderAssistantId) {
-    rows.push({
-      kind: 'message',
-      key: `message:${placeholderAssistantId}`,
-      message: {
-        id: placeholderAssistantId,
-        role: 'assistant',
-        createdAt: placeholderCreatedAt,
-        markdown: '',
-        modelId: pendingAssistantModelId,
-        thinkingLevel: pendingAssistantThinkingLevel,
-        status: 'completed',
-        parts: [],
-        toolCalls: [],
-      },
-      pruningHeaderState: placeholderPruningHeaderState,
-    });
-  } else if (shouldRenderPlaceholderAssistant && placeholderAssistantId) {
-    rows.push({
-      kind: 'message',
-      key: `message:${placeholderAssistantId}`,
-      message: {
-        id: placeholderAssistantId,
-        role: 'assistant',
-        createdAt: placeholderCreatedAt,
-        markdown: '',
-        modelId: pendingAssistantModelId,
-        thinkingLevel: pendingAssistantThinkingLevel,
-        status: 'completed',
-        parts: [],
-        toolCalls: [],
-      },
-    });
-  }
-
-  // Keep in-flight activity attached to the visible assistant shell whenever
-  // possible. Only fall back to a standalone indicator when there is no
-  // assistant shell to anchor to yet.
   if (busy && activityState) {
-    const lastVisibleRow = rows[rows.length - 1];
-    if (lastVisibleRow?.kind === 'message' && lastVisibleRow.message.role === 'assistant') {
-      rows[rows.length - 1] = { ...lastVisibleRow, activityState };
-    } else {
-      rows.push({ kind: 'typingIndicator', key: 'typing-indicator', activityState });
-    }
+    attachActivityState(rows, activityState);
   }
 
   if (hasNewer) {
