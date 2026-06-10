@@ -45,7 +45,7 @@ Arguments:
                            (e.g. "unused import,unused variable") — findings
                            whose trailing reason text matches a substring are
                            dropped (default: none — all reasons shown)
-    --show-generated       Show individual generated-file duplicate listings
+    --show-generated       Include generated-file duplicate details in output
                            (hidden by default; generated files include lock
                            files, .min.* assets, and node_modules/)
     --verify-dead-code     Cross-reference skylos findings by searching for
@@ -56,35 +56,36 @@ Arguments:
     --skip-dead-code       Run only jscpd
 
 Output:
-    Duplicate findings are grouped into three sections:
+    Duplicate findings are grouped into two sections:
 
-        === Cross-file duplicates (jscpd) — 15 found ===
-        path/A.py:1-12 ~ path/B.py:1-12  (12 lines, 64 tokens)
-        ...
+        === Cross-file duplicates — 52 ===
+          path/A.py:1-12 ~ path/B.py:1-12  12L 64T
+          ...
 
-        === Same-file duplicates (jscpd) — 4 found ===
-        path/A.py:1-12 ~ path/A.py:50-62  (12 lines, 64 tokens)
-        ...
+        === Same-file duplicates — 91 blocks in 28 files ===
+          stats-service.test.ts  12 blocks 238L
+          ...
 
-        === Generated-file duplicates (jscpd) — 372 found ===
-        (summary only unless --show-generated; line-bucket breakdown)
+    Cross-file pairs show individual locations with line/token counts.
+    Same-file duplicates are grouped by file with block count and total lines.
+    Generated-file duplicates appear as a one-line size summary.
 
     Dead-code findings:
 
-        === Dead code (skylos) — 3 found ===
-        path/foo.py:42  unused function
-        ...
+        === Dead code — 167 (63 unused import, 38 unused variable, 13 unused function, ...) ===
+          extension/src/webview/panel/file-path.tsx  L14 unused function, L35 unused function, ...
+          extension/src/host/session-service/events.ts  12 import
+          ...
 
-    With --verify-dead-code, the dead-code header shows verification counts
-    and only verified (likely dead) findings are printed. Likely false
-    positives are suppressed:
+    Non-trivial findings (function, class, file) are grouped by file with
+    line numbers. Trivial findings (import, variable) are aggregated by
+    file with counts. A category summary appears in the header.
 
-        === Dead code (skylos) \u2014 11 verified out of 44 found (33 likely false positives suppressed) ===
-        path/foo.ts:42  unused function
-        ...
+    With --verify-dead-code, only verified (likely dead) findings are printed
+    and likely false positives are suppressed.
 
-    Skipped sections print "=== Tool (name) — skipped ===". Sections with
-    no findings print "=== Tool (name) — no findings ===". If a section
+    Skipped sections print "=== Section — skipped ===". Sections with
+    no findings print "=== Section — none ===". If a section
     exceeds --max-findings, a one-line remainder summary is printed.
 
 Exit codes:
@@ -329,15 +330,18 @@ def print_duplicates(
     duplicates: list[dict], directory: Path, max_findings: int,
     show_generated: bool = False,
 ) -> int:
-    """Print duplicate findings grouped into cross-file, same-file, and generated.
+    """Print duplicate findings in a compact, agent-friendly format.
+
+    Cross-file duplicates are listed individually.  Same-file duplicates are
+    grouped by file with block counts and total lines.  Generated-file
+    duplicates are shown as a one-line size summary by default.
 
     Returns the total number of duplicate pairs found (across all categories).
     Returns 0 when no duplicates exist or none could be formatted.
     """
     if not duplicates:
-        print("=== Cross-file duplicates (jscpd) \u2014 no findings ===")
-        print("=== Same-file duplicates (jscpd) \u2014 no findings ===")
-        print("=== Generated-file duplicates (jscpd) \u2014 no findings ===")
+        print("=== Cross-file duplicates \u2014 none ===")
+        print("=== Same-file duplicates \u2014 none ===")
         return 0
 
     # Sort by line count descending (worst-first), tie-break on tokens desc.
@@ -366,55 +370,69 @@ def print_duplicates(
 
     total = len(pairs)
 
-    # --- Cross-file ---
+    # --- Cross-file: one line per pair ---
     if cross_file:
-        print(f"=== Cross-file duplicates (jscpd) \u2014 {len(cross_file)} found ===")
+        print(f"=== Cross-file duplicates \u2014 {len(cross_file)} ===")
         shown = cross_file[:max_findings] if max_findings > 0 else cross_file
-        remaining = len(cross_file) - len(shown)
         for a, b, lines, tokens in shown:
-            print(f"{a} ~ {b}  ({lines} lines, {tokens} tokens)")
+            print(f"  {a} ~ {b}  {lines}L {tokens}T")
+        remaining = len(cross_file) - len(shown)
         if remaining > 0:
             _print_bucket_summary(cross_file, len(shown), max_findings)
     else:
-        print("=== Cross-file duplicates (jscpd) \u2014 no findings ===")
+        print("=== Cross-file duplicates \u2014 none ===")
 
-    # --- Same-file ---
+    # --- Same-file: grouped by file ---
     if same_file:
-        print(f"=== Same-file duplicates (jscpd) \u2014 {len(same_file)} found ===")
-        shown = same_file[:max_findings] if max_findings > 0 else same_file
-        remaining = len(same_file) - len(shown)
-        for a, b, lines, tokens in shown:
-            print(f"{a} ~ {b}  ({lines} lines, {tokens} tokens)")
+        print(f"=== Same-file duplicates \u2014 {len(same_file)} blocks in {_count_unique_files(same_file)} files ===")
+        # Group by file path, sorted by total duplicated lines desc.
+        file_groups: dict[str, list[tuple[str, str, int, int]]] = {}
+        for pair in same_file:
+            a_path = _extract_filepath(pair[0])
+            file_groups.setdefault(a_path, []).append(pair)
+        # Sort groups by total duplicated lines descending.
+        sorted_groups = sorted(
+            file_groups.items(),
+            key=lambda item: sum(p[2] for p in item[1]),
+            reverse=True,
+        )
+        shown_groups = sorted_groups[:max_findings] if max_findings > 0 else sorted_groups
+        for filepath, group in shown_groups:
+            total_lines = sum(p[2] for p in group)
+            print(f"  {filepath}  {len(group)} blocks {total_lines}L")
+        remaining = len(sorted_groups) - len(shown_groups)
         if remaining > 0:
-            _print_bucket_summary(same_file, len(shown), max_findings)
+            print(f"  ... {remaining} more files")
     else:
-        print("=== Same-file duplicates (jscpd) \u2014 no findings ===")
+        print("=== Same-file duplicates \u2014 none ===")
 
-    # --- Generated ---
+    # --- Generated: conditional display ---
     if generated:
         if show_generated:
-            print(f"=== Generated-file duplicates (jscpd) \u2014 {len(generated)} found ===")
-            # Summary only: line-bucket breakdown, no individual listings.
             buckets: dict[str, int] = {}
             for _a, _b, lines, _tokens in generated:
                 if lines >= 50:
-                    key = "50+ lines"
+                    key = "50+L"
                 elif lines >= 20:
-                    key = "20-49 lines"
+                    key = "20-49L"
                 else:
-                    key = "<20 lines"
+                    key = "<20L"
                 buckets[key] = buckets.get(key, 0) + 1
             parts = [f"{v} {k}" for k, v in sorted(buckets.items(), reverse=True)]
-            print(", ".join(parts))
+            print(f"=== Generated-file duplicates \u2014 {len(generated)} ({', '.join(parts)}) ===")
         else:
-            print(
-                f"=== Generated-file duplicates (jscpd) \u2014 {len(generated)} found "
-                f"(hidden, use --show-generated) ==="
-            )
-    else:
-        print("=== Generated-file duplicates (jscpd) \u2014 no findings ===")
+            print(f"=== Generated-file duplicates \u2014 {len(generated)} (use --show-generated for details) ===")
 
     return total
+
+
+def _count_unique_files(pairs: list[tuple[str, str, int, int]]) -> int:
+    """Count unique file paths in a list of duplicate pairs."""
+    seen: set[str] = set()
+    for a, b, _lines, _tokens in pairs:
+        seen.add(_extract_filepath(a))
+        seen.add(_extract_filepath(b))
+    return len(seen)
 
 
 def _print_bucket_summary(
@@ -427,14 +445,14 @@ def _print_bucket_summary(
     buckets: dict[str, int] = {}
     for _a, _b, lines, _tokens in remainder:
         if lines >= 50:
-            key = "50+ lines"
+            key = "50+L"
         elif lines >= 20:
-            key = "20-49 lines"
+            key = "20-49L"
         else:
-            key = "<20 lines"
+            key = "<20L"
         buckets[key] = buckets.get(key, 0) + 1
     parts = [f"{v} {k}" for k, v in sorted(buckets.items(), reverse=True)]
-    print(f"... {len(remainder)} more duplicate(s): {', '.join(parts)}")
+    print(f"  ... {len(remainder)} more: {', '.join(parts)}")
 
 
 # ---------------------------------------------------------------------------
@@ -685,33 +703,102 @@ def _verify_dead_code(
 
 def print_dead_code(
     skylos_lines: list[str], directory: Path, max_findings: int,
+    skip_header: bool = False,
 ) -> int:
-    """Print dead-code findings; return the total number of findings found.
+    """Print dead-code findings in a compact, agent-friendly format.
 
-    Returns 0 when no findings exist or none could be normalised.
+    Prints a one-line category summary, then groups findings:
+    - Non-trivial types (function, class, file) are listed by file with
+      line numbers.
+    - Trivial types (import, variable) are aggregated by file with counts.
+
+    Returns the total number of findings found.
     """
     if not skylos_lines:
-        print("=== Dead code (skylos) \u2014 no findings ===")
+        if not skip_header:
+            print("=== Dead code \u2014 none ===")
         return 0
 
     rewritten = list(filter(None, [_normalise_skylos_line(l, directory) for l in skylos_lines]))
 
-    print(f"=== Dead code (skylos) \u2014 {len(rewritten)} found ===")
+    # Classify each finding by type and file.
+    # Skylos concise format: "path:line  reason"
+    finding_type: dict[str, str] = {}   # line_text -> normalised type
+    for line in rewritten:
+        tail = line.split("  ", 1)[-1].strip().lower()
+        if "function" in tail:
+            finding_type[line] = "function"
+        elif "class" in tail:
+            finding_type[line] = "class"
+        elif "file" in tail and ("not imported" in tail or "unused" in tail):
+            finding_type[line] = "file"
+        elif "import" in tail:
+            finding_type[line] = "import"
+        elif "variable" in tail:
+            finding_type[line] = "variable"
+        else:
+            finding_type[line] = tail  # keep original for unknown types
 
-    shown = rewritten[:max_findings] if max_findings > 0 else rewritten
-    remaining = len(rewritten) - len(shown)
+    # Category summary line.
+    cat_counts: dict[str, int] = {}
+    for ft in finding_type.values():
+        cat_counts[ft] = cat_counts.get(ft, 0) + 1
+    if not skip_header:
+        summary_parts = [f"{v} {k}" for k, v in sorted(cat_counts.items(), key=lambda x: x[1], reverse=True)]
+        print(f"=== Dead code \u2014 {len(rewritten)} ({', '.join(summary_parts)}) ===")
 
-    for line in shown:
-        print(line)
+    # Separate non-trivial (function, class, file) from trivial (import, variable).
+    non_trivial = [line for line in rewritten if finding_type.get(line) in ("function", "class", "file")]
+    trivial = [line for line in rewritten if finding_type.get(line) not in ("function", "class", "file")]
 
-    if remaining > 0:
-        # Tally by reason (the trailing word after the second column).
-        buckets: dict[str, int] = {}
-        for line in rewritten[len(shown):]:
-            tail = line.split("  ", 1)[-1].strip()
-            buckets[tail] = buckets.get(tail, 0) + 1
-        parts = [f"{v} {k}" for k, v in sorted(buckets.items(), key=lambda x: x[1], reverse=True)]
-        print(f"... {remaining} more finding(s): {', '.join(parts)}")
+    # --- Non-trivial: group by file, list with line numbers ---
+    if non_trivial:
+        file_groups: dict[str, list[str]] = {}
+        for line in non_trivial:
+            m = re.match(r"^(.+?):(\d+)", line)
+            filepath = m.group(1) if m else line.split()[0]
+            file_groups.setdefault(filepath, []).append(line)
+        # Sort groups by count desc, then filepath.
+        sorted_groups = sorted(
+            file_groups.items(),
+            key=lambda item: (-len(item[1]), item[0]),
+        )
+        shown_groups = sorted_groups[:max_findings] if max_findings > 0 else sorted_groups
+        for filepath, lines in shown_groups:
+            # Extract just "line type" for compactness.
+            entries = []
+            for line in lines:
+                m = re.match(r"^.+?:(\d+)\s{2}(.+)", line)
+                if m:
+                    entries.append(f"L{m.group(1)} {m.group(2).strip()}")
+                else:
+                    entries.append(line.strip())
+            print(f"  {filepath}  {', '.join(entries)}")
+        remaining = len(sorted_groups) - len(shown_groups)
+        if remaining > 0:
+            print(f"  ... {remaining} more files")
+
+    # --- Trivial: aggregate by file with type counts ---
+    if trivial:
+        file_type_counts: dict[str, dict[str, int]] = {}
+        for line in trivial:
+            m = re.match(r"^(.+?):(\d+)", line)
+            filepath = m.group(1) if m else line.split()[0]
+            ft = finding_type.get(line, "other")
+            file_type_counts.setdefault(filepath, {})
+            file_type_counts[filepath][ft] = file_type_counts[filepath].get(ft, 0) + 1
+        # Sort files by total trivial count desc.
+        sorted_files = sorted(
+            file_type_counts.items(),
+            key=lambda item: (-sum(item[1].values()), item[0]),
+        )
+        shown_files = sorted_files[:max_findings] if max_findings > 0 else sorted_files
+        for filepath, type_counts in shown_files:
+            tc_parts = [f"{v} {k}" for k, v in sorted(type_counts.items(), key=lambda x: x[1], reverse=True)]
+            print(f"  {filepath}  {', '.join(tc_parts)}")
+        remaining = len(sorted_files) - len(shown_files)
+        if remaining > 0:
+            print(f"  ... {remaining} more files")
 
     return len(rewritten)
 
@@ -886,7 +973,7 @@ def main() -> None:
 
     # --- Duplicates (jscpd) ---
     if skip_duplicates:
-        print("=== Duplicates (jscpd) \u2014 skipped ===")
+        print("=== Duplicates \u2014 skipped ===")
     else:
         jscpd_argv = _locate_jscpd()
         jscpd_ignore = _ignore_patterns_for_jscpd(active_patterns)
@@ -898,7 +985,7 @@ def main() -> None:
     # --- Dead code (skylos) ---
     print()
     if skip_dead_code:
-        print("=== Dead code (skylos) \u2014 skipped ===")
+        print("=== Dead code \u2014 skipped ===")
     else:
         skylos_argv = _locate_skylos()
         exclude_folders, dropped_globs = _patterns_for_skylos(active_patterns)
@@ -919,26 +1006,16 @@ def main() -> None:
         if verify_dead_code:
             verified, false_positives = _verify_dead_code(findings, directory, active_patterns)
             total = len(verified) + len(false_positives)
-            header = f"=== Dead code (skylos) \u2014 {len(verified)} verified out of {total} found"
+            header = f"=== Dead code \u2014 {len(verified)} verified of {total}"
             if false_positives:
                 header += f" ({len(false_positives)} likely false positives suppressed)"
-            header += " ==="
             print(header)
-            # Only print verified findings.
+            # Print verified findings using the grouped format.
             if not verified:
                 print("  (no verified dead code; all findings were likely false positives)")
             else:
-                shown = verified[:max_findings] if max_findings > 0 else verified
-                for line in shown:
-                    print(line)
-                remaining = len(verified) - len(shown)
-                if remaining > 0:
-                    buckets: dict[str, int] = {}
-                    for line in verified[len(shown):]:
-                        tail = line.split("  ", 1)[-1].strip()
-                        buckets[tail] = buckets.get(tail, 0) + 1
-                    parts = [f"{v} {k}" for k, v in sorted(buckets.items(), key=lambda x: x[1], reverse=True)]
-                    print(f"... {remaining} more verified finding(s): {', '.join(parts)}")
+                # Reuse print_dead_code's grouped layout for the verified subset.
+                print_dead_code(verified, directory, max_findings, skip_header=True)
         else:
             print_dead_code(findings, directory, max_findings)
 

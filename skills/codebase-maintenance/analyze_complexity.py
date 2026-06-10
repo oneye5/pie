@@ -18,9 +18,14 @@ Arguments:
                        Default: C (shows C, D, F — skips A and B).
 
 Output:
-    One line per flagged function, sorted worst-first (lowest score first):
+    One line per flagged function, sorted worst-first (lowest score first).
+    Metrics are abbreviated to minimize token waste for agent consumption:
 
-        src/handlers.ts:51 handleBackendRequest [F] score 31 — Cognitive flow complexity is 100 (threshold: 19)
+        src/handlers.ts:51 handleBackendRequest [F] 31 — cfc=100 he=50400 irc=1540
+
+    Metric abbreviations: cfc=Cognitive flow complexity, he=Halstead effort,
+    irc=Identifier reference complexity, nest=Maximum nesting depth,
+    len=Function length (lines), params=Parameters, coupling=Coupling.
 
     If no flagged functions meet the grade filter: prints "no flagged functions".
 
@@ -65,6 +70,19 @@ SKIP_DIRS: frozenset[str] = _MOD.SKIP_DIRS
 # ---------------------------------------------------------------------------
 GRADE_ORDER = {"A": 0, "B": 1, "C": 2, "D": 3, "F": 4}
 FLAG_SEVERITY_ORDER = {"error": 0, "warning": 1, "info": 2}
+
+# Short metric names for compact agent output.
+METRIC_ABBREV: dict[str, str] = {
+    "Cognitive flow complexity": "cfc",
+    "Halstead effort": "he",
+    "Halstead difficulty": "hd",
+    "Identifier reference complexity": "irc",
+    "Maximum nesting depth": "nest",
+    "Function length": "len",
+    "Function is": "len",          # "Function is 95 lines"
+    "Function has": "params",       # "Function has 7 parameters"
+    "Moderate coupling": "coupling",
+}
 
 # Qualitas only supports these languages.
 QUALITAS_LANG_EXTENSIONS: frozenset[str] = frozenset({
@@ -306,8 +324,65 @@ def extract_flagged_functions(
     return flagged
 
 
+def _abbreviate_flag(msg: str) -> str:
+    """Convert a verbose Qualitas flag message to a compact key=value form.
+
+    Examples::
+
+        "Cognitive flow complexity is 133 (threshold: 19)" → "cfc=133"
+        "Function has 7 parameters (threshold: 7)"          → "params=7"
+        "Moderate coupling: 11 imports, 0 distinct API calls" → "coupling=11imp/0api"
+    """
+    # Strip trailing threshold parenthetical, e.g. " (threshold: 19)"
+    body = msg
+    if " (threshold:" in body:
+        body = body[: body.rfind(" (threshold:")]
+
+    # Try to match a known metric prefix.
+    for long_name, short in METRIC_ABBREV.items():
+        if body.startswith(long_name):
+            remainder = body[len(long_name):].strip()
+            # "Function is 184 lines" → remainder = "184 lines"
+            # "Function has 5 parameters" → remainder = "5 parameters"
+            # "... is 133" → remainder = "133"
+            # "...: 11 imports, ..." → remainder = "11 imports, ..."
+            if remainder.startswith("is "):
+                # "Cognitive flow complexity is 133"
+                val_part = remainder[3:]
+                num = val_part.split()[0]
+                return f"{short}={num}"
+            elif remainder.startswith("has "):
+                # "Function has 7 parameters"
+                num = remainder.split()[1] if len(remainder.split()) > 1 else remainder.split()[0]
+                return f"{short}={num}"
+            elif short == "coupling":
+                # coupling: remainder like "11 imports, 0 distinct API calls"
+                remainder = remainder.lstrip(": ")
+                parts = remainder.split(",")
+                imp = parts[0].strip().split()[0] if parts else "?"
+                api = parts[1].strip().split()[0] if len(parts) > 1 else "?"
+                return f"coupling={imp}imp/{api}api"
+            else:
+                # "Function is 184 lines" → prefix consumed "is", remainder = "184 lines"
+                # "Function has 5 parameters" → prefix consumed "has", remainder = "5 parameters"
+                # Extract leading number
+                first_token = remainder.split()[0] if remainder else ""
+                if first_token and first_token.replace('.', '').replace('-', '').replace('+', '').isdigit():
+                    return f"{short}={first_token}"
+                # Generic fallback
+                return f"{short}={remainder}"
+
+    # No known prefix — return as-is, stripped
+    return body
+
+
 def format_output(flagged: list[dict], max_findings: int) -> None:
-    """Print flagged functions in a concise, agent-friendly format."""
+    """Print flagged functions in a compact, agent-friendly format.
+
+    One line per function with abbreviated metrics:
+
+        path:line name [grade] score — cfc=133 he=1207k irc=1540
+    """
     if not flagged:
         print("no flagged functions")
         return
@@ -322,28 +397,17 @@ def format_output(flagged: list[dict], max_findings: int) -> None:
             f["flags"],
             key=lambda fl: FLAG_SEVERITY_ORDER.get(fl.get("severity", "info"), 3),
         )
-        primary = flags[0]
-        msg = primary.get("message", "complexity threshold exceeded")
-        if len(msg) > 120:
-            cut = msg.rfind(" ", 0, 117)
-            if cut == -1:
-                cut = 117
-            msg = msg[:cut] + "..."
+        abbrevs = []
+        for fl in flags:
+            tag = _abbreviate_flag(fl.get("message", ""))
+            if tag:
+                abbrevs.append(tag)
 
         print(
             f"{f['rel_path']}:{f['line']} "
-            f"{f['name']} [{f['grade']}] score {f['score']:.0f} — "
-            f"{msg}"
+            f"{f['name']} [{f['grade']}] {f['score']:.0f} — "
+            f"{' '.join(abbrevs)}"
         )
-
-        for fl in flags[1:3]:
-            fl_msg = fl.get("message", "")
-            if len(fl_msg) > 100:
-                cut = fl_msg.rfind(" ", 0, 97)
-                if cut == -1:
-                    cut = 97
-                fl_msg = fl_msg[:cut] + "..."
-            print(f"  {fl_msg}")
 
     if remaining > 0:
         grade_counts: dict[str, int] = {}
@@ -351,7 +415,7 @@ def format_output(flagged: list[dict], max_findings: int) -> None:
             g = f["grade"]
             grade_counts[g] = grade_counts.get(g, 0) + 1
         parts = [f"{v} {k}" for k, v in sorted(grade_counts.items())]
-        print(f"... {remaining} more flagged function(s): {', '.join(parts)}")
+        print(f"... {remaining} more: {', '.join(parts)}")
 
 
 # ---------------------------------------------------------------------------
