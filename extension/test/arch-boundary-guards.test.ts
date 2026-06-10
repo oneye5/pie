@@ -15,16 +15,16 @@ import { resolve } from 'node:path';
 declare const __dirname: string;
 
 const CORE_ROOT = resolve(__dirname, '..', 'src', 'host', 'core');
-const HELPERS_PATH = resolve(CORE_ROOT, 'transcript-helpers.ts');
+const ARCH_STATE_PATH = resolve(CORE_ROOT, 'arch-state.ts');
 
 // ─── Guard: TranscriptState has no alias/turn fields ─────────────────────────
 
 test('TranscriptState must not contain messageIdAlias or currentTurnBySession fields', () => {
-  const helpers = readFileSync(HELPERS_PATH, 'utf8');
+  const archState = readFileSync(ARCH_STATE_PATH, 'utf8');
 
-  // Extract the TranscriptState interface body
-  const ifaceMatch = helpers.match(/export interface TranscriptState\s*\{([^}]+)\}/);
-  assert.ok(ifaceMatch, 'TranscriptState interface not found in transcript-helpers.ts');
+  // Extract the TranscriptState interface body from arch-state.ts (canonical location)
+  const ifaceMatch = archState.match(/export interface TranscriptState\s*\{([\s\S]+?)\}/);
+  assert.ok(ifaceMatch, 'TranscriptState interface not found in arch-state.ts');
 
   const body = ifaceMatch[1];
   assert.ok(!body.includes('messageIdAlias'), 'TranscriptState must not contain messageIdAlias — alias state belongs in ArchState');

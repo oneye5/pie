@@ -3,7 +3,11 @@ import {
   getSkillNameFromToolCall as getSharedSkillNameFromToolCall,
   getToolCallSizeHint as getSharedToolCallSizeHint,
   normalizeToolCallName,
+  summarizeObject,
+  summarizeStringList,
   summarizeSubagentToolCallInput as summarizeSharedSubagentToolCallInput,
+  summarizeTaskEntries,
+  summarizeUnknown,
 } from '../../shared/tool-call-analysis';
 import { DIRECT_FILE_PATH_KEYS, GENERIC_PATH_KEYS } from '../../shared/tool-call-analysis/mutation-tools';
 
@@ -22,19 +26,10 @@ export interface ToolCallPresentationOptions {
   workingDirectory?: string | null;
 }
 
-function normalizeText(text: string): string {
-  return text.replace(/\s+/g, ' ').trim();
-}
-
 function truncateText(text: string, maxLength = TOOL_CALL_SUMMARY_MAX_LENGTH): string {
   return text.length > maxLength
     ? `${text.slice(0, maxLength - 3).trimEnd()}...`
     : text;
-}
-
-function summarizeText(text: string, maxLength = TOOL_CALL_SUMMARY_MAX_LENGTH): string | null {
-  const normalized = normalizeText(text);
-  return normalized ? truncateText(normalized, maxLength) : null;
 }
 
 import { isRecord } from '../../shared/type-guards';
@@ -259,98 +254,6 @@ function summarizeToolCallPath(toolCall: ToolCall, workingDirectory?: string | n
   }
 
   return null;
-}
-
-function summarizeStringList(value: unknown, maxItems = 3): string | null {
-  if (!Array.isArray(value)) return null;
-
-  const items = value
-    .filter((item): item is string => typeof item === 'string')
-    .map(normalizeText)
-    .filter((item) => item.length > 0);
-
-  if (items.length === 0) return null;
-
-  const preview = items.slice(0, maxItems).join(', ');
-  const suffix = items.length > maxItems ? ` +${items.length - maxItems} more` : '';
-  return summarizeText(`${preview}${suffix}`);
-}
-
-function summarizeTaskEntries(value: unknown): string | null {
-  if (!Array.isArray(value) || value.length === 0) return null;
-
-  const first = value[0];
-  if (!isRecord(first)) return null;
-
-  const task = typeof first.task === 'string' ? summarizeText(first.task, 180) : null;
-  if (!task) return null;
-
-  const agent = typeof first.agent === 'string' ? normalizeText(first.agent) : '';
-  const suffix = value.length > 1 ? ` +${value.length - 1} more` : '';
-  return summarizeText(`${agent ? `${agent}: ` : ''}${task}${suffix}`);
-}
-
-function summarizeUnknown(value: unknown): string | null {
-  if (typeof value === 'string') return summarizeText(value);
-  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
-
-  if (Array.isArray(value)) {
-    const listSummary = summarizeStringList(value);
-    if (listSummary) return listSummary;
-
-    const firstRecord = value.find(isRecord);
-    return firstRecord ? summarizeObject(firstRecord) : null;
-  }
-
-  if (isRecord(value)) return summarizeObject(value);
-  return null;
-}
-
-function summarizeObject(value: Record<string, unknown>): string | null {
-  const multiTaskSummary = summarizeTaskEntries(value.tasks ?? value.chain);
-  if (multiTaskSummary) return multiTaskSummary;
-
-  const directFields = [
-    value.command,
-    value.task,
-    value.query,
-    value.prompt,
-    value.explanation,
-    value.text,
-    value.goal,
-    value.description,
-    value.element,
-    value.url,
-    value.path,
-    value.filePath,
-    value.dirPath,
-    value.fileUri,
-    value.includePattern,
-    value.workspaceFolder,
-    value.symbol,
-    value.expression,
-    value.commandId,
-    value.selector,
-    value.question,
-  ];
-
-  for (const field of directFields) {
-    const preview = summarizeUnknown(field);
-    if (preview) return preview;
-  }
-
-  const listSummary = summarizeStringList(value.packageList ?? value.urls ?? value.paths ?? value.args);
-  if (listSummary) return listSummary;
-
-  for (const entry of Object.values(value)) {
-    if (typeof entry === 'string' || Array.isArray(entry) || isRecord(entry)) {
-      const preview = summarizeUnknown(entry);
-      if (preview) return preview;
-    }
-  }
-
-  const compact = summarizeText(JSON.stringify(value));
-  return compact === '{}' ? null : compact;
 }
 
 function formatPresentationSizeHint(sizeHint: string | null | undefined): string | undefined {

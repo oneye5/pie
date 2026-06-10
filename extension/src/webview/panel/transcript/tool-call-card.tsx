@@ -5,6 +5,7 @@ import type { ToolCall } from '../../../shared/protocol';
 import { normalizeToolCallName } from '../../../shared/tool-call-analysis';
 import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
+import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../utils/looks-like-path-token';
 
 import { ClickablePathButton, splitSummaryPath } from '../file-path';
 import { formatDuration } from './header';
@@ -156,26 +157,6 @@ function tokenizeShellSnippet(value: string): string[] {
   return tokens;
 }
 
-function splitQuotedToken(value: string): { text: string; leadingQuote?: string; trailingQuote?: string } {
-  const trimmed = value.trim();
-  if (
-    trimmed.length >= 2
-    && ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
-  ) {
-    return {
-      text: trimmed.slice(1, -1),
-      leadingQuote: trimmed[0],
-      trailingQuote: trimmed[trimmed.length - 1],
-    };
-  }
-
-  return { text: trimmed };
-}
-
-function unwrapQuotedToken(value: string): string {
-  return splitQuotedToken(value).text;
-}
-
 function isCommandSummaryTool(name: string): boolean {
   const normalizedName = normalizeToolCallName(name);
   return normalizedName === 'bash'
@@ -189,27 +170,6 @@ function isShellAssignmentToken(value: string): boolean {
   return /^[A-Za-z_][A-Za-z0-9_]*=.*/.test(unwrapQuotedToken(value));
 }
 
-function looksLikePathToken(value: string): boolean {
-  const token = unwrapQuotedToken(value);
-  if (!token || token === '|' || token === '||' || token === '&&' || token === ';' || token.startsWith('-')) {
-    return false;
-  }
-
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(token) && !/^file:\/\//i.test(token)) {
-    return false;
-  }
-
-  return token.includes('/')
-    || token.includes('\\')
-    || /^\.{1,2}$/.test(token)
-    || /^\.{1,2}[\\/]/.test(token)
-    || /^~(?:[\\/]|$)/.test(token)
-    || /^[A-Za-z]:[\\/]/.test(token)
-    || /^file:\/\//i.test(token)
-    || /^\\\\/.test(token)
-    || /^\.[A-Za-z0-9._-]+$/.test(token)
-    || /^[A-Za-z0-9._-]*[A-Za-z_][A-Za-z0-9._-]*\.[A-Za-z0-9_-]{1,8}$/.test(token);
-}
 
 function createCommandSummaryModel(commandText: string): ToolCallHeaderCommandSummaryModel | null {
   const normalized = normalizeInlineText(commandText);

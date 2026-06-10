@@ -187,73 +187,6 @@ export function summarizePathCandidate(
   };
 }
 
-export function summarizeFieldPathCandidate(
-  fieldValue: unknown,
-  workingDirectory?: string | null,
-): { summary: string; summaryPath?: string } | null {
-  if (typeof fieldValue === 'string') {
-    return summarizePathCandidate(fieldValue, workingDirectory);
-  }
-
-  function firstStringInList(value: unknown): string | null {
-    if (!Array.isArray(value)) {
-      return null;
-    }
-    for (const entry of value) {
-      if (typeof entry === 'string' && entry.trim()) {
-        return entry;
-      }
-    }
-    return null;
-  }
-
-  const firstEntry = firstStringInList(fieldValue);
-  return firstEntry ? summarizePathCandidate(firstEntry, workingDirectory) : null;
-}
-
-// ── Path detection (adapted from tool-call-card.tsx) ──────────────────────
-
-export function splitQuotedToken(value: string): { text: string; leadingQuote?: string; trailingQuote?: string } {
-  const trimmed = value.trim();
-  if (
-    trimmed.length >= 2
-    && ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
-  ) {
-    return {
-      text: trimmed.slice(1, -1),
-      leadingQuote: trimmed[0],
-      trailingQuote: trimmed[trimmed.length - 1],
-    };
-  }
-
-  return { text: trimmed };
-}
-
-export function unwrapQuotedToken(value: string): string {
-  return splitQuotedToken(value).text;
-}
-
-export function looksLikePathToken(value: string): boolean {
-  const token = unwrapQuotedToken(value);
-  if (!token || token === '|' || token === '||' || token === '&&' || token === ';' || token.startsWith('-')) {
-    return false;
-  }
-
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(token) && !/^file:\/\//i.test(token)) {
-    return false;
-  }
-
-  return token.includes('/')
-    || token.includes('\\')
-    || /^\.{1,2}$/.test(token)
-    || /^\.{1,2}[\\/]/.test(token)
-    || /^~(?:[\\/]|$)/.test(token)
-    || /^[A-Za-z]:[\\/]/.test(token)
-    || /^file:\/\//i.test(token)
-    || /^\\\\/.test(token)
-    || /^\.[A-Za-z0-9._-]+$/.test(token)
-    || /^[A-Za-z0-9._-]*[A-Za-z_][A-Za-z0-9._-]*\.[A-Za-z0-9_-]{1,8}$/.test(token);
-}
 
 function looksLikeFileLeaf(value: string): boolean {
   const leaf = value.trim();
@@ -293,26 +226,6 @@ export function splitSummaryPath(summary: string): { pathSection: string | null;
 }
 
 // ── Shared rendering ─────────────────────────────────────────────────────
-
-export function renderClickablePathHtml(summaryPath: string, displayText: string): string {
-  const { pathSection, fileSection } = splitSummaryPath(displayText);
-  if (!fileSection) {
-    return (
-      `<span class="transcript-header-path-preview">` +
-      `<span class="transcript-header-summary-subtle transcript-header-path-prefix"><span class="[direction:ltr] [unicode-bidi:isolate]">${escapeHtml(pathSection ?? displayText)}</span></span>` +
-      `</span>`
-    );
-  }
-  const prefixHtml = pathSection
-    ? `<span class="transcript-header-summary-subtle transcript-header-path-prefix"><span class="[direction:ltr] [unicode-bidi:isolate]">${escapeHtml(pathSection)}</span></span>`
-    : '';
-  return (
-    `<span class="transcript-header-path-preview">${prefixHtml}` +
-    `<button type="button" class="transcript-header-summary-link" data-file-path="${escapeHtml(summaryPath)}">` +
-    `<span class="transcript-header-summary-emphasis transcript-header-path-target">${escapeHtml(fileSection)}</span>` +
-    `</button></span>`
-  );
-}
 
 export interface ClickablePathButtonProps {
   path: string;

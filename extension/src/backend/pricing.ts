@@ -148,32 +148,4 @@ export function loadModelPricing(modelsJsonPath: string): Map<string, ModelPrici
   return map;
 }
 
-/**
- * Resolve a model's effective cost using the fallback order:
- * 1. Real pricing (normalized), 2. Legacy cost, 3. Zero fallback.
- */
-export function resolveModelCost(
-  modelId: string,
-  pricingRecords: Map<string, ModelPricingRecord[]>,
-  legacyCost?: number,
-): { normalizedCost: number; usedSource: 'pricing' | 'legacy' | 'none' } {
-  const records = pricingRecords.get(modelId);
-  if (records && records.length > 0) {
-    const priced = records.find((r) => r.pricing !== undefined);
-    if (priced?.pricing) {
-      return {
-        normalizedCost: estimateNormalizedCost(priced.pricing),
-        usedSource: 'pricing',
-      };
-    }
-  }
 
-  if (legacyCost !== undefined && Number.isFinite(legacyCost)) {
-    return {
-      normalizedCost: Math.max(0, legacyCost),
-      usedSource: 'legacy',
-    };
-  }
-
-  return { normalizedCost: 0, usedSource: 'none' };
-}

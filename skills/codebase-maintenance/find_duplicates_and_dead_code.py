@@ -15,12 +15,14 @@ Combines two language-agnostic static analysis tools in one pass:
 
 - jscpd (via npx): copy/paste / token-level duplicate detection across
   150+ languages. npx downloads jscpd on first use; no install step.
-- skylos (via uv run PEP 723 metadata): unused functions, classes, and
-  imports across Python, TypeScript, JavaScript, Java, Go, PHP, Rust,
-  and Dart. uv run installs it automatically into an isolated venv.
+- skylos (via ``skylos`` on PATH, or ``uv run --with skylos skylos`` as
+  fallback): unused functions, classes, and imports across Python,
+  TypeScript, JavaScript, Java, Go, PHP, Rust, and Dart.
 
 Both tools respect the shared .ignore file (see find_large_files.py for
-format details). Output is grouped into two clearly-labeled sections.
+format details). Duplicate findings are grouped into three categories —
+cross-file, same-file, and generated-file — with generated findings
+summarised by default (use --show-generated to list them).
 
 Tool-specific ignore mapping:
 
@@ -35,26 +37,50 @@ Tool-specific ignore mapping:
 Arguments:
     directory              Root directory to scan (required)
     --max-findings N       Cap findings per section (default 50; 0 = unlimited)
-    --min-lines N          jscpd: minimum duplicated lines per block (default 5)
-    --min-tokens N         jscpd: minimum duplicated tokens per block (default 50)
+    --min-lines N          jscpd: minimum duplicated lines per block (default 8)
+    --min-tokens N         jscpd: minimum duplicated tokens per block (default 70)
     --confidence N         skylos: minimum confidence 0-100 (default 60)
     --exclude-reasons REASONS
                            skylos: comma-separated reason substrings to exclude
                            (e.g. "unused import,unused variable") — findings
                            whose trailing reason text matches a substring are
                            dropped (default: none — all reasons shown)
+    --show-generated       Show individual generated-file duplicate listings
+                           (hidden by default; generated files include lock
+                           files, .min.* assets, and node_modules/)
+    --verify-dead-code     Cross-reference skylos findings by searching for
+                           the reported symbol across the codebase. Findings
+                           whose symbol is referenced elsewhere are flagged as
+                           likely false positives.
     --skip-duplicates      Run only skylos
     --skip-dead-code       Run only jscpd
 
 Output:
-    Two sections, each beginning with a === header that includes a count:
+    Duplicate findings are grouped into three sections:
 
-        === Duplicates (jscpd) — 5 found ===
+        === Cross-file duplicates (jscpd) — 15 found ===
         path/A.py:1-12 ~ path/B.py:1-12  (12 lines, 64 tokens)
         ...
 
+        === Same-file duplicates (jscpd) — 4 found ===
+        path/A.py:1-12 ~ path/A.py:50-62  (12 lines, 64 tokens)
+        ...
+
+        === Generated-file duplicates (jscpd) — 372 found ===
+        (summary only unless --show-generated; line-bucket breakdown)
+
+    Dead-code findings:
+
         === Dead code (skylos) — 3 found ===
         path/foo.py:42  unused function
+        ...
+
+    With --verify-dead-code, the dead-code header shows verification counts
+    and only verified (likely dead) findings are printed. Likely false
+    positives are suppressed:
+
+        === Dead code (skylos) \u2014 11 verified out of 44 found (33 likely false positives suppressed) ===
+        path/foo.ts:42  unused function
         ...
 
     Skipped sections print "=== Tool (name) — skipped ===". Sections with
@@ -100,15 +126,25 @@ NPX_HINT = (
     "Install Node.js from https://nodejs.org/ and re-run this script."
 )
 SKYLOS_HINT = (
-    "Error: skylos not found in PATH.\n"
-    "The PEP 723 metadata in this script declares skylos as a dependency — "
-    "uv run will install it automatically. Use --skip-dead-code to run "
-    "duplicates only."
+    "Error: skylos not found in PATH and uv not found for fallback.\n"
+    "Recommended: install uv (https://docs.astral.sh/uv/) and this script "
+    "will use `uv run --with skylos skylos` automatically.\n"
+    "Alternatively: pip install --user skylos, then re-run this script.\n"
+    "Use --skip-dead-code to run duplicates only."
 )
 
 # Strip ANSI color escapes that skylos may emit even with --no-tips on some
 # terminals. The concise format uses plain text but defensive trimming is cheap.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+# Pattern for recognising generated / vendored / lock files.
+_GENERATED_FILE_RE = re.compile(
+    r'(?:^|/)('
+    r'package-lock\.json|yarn\.lock|pnpm-lock\.yaml|composer\.lock|Gemfile\.lock|poetry\.lock'
+    r')$'
+    r'|\.min\.(js|mjs|css)$'
+    r'|(?:^|/)node_modules/'
+)
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +167,42 @@ def to_rel_posix(raw: str, directory: Path) -> str:
         return p.resolve().relative_to(directory.resolve()).as_posix()
     except (ValueError, OSError):
         return p.name or cleaned
+
+
+def _find_binary(name: str) -> str | None:
+    """Find *name* on PATH, falling back to the user Scripts directory on Windows.
+
+    Returns the absolute path if found, or None.
+    """
+    found = shutil.which(name)
+    if found is not None:
+        return found
+    # On Windows, pip install --user puts scripts in a directory that may not
+    # be on PATH. Check the user site-packages Scripts directory.
+    if sys.platform == "win32":
+        import site
+        user_base = site.getsitepackages()[0] if site.getusersitepackages() else None
+        # site.getusersitepackages() returns something like
+        # C:\\Users\\<user>\\AppData\\Roaming\\Python\\Python311\\site-packages
+        # The Scripts directory is two levels up in ..\\..\\Scripts
+        user_site = site.getusersitepackages()
+        if user_site:
+            scripts_dir = Path(user_site).parent.parent / "Scripts"
+            candidate = scripts_dir / f"{name}.exe"
+            if candidate.is_file():
+                return str(candidate)
+    return None
+
+
+def _is_generated_path(path: str) -> bool:
+    """Return True if *path* looks like a generated or vendored file."""
+    return bool(_GENERATED_FILE_RE.search(path))
+
+
+def _extract_filepath(formatted: str) -> str:
+    """Extract the file path from a formatted string like 'src/foo.py:1-12'."""
+    idx = formatted.rfind(":")
+    return formatted[:idx] if idx > 0 else formatted
 
 
 # ---------------------------------------------------------------------------
@@ -255,13 +327,17 @@ def format_duplicate(
 
 def print_duplicates(
     duplicates: list[dict], directory: Path, max_findings: int,
+    show_generated: bool = False,
 ) -> int:
-    """Print duplicate findings; return the total number of duplicate pairs found.
+    """Print duplicate findings grouped into cross-file, same-file, and generated.
 
+    Returns the total number of duplicate pairs found (across all categories).
     Returns 0 when no duplicates exist or none could be formatted.
     """
     if not duplicates:
-        print("=== Duplicates (jscpd) \u2014 no findings ===")
+        print("=== Cross-file duplicates (jscpd) \u2014 no findings ===")
+        print("=== Same-file duplicates (jscpd) \u2014 no findings ===")
+        print("=== Generated-file duplicates (jscpd) \u2014 no findings ===")
         return 0
 
     # Sort by line count descending (worst-first), tie-break on tokens desc.
@@ -272,29 +348,93 @@ def print_duplicates(
             pairs.append(formatted)
     pairs.sort(key=lambda p: (p[2], p[3]), reverse=True)
 
-    print(f"=== Duplicates (jscpd) \u2014 {len(pairs)} found ===")
+    # Classify pairs into three categories.
+    cross_file: list[tuple[str, str, int, int]] = []
+    same_file: list[tuple[str, str, int, int]] = []
+    generated: list[tuple[str, str, int, int]] = []
 
-    shown = pairs[:max_findings] if max_findings > 0 else pairs
-    remaining = len(pairs) - len(shown)
+    for pair in pairs:
+        a, b, lines, tokens = pair
+        a_path = _extract_filepath(a)
+        b_path = _extract_filepath(b)
+        if _is_generated_path(a_path) or _is_generated_path(b_path):
+            generated.append(pair)
+        elif a_path == b_path:
+            same_file.append(pair)
+        else:
+            cross_file.append(pair)
 
-    for a, b, lines, tokens in shown:
-        print(f"{a} ~ {b}  ({lines} lines, {tokens} tokens)")
+    total = len(pairs)
 
-    if remaining > 0:
-        # Group the remainder by line-bucket for a compact summary.
-        buckets: dict[str, int] = {}
-        for _a, _b, lines, _tokens in pairs[len(shown):]:
-            if lines >= 50:
-                key = "50+ lines"
-            elif lines >= 20:
-                key = "20-49 lines"
-            else:
-                key = "<20 lines"
-            buckets[key] = buckets.get(key, 0) + 1
-        parts = [f"{v} {k}" for k, v in sorted(buckets.items(), reverse=True)]
-        print(f"... {remaining} more duplicate(s): {', '.join(parts)}")
+    # --- Cross-file ---
+    if cross_file:
+        print(f"=== Cross-file duplicates (jscpd) \u2014 {len(cross_file)} found ===")
+        shown = cross_file[:max_findings] if max_findings > 0 else cross_file
+        remaining = len(cross_file) - len(shown)
+        for a, b, lines, tokens in shown:
+            print(f"{a} ~ {b}  ({lines} lines, {tokens} tokens)")
+        if remaining > 0:
+            _print_bucket_summary(cross_file, len(shown), max_findings)
+    else:
+        print("=== Cross-file duplicates (jscpd) \u2014 no findings ===")
 
-    return len(pairs)
+    # --- Same-file ---
+    if same_file:
+        print(f"=== Same-file duplicates (jscpd) \u2014 {len(same_file)} found ===")
+        shown = same_file[:max_findings] if max_findings > 0 else same_file
+        remaining = len(same_file) - len(shown)
+        for a, b, lines, tokens in shown:
+            print(f"{a} ~ {b}  ({lines} lines, {tokens} tokens)")
+        if remaining > 0:
+            _print_bucket_summary(same_file, len(shown), max_findings)
+    else:
+        print("=== Same-file duplicates (jscpd) \u2014 no findings ===")
+
+    # --- Generated ---
+    if generated:
+        if show_generated:
+            print(f"=== Generated-file duplicates (jscpd) \u2014 {len(generated)} found ===")
+            # Summary only: line-bucket breakdown, no individual listings.
+            buckets: dict[str, int] = {}
+            for _a, _b, lines, _tokens in generated:
+                if lines >= 50:
+                    key = "50+ lines"
+                elif lines >= 20:
+                    key = "20-49 lines"
+                else:
+                    key = "<20 lines"
+                buckets[key] = buckets.get(key, 0) + 1
+            parts = [f"{v} {k}" for k, v in sorted(buckets.items(), reverse=True)]
+            print(", ".join(parts))
+        else:
+            print(
+                f"=== Generated-file duplicates (jscpd) \u2014 {len(generated)} found "
+                f"(hidden, use --show-generated) ==="
+            )
+    else:
+        print("=== Generated-file duplicates (jscpd) \u2014 no findings ===")
+
+    return total
+
+
+def _print_bucket_summary(
+    pairs: list[tuple[str, str, int, int]],
+    shown_count: int,
+    max_findings: int,
+) -> None:
+    """Print a compact line-bucket summary for pairs beyond the cap."""
+    remainder = pairs[shown_count:]
+    buckets: dict[str, int] = {}
+    for _a, _b, lines, _tokens in remainder:
+        if lines >= 50:
+            key = "50+ lines"
+        elif lines >= 20:
+            key = "20-49 lines"
+        else:
+            key = "<20 lines"
+        buckets[key] = buckets.get(key, 0) + 1
+    parts = [f"{v} {k}" for k, v in sorted(buckets.items(), reverse=True)]
+    print(f"... {len(remainder)} more duplicate(s): {', '.join(parts)}")
 
 
 # ---------------------------------------------------------------------------
@@ -330,13 +470,13 @@ def _patterns_for_skylos(active_patterns: list[str]) -> tuple[list[str], list[st
 
 def run_skylos(
     directory: Path,
-    skylos_bin: str,
+    skylos_argv: list[str],
     confidence: int,
     exclude_folders: list[str],
 ) -> list[str]:
     """Run skylos --format concise and return the (already-trimmed) finding lines."""
     cmd: list[str] = [
-        skylos_bin,
+        *skylos_argv,
         "--format", "concise",
         "--confidence", str(confidence),
     ]
@@ -394,6 +534,155 @@ def _normalise_skylos_line(line: str, directory: Path) -> str | None:
     return line
 
 
+def _extract_symbol_from_line(line_text: str) -> str | None:
+    """Extract the identifier name from a source line.
+
+    Looks for common declaration keywords (function, class, const, etc.)
+    followed by an identifier. Returns the identifier, or None if no
+    recognisable pattern is found.
+    """
+    patterns = [
+        r'(?:async\s+)?function\s+([A-Za-z_]\w*)',
+        r'class\s+([A-Za-z_]\w*)',
+        r'(?:const|let|var)\s+([A-Za-z_]\w*)',
+        r'interface\s+([A-Za-z_]\w*)',
+        r'type\s+([A-Za-z_]\w*)',
+        r'enum\s+([A-Za-z_]\w*)',
+        r'export\s+(?:default\s+)?(?:async\s+)?function\s+([A-Za-z_]\w*)',
+        r'export\s+(?:default\s+)?class\s+([A-Za-z_]\w*)',
+        r'export\s+(?:const|let|var)\s+([A-Za-z_]\w*)',
+        r'def\s+([A-Za-z_]\w*)',
+    ]
+    for pat in patterns:
+        m = re.search(pat, line_text)
+        if m:
+            return m.group(1)
+    return None
+
+
+def _rg_search_symbol(
+    symbol: str, def_file: str, directory: Path, active_patterns: list[str],
+) -> bool:
+    """Use ripgrep to search for *symbol* as a word-boundary match.
+
+    Returns True if the symbol appears in any file other than *def_file*
+    (respecting .ignore patterns).
+    """
+    try:
+        result = subprocess.run(
+            ["rg", "-l", "--word-regexp", symbol, str(directory)],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        return False
+
+    if result.returncode not in (0, 1):  # 0 = matches, 1 = no matches
+        return False
+
+    for line in result.stdout.splitlines():
+        if not line.strip():
+            continue
+        try:
+            rel = Path(line.strip()).relative_to(directory).as_posix()
+        except (ValueError, OSError):
+            rel = line.strip()
+        if rel == def_file:
+            continue
+        if matches_ignore_patterns(rel, active_patterns):
+            continue
+        return True
+    return False
+
+
+def _python_search_symbol(
+    symbol: str, def_file: str, directory: Path, active_patterns: list[str],
+) -> bool:
+    """Fall back to a pure-Python search for *symbol* as a word-boundary match.
+
+    Returns True if the symbol appears in any file other than *def_file*
+    (respecting .ignore patterns).
+    """
+    pattern = re.compile(r'\b' + re.escape(symbol) + r'\b')
+    for path in directory.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            rel = path.relative_to(directory).as_posix()
+        except ValueError:
+            continue
+        if rel == def_file:
+            continue
+        if matches_ignore_patterns(rel, active_patterns):
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if pattern.search(text):
+            return True
+    return False
+
+
+def _verify_dead_code(
+    findings: list[str], directory: Path, active_patterns: list[str],
+) -> tuple[list[str], list[str]]:
+    """Verify skylos findings by cross-referencing symbol usage.
+
+    For each finding, parses the path and line number, reads the symbol
+    from the source, and searches for it across the codebase. Findings
+    whose symbol appears in other files are classified as likely false
+    positives.
+
+    Returns (verified_dead, likely_false_positives).
+    """
+    verified: list[str] = []
+    false_positives: list[str] = []
+
+    rg_available = shutil.which("rg") is not None
+
+    for finding in findings:
+        # Parse "path:line  reason"
+        m = re.match(r"^(.+?):(\d+)\s{2}(.+)$", finding)
+        if not m:
+            verified.append(finding)
+            continue
+
+        file_path_str, line_num_str, _reason = m.groups()
+        line_num = int(line_num_str)
+        file_path = directory / file_path_str
+
+        try:
+            lines = file_path.read_text(encoding="utf-8", errors="replace").splitlines()
+        except (OSError, IOError):
+            verified.append(finding)
+            continue
+
+        if line_num < 1 or line_num > len(lines):
+            verified.append(finding)
+            continue
+
+        source_line = lines[line_num - 1]
+        symbol = _extract_symbol_from_line(source_line)
+        if symbol is None:
+            verified.append(finding)
+            continue
+
+        # Search for the symbol across the codebase.
+        if rg_available:
+            is_used = _rg_search_symbol(symbol, file_path_str, directory, active_patterns)
+        else:
+            is_used = _python_search_symbol(symbol, file_path_str, directory, active_patterns)
+
+        if is_used:
+            false_positives.append(finding)
+        else:
+            verified.append(finding)
+
+    return verified, false_positives
+
+
 def print_dead_code(
     skylos_lines: list[str], directory: Path, max_findings: int,
 ) -> int:
@@ -430,13 +719,14 @@ def print_dead_code(
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
-def parse_args() -> tuple[Path, int, int, int, int, bool, bool, set[str]]:
+def parse_args() -> tuple[Path, int, int, int, int, bool, bool, set[str], bool, bool]:
     if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
         if len(sys.argv) < 2:
             print(
                 "usage: find_duplicates_and_dead_code.py <directory> "
                 "[--max-findings N] [--min-lines N] [--min-tokens N] "
                 "[--confidence N] [--exclude-reasons REASONS] "
+                "[--show-generated] [--verify-dead-code] "
                 "[--skip-duplicates] [--skip-dead-code]",
                 file=sys.stderr,
             )
@@ -448,11 +738,13 @@ def parse_args() -> tuple[Path, int, int, int, int, bool, bool, set[str]]:
         sys.exit(2)
 
     max_findings = 50
-    min_lines = 5
-    min_tokens = 50
+    min_lines = 8
+    min_tokens = 70
     confidence = 60
     skip_duplicates = False
     skip_dead_code = False
+    show_generated = False
+    verify_dead_code = False
     exclude_reasons: set[str] = set()
 
     i = 2
@@ -489,6 +781,12 @@ def parse_args() -> tuple[Path, int, int, int, int, bool, bool, set[str]]:
         elif a == "--exclude-reasons" and i + 1 < len(sys.argv):
             exclude_reasons = set(r.strip() for r in sys.argv[i + 1].split(",") if r.strip())
             i += 2
+        elif a == "--show-generated":
+            show_generated = True
+            i += 1
+        elif a == "--verify-dead-code":
+            verify_dead_code = True
+            i += 1
         elif a == "--skip-duplicates":
             skip_duplicates = True
             i += 1
@@ -522,6 +820,8 @@ def parse_args() -> tuple[Path, int, int, int, int, bool, bool, set[str]]:
         skip_duplicates,
         skip_dead_code,
         exclude_reasons,
+        show_generated,
+        verify_dead_code,
     )
 
 
@@ -534,7 +834,7 @@ def _locate_jscpd() -> list[str]:
     matches the convention used by analyze_complexity.py for Qualitas and
     means callers don't need to install anything beyond Node.js itself.
     """
-    npx = shutil.which("npx")
+    npx = _find_binary("npx")
     if npx is None:
         print(NPX_HINT, file=sys.stderr)
         sys.exit(2)
@@ -544,10 +844,22 @@ def _locate_jscpd() -> list[str]:
     return [npx, "--yes", "jscpd"]
 
 
-def _locate_skylos() -> str:
-    skylos = shutil.which("skylos")
-    if skylos:
-        return skylos
+def _locate_skylos() -> list[str]:
+    """Return the argv prefix for invoking skylos.
+
+    Tries, in order:
+      1. ``skylos`` on PATH (fast path, no venv overhead).
+      2. ``uv run --with skylos skylos`` (uv downloads skylos into an
+         isolated venv on the fly; much friendlier than requiring a
+         manual install).
+      3. Exits with SKYLOS_HINT if neither is available.
+    """
+    skylos = _find_binary("skylos")
+    if skylos is not None:
+        return [skylos]
+    uv = _find_binary("uv")
+    if uv is not None:
+        return [uv, "run", "--with", "skylos", "skylos"]
     print(SKYLOS_HINT, file=sys.stderr)
     sys.exit(2)
 
@@ -562,6 +874,8 @@ def main() -> None:
         skip_duplicates,
         skip_dead_code,
         exclude_reasons,
+        show_generated,
+        verify_dead_code,
     ) = parse_args()
 
     script_dir = Path(__file__).parent.resolve()
@@ -579,14 +893,14 @@ def main() -> None:
         duplicates = run_jscpd(
             directory, jscpd_argv, min_lines, min_tokens, jscpd_ignore,
         )
-        print_duplicates(duplicates, directory, max_findings)
+        print_duplicates(duplicates, directory, max_findings, show_generated=show_generated)
 
     # --- Dead code (skylos) ---
     print()
     if skip_dead_code:
         print("=== Dead code (skylos) \u2014 skipped ===")
     else:
-        skylos_bin = _locate_skylos()
+        skylos_argv = _locate_skylos()
         exclude_folders, dropped_globs = _patterns_for_skylos(active_patterns)
         if dropped_globs:
             print(
@@ -597,11 +911,36 @@ def main() -> None:
                 file=sys.stderr,
             )
         findings = run_skylos(
-            directory, skylos_bin, confidence, exclude_folders,
+            directory, skylos_argv, confidence, exclude_folders,
         )
         if exclude_reasons:
             findings = [l for l in findings if l.split("  ", 1)[-1].strip() not in exclude_reasons]
-        print_dead_code(findings, directory, max_findings)
+
+        if verify_dead_code:
+            verified, false_positives = _verify_dead_code(findings, directory, active_patterns)
+            total = len(verified) + len(false_positives)
+            header = f"=== Dead code (skylos) \u2014 {len(verified)} verified out of {total} found"
+            if false_positives:
+                header += f" ({len(false_positives)} likely false positives suppressed)"
+            header += " ==="
+            print(header)
+            # Only print verified findings.
+            if not verified:
+                print("  (no verified dead code; all findings were likely false positives)")
+            else:
+                shown = verified[:max_findings] if max_findings > 0 else verified
+                for line in shown:
+                    print(line)
+                remaining = len(verified) - len(shown)
+                if remaining > 0:
+                    buckets: dict[str, int] = {}
+                    for line in verified[len(shown):]:
+                        tail = line.split("  ", 1)[-1].strip()
+                        buckets[tail] = buckets.get(tail, 0) + 1
+                    parts = [f"{v} {k}" for k, v in sorted(buckets.items(), key=lambda x: x[1], reverse=True)]
+                    print(f"... {remaining} more verified finding(s): {', '.join(parts)}")
+        else:
+            print_dead_code(findings, directory, max_findings)
 
 
 if __name__ == "__main__":

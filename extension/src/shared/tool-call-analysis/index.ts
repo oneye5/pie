@@ -3,7 +3,11 @@ import { isRecord } from '../type-guards';
 import {
   getSkillNameFromToolCall,
   normalizeToolCallName,
+  summarizeObject,
+  summarizeStringList,
   summarizeSubagentToolCallInput,
+  summarizeTaskEntries,
+  summarizeUnknown,
 } from './summary';
 import {
   createEmptyFileMutationDelta,
@@ -26,6 +30,10 @@ export type { VerificationCommandKind, FileMutationDelta, SubagentTaskScoreRollu
 export {
   normalizeToolCallName,
   summarizeSubagentToolCallInput,
+  summarizeStringList,
+  summarizeTaskEntries,
+  summarizeUnknown,
+  summarizeObject,
   getSkillNameFromToolCall,
   getToolCallSizeHint,
   getFileExtensionFromToolCall,

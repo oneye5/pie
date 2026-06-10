@@ -13,12 +13,6 @@ export interface AssistantReplyMeta {
   compactText: string;
 }
 
-export function formatTimestamp(value: string): string | null {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return timeFormatter.format(date);
-}
-
 export function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const s = ms / 1000;

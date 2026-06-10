@@ -23,7 +23,7 @@ function summarizeText(text: string, maxLength = TOOL_CALL_SUMMARY_MAX_LENGTH): 
 
 import { isRecord } from '../type-guards';
 
-function summarizeStringList(value: unknown, maxItems = 3): string | null {
+export function summarizeStringList(value: unknown, maxItems = 3): string | null {
   if (!Array.isArray(value)) return null;
 
   const items = value
@@ -38,7 +38,7 @@ function summarizeStringList(value: unknown, maxItems = 3): string | null {
   return summarizeText(`${preview}${suffix}`);
 }
 
-function summarizeTaskEntries(value: unknown): string | null {
+export function summarizeTaskEntries(value: unknown): string | null {
   if (!Array.isArray(value) || value.length === 0) return null;
 
   const first = value[0];
@@ -52,7 +52,7 @@ function summarizeTaskEntries(value: unknown): string | null {
   return summarizeText(`${agent ? `${agent}: ` : ''}${task}${suffix}`);
 }
 
-function summarizeUnknown(value: unknown): string | null {
+export function summarizeUnknown(value: unknown): string | null {
   if (typeof value === 'string') return summarizeText(value);
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
 
@@ -68,7 +68,7 @@ function summarizeUnknown(value: unknown): string | null {
   return null;
 }
 
-function summarizeObject(value: Record<string, unknown>): string | null {
+export function summarizeObject(value: Record<string, unknown>): string | null {
   const multiTaskSummary = summarizeTaskEntries(value.tasks ?? value.chain);
   if (multiTaskSummary) return multiTaskSummary;
 
@@ -93,6 +93,7 @@ function summarizeObject(value: Record<string, unknown>): string | null {
     value.expression,
     value.commandId,
     value.selector,
+    value.question,
   ];
 
   for (const field of directFields) {

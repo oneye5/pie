@@ -165,33 +165,7 @@ export function ToolbarRunStatusChip({ label, title, tone }: ToolbarRunStatusChi
   );
 }
 
-interface ToolbarModelSelectChipProps {
-  label: string;
-  value: string;
-  title: string;
-  ariaLabel: string;
-  onChange: JSX.GenericEventHandler<HTMLSelectElement>;
-  children: ComponentChildren;
-}
 
-export function ToolbarModelSelectChip({ label, value, title, ariaLabel, onChange, children }: ToolbarModelSelectChipProps) {
-  return (
-    <div class="panel-chip-model-wrap">
-      <span class="panel-chip-model-measure" aria-hidden="true">{label}</span>
-      <select
-        class="panel-chip panel-chip-toolbar panel-chip-select panel-chip-model-select toolbar-model-select"
-        value={value}
-        onChange={onChange}
-        aria-label={ariaLabel}
-        title={title}
-      >
-        {children}
-      </select>
-      <span class="panel-chip-model-label" aria-hidden="true">{label}</span>
-      <span class="panel-chip-caret" aria-hidden="true">▾</span>
-    </div>
-  );
-}
 
 interface ToolbarSelectChipProps {
   value: string;

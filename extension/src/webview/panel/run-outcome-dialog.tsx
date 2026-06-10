@@ -23,8 +23,6 @@ const RESOLUTION_OPTIONS: Array<{
   { value: 'unresolved', label: 'Unresolved', description: 'Did not land in a usable state.' },
 ];
 
-export type RunOutcomeDialogMode = 'complete';
-
 interface RunOutcomeDialogProps {
   sessionLabel: string;
   onCancel: () => void;

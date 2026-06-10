@@ -17,16 +17,6 @@ export interface SessionTokenUsageSummary {
   lastTurn: AssistantUsage | null;
 }
 
-export const EMPTY_SESSION_TOKEN_USAGE: SessionTokenUsageSummary = {
-  inputTokens: 0,
-  outputTokens: 0,
-  cacheReadTokens: 0,
-  cacheWriteTokens: 0,
-  totalTokens: 0,
-  reportedTurnCount: 0,
-  lastTurn: null,
-};
-
 export function buildSessionTokenUsage(transcript: ChatMessage[]): SessionTokenUsageSummary {
   let inputTokens = 0;
   let outputTokens = 0;

@@ -4,9 +4,6 @@ import type { ComposerInput, ComposerInputDraft, ChatMessage } from './messages.
 import type { SessionSummary, TranscriptWindow, SystemPromptEntry, FileChangeEntry } from './sessions.js';
 import type { ExtensionInfo, PruningResult, PruningSettings, PruningCatalog, ChatPrefs, ActiveRunSummary, RunOutcome } from './settings.js';
 
-/** Methods supported by the extension UI bridge. */
-export type ExtensionUIMethod = 'confirm' | 'select' | 'input' | 'notify';
-
 /** A pending extension UI request (backend → host → webview). */
 export type ExtensionUIRequestPayload =
   | { id: string; method: 'confirm'; title: string; message: string; timeout?: number; extensionId?: string }

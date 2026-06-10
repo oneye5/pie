@@ -1,21 +1,10 @@
 import type {
   ChatMessage,
   ChatMessagePart,
-  SystemPromptEntry,
   ToolCall,
-  TranscriptWindow,
   UserContentPart,
 } from '../../shared/protocol';
 import { cloneToolCall } from '../../shared/chat-message-parts';
-
-export interface TranscriptState {
-  /** Per-session transcripts, keyed by session path. */
-  bySession: Record<string, ChatMessage[]>;
-  /** Per-session system prompts. */
-  systemPromptsBySession: Record<string, SystemPromptEntry[]>;
-  /** Per-session transcript window metadata. */
-  windowBySession: Record<string, TranscriptWindow>;
-}
 
 export function resolveAlias(aliasMap: Record<string, string>, messageId: string): string {
   return aliasMap[messageId] ?? messageId;

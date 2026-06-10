@@ -303,44 +303,7 @@ function InputPrompt({ id, title, placeholder, timeout, extensionId, onRespond }
   );
 }
 
-// ─── Notify toast ────────────────────────────────────────────────────────────
 
-export interface NotifyToastProps {
-  message: string;
-  notifyType?: 'info' | 'warning' | 'error';
-  onClose: () => void;
-}
-
-/** Auto-dismissing toast for notify events. */
-export function NotifyToast({ message, notifyType = 'info', onClose }: NotifyToastProps) {
-  const [exiting, setExiting] = useState(false);
-
-  useEffect(() => {
-    const dismiss = () => setExiting(true);
-    const timer = setTimeout(dismiss, 5000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (!exiting) return;
-    const timer = setTimeout(onClose, 200);
-    return () => clearTimeout(timer);
-  }, [exiting, onClose]);
-
-  const iconMap: Record<string, string> = { info: 'i', warning: '!', error: '×' };
-  const icon = iconMap[notifyType] ?? 'i';
-
-  return (
-    <div
-      class={`extension-ui-notify-toast ${notifyType}`}
-      style={exiting ? { animation: 'notify-toast-exit 200ms ease-in forwards' } : undefined}
-    >
-      <span class="extension-ui-notify-toast-icon">{icon}</span>
-      <span class="extension-ui-notify-toast-message">{message}</span>
-      <button class="extension-ui-notify-toast-close" type="button" onClick={onClose}>×</button>
-    </div>
-  );
-}
 
 // ─── Countdown hook ──────────────────────────────────────────────────────────
 

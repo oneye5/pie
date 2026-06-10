@@ -1,15 +1,6 @@
 import type { ActiveRunSummary } from '../../../shared/protocol';
 
-interface ClosestCapableEventTarget {
-  closest: (selector: string) => unknown;
-  parentElement?: ClosestCapableEventTarget | null;
-}
-
-interface MaybeClosestCapableEventTarget {
-  closest?: (selector: string) => unknown;
-  parentElement?: MaybeClosestCapableEventTarget | null;
-}
-
+import { resolveClosestCapableTarget } from '../utils/closest-capable-target';
 const GLOBAL_PASTE_BLOCKING_SELECTOR = [
   'input',
   'textarea',
@@ -17,23 +8,6 @@ const GLOBAL_PASTE_BLOCKING_SELECTOR = [
   '[contenteditable=""]',
   '[contenteditable="true"]',
 ].join(', ');
-
-function resolveClosestCapableTarget(target: EventTarget | null): ClosestCapableEventTarget | null {
-  if (!target || typeof target !== 'object') {
-    return null;
-  }
-
-  const candidate = target as MaybeClosestCapableEventTarget;
-  if (typeof candidate.closest === 'function') {
-    return candidate as ClosestCapableEventTarget;
-  }
-
-  if (candidate.parentElement && typeof candidate.parentElement.closest === 'function') {
-    return candidate.parentElement as ClosestCapableEventTarget;
-  }
-
-  return null;
-}
 
 export function shouldHandleGlobalComposerPaste(target: EventTarget | null): boolean {
   const candidate = resolveClosestCapableTarget(target);
