@@ -2,7 +2,7 @@
 #
 # Patterns before any `context` line apply to every scan root.
 # Patterns after `context <working-directory>` apply only when the directory
-# passed to find_large_files.py matches that working-directory suffix or glob.
+# passed to the scan script matches that working-directory suffix or glob.
 #
 # Ignore patterns are relative to the scan root.
 # - `cache/` ignores any directory named `cache` at any depth.

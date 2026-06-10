@@ -328,6 +328,9 @@ def find_large_files(
 # ---------------------------------------------------------------------------
 
 def parse_args() -> tuple[Path, int]:
+    if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(0)
     if len(sys.argv) < 2:
         print(
             "usage: find_large_files.py <directory> [max_lines]",

@@ -241,6 +241,9 @@ def format_findings(results: list[dict], directory: Path, max_findings: int) -> 
 # ---------------------------------------------------------------------------
 
 def parse_args() -> tuple[Path, int, str, set[str]]:
+    if len(sys.argv) >= 2 and sys.argv[1] in ("-h", "--help"):
+        print(__doc__)
+        sys.exit(0)
     if len(sys.argv) < 2:
         print(
             "usage: detect_smells.py <directory> "
