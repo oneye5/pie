@@ -117,60 +117,64 @@ export function FileChangesPanel({
         <div class="file-changes-list">
           {fileChanges.map((change) => (
             <div key={change.path} class={`file-change-item kind-${change.kind}`}>
-              <FileTypeIcon path={change.path} className={`kind-${change.kind}`} />
-              <button
-                class="file-change-path"
-                type="button"
-                title={`${CHANGE_LABELS[change.kind]}: ${change.path}\n${change.description}`}
-                onClick={() => onOpenDiff(change.path)}
-              >
-                <span class="file-change-name">
-                  {change.path.split(/[/\\]/).pop()}
-                </span>
-                <span class="file-change-dir">
-                  {change.path.split(/[/\\]/).slice(0, -1).join('/') || '.'}
-                </span>
-              </button>
-              <LineStats additions={change.additions} deletions={change.deletions} />
-              <button
-                class="file-change-open"
-                type="button"
-                title={
-                  change.kind === 'deleted'
-                    ? `${change.path} was deleted by the agent`
-                    : `Open ${change.path} in the editor`
-                }
-                aria-label={
-                  change.kind === 'deleted'
-                    ? `${change.path} was deleted by the agent`
-                    : `Open ${change.path} in the editor`
-                }
-                disabled={change.kind === 'deleted'}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (change.kind === 'deleted') return;
-                  onOpenInEditor(change.path);
-                }}
-              >
-                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M9 4.5 L11.5 2 L11.5 4.5" />
-                  <path d="M11.5 2 L7 6.5" />
-                  <path d="M11 8 V10.5 a0.5 0.5 0 0 1 -0.5 0.5 H2.5 a0.5 0.5 0 0 1 -0.5 -0.5 V2.5 a0.5 0.5 0 0 1 0.5 -0.5 H5" />
-                </svg>
-              </button>
-              <CopyPathButton path={change.path} />
-              <button
-                class="file-change-revert"
-                type="button"
-                title={`Revert changes to ${change.path}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRevertFile(change.path);
-                }}
-                aria-label={`Revert ${change.path}`}
-              >
-                {'\u21A9'}
-              </button>
+              <div class="file-change-main">
+                <FileTypeIcon path={change.path} className={`kind-${change.kind}`} />
+                <button
+                  class="file-change-path"
+                  type="button"
+                  title={`${CHANGE_LABELS[change.kind]}: ${change.path}\n${change.description}`}
+                  onClick={() => onOpenDiff(change.path)}
+                >
+                  <span class="file-change-name">
+                    {change.path.split(/[/\\]/).pop()}
+                  </span>
+                  <span class="file-change-dir">
+                    {change.path.split(/[/\\]/).slice(0, -1).join('/') || '.'}
+                  </span>
+                </button>
+                <LineStats additions={change.additions} deletions={change.deletions} />
+              </div>
+              <div class="file-change-actions">
+                <button
+                  class="file-change-open"
+                  type="button"
+                  title={
+                    change.kind === 'deleted'
+                      ? `${change.path} was deleted by the agent`
+                      : `Open ${change.path} in the editor`
+                  }
+                  aria-label={
+                    change.kind === 'deleted'
+                      ? `${change.path} was deleted by the agent`
+                      : `Open ${change.path} in the editor`
+                  }
+                  disabled={change.kind === 'deleted'}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (change.kind === 'deleted') return;
+                    onOpenInEditor(change.path);
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M9 4.5 L11.5 2 L11.5 4.5" />
+                    <path d="M11.5 2 L7 6.5" />
+                    <path d="M11 8 V10.5 a0.5 0.5 0 0 1 -0.5 0.5 H2.5 a0.5 0.5 0 0 1 -0.5 -0.5 V2.5 a0.5 0.5 0 0 1 0.5 -0.5 H5" />
+                  </svg>
+                </button>
+                <CopyPathButton path={change.path} />
+                <button
+                  class="file-change-revert"
+                  type="button"
+                  title={`Revert changes to ${change.path}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onRevertFile(change.path);
+                  }}
+                  aria-label={`Revert ${change.path}`}
+                >
+                  {'\u21A9'}
+                </button>
+              </div>
             </div>
           ))}
         </div>

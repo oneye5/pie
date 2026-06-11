@@ -74,13 +74,18 @@ test("real registry applies token pricing before selection", () => {
 	assert.ok(priced.normalizedCost! > 0);
 });
 
-test("real registry selects a cheap sufficient model for easy low-reasoning tasks", () => {
+test("real registry excludes sub-threshold models (gpt-5-mini, etc.) from easy tasks", () => {
 	const result = selectReal({ precision: 2, creativity: 2, thoroughness: 2, reasoning: 1 });
 
 	assert.ok(result);
 	assert.equal(result.thinkingLevel, "low");
-	assert.equal(result.pool[0], "gpt-5-mini");
-	assert.equal(result.modelId, "gpt-5-mini");
+	// gpt-5-mini (aggregate 8) and other sub-threshold models must not appear
+	const subThreshold = new Set(["gpt-5-mini", "gpt-4.1", "gpt-4o"]);
+	for (const id of result.pool) {
+		assert.ok(!subThreshold.has(id), `sub-threshold model ${id} should not be in pool`);
+	}
+	// Selected model must be from the pool
+	assert.ok(result.pool.includes(result.modelId));
 });
 
 test("real registry keeps moderate tasks off expensive frontier overkill models", () => {

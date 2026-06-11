@@ -220,6 +220,10 @@ export function handleSdkSessionEvent(
       deps.emitBusyChanged(context, false);
       deps.emitContextUsageChanged(context);
 
+      // Clear activeRequest BEFORE emitting session.opened so the payload
+      // sees the final idle state instead of a stale in-progress request.
+      context.activeRequest = undefined;
+
       void deps.emitSessionOpened(context.sessionPath);
       void deps.emitSessionListChanged();
 
@@ -230,7 +234,6 @@ export function handleSdkSessionEvent(
         } satisfies MessageAbortedPayload);
       }
 
-      context.activeRequest = undefined;
       return;
     }
 

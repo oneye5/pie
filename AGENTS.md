@@ -17,3 +17,17 @@ npm run test       # unit tests
 npm run typecheck  # type-check only
 npm run package    # produce .vsix
 ```
+
+## Terminology
+
+**Bucket (model selection)** — one of three model tiers for subagent work: `small` (Haiku-class, busywork), `medium` (Sonnet-class, main development), `frontier` (Opus-class, hardest problems). The main agent supplies a bucket hint; the subagent extension picks a model from that bucket.
+_Avoid_: tier, class, level
+
+**Stratified leaderboard** — the data-driven leaderboard in `extensions/subagent/` that ranks models within complexity bands (low/medium/high) and assigns them to buckets. Distinct from the global analytics leaderboard in `analysis/`.
+_Avoid_: bucket leaderboard, model ranker
+
+**Complexity score** — a per-run 0–1 heuristic computed from observable signals (lines changed, files touched, tool calls, duration, etc.) used to split runs into low/medium/high bands for stratified ranking.
+_Avoid_: difficulty score, task weight
+
+**Capability aggregate** — sum of precision + creativity + thoroughness + reasoning from `model-profiles.yaml`. Used only by the temp fix (`MIN_CAPABILITY_AGGREGATE = 10`). Will be removed when v2 leaderboard replaces the fitness-based selector.
+_Avoid_: model score, profile sum

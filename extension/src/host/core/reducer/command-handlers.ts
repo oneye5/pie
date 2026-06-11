@@ -3,7 +3,7 @@ import { produce } from 'immer';
 import type { ArchState } from '../arch-state.js';
 import type { ChatPrefs, ComposerInput } from '../../../shared/protocol.js';
 import type { ReducerResult } from './helpers.js';
-import { removeFromArray, removeSessionFromState, appendLocalUserMessage } from './helpers.js';
+import { addToArray, removeFromArray, removeSessionFromState, appendLocalUserMessage } from './helpers.js';
 import type { Command } from '../commands.js';
 
 export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
@@ -25,7 +25,10 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'Send': {
-      // Insert optimistic user message directly into transcript state + record pending op
+      // Insert optimistic user message + mark session busy immediately so the webview
+      // shows an activity indicator right away (instead of waiting for the backend's
+      // agent_start event which fires after the pruning prepass).
+      const nextRunningPaths = addToArray(state.sessions.runningSessionPaths, cmd.sessionPath);
       const nextState = produce(state, (draft) => {
         appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.composedText, cmd.userParts);
         draft.pending.ops[cmd.corrId] = {
@@ -34,6 +37,7 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
           localId: cmd.localId,
           previousSummary: cmd.previousSummary,
         };
+        draft.sessions.runningSessionPaths = nextRunningPaths;
       });
 
       return {
@@ -51,7 +55,9 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'Edit': {
-      // Insert optimistic edit message directly into transcript state + record pending op
+      // Insert optimistic edit message + mark session busy immediately so the
+      // webview shows an activity indicator right away.
+      const nextRunningPaths = addToArray(state.sessions.runningSessionPaths, cmd.sessionPath);
       const nextState = produce(state, (draft) => {
         draft.transcript.editingMessageId = null;
         appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.text, undefined);
@@ -61,6 +67,7 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
           localId: cmd.localId,
           previousSummary: null,
         };
+        draft.sessions.runningSessionPaths = nextRunningPaths;
       });
 
       return {

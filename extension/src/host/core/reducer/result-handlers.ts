@@ -3,7 +3,7 @@ import { produce } from 'immer';
 import type { ArchState } from '../arch-state.js';
 import type { Effect } from '../effects.js';
 import type { ReducerResult } from './helpers.js';
-import { removeMessage } from './helpers.js';
+import { removeFromArray, removeMessage } from './helpers.js';
 import type { Event } from '../events.js';
 
 export function handleInterruptResult(state: ArchState, event: Extract<Event, { kind: 'InterruptResult' }>): ReducerResult {
@@ -49,6 +49,7 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
   }
 
   // Failure: rollback optimistic message, notify user, restore session name
+  // Also clear the busy state we set optimistically in the Send command handler.
   const effects: Effect[] = [
     {
       kind: 'PostImperative',
@@ -61,6 +62,11 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
     draft.pending.ops = restOps;
     // Remove optimistic message from transcript
     removeMessage(draft, pending.sessionPath, pending.localId);
+    // Clear busy state set optimistically at send time
+    draft.sessions.runningSessionPaths = removeFromArray(
+      draft.sessions.runningSessionPaths,
+      pending.sessionPath,
+    );
     // Set notice
     draft.settings.notice = `Failed to send message: ${event.error ?? 'unknown error'}`;
     // Restore session summary if we had one
@@ -92,11 +98,16 @@ export function handleEditResult(state: ArchState, event: Extract<Event, { kind:
   }
 
   // Failure: rollback the optimistic edit message + notify user
+  // Also clear the busy state we set optimistically in the Edit command handler.
   const effects: Effect[] = [];
 
   const nextState = produce(state, (draft) => {
     draft.pending.ops = restOps;
     removeMessage(draft, pending.sessionPath, pending.localId);
+    draft.sessions.runningSessionPaths = removeFromArray(
+      draft.sessions.runningSessionPaths,
+      pending.sessionPath,
+    );
     draft.settings.notice = `Failed to edit message: ${event.error ?? 'unknown error'}`;
   });
 

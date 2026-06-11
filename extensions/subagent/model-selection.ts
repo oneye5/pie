@@ -105,6 +105,19 @@ const DIMENSIONS = ["precision", "creativity", "thoroughness", "reasoning"] as c
 const DEFAULT_SCORE = 2;
 
 /**
+ * Temporary guard: minimum capability aggregate (sum of all four dimensions)
+ * required for a model to be eligible for subagent selection.
+ *
+ * This prevents models that are too small or weak for agentic work (e.g. GPT-4o,
+ * GPT-5-mini, devstral-small-2, ministral-3) from being selected even for
+ * low-scored tasks.
+ *
+ * REMOVE THIS when the data-driven stratified leaderboard (subagent-model-selection-v2)
+ * replaces the current fitness-based selector.
+ */
+const MIN_CAPABILITY_AGGREGATE = 10;
+
+/**
  * Scoring weights for asymmetric fitness + cost model.
  *
  * The scoring function replaces a simple dot product with:
@@ -253,9 +266,12 @@ export function selectModel(
 ): SelectionResult | undefined {
 	const thinkingLevel = reasoningToThinking(taskScores.reasoning);
 
-	// Filter: eligible + supports the required thinking level + provider-enabled + not excluded
+	// Filter: eligible + meets capability floor + supports the required thinking level + provider-enabled + not excluded
 	const eligible = config.profiles.filter((p) => {
 		if (!p.eligible) return false;
+		// TEMP: exclude models below the capability aggregate floor (see MIN_CAPABILITY_AGGREGATE)
+		const aggregate = p.precision + p.creativity + p.thoroughness + p.reasoning;
+		if (aggregate < MIN_CAPABILITY_AGGREGATE) return false;
 		if (p.thinking && !p.thinking.includes(thinkingLevel)) return false;
 		if (allowedModelIds && !allowedModelIds.has(p.id)) return false;
 		if (excludeModels && excludeModels.has(p.id)) return false;

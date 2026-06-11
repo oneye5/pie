@@ -1,5 +1,11 @@
 # Model Scoring Methodology
 
+> **Status: Transitioning to historical reference.** The capability scores defined
+> here drive the current fitness-based selector (`computeFitness` / `selectModel`).
+> This will be replaced by a data-driven stratified leaderboard — see
+> [`subagent-model-selection-v2.md`](subagent-model-selection-v2.md) for the
+> target design. Capability scores remain active until that migration is complete.
+
 Last updated: 2026-05-16
 
 ## Purpose

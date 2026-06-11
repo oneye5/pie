@@ -735,3 +735,46 @@ test('reducer: BusyChanged running=false for a session that finished earlier doe
   assert.equal(result.state.sessions.unreadFinishedSessionPaths.length, 1);
   assert.deepEqual(result.effects, []);
 });
+
+test('reducer: Send command with duplicate localId upserts existing optimistic message instead of appending', () => {
+  const localId = 'local:test:dup';
+  const sessionPath = '/s';
+
+  // First Send command inserts the optimistic message
+  const state1 = reducer(initialArchState, {
+    kind: 'Command',
+    cmd: {
+      kind: 'Send',
+      corrId: 'c1',
+      sessionPath,
+      text: 'first',
+      inputs: [],
+      composedText: 'first',
+      localId,
+      userParts: undefined,
+      previousSummary: null,
+    },
+  }).state;
+
+  assert.equal(state1.transcript.bySession[sessionPath]?.length, 1);
+  assert.equal(state1.transcript.bySession[sessionPath]?.[0]?.markdown, 'first');
+
+  // Second Send command with same localId should upsert, not duplicate
+  const state2 = reducer(state1, {
+    kind: 'Command',
+    cmd: {
+      kind: 'Send',
+      corrId: 'c2',
+      sessionPath,
+      text: 'second',
+      inputs: [],
+      composedText: 'second',
+      localId,
+      userParts: undefined,
+      previousSummary: null,
+    },
+  }).state;
+
+  assert.equal(state2.transcript.bySession[sessionPath]?.length, 1);
+  assert.equal(state2.transcript.bySession[sessionPath]?.[0]?.markdown, 'second');
+});

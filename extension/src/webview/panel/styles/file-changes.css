@@ -120,6 +120,21 @@
   background: var(--panel-control-hover);
 }
 
+.file-change-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.file-change-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .file-change-item .file-type-icon {
   display: inline-flex;
   align-items: center;
@@ -205,7 +220,7 @@
   cursor: pointer;
   font-size: 13px;
   flex-shrink: 0;
-  opacity: 0;
+  opacity: 0.3;
   transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 
@@ -235,14 +250,14 @@
   color: var(--panel-muted);
   cursor: pointer;
   flex-shrink: 0;
-  opacity: 0;
+  opacity: 0.3;
   transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
 }
 
 .file-change-item:hover .file-change-open,
 .file-change-item:hover .file-change-copy,
 .file-change-copy.is-copied {
-  opacity: 0.75;
+  opacity: 0.85;
 }
 
 .file-change-open:hover,
@@ -261,14 +276,14 @@
 .file-change-open:disabled,
 .file-change-open[disabled] {
   cursor: not-allowed;
-  opacity: 0.35;
+  opacity: 0.25;
   color: var(--panel-muted);
 }
 
 .file-change-item:hover .file-change-open:disabled,
 .file-change-item:hover .file-change-open[disabled] {
   /* Keep disabled look on hover — don't reveal the icon at full strength. */
-  opacity: 0.4;
+  opacity: 0.3;
   background: transparent;
   color: var(--panel-muted);
   border-color: transparent;
@@ -294,7 +309,6 @@
   font-size: 11px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  margin-left: auto;
 }
 
 .stat-additions {

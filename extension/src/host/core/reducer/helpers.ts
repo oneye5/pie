@@ -170,14 +170,26 @@ export function appendLocalUserMessage(
   userParts: UserContentPart[] | undefined,
 ) {
   const list = draft.transcript.bySession[sessionPath] ?? [];
-  list.push({
-    id,
-    role: 'user',
-    createdAt: new Date().toISOString(),
-    markdown: markdownFromUserParts(userParts, text),
-    userParts,
-    status: 'completed',
-  });
+  const existingIndex = list.findIndex((m: ChatMessage) => m.id === id);
+  if (existingIndex !== -1) {
+    list[existingIndex] = {
+      id,
+      role: 'user',
+      createdAt: new Date().toISOString(),
+      markdown: markdownFromUserParts(userParts, text),
+      userParts,
+      status: 'completed',
+    };
+  } else {
+    list.push({
+      id,
+      role: 'user',
+      createdAt: new Date().toISOString(),
+      markdown: markdownFromUserParts(userParts, text),
+      userParts,
+      status: 'completed',
+    });
+  }
   draft.transcript.bySession[sessionPath] = list;
 
   const nextWindow = withIncrementedWindowCounts(draft.transcript.windowBySession[sessionPath]);
