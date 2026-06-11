@@ -33,6 +33,7 @@ export interface AppHandlers {
   handleModelChange: (model: string, thinkingLevel: ThinkingLevel) => void;
   handleEditSend: (messageId: string, text: string) => void;
   handleOpenFileDiff: (filePath: string) => void;
+  handleOpenFileInEditor: (filePath: string) => void;
   handleRevertFile: (filePath: string) => void;
   handleOpenContextMenu: (type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => void;
 }
@@ -119,6 +120,12 @@ export function useAppHandlers(
     postMessage({ type: 'openFileDiff', sessionPath, filePath });
   }, [postMessage, activeSessionPathRef]);
 
+  const handleOpenFileInEditor = useCallback((filePath: string) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'openFileInEditor', sessionPath, filePath });
+  }, [postMessage, activeSessionPathRef]);
+
   const handleRevertFile = useCallback((filePath: string) => {
     const sessionPath = activeSessionPathRef.current;
     if (!sessionPath) return;
@@ -151,6 +158,7 @@ export function useAppHandlers(
     handleModelChange,
     handleEditSend,
     handleOpenFileDiff,
+    handleOpenFileInEditor,
     handleRevertFile,
     handleOpenContextMenu,
   };

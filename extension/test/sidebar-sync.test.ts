@@ -59,6 +59,7 @@ const baseViewState: ViewState = {
   },
   editingMessageId: null,
   showOutcomeDialog: false,
+  pendingExtensionUIRequestsBySession: {},
   pendingExtensionUIRequest: null,
 };
 

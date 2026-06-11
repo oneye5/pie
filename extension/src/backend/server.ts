@@ -185,7 +185,7 @@ export class BackendServer {
     };
 
     // Wire the ExtensionUI bridge so extensions can ask questions through the webview.
-    const uiBridge = new ExtensionUIBridge((event, payload) => this.emit(event, payload));
+    const uiBridge = new ExtensionUIBridge(context.sessionPath, (event, payload) => this.emit(event, payload));
     context.uiBridge = uiBridge;
     const extensionRunner = (session as unknown as { extensionRunner?: { setUIContext?: (ctx: unknown) => void } }).extensionRunner;
     if (extensionRunner?.setUIContext) {

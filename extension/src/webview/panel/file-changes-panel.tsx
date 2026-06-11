@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { FileChangeEntry } from '../../shared/protocol';
 
 import { FileTypeIcon } from './components/file-type-icon';
@@ -9,6 +9,7 @@ import { FileTypeIcon } from './components/file-type-icon';
 interface FileChangesPanelProps {
   fileChanges: FileChangeEntry[];
   onOpenDiff: (filePath: string) => void;
+  onOpenInEditor: (filePath: string) => void;
   onRevertFile: (filePath: string) => void;
 }
 
@@ -28,9 +29,56 @@ function LineStats({ additions, deletions }: { additions?: number; deletions?: n
   );
 }
 
+function CopyPathButton({ path }: { path: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+  }, []);
+
+  const onCopy = (e: MouseEvent) => {
+    e.stopPropagation();
+    const clipboard = navigator.clipboard;
+    if (!clipboard?.writeText) return;
+    void clipboard
+      .writeText(path)
+      .then(() => {
+        setCopied(true);
+        if (timerRef.current) clearTimeout(timerRef.current);
+        timerRef.current = setTimeout(() => setCopied(false), 1100);
+      })
+      .catch(() => {
+        /* ignore — clipboard might be unavailable (e.g. insecure context) */
+      });
+  };
+
+  return (
+    <button
+      class={`file-change-copy${copied ? ' is-copied' : ''}`}
+      type="button"
+      title={copied ? 'Copied!' : `Copy path: ${path}`}
+      aria-label={copied ? 'Path copied' : `Copy path of ${path}`}
+      onClick={onCopy}
+    >
+      {copied ? (
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <polyline points="2.5,7 5.5,10 10.5,3.5" />
+        </svg>
+      ) : (
+        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="3" width="7.5" height="7.5" rx="1" />
+          <path d="M5.5 1.5 H10 a1 1 0 0 1 1 1 V6.5" />
+        </svg>
+      )}
+    </button>
+  );
+}
+
 export function FileChangesPanel({
   fileChanges,
   onOpenDiff,
+  onOpenInEditor,
   onRevertFile,
 }: FileChangesPanelProps) {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -84,6 +132,33 @@ export function FileChangesPanel({
                 </span>
               </button>
               <LineStats additions={change.additions} deletions={change.deletions} />
+              <button
+                class="file-change-open"
+                type="button"
+                title={
+                  change.kind === 'deleted'
+                    ? `${change.path} was deleted by the agent`
+                    : `Open ${change.path} in the editor`
+                }
+                aria-label={
+                  change.kind === 'deleted'
+                    ? `${change.path} was deleted by the agent`
+                    : `Open ${change.path} in the editor`
+                }
+                disabled={change.kind === 'deleted'}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (change.kind === 'deleted') return;
+                  onOpenInEditor(change.path);
+                }}
+              >
+                <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <path d="M9 4.5 L11.5 2 L11.5 4.5" />
+                  <path d="M11.5 2 L7 6.5" />
+                  <path d="M11 8 V10.5 a0.5 0.5 0 0 1 -0.5 0.5 H2.5 a0.5 0.5 0 0 1 -0.5 -0.5 V2.5 a0.5 0.5 0 0 1 0.5 -0.5 H5" />
+                </svg>
+              </button>
+              <CopyPathButton path={change.path} />
               <button
                 class="file-change-revert"
                 type="button"

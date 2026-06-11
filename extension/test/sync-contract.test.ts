@@ -155,6 +155,7 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
       },
       editingMessageId: null,
       showOutcomeDialog: false,
+      pendingExtensionUIRequestsBySession: {},
       pendingExtensionUIRequest: null,
     },
   };

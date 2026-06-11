@@ -19,14 +19,16 @@ export interface ExtensionUIBridgeEmitter {
 export class ExtensionUIBridge {
   private readonly pending = new Map<string, PendingRequest>();
   private readonly emit: ExtensionUIBridgeEmitter;
+  private readonly sessionPath: string;
 
-  constructor(emit: ExtensionUIBridgeEmitter) {
+  constructor(sessionPath: string, emit: ExtensionUIBridgeEmitter) {
+    this.sessionPath = sessionPath;
     this.emit = emit;
   }
 
   async confirm(title: string, message: string, opts?: { timeout?: number }): Promise<boolean> {
     const id = crypto.randomUUID();
-    const payload: ExtensionUIRequestPayload = { id, method: 'confirm', title, message, timeout: opts?.timeout };
+    const payload: ExtensionUIRequestPayload = { id, method: 'confirm', title, message, timeout: opts?.timeout, sessionPath: this.sessionPath };
     const response = await this.emitAndAwait(id, payload, opts?.timeout);
     if (response.cancelled) return false;
     return response.confirmed ?? false;
@@ -34,7 +36,7 @@ export class ExtensionUIBridge {
 
   async select(title: string, options: string[], opts?: { timeout?: number }): Promise<string | undefined> {
     const id = crypto.randomUUID();
-    const payload: ExtensionUIRequestPayload = { id, method: 'select', title, options, timeout: opts?.timeout };
+    const payload: ExtensionUIRequestPayload = { id, method: 'select', title, options, timeout: opts?.timeout, sessionPath: this.sessionPath };
     const response = await this.emitAndAwait(id, payload, opts?.timeout);
     if (response.cancelled) return undefined;
     return response.value;
@@ -42,7 +44,7 @@ export class ExtensionUIBridge {
 
   async input(title: string, placeholder?: string, opts?: { timeout?: number }): Promise<string | undefined> {
     const id = crypto.randomUUID();
-    const payload: ExtensionUIRequestPayload = { id, method: 'input', title, placeholder, timeout: opts?.timeout };
+    const payload: ExtensionUIRequestPayload = { id, method: 'input', title, placeholder, timeout: opts?.timeout, sessionPath: this.sessionPath };
     const response = await this.emitAndAwait(id, payload, opts?.timeout);
     if (response.cancelled) return undefined;
     return response.value;
@@ -50,7 +52,7 @@ export class ExtensionUIBridge {
 
   notify(message: string, type?: 'info' | 'warning' | 'error'): void {
     const id = crypto.randomUUID();
-    this.emit('extension_ui.request', { id, method: 'notify', message, notifyType: type });
+    this.emit('extension_ui.request', { id, method: 'notify', message, notifyType: type, sessionPath: this.sessionPath });
   }
 
   // Stubs for methods the SDK interface declares but we don't need in the webview.

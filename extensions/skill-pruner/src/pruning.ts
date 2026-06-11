@@ -34,11 +34,11 @@ export type { PrepassRunResult, SkillPruningResult, ToolPruningResult } from "./
 export const SKILLS_BLOCK_RE = /\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
 export const MIN_PROMPT_LENGTH = 8;
 export const LLM_TIMEOUT_MS_BY_THINKING_LEVEL: Record<string, number> = {
-	minimal: 10_000,
-	low: 10_000,
-	medium: 15_000,
-	high: 20_000,
-	xhigh: 25_000,
+	minimal: 20_000,
+	low: 20_000,
+	medium: 25_000,
+	high: 30_000,
+	xhigh: 35_000,
 };
 
 /** Returns the pi API facade, falling back to no-ops when pi hasn't been initialized. */
@@ -325,8 +325,9 @@ export async function resolveAuth(ctx: unknown, model: unknown): Promise<{ apiKe
 	return isCopilot ? { headers: { ...COPILOT_IDE_HEADERS } } : {};
 }
 
-export function prepassTimeoutMs(thinkingLevel: string): number {
-	return LLM_TIMEOUT_MS_BY_THINKING_LEVEL[thinkingLevel] ?? LLM_TIMEOUT_MS_BY_THINKING_LEVEL.minimal;
+export function prepassTimeoutMs(thinkingLevel: string, attemptIndex: number = 0): number {
+	const base = LLM_TIMEOUT_MS_BY_THINKING_LEVEL[thinkingLevel] ?? LLM_TIMEOUT_MS_BY_THINKING_LEVEL.minimal;
+	return base * (attemptIndex + 1);
 }
 
 export function buildPrepassThinkingAttempts(thinkingLevel: string): string[] {
@@ -388,7 +389,7 @@ export async function runPruningPrepass(
 		try {
 			const result = await runLlmPruning(llmInput, model, {
 				reasoning: thinkingLevel,
-				signal: AbortSignal.timeout(prepassTimeoutMs(thinkingLevel)),
+				signal: AbortSignal.timeout(prepassTimeoutMs(thinkingLevel, index)),
 				...auth,
 			}, completeFn);
 

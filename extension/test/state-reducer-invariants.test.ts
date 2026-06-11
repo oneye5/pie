@@ -371,6 +371,7 @@ test('selectViewState: editingMessageId, showOutcomeDialog, pendingExtensionUIRe
   assert.equal(vs.editingMessageId, null);
   assert.equal(vs.showOutcomeDialog, false);
   assert.equal(vs.pendingExtensionUIRequest, null);
+  assert.deepEqual(vs.pendingExtensionUIRequestsBySession, {});
 });
 
 test('selectViewState: availableExtensions propagates from state', () => {
@@ -573,7 +574,7 @@ test('ViewState: all fields are present in initial state', () => {
     'activeRunSummary', 'runSummariesBySession', 'busy', 'notice', 'backendReady',
     'workspaceCwd', 'systemPrompts', 'modelSettings', 'availableModels', 'contextUsage',
     'prefs', 'fileChanges', 'availableExtensions', 'pruningResult', 'pruningSettings',
-    'pruningCatalog', 'editingMessageId', 'showOutcomeDialog', 'pendingExtensionUIRequest',
+    'pruningCatalog', 'editingMessageId', 'showOutcomeDialog', 'pendingExtensionUIRequest', 'pendingExtensionUIRequestsBySession',
   ];
 
   for (const key of requiredKeys) {

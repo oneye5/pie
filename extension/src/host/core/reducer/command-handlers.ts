@@ -286,7 +286,7 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     case 'RespondExtensionUI': {
       return {
         state: produce(state, (draft) => {
-          draft.settings.pendingExtensionUIRequest = null;
+          delete draft.settings.pendingExtensionUIRequestsBySession[cmd.sessionPath];
         }),
         effects: cmd.approved
           ? [{ kind: 'PostImperative' as const, corrId: cmd.corrId, imperativeMessage: { type: 'extensionUiApproved', sessionPath: cmd.sessionPath } }]

@@ -38,6 +38,26 @@ test('validateWebviewToHostMessage validates openFile', () => {
   assert.equal(validateWebviewToHostMessage({ type: 'openFile' }).ok, false);
 });
 
+test('validateWebviewToHostMessage validates openFileDiff, openFileInEditor, and revertFile', () => {
+  for (const type of ['openFileDiff', 'openFileInEditor', 'revertFile']) {
+    assert.equal(
+      validateWebviewToHostMessage({ type, sessionPath: '/a', filePath: '/b' }).ok,
+      true,
+      `${type} with sessionPath + filePath should validate`,
+    );
+    assert.equal(
+      validateWebviewToHostMessage({ type, filePath: '/b' }).ok,
+      false,
+      `${type} without sessionPath should be rejected`,
+    );
+    assert.equal(
+      validateWebviewToHostMessage({ type, sessionPath: '/a' }).ok,
+      false,
+      `${type} without filePath should be rejected`,
+    );
+  }
+});
+
 test('validateWebviewToHostMessage validates session-scoped messages with required sessionPath', () => {
   for (const type of ['openSession', 'closeSession', 'interrupt', 'startNewTask', 'continueTask']) {
     assert.equal(

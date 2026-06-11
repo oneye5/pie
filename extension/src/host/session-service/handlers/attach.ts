@@ -244,9 +244,9 @@ export function handleBusyChangedPayload(
 
   // Clear pending extension UI request when the session finishes.
   if (!payload.busy) {
-    if (deps.getArchState().settings.pendingExtensionUIRequest) {
+    if (deps.getArchState().settings.pendingExtensionUIRequestsBySession[sessionPath]) {
       deps.mutateArchState((draft) => {
-        draft.settings.pendingExtensionUIRequest = null;
+        delete draft.settings.pendingExtensionUIRequestsBySession[sessionPath];
       });
     }
   }

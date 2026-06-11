@@ -1,4 +1,5 @@
 import type { FileChangeEntry, ChatMessage } from '../../shared/protocol';
+import { isRecord } from '../../shared/type-guards';
 
 // ─── Derive file changes from existing transcript ──────────────────────────
 
@@ -8,7 +9,25 @@ interface ToolCallLikeInput {
   input: unknown;
 }
 
-import { isRecord } from '../../shared/type-guards';
+/** Minimal structural types for subagent result traversal (pi-ai Message shape). */
+interface SubagentContentPart {
+  type: string;
+  name?: string;
+  arguments?: unknown;
+}
+
+interface SubagentMessage {
+  role: string;
+  content?: SubagentContentPart[];
+}
+
+interface SubagentSingleResult {
+  messages?: SubagentMessage[];
+}
+
+interface SubagentDetails {
+  results?: SubagentSingleResult[];
+}
 
 
 /** Count the number of lines in a string. Empty string → 0, no trailing-newline inflation. */
@@ -154,6 +173,75 @@ export function deriveFileChangeFromToolCall(
   };
 }
 
+function accumulateFileChange(
+  seen: Map<string, FileChangeEntry>,
+  createdPaths: Set<string>,
+  entry: FileChangeEntry,
+): void {
+  if (entry.kind === 'created') {
+    createdPaths.add(entry.path);
+  } else if (entry.kind === 'deleted' && createdPaths.has(entry.path)) {
+    // File was created in this session and then deleted — net no-op.
+    seen.delete(entry.path);
+    return;
+  }
+
+  const existing = seen.get(entry.path);
+  if (existing) {
+    // Accumulate stats across edits to the same file
+    const additions = (existing.additions ?? 0) + (entry.additions ?? 0);
+    const deletions = (existing.deletions ?? 0) + (entry.deletions ?? 0);
+    if (additions > 0) entry.additions = additions;
+    else delete entry.additions;
+    if (deletions > 0) entry.deletions = deletions;
+    else delete entry.deletions;
+  }
+  seen.set(entry.path, entry);
+}
+
+/**
+ * Derive file changes from a subagent tool result by scanning the inner
+ * subagent transcripts for file-modifying tool calls (edit, write, etc.).
+ */
+export function deriveFileChangesFromSubagentResult(
+  result: unknown,
+  messageId: string,
+  timestamp: string,
+  toolCallId: string,
+): FileChangeEntry[] {
+  if (!isRecord(result)) return [];
+  const details = result.details as SubagentDetails | undefined;
+  if (!details?.results) return [];
+
+  const changes: FileChangeEntry[] = [];
+
+  for (let rIdx = 0; rIdx < details.results.length; rIdx++) {
+    const singleResult = details.results[rIdx];
+    if (!singleResult?.messages) continue;
+
+    for (let mIdx = 0; mIdx < singleResult.messages.length; mIdx++) {
+      const msg = singleResult.messages[mIdx];
+      if (msg.role !== 'assistant') continue;
+      if (!Array.isArray(msg.content)) continue;
+
+      for (let cIdx = 0; cIdx < msg.content.length; cIdx++) {
+        const part = msg.content[cIdx];
+        if (part.type !== 'toolCall') continue;
+
+        const syntheticId = `${toolCallId}-sa${rIdx}-m${mIdx}-c${cIdx}`;
+        const entry = deriveFileChangeFromToolCall(
+          { id: syntheticId, name: part.name ?? '', input: part.arguments },
+          messageId,
+          timestamp,
+        );
+        if (entry) changes.push(entry);
+      }
+    }
+  }
+
+  return changes;
+}
+
 export function deriveFileChangesFromTranscript(
   transcript: ChatMessage[],
 ): FileChangeEntry[] {
@@ -165,6 +253,20 @@ export function deriveFileChangesFromTranscript(
     const toolCalls = message.toolCalls ?? [];
     for (const tool of toolCalls) {
       if (tool.status === 'failed') continue;
+
+      if (tool.name === 'subagent' && isRecord(tool.result)) {
+        const subagentChanges = deriveFileChangesFromSubagentResult(
+          tool.result,
+          message.id,
+          message.createdAt,
+          tool.id,
+        );
+        for (const entry of subagentChanges) {
+          accumulateFileChange(seen, createdPaths, entry);
+        }
+        continue;
+      }
+
       const entry = deriveFileChangeFromToolCall(
         { id: tool.id, name: tool.name, input: tool.input },
         message.id,
@@ -172,25 +274,7 @@ export function deriveFileChangesFromTranscript(
       );
       if (!entry) continue;
 
-      if (entry.kind === 'created') {
-        createdPaths.add(entry.path);
-      } else if (entry.kind === 'deleted' && createdPaths.has(entry.path)) {
-        // File was created in this session and then deleted — net no-op.
-        seen.delete(entry.path);
-        continue;
-      }
-
-      const existing = seen.get(entry.path);
-      if (existing) {
-        // Accumulate stats across edits to the same file
-        const additions = (existing.additions ?? 0) + (entry.additions ?? 0);
-        const deletions = (existing.deletions ?? 0) + (entry.deletions ?? 0);
-        if (additions > 0) entry.additions = additions;
-        else delete entry.additions;
-        if (deletions > 0) entry.deletions = deletions;
-        else delete entry.deletions;
-      }
-      seen.set(entry.path, entry);
+      accumulateFileChange(seen, createdPaths, entry);
     }
   }
 

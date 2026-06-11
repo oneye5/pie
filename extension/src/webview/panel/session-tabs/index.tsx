@@ -3,7 +3,7 @@
 
 import { useRef } from 'preact/hooks';
 
-import type { ActiveRunSummary, SessionSummary } from '../../../shared/protocol';
+import type { ActiveRunSummary, ExtensionUIRequestPayload, SessionSummary } from '../../../shared/protocol';
 import { isPendingTabPath } from '../../../shared/tab-behavior';
 import { getSessionTabRunBadge } from './run-state';
 import { useTabDragAndDrop } from './use-drag-and-drop.js';
@@ -17,7 +17,7 @@ interface SessionTabsProps {
   activeSession: SessionSummary | null;
   activeRunSummary: ActiveRunSummary | null;
   backendReady?: boolean;
-  hasPendingExtensionUIRequest?: boolean;
+  pendingExtensionUIRequestsBySession: Record<string, import('../../../shared/protocol').ExtensionUIRequestPayload>;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
   onMove: (sessionPath: string | undefined, fromIndex: number, toIndex: number) => void;
@@ -58,7 +58,7 @@ interface SessionTabProps {
   runningPathSet: Set<string>;
   unreadFinishedPathSet: Set<string>;
   activeSession: SessionSummary | null;
-  hasPendingExtensionUIRequest?: boolean;
+  hasPendingExtensionUIRequest: boolean;
   activeRunSummary: ActiveRunSummary | null;
   onContextMenu: (event: MouseEvent, tabPath: string) => void;
   onPointerDown: (event: PointerEvent, sourceIndex: number, sourcePath: string) => void;
@@ -245,7 +245,7 @@ export function SessionTabs({
   activeSession,
   activeRunSummary,
   backendReady,
-  hasPendingExtensionUIRequest,
+  pendingExtensionUIRequestsBySession,
   onSelect,
   onClose,
   onMove,
@@ -299,7 +299,7 @@ export function SessionTabs({
             runningPathSet={runningPathSet}
             unreadFinishedPathSet={unreadFinishedPathSet}
             activeSession={activeSession}
-            hasPendingExtensionUIRequest={hasPendingExtensionUIRequest}
+            hasPendingExtensionUIRequest={!!pendingExtensionUIRequestsBySession[tabPath]}
             activeRunSummary={activeRunSummary}
             onContextMenu={onContextMenu}
             onPointerDown={onPointerDown}

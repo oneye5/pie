@@ -190,7 +190,8 @@ export function selectViewState(state: ArchState): ViewState {
     pruningCatalog,
     editingMessageId: transcript.editingMessageId,
     showOutcomeDialog: settings.showOutcomeDialog,
-    pendingExtensionUIRequest: settings.pendingExtensionUIRequest,
+    pendingExtensionUIRequestsBySession: settings.pendingExtensionUIRequestsBySession,
+    pendingExtensionUIRequest: activePath ? settings.pendingExtensionUIRequestsBySession[activePath] ?? null : null,
   };
 }
 

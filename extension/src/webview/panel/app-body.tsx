@@ -47,6 +47,7 @@ function useAppBodyDerivedState(
     activeSession,
     modelSettings,
     availableModels,
+    pendingExtensionUIRequestsBySession,
     pendingExtensionUIRequest,
     transcript,
   } = viewState;
@@ -107,7 +108,7 @@ interface PanelMainProps {
   activeSessionPath: string | null;
   activeSession: ViewState['activeSession'];
   fileChanges: ViewState['fileChanges'];
-  handlers: Pick<AppHandlers, 'handleOpenFileDiff' | 'handleRevertFile' | 'handleEditRequest' | 'handleEditSend' | 'handleCancelEdit' | 'handleOpenFile' | 'handleOpenContextMenu' | 'handleNewSession'>;
+  handlers: Pick<AppHandlers, 'handleOpenFileDiff' | 'handleOpenFileInEditor' | 'handleRevertFile' | 'handleEditRequest' | 'handleEditSend' | 'handleCancelEdit' | 'handleOpenFile' | 'handleOpenContextMenu' | 'handleNewSession'>;
   postMessage: (msg: WebviewToHostMessage) => void;
   mergedTranscript: ChatMessage[];
   transcriptWindow: ViewState['transcriptWindow'];
@@ -154,6 +155,7 @@ function PanelMain({
         <FileChangesPanel
           fileChanges={fileChanges}
           onOpenDiff={handlers.handleOpenFileDiff}
+          onOpenInEditor={handlers.handleOpenFileInEditor}
           onRevertFile={handlers.handleRevertFile}
         />
       )}
@@ -363,7 +365,7 @@ export function AppBody({ adapter }: AppBodyProps) {
           activeSession={viewState.activeSession}
           activeRunSummary={viewState.activeRunSummary}
           backendReady={viewState.backendReady}
-          hasPendingExtensionUIRequest={!!viewState.pendingExtensionUIRequest}
+          pendingExtensionUIRequestsBySession={viewState.pendingExtensionUIRequestsBySession}
           onSelect={handlers.handleSelectTab}
           onClose={handlers.handleCloseTab}
           onMove={handlers.handleMoveTab}

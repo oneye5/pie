@@ -220,6 +220,60 @@
   border-color: color-mix(in srgb, var(--panel-danger) 28%, var(--panel-border));
 }
 
+/* ── Per-row "open in editor" and "copy path" buttons ──────────────────── */
+
+.file-change-open,
+.file-change-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid transparent;
+  border-radius: var(--panel-radius-sm);
+  background: transparent;
+  color: var(--panel-muted);
+  cursor: pointer;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.12s ease, background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.file-change-item:hover .file-change-open,
+.file-change-item:hover .file-change-copy,
+.file-change-copy.is-copied {
+  opacity: 0.75;
+}
+
+.file-change-open:hover,
+.file-change-copy:hover {
+  opacity: 1 !important;
+  background: var(--panel-control-hover);
+  color: var(--panel-foreground);
+  border-color: var(--panel-border-subtle);
+}
+
+.file-change-copy.is-copied {
+  color: var(--panel-success);
+  opacity: 1;
+}
+
+.file-change-open:disabled,
+.file-change-open[disabled] {
+  cursor: not-allowed;
+  opacity: 0.35;
+  color: var(--panel-muted);
+}
+
+.file-change-item:hover .file-change-open:disabled,
+.file-change-item:hover .file-change-open[disabled] {
+  /* Keep disabled look on hover — don't reveal the icon at full strength. */
+  opacity: 0.4;
+  background: transparent;
+  color: var(--panel-muted);
+  border-color: transparent;
+}
+
 /* ── Line stats ──────────────────────────────────────────────────────────── */
 
 .file-changes-aggregate-stats {

@@ -113,8 +113,8 @@ export interface SettingsState {
   availableExtensions: ExtensionInfo[];
   /** Whether the outcome dialog is showing. */
   showOutcomeDialog: boolean;
-  /** Pending extension UI request (ask-user inline choices). */
-  pendingExtensionUIRequest: ExtensionUIRequestPayload | null;
+  /** Per-session pending extension UI requests (ask-user inline choices). */
+  pendingExtensionUIRequestsBySession: Record<string, ExtensionUIRequestPayload>;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,7 +230,7 @@ export function createInitialArchState(): ArchState {
       prefs: { ...DEFAULT_CHAT_PREFS },
       availableExtensions: [],
       showOutcomeDialog: false,
-      pendingExtensionUIRequest: null,
+      pendingExtensionUIRequestsBySession: {},
     },
     composer: {
       pendingComposerInputsBySession: {},

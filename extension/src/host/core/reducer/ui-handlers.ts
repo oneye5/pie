@@ -23,14 +23,15 @@ export function handleCustomMessage(state: ArchState, event: Extract<Event, { ki
 }
 
 export function handleExtensionUIRequest(state: ArchState, event: Extract<Event, { kind: 'ExtensionUIRequest' }>): ReducerResult {
+  const sessionPath = event.sessionPath;
+  if (!sessionPath) {
+    // Backward compat: skip if no session path.
+    return { state, effects: [] };
+  }
   return {
-    state: {
-      ...state,
-      settings: {
-        ...state.settings,
-        pendingExtensionUIRequest: event.request,
-      },
-    },
+    state: produce(state, (draft) => {
+      draft.settings.pendingExtensionUIRequestsBySession[sessionPath] = event.request;
+    }),
     effects: [],
   };
 }

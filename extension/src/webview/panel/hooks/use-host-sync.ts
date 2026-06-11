@@ -59,6 +59,7 @@ export const EMPTY_VIEW_STATE: ViewState = {
   },
   editingMessageId: null,
   showOutcomeDialog: false,
+  pendingExtensionUIRequestsBySession: {},
   pendingExtensionUIRequest: null,
 };
 

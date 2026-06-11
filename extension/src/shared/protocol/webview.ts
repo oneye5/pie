@@ -6,10 +6,10 @@ import type { ExtensionInfo, PruningResult, PruningSettings, PruningCatalog, Cha
 
 /** A pending extension UI request (backend → host → webview). */
 export type ExtensionUIRequestPayload =
-  | { id: string; method: 'confirm'; title: string; message: string; timeout?: number; extensionId?: string }
-  | { id: string; method: 'select'; title: string; options: string[]; timeout?: number; extensionId?: string }
-  | { id: string; method: 'input'; title: string; placeholder?: string; timeout?: number; extensionId?: string }
-  | { id: string; method: 'notify'; message: string; notifyType?: 'info' | 'warning' | 'error'; extensionId?: string };
+  | { id: string; method: 'confirm'; title: string; message: string; timeout?: number; extensionId?: string; sessionPath: string }
+  | { id: string; method: 'select'; title: string; options: string[]; timeout?: number; extensionId?: string; sessionPath: string }
+  | { id: string; method: 'input'; title: string; placeholder?: string; timeout?: number; extensionId?: string; sessionPath: string }
+  | { id: string; method: 'notify'; message: string; notifyType?: 'info' | 'warning' | 'error'; extensionId?: string; sessionPath: string };
 
 /** Response from the webview (webview → host → backend). */
 export interface ExtensionUIResponsePayload {
@@ -71,7 +71,9 @@ export interface ViewState {
   editingMessageId: string | null;
   /** Whether the run-outcome dialog is open. */
   showOutcomeDialog: boolean;
-  /** Pending extension UI request awaiting user response, or null. */
+  /** Pending extension UI requests keyed by session path. */
+  pendingExtensionUIRequestsBySession: Record<string, ExtensionUIRequestPayload>;
+  /** Pending extension UI request for the active session, or null. */
   pendingExtensionUIRequest: ExtensionUIRequestPayload | null;
 }
 
@@ -174,6 +176,7 @@ export type WebviewToHostMessage =
   | { type: 'openOutcomeDialog' }
   | { type: 'closeOutcomeDialog' }
   | { type: 'openFileDiff'; sessionPath: string; filePath: string }
+  | { type: 'openFileInEditor'; sessionPath: string; filePath: string }
   | { type: 'revertFile'; sessionPath: string; filePath: string }
   | { type: 'stateApplied'; payload: StateAppliedPayload }
   | { type: 'extensionUiResponse'; sessionPath: string; response: ExtensionUIResponsePayload };

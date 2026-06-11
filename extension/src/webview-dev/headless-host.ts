@@ -492,7 +492,7 @@ export class HeadlessWebviewDevHost {
         return;
       case 'extensionUiResponse':
         this.archState = produce(this.archState, draft => {
-          draft.settings.pendingExtensionUIRequest = null;
+          delete draft.settings.pendingExtensionUIRequestsBySession[msg.sessionPath];
         });
         await this.backend?.request('extension_ui.response', { sessionPath: msg.sessionPath, response: msg.response });
         return;
@@ -510,7 +510,7 @@ export class HeadlessWebviewDevHost {
     this.archState = produce(this.archState, draft => {
       draft.transcript.editingMessageId = null;
       draft.settings.showOutcomeDialog = false;
-      draft.settings.pendingExtensionUIRequest = null;
+      delete draft.settings.pendingExtensionUIRequestsBySession[sessionPath];
     });
   }
 

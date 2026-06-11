@@ -370,12 +370,23 @@ export const devFixtures: DevFixture[] = [
     label: 'Extension confirm',
     state: baseState({
       transcript: normalTranscript,
+      pendingExtensionUIRequestsBySession: {
+        [primaryPath]: {
+          id: 'confirm-1',
+          method: 'confirm',
+          title: 'Safeguard confirmation',
+          message: 'Allow the dev host to simulate this extension UI request?',
+          extensionId: 'safeguard',
+          sessionPath: primaryPath,
+        },
+      },
       pendingExtensionUIRequest: {
         id: 'confirm-1',
         method: 'confirm',
         title: 'Safeguard confirmation',
         message: 'Allow the dev host to simulate this extension UI request?',
         extensionId: 'safeguard',
+        sessionPath: primaryPath,
       },
     }),
   },
@@ -384,12 +395,23 @@ export const devFixtures: DevFixture[] = [
     label: 'Extension select',
     state: baseState({
       transcript: normalTranscript,
+      pendingExtensionUIRequestsBySession: {
+        [primaryPath]: {
+          id: 'select-1',
+          method: 'select',
+          title: 'How should we proceed?',
+          options: ['Run full suite', 'Run fast checks only', 'Skip tests'],
+          extensionId: 'safeguard',
+          sessionPath: primaryPath,
+        },
+      },
       pendingExtensionUIRequest: {
         id: 'select-1',
         method: 'select',
         title: 'How should we proceed?',
         options: ['Run full suite', 'Run fast checks only', 'Skip tests'],
         extensionId: 'safeguard',
+        sessionPath: primaryPath,
       },
     }),
   },
@@ -398,12 +420,23 @@ export const devFixtures: DevFixture[] = [
     label: 'Extension input',
     state: baseState({
       transcript: normalTranscript,
+      pendingExtensionUIRequestsBySession: {
+        [primaryPath]: {
+          id: 'input-1',
+          method: 'input',
+          title: 'Branch name',
+          placeholder: 'e.g. feature/my-branch',
+          extensionId: 'subagent',
+          sessionPath: primaryPath,
+        },
+      },
       pendingExtensionUIRequest: {
         id: 'input-1',
         method: 'input',
         title: 'Branch name',
         placeholder: 'e.g. feature/my-branch',
         extensionId: 'subagent',
+        sessionPath: primaryPath,
       },
     }),
   },
@@ -422,11 +455,21 @@ export const devFixtures: DevFixture[] = [
           status: 'streaming',
         }),
       ],
+      pendingExtensionUIRequestsBySession: {
+        [primaryPath]: {
+          id: 'ext-ui-ask-1',
+          method: 'select',
+          title: 'Which naming convention should we use for the new API endpoints?\n\nThe existing codebase uses a mix of styles; a consistent choice reduces cognitive load for all contributors.',
+          options: ['camelCase', 'snake_case', 'kebab-case', CUSTOM_SENTINEL],
+          sessionPath: primaryPath,
+        },
+      },
       pendingExtensionUIRequest: {
         id: 'ext-ui-ask-1',
         method: 'select',
         title: 'Which naming convention should we use for the new API endpoints?\n\nThe existing codebase uses a mix of styles; a consistent choice reduces cognitive load for all contributors.',
         options: ['camelCase', 'snake_case', 'kebab-case', CUSTOM_SENTINEL],
+        sessionPath: primaryPath,
       },
       busy: true,
     }),

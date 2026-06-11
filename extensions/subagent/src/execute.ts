@@ -19,7 +19,6 @@ import { createInvalidAgentResult, summarizeInvalidAgentResults } from "../valid
 import {
 	type TaskScores,
 	PROVIDER_TOGGLES_ENV,
-	getAllowedModelIdsForProviders,
 	getDisabledProviders,
 	loadSelectionConfig,
 	parseProviderToggles,
@@ -29,7 +28,7 @@ import { loadModelPricing, resolveModelCost } from "../pricing.js";
 import { MAX_DEPTH, MAX_SESSIONS_PER_CALL, makeDetails } from "./helpers.js";
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
-const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..");
+const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 
 /** Context for model selection settings and restrictions. */
 export interface SelectionContext {
@@ -282,10 +281,12 @@ function setupModelSelection(ctx: ToolContext): SelectionContext {
 	}
 
 	const disabledProviders = getDisabledProviders(parseProviderToggles(process.env[PROVIDER_TOGGLES_ENV]));
-	const allowedModelIds =
-		disabledProviders.size > 0
-			? getAllowedModelIdsForProviders(ctx.modelRegistry.getAvailable(), disabledProviders)
-			: undefined;
+	const availableModels = ctx.modelRegistry.getAvailable();
+	const allowedModelIds = new Set<string>(
+		availableModels
+			.filter((m) => !disabledProviders.has(m.provider))
+			.map((m) => m.id),
+	);
 
 	return { selectionConfig, disabledProviders, allowedModelIds };
 }

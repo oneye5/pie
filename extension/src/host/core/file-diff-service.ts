@@ -83,6 +83,11 @@ export class FileDiffService {
     }
   }
 
+  async openFileInEditor(sessionPath: string, filePath: string): Promise<void> {
+    const resolvedPath = this.resolveFileChangePath(sessionPath, filePath);
+    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(resolvedPath), { preview: false });
+  }
+
   async revertFile(sessionPath: string, filePath: string): Promise<void> {
     const resolvedPath = this.resolveFileChangePath(sessionPath, filePath);
 

@@ -2,12 +2,36 @@ import type { RunObserver } from '../../stats-service';
 import type { ArchState } from '../../core/arch-state';
 import type { SessionServiceState } from '../state';
 import type { BackendEvent } from '../../core/events';
-import { deriveFileChangeFromToolCall } from '../../core/file-change-derivation';
+import { deriveFileChangeFromToolCall, deriveFileChangesFromSubagentResult } from '../../core/file-change-derivation';
+import { isRecord } from '../../../shared/type-guards';
 import type {
   ToolFinishedPayload,
   ToolProgressPayload,
   ToolStartedPayload,
+  FileChangeEntry,
 } from '../../../shared/protocol';
+
+/** Upsert a file-change entry into a session's file-changes list, accumulating
+ *  stats and removing create-then-delete pairs. */
+function upsertFileChange(list: FileChangeEntry[], change: FileChangeEntry): void {
+  const existingIdx = list.findIndex((entry) => entry.path === change.path);
+  if (existingIdx !== -1) {
+    const existing = list[existingIdx];
+    if (change.kind === 'deleted' && existing.kind === 'created') {
+      list.splice(existingIdx, 1);
+      return;
+    }
+    const additions = (existing.additions ?? 0) + (change.additions ?? 0);
+    const deletions = (existing.deletions ?? 0) + (change.deletions ?? 0);
+    list[existingIdx] = {
+      ...change,
+      ...(additions > 0 && { additions }),
+      ...(deletions > 0 && { deletions }),
+    };
+  } else {
+    list.push(change);
+  }
+}
 
 interface HandlerDeps {
   getArchState: () => ArchState;
@@ -51,24 +75,7 @@ export function onToolStarted(payload: ToolStartedPayload, deps: HandlerDeps): v
   if (fileChange) {
     deps.mutateArchState((draft) => {
       const list = (draft.fileChanges.bySession[sessionPath] ??= []);
-      const existingIdx = list.findIndex((entry: any) => entry.path === fileChange.path);
-      if (existingIdx !== -1) {
-        const existing = list[existingIdx];
-        const change = fileChange;
-        if (change.kind === 'deleted' && existing.kind === 'created') {
-          list.splice(existingIdx, 1);
-          return;
-        }
-        const additions = (existing.additions ?? 0) + (change.additions ?? 0);
-        const deletions = (existing.deletions ?? 0) + (change.deletions ?? 0);
-        list[existingIdx] = {
-          ...change,
-          ...(additions > 0 && { additions }),
-          ...(deletions > 0 && { deletions }),
-        };
-      } else {
-        list.push(fileChange);
-      }
+      upsertFileChange(list, fileChange);
     });
     deps.scheduleRender();
   }
@@ -105,6 +112,26 @@ export function onToolFinished(payload: ToolFinishedPayload, deps: HandlerDeps):
     toolCall,
   });
   deps.runObserver.onToolFinished(sessionPath, toolCall);
+
+  // Track file changes from subagent inner tool calls
+  if (existing?.name === 'subagent' && isRecord(payload.result)) {
+    const subagentChanges = deriveFileChangesFromSubagentResult(
+      payload.result,
+      payload.messageId,
+      new Date().toISOString(),
+      payload.toolCallId,
+    );
+    console.log('[pie:fileChanges] onToolFinished subagent', { toolCallId: payload.toolCallId, changeCount: subagentChanges.length });
+    if (subagentChanges.length > 0) {
+      deps.mutateArchState((draft) => {
+        const list = (draft.fileChanges.bySession[sessionPath] ??= []);
+        for (const change of subagentChanges) {
+          upsertFileChange(list, change);
+        }
+      });
+      deps.scheduleRender();
+    }
+  }
 
   deps.state.touchSessionTranscript(sessionPath);
 }

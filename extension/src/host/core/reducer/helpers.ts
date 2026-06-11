@@ -78,6 +78,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
   const { [sp]: _ct, ...remainingTurns } = state.pending.currentTurnBySession;
   const { [sp]: _m, ...remainingModels } = state.settings.availableModelsBySession;
   const { [sp]: _cu, ...remainingContext } = state.settings.contextUsageBySession;
+  const { [sp]: _eui, ...remainingExtUI } = state.settings.pendingExtensionUIRequestsBySession;
   const { [sp]: _ci, ...remainingComposer } = state.composer.pendingComposerInputsBySession;
   const { [sp]: _rs, ...remainingRunSummaries } = state.composer.activeRunSummaryBySession;
   const { [sp]: _fc, ...remainingFileChanges } = state.fileChanges.bySession;
@@ -109,6 +110,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         ...state.settings,
         availableModelsBySession: remainingModels,
         contextUsageBySession: remainingContext,
+        pendingExtensionUIRequestsBySession: remainingExtUI,
       },
       composer: {
         ...state.composer,

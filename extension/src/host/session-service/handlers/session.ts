@@ -50,10 +50,10 @@ export function onExtensionUIRequest(payload: ExtensionUIRequestPayload, deps: H
   if (payload.method === 'notify') {
     // Notify is fire-and-forget; use the notice banner instead of blocking the prompt slot.
     const prefix = payload.notifyType === 'error' ? 'Error' : payload.notifyType === 'warning' ? 'Warning' : 'Info';
-    deps.dispatchArch({ kind: 'Error', sessionPath: '', error: `${prefix}: ${payload.message}` });
+    deps.dispatchArch({ kind: 'Error', sessionPath: payload.sessionPath || '', error: `${prefix}: ${payload.message}` });
     return;
   }
-  deps.dispatchArch({ kind: 'ExtensionUIRequest', sessionPath: '', request: payload });
+  deps.dispatchArch({ kind: 'ExtensionUIRequest', sessionPath: payload.sessionPath || '', request: payload });
 
   // Flash the VS Code window to draw the user's attention to the question.
   requestWindowAttention(

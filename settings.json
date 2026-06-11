@@ -1,7 +1,7 @@
 {
   "lastChangelogVersion": "0.78.0",
   "defaultProvider": "ollama",
-  "defaultModel": "kimi-k2.6:cloud",
+  "defaultModel": "minimax-m3:cloud",
   "defaultThinkingLevel": "high",
   "sessionDir": "data/outcomes/sessions",
   "packages": [

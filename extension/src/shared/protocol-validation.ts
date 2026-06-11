@@ -280,6 +280,7 @@ export function validateWebviewToHostMessage(
       return { ok: true, value: value as WebviewToHostMessage };
 
     case 'openFileDiff':
+    case 'openFileInEditor':
     case 'revertFile':
       if (!isString(value.sessionPath)) return fail(`${type}: missing string \`sessionPath\``);
       if (!isString(value.filePath)) return fail(`${type}: missing string \`filePath\``);

@@ -164,6 +164,9 @@ export class MessageRouter {
       case 'openFileDiff':
         return await this.onOpenFileDiff(msg as Extract<WebviewToHostMessage, { type: 'openFileDiff' }>);
 
+      case 'openFileInEditor':
+        return await this.onOpenFileInEditor(msg as Extract<WebviewToHostMessage, { type: 'openFileInEditor' }>);
+
       case 'revertFile':
         return await this.onRevertFile(msg as Extract<WebviewToHostMessage, { type: 'revertFile' }>);
 
@@ -414,6 +417,10 @@ export class MessageRouter {
 
   private async onOpenFileDiff(msg: Extract<WebviewToHostMessage, { type: 'openFileDiff' }>): Promise<void> {
     await this.fileDiffService.openFileDiff(msg.sessionPath, msg.filePath);
+  }
+
+  private async onOpenFileInEditor(msg: Extract<WebviewToHostMessage, { type: 'openFileInEditor' }>): Promise<void> {
+    await this.fileDiffService.openFileInEditor(msg.sessionPath, msg.filePath);
   }
 
   private async onRevertFile(msg: Extract<WebviewToHostMessage, { type: 'revertFile' }>): Promise<void> {

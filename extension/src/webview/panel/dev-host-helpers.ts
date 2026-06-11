@@ -311,11 +311,14 @@ function handleRevertFile(actions: DevHostActions, msg: Extract<WebviewToHostMes
 }
 
 function handleExtensionUiResponse(actions: DevHostActions, msg: Extract<WebviewToHostMessage, { type: 'extensionUiResponse' }>): void {
-  actions.mutate((current) => ({
-    ...current,
-    pendingExtensionUIRequest: null,
-    notice: `Extension UI response captured for ${msg.response.id}.`,
-  }));
+  actions.mutate((current) => {
+    const { [msg.sessionPath]: _removed, ...remaining } = current.pendingExtensionUIRequestsBySession;
+    return {
+      ...current,
+      pendingExtensionUIRequestsBySession: remaining,
+      notice: `Extension UI response captured for ${msg.response.id}.`,
+    };
+  });
 }
 
 const messageDispatch: Record<string, (actions: DevHostActions, msg: WebviewToHostMessage) => void> = {
