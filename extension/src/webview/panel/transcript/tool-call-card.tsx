@@ -7,7 +7,7 @@ import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
 import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../utils/looks-like-path-token';
 
-import { ClickablePathButton, splitSummaryPath } from '../file-path';
+import { ClickablePathButton } from '../file-path';
 import { formatDuration } from './header';
 import { StatusChip } from './status-chip';
 import { useDisclosureOpen } from './use-disclosure-open';

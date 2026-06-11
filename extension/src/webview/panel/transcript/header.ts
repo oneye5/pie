@@ -1,10 +1,5 @@
 import type { ChatMessage, ThinkingLevel } from '../../../shared/protocol';
 
-const timeFormatter = new Intl.DateTimeFormat(undefined, {
-  hour: 'numeric',
-  minute: '2-digit',
-});
-
 const tokenFormatter = new Intl.NumberFormat(undefined);
 
 export interface AssistantReplyMeta {

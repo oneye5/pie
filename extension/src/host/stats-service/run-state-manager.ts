@@ -23,7 +23,6 @@ import {
   type RunSnapshot,
   type TreatmentChangeKind,
 } from '../run-analytics';
-import type { ArchState } from '../core/arch-state';
 import {
   emptySessionRunState,
   type GetArchState,

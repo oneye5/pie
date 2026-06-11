@@ -1,4 +1,3 @@
-import type { ToolInfo } from "@mariozechner/pi-coding-agent";
 import { state, getPiToolSeams } from "./state.js";
 
 export const requestToolDefinition = {

@@ -92,7 +92,7 @@ function useFocusOnOpen(
     requestAnimationFrame(() => {
       listRef.current?.focus();
     });
-  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open]);
 }
 
 function useClickOutside(

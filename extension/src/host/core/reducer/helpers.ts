@@ -1,5 +1,3 @@
-import { produce } from 'immer';
-
 import type { ArchState, PendingOp } from '../arch-state.js';
 import type { ChatMessage, SessionSummary, UserContentPart } from '../../../shared/protocol.js';
 import { markdownFromUserParts } from '../transcript-helpers.js';

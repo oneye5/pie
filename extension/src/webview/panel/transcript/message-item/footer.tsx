@@ -2,7 +2,7 @@
 /** @jsxImportSource preact */
 
 import type { ChatMessage } from '../../../../shared/protocol';
-import { AGENT_ACTIVITY_LABELS, type TurnActivityState } from '../activity';
+import type { TurnActivityState } from '../activity';
 import {
   TurnActivityStrip,
   activityPhaseHasRunningDot,

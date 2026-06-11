@@ -178,7 +178,7 @@ test('uiActions.setPrefs merges into existing prefs', () => {
 // ─── selectViewState prefs round-trip ──────────────────────────────────────────
 
 test('selectViewState includes prefs from settings', () => {
-  let state = produce(createInitialArchState(), draft => {
+  const state = produce(createInitialArchState(), draft => {
     draft.settings.prefs = {
       ...draft.settings.prefs,
       autoExpandReasoning: true,

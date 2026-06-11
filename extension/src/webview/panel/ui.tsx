@@ -15,7 +15,6 @@ import type {
   ModelInfo,
   ModelSettings,
   PruningCatalog,
-  PruningDetails,
   PruningResult,
   PruningSettings,
   SystemPromptEntry,
@@ -101,7 +100,6 @@ function ComposerView({
   const {
     selectedModel,
     selectedLevel,
-    selectedModelInfo,
     supportsReasoning,
     supportsImageInputs,
     contextBreakdown,

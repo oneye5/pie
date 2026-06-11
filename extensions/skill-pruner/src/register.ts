@@ -2,7 +2,6 @@ import path from "node:path";
 import { writeFileSync } from "node:fs";
 import type { ExtensionAPI, BeforeAgentStartEvent, ToolCallEvent, InputEvent } from "@mariozechner/pi-coding-agent";
 import { appendDecision, estimateTokens, recordSkillRead, recordKnownSkills } from "../logger.js";
-import type { PruningResult } from "../types.js";
 import {
 	setPiApi,
 	CONFIG_ROOT,
@@ -17,13 +16,11 @@ import {
 	resolveVisibleSkills,
 	applySkillSelection,
 	applyToolSelection,
-	getPiToolSeams,
 	getSessionId,
 	getSessionPath,
 	getCompleteFn,
 	getConfig,
 	SKILLS_BLOCK_RE,
-	PrepassRunResult,
 	runPruningPrepass,
 	SkillPruningResult,
 	ToolPruningResult,

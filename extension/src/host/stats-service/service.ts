@@ -10,7 +10,7 @@ import type {
 } from '../../shared/protocol';
 import { RunAnalyticsStorage } from './storage';
 import { SessionRunTracker } from './tracker';
-import type { GetArchState, MutateArchState, RunObserver, StatsServiceOptions } from './types';
+import type { RunObserver, StatsServiceOptions } from './types';
 
 export class StatsService implements RunObserver {
   private readonly scheduleRender: () => void;
@@ -21,7 +21,7 @@ export class StatsService implements RunObserver {
 
   constructor(options: StatsServiceOptions) {
     this.scheduleRender = options.scheduleRender ?? (() => undefined);
-    const mutateArchState = options.mutateArchState ?? ((recipe) => { /* no-op if not provided */ });
+    const mutateArchState = options.mutateArchState ?? ((_recipe) => { /* no-op if not provided */ });
     const getArchState = options.getArchState ?? (() => { throw new Error('getArchState not provided'); });
     const now = options.now ?? defaultNow;
     const createId = options.createId ?? defaultCreateId;

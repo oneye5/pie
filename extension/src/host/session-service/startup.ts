@@ -14,6 +14,7 @@ import { SessionServiceState } from './state';
 import { buildRestoredSessionSummaries } from '../core/restored-session-summaries';
 import { bootLog } from '../util/audit';
 import { publishBackendReady } from './backend-ready';
+import { mergeSessionSummary } from './helpers';
 import type { ArchState } from '../core/arch-state';
 
 const PREFS_STORAGE_KEY = 'chatPrefs';
@@ -32,28 +33,6 @@ interface StartSessionBackendOptions {
 
 function resolveWorkspaceCwd(): string {
   return vscode.workspace.workspaceFolders?.[0]?.uri.fsPath ?? process.cwd();
-}
-
-/**
- * Merge an existing summary with an incoming one. We preserve a real local name
- * over a backend-emitted placeholder so that "New Session" doesn't clobber a
- * user-meaningful tab label after a list refresh.
- */
-function mergeSessionSummary(
-  existing: SessionSummary | undefined,
-  incoming: SessionSummary,
-): SessionSummary {
-  if (!existing) return incoming;
-  const keepExistingName =
-    !existing.isPlaceholder &&
-    incoming.isPlaceholder === true;
-  return {
-    ...incoming,
-    name: keepExistingName ? existing.name : incoming.name,
-    isPlaceholder: keepExistingName ? false : incoming.isPlaceholder,
-    modelId: incoming.modelId ?? existing.modelId,
-    thinkingLevel: incoming.thinkingLevel ?? existing.thinkingLevel,
-  };
 }
 
 function applyStoredPrefs(options: StartSessionBackendOptions): void {

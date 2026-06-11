@@ -216,9 +216,13 @@ def matches_ignore_patterns(file_rel_path: str, active_patterns: list[str]) -> b
     return any(matches_ignore_pattern(file_rel_path, pattern) for pattern in active_patterns)
 
 
-# ---------------------------------------------------------------------------
-# Path helpers
-# ---------------------------------------------------------------------------
+def _rel_path_from_skylos_line(line: str, directory: Path) -> str:
+    """Extract the file path from a skylos concise line and make it relative."""
+    m = re.match(r"^(?P<path>.+?):(?P<line>\d+)(?P<rest>.*)$", line)
+    if not m:
+        return ""
+    return to_rel_posix(m.group("path"), directory)
+
 
 def to_rel_posix(raw: str, directory: Path) -> str:
     """Return *raw* as a posix path relative to *directory* when possible.
@@ -704,14 +708,21 @@ def main() -> None:
     if dropped_globs:
         print(
             f"# note: {len(dropped_globs)} .ignore glob pattern(s) cannot be "
-            f"expressed as skylos --exclude-folder and were dropped "
-            f"(skylos has no file-level exclude). Add a project-level "
-            f"skylos config to extend coverage.",
+            f"expressed as skylos --exclude-folder and will be applied as a "
+            f"post-filter on the script output.",
             file=sys.stderr,
         )
     findings = run_skylos(
         directory, skylos_argv, confidence, exclude_folders,
     )
+
+    # Post-filter: apply all ignore patterns that skylos could not express
+    # (file-level globs) plus any patterns skylos may have missed.
+    findings = [
+        l for l in findings
+        if not matches_ignore_patterns(_rel_path_from_skylos_line(l, directory), active_patterns)
+    ]
+
     if exclude_reasons:
         findings = [l for l in findings if l.split("  ", 1)[-1].strip() not in exclude_reasons]
 

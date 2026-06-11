@@ -680,7 +680,7 @@ test('reducer: BusyChanged running=true adds session to runningSessionPaths', ()
 
 test('reducer: BusyChanged running=false when was running adds to unreadFinishedSessionPaths', () => {
   // First mark the session as running
-  let state = reducer(initialArchState, {
+  const state = reducer(initialArchState, {
     kind: 'BusyChanged',
     sessionPath: '/s',
     running: true,

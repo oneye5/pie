@@ -29,6 +29,10 @@ Arguments:
     --show-generated       Include generated-file duplicate details in output
                            (hidden by default; generated files include lock
                            files, .min.* assets, and node_modules/)
+    --exclude-test-directories
+                           Skip any directory named `test` when scanning for
+                           duplicates. Use when test boilerplate dominates the
+                           report.
 
 Output:
     Duplicate findings are grouped into sections:
@@ -262,6 +266,16 @@ def _find_binary(name: str) -> str | None:
             if candidate.is_file():
                 return str(candidate)
     return None
+
+
+def _path_in_test_dir(raw_path: str, directory: Path) -> bool:
+    """Return True if *raw_path* is inside a directory named `test`."""
+    rel = to_rel_posix(raw_path, directory)
+    if not rel:
+        rel = raw_path.replace("\\", "/")
+    parts = PurePosixPath(rel).parts
+    # Exclude the file name itself — only directory parts matter.
+    return len(parts) > 1 and "test" in parts[:-1]
 
 
 def _is_generated_path(path: str) -> bool:
@@ -568,6 +582,7 @@ def parse_args() -> tuple[Path, int, int, int, bool]:
     min_lines = 8
     min_tokens = 70
     show_generated = False
+    exclude_test_dirs = False
 
     i = 2
     while i < len(sys.argv):
@@ -596,6 +611,9 @@ def parse_args() -> tuple[Path, int, int, int, bool]:
         elif a == "--show-generated":
             show_generated = True
             i += 1
+        elif a == "--exclude-test-directories":
+            exclude_test_dirs = True
+            i += 1
         else:
             print(f"unknown argument: {a}", file=sys.stderr)
             sys.exit(2)
@@ -610,6 +628,7 @@ def parse_args() -> tuple[Path, int, int, int, bool]:
         min_lines,
         min_tokens,
         show_generated,
+        exclude_test_dirs,
     )
 
 
@@ -620,6 +639,7 @@ def main() -> None:
         min_lines,
         min_tokens,
         show_generated,
+        exclude_test_dirs,
     ) = parse_args()
 
     script_dir = Path(__file__).parent.resolve()
@@ -633,6 +653,14 @@ def main() -> None:
     duplicates = run_jscpd(
         directory, jscpd_argv, min_lines, min_tokens, jscpd_ignore,
     )
+    if exclude_test_dirs:
+        duplicates = [
+            dup for dup in duplicates
+            if not (
+                _path_in_test_dir(dup.get("firstFile", {}).get("name", ""), directory)
+                or _path_in_test_dir(dup.get("secondFile", {}).get("name", ""), directory)
+            )
+        ]
     print_duplicates(duplicates, directory, max_findings, show_generated=show_generated)
 
 

@@ -3,10 +3,7 @@ import {
   getSkillNameFromToolCall as getSharedSkillNameFromToolCall,
   getToolCallSizeHint as getSharedToolCallSizeHint,
   normalizeToolCallName,
-  summarizeObject,
-  summarizeStringList,
   summarizeSubagentToolCallInput as summarizeSharedSubagentToolCallInput,
-  summarizeTaskEntries,
   summarizeUnknown,
 } from '../../shared/tool-call-analysis';
 import { DIRECT_FILE_PATH_KEYS, GENERIC_PATH_KEYS } from '../../shared/tool-call-analysis/mutation-tools';

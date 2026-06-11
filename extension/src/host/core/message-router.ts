@@ -2,10 +2,9 @@ import * as crypto from 'node:crypto';
 
 import * as vscode from 'vscode';
 
-import type { WebviewToHostMessage, SessionSummary } from '../../shared/protocol';
-import type { Event, NoticeShownEvent } from './events';
+import type { WebviewToHostMessage, SessionSummary, ChatPrefs, PruningSettings, ComposerInputDraft, ThinkingLevel } from '../../shared/protocol';
+import type { Event } from './events';
 import type { ArchState } from './reducer';
-import type { SessionService } from '../session-service';
 import type { StatsService } from '../stats-service';
 import type { FileDiffService } from './file-diff-service';
 import type { BackendLike } from './effect-runner';
@@ -28,6 +27,27 @@ export interface ContextLike {
   };
 }
 
+/** Minimal session-service surface the router needs. */
+export interface SessionServiceLike {
+  hydrateModelState(sessionPath: string): Promise<void>;
+  bumpSessionDataEpoch(sessionPath: string): void;
+  suppressNextCompletionNotificationFor(sessionPath: string): void;
+  addFilesystemPaths(requestedSessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
+  addComposerInput(requestedSessionPath: string | undefined, inputDraft: ComposerInputDraft): Promise<void>;
+  removeComposerInput(requestedSessionPath: string | undefined, inputId: string): void;
+  createNewSession(): string;
+  openSession(sessionPath: string): void;
+  closeSession(sessionPath: string): Promise<void>;
+  moveSessionTab(sessionPath: string | undefined, fromIndex: number, toIndex: number): void;
+  loadOlderTranscript(sessionPath?: string): Promise<void>;
+  loadNewerTranscript(sessionPath?: string): Promise<void>;
+  jumpToLatestTranscript(sessionPath?: string): Promise<void>;
+  setModel(requestedSessionPath: string | undefined, defaultModel: string, defaultThinkingLevel: ThinkingLevel): Promise<void>;
+  setPrefs(prefs: Partial<ChatPrefs>): void;
+  setPruningSettings(updates: Partial<PruningSettings>): Promise<void>;
+  dropSessionLocalState(sessionPath: string): void;
+}
+
 /**
  * Routes incoming {@link WebviewToHostMessage} instances to the appropriate
  * handler logic. Each `type` case is a private method; the public {@link handle}
@@ -43,7 +63,7 @@ export class MessageRouter {
   constructor(
     private readonly dispatchEvent: (event: Event) => void,
     private readonly getArchState: () => ArchState,
-    private readonly service: SessionService,
+    private readonly service: SessionServiceLike,
     private readonly statsService: StatsService,
     private readonly sidebarProvider: SidebarProviderLike,
     private readonly fileDiffService: FileDiffService,

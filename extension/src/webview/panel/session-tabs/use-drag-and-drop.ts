@@ -26,9 +26,7 @@ import {
   runOnClick,
 } from './drag-and-drop/pointer-handlers';
 import {
-  runComputeDropIndex,
   runSyncDragFromPointer,
-  runReleaseSuppressedClickSoon,
   runResetDrag,
   runCommitDrag,
 } from './drag-and-drop/drag-state';
@@ -75,10 +73,6 @@ export function useTabDragAndDrop({
     autoScrollTickRef.current();
   }, []);
 
-  const releaseSuppressedClickSoon = useCallback(() => {
-    runReleaseSuppressedClickSoon(suppressNextClickRef, suppressClickTimerRef);
-  }, []);
-
   const stopAutoScrollLoop = useCallback(() => {
     runStopAutoScrollLoop(autoScrollFrameRef);
   }, []);
@@ -98,10 +92,6 @@ export function useTabDragAndDrop({
     stopAutoScrollLoop();
     document.body.classList.remove('session-tab-dragging');
   }, [pointerMoveListener, pointerUpListener, pointerCancelListener, windowBlurListener, stopAutoScrollLoop]);
-
-  const computeDropIndex = useCallback((clientX: number, clientY: number): number | null => {
-    return runComputeDropIndex(clientX, clientY, stripRef);
-  }, [stripRef]);
 
   const syncDragFromPointer = useCallback((clientX: number, clientY: number) => {
     runSyncDragFromPointer(clientX, clientY, dragStateRef, stripRef, setDragState);

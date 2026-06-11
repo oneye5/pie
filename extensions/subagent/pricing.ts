@@ -26,7 +26,7 @@
  * 3. Capability aggregate (precision + creativity + thoroughness + reasoning)
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 
 // --- Types ---
 

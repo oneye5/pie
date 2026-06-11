@@ -6,7 +6,6 @@ import type { ComponentChildren } from 'preact';
 import type { ChatMessage } from '../../../../shared/protocol';
 import {
   assistantReplyMeta,
-  formatAssistantMetaTooltip,
   formatDuration,
   roleLabel,
 } from '../header';

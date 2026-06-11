@@ -1,10 +1,9 @@
 import { produce } from 'immer';
 
 import type { ArchState } from '../arch-state.js';
-import type { Effect } from '../effects.js';
 import type { ChatPrefs, ComposerInput } from '../../../shared/protocol.js';
 import type { ReducerResult } from './helpers.js';
-import { removeFromArray, addToArray, removeSessionFromState, appendLocalUserMessage } from './helpers.js';
+import { removeFromArray, removeSessionFromState, appendLocalUserMessage } from './helpers.js';
 import type { Command } from '../commands.js';
 
 export function handleCommand(state: ArchState, cmd: Command): ReducerResult {

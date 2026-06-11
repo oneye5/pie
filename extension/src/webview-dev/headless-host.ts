@@ -198,7 +198,6 @@ export class HeadlessWebviewDevHost {
           .filter(s => s.isPlaceholder !== true)
           .map(s => [s.path, s.name]),
       );
-      const incomingByName = new Map(sessions.map(s => [s.path, s]));
       const merged: SessionSummary[] = [];
       const seen = new Set<string>();
       for (const s of sessions) {

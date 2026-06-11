@@ -1,5 +1,5 @@
 import type { ToolCall } from './messages.js';
-import type { HostToWebviewMessage, WebviewToHostMessage } from './webview.js';
+
 
 /**
  * Wire-protocol version. Bump when changing event/payload shapes between the

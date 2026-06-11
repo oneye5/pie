@@ -41,6 +41,10 @@ Dead code is the easiest win — unused functions, classes, imports, and files c
 outright. Use `--verify-dead-code` to suppress false positives. For intentionally retained code
 (plugin re-exports, dynamic dispatch), add a `// skylos-ignore` annotation.
 
+**After removing dead code, re-run this script** to confirm findings are resolved. Then run your
+project's type-checker and linter immediately — dead-code removal often exposes `unused-import` or
+`no-unused-vars` violations that the scanner missed. Fix those before proceeding.
+
 ### 2. Code smells
 
 ```bash
@@ -84,3 +88,7 @@ to confirm all large files are justified.
 
 Run the project's existing tests, type checks, and linters. Fix any regressions introduced by
 earlier refactors, then re-run until clean.
+
+### 7. .gitignore updates
+
+Check for any new 'noise' files that should be ignored. Add clear cut cases to the `.ignore` file, and flag ambiguous cases for human review using the ask user tool.

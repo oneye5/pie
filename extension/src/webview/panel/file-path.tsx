@@ -11,14 +11,6 @@ function truncateString(text: string, maxLength: number): string {
     : text;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
-
 // ── Path normalization ───────────────────────────────────────────────────
 
 export function normalizePathSeparators(value: string): string {

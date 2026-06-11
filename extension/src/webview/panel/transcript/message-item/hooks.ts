@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { RefObject } from 'preact';
 
-import type { ChatMessage, ChatPrefs } from '../../../../shared/protocol';
+import type { ChatMessage } from '../../../../shared/protocol';
 import { renderMarkdown } from '../../markdown';
 import { assistantReplyMeta, formatAssistantMetaTooltip } from '../header';
 import {
@@ -14,10 +13,6 @@ import {
 } from '../parts';
 import { shouldOpenUserMessageEditor } from '../interactions';
 import { AGENT_ACTIVITY_LABELS, type TurnActivityState } from '../activity';
-import {
-  activityPhaseHasRunningDot,
-  activityToneToStripTone,
-} from '../turn-activity-strip';
 import type { StatusTone } from '../status-chip';
 import { useRecovery } from './footer';
 

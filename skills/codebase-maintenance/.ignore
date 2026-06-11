@@ -20,6 +20,14 @@ out/
 coverage/
 git/
 skills/codebase-maintenance/
+scripts/
+analysis/site/app.ts
+extension/src/webview-dev/headless-host.ts
+extension/src/webview/panel/dev-host-helpers.ts
+extension/src/webview/panel/dev.tsx
+extension/src/webview/panel/panel.tsx
+extension/test/_helpers/
+extension/test/fixtures/
 *.min.js
 *.bundle.*
 *.chunk.*

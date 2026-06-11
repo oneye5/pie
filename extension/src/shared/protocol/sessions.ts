@@ -1,4 +1,3 @@
-import type { PROTOCOL_VERSION } from './core.js';
 import type { ThinkingLevel, ModelSettings, ModelInfo, ContextWindowUsage } from './models.js';
 import type { ChatMessage, ToolCall } from './messages.js';
 

@@ -20,7 +20,6 @@ import {
   type RunSnapshot,
   type TreatmentChangeKind,
 } from '../run-analytics';
-import type { ArchState } from '../core/arch-state';
 import { SessionRunStateManager } from './run-state-manager';
 import type { GetArchState, MutateArchState } from './types';
 

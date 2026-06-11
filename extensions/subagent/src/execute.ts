@@ -5,29 +5,19 @@
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import * as path from "node:path";
 import { type AgentConfig, type AgentScope, discoverAgents } from "../agents.js";
-import { getFinalOutput } from "../formatting.js";
 import {
-	mapWithConcurrencyLimit,
 	readRuntimeContext,
-	runSingleAgent,
-	subagentRuntime,
 	type SubagentRuntimeContext,
 } from "../runner.js";
 import { SubagentParams } from "../schema.js";
 import {
-	MAX_CONCURRENCY,
-	MAX_MODEL_RETRIES,
-	MAX_PARALLEL_TASKS,
-	PARALLEL_SUMMARY_PREVIEW,
 	type OnUpdateCallback,
 	type SingleResult,
 	type SubagentDetails,
 } from "../types.js";
-import { renderSubagentCall, renderSubagentResult } from "../render.js";
 import { createInvalidAgentResult, summarizeInvalidAgentResults } from "../validation.js";
 import {
 	type TaskScores,
-	type SelectionResult,
 	PROVIDER_TOGGLES_ENV,
 	getAllowedModelIdsForProviders,
 	getDisabledProviders,

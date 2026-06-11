@@ -4,21 +4,8 @@ import { BackendClient } from '../backend/client';
 import type { RunObserver } from '../stats-service';
 import type {
   BusyChangedPayload,
-  ContextUsageChangedPayload,
-  CustomMessagePayload,
-  ErrorPayload,
   EventEnvelope,
-  ExtensionUIRequestPayload,
-  MessageAbortedPayload,
-  MessageDeltaPayload,
-  MessageFinishedPayload,
-  MessageStartedPayload,
-  MessageThinkingPayload,
-  SessionListChangedPayload,
   SessionOpenedPayload,
-  ToolFinishedPayload,
-  ToolProgressPayload,
-  ToolStartedPayload,
 } from '../../shared/protocol';
 import { dispatchSessionBackendEvent } from '../core/event-dispatch';
 import type { OnSessionCompleted, OnSessionPathResolved, ScheduleRender } from './types';
