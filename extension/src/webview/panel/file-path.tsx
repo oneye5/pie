@@ -24,10 +24,6 @@ export function trimTrailingPathSeparators(value: string): string {
   return value.replace(/\/+$/, '');
 }
 
-export function isAbsoluteFsPath(value: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\') || value.startsWith('/') || value.startsWith('//');
-}
-
 export function normalizeComparablePath(value: string): string {
   const normalized = trimTrailingPathSeparators(normalizePathSeparators(value));
   if (/^[A-Za-z]:/.test(normalized)) {
@@ -37,34 +33,6 @@ export function normalizeComparablePath(value: string): string {
     return normalized.toLowerCase();
   }
   return normalized;
-}
-
-export function toFileSystemPath(value: string): string | null {
-  try {
-    const parsed = new URL(value);
-    if (parsed.protocol !== 'file:') {
-      return null;
-    }
-    let pathname = decodeURIComponent(parsed.pathname);
-    if (/^\/[A-Za-z]:/.test(pathname)) {
-      pathname = pathname.slice(1);
-    }
-    return parsed.host ? `//${parsed.host}${pathname}` : pathname;
-  } catch {
-    return null;
-  }
-}
-
-export function joinFileSystemPath(basePath: string, relativePath: string): string {
-  const separator = basePath.includes('\\') ? '\\' : '/';
-  const base = basePath.replace(/[\\/]+$/, '');
-  const relative = relativePath.replace(/^[\\/]+/, '');
-
-  if (!base) {
-    return basePath.startsWith('/') ? `/${relative}` : relative;
-  }
-
-  return `${base}${separator}${relative}`;
 }
 
 export function relativePathFromBase(targetPath: string, basePath: string): string | null {
@@ -82,10 +50,6 @@ export function relativePathFromBase(targetPath: string, basePath: string): stri
   const normalizedTarget = trimTrailingPathSeparators(normalizePathSeparators(targetPath));
   const normalizedBase = trimTrailingPathSeparators(normalizePathSeparators(basePath));
   return normalizedTarget.slice(normalizedBase.length + 1) || null;
-}
-
-export function convertPathSeparators(value: string, separator: string): string {
-  return separator === '\\' ? value.replace(/\//g, '\\') : value;
 }
 
 function truncatePathParentFromLeft(parentPath: string, maxLength: number): string {
@@ -141,44 +105,6 @@ export function truncatePathText(value: string): string {
     ? `${clippedPathMarker}${truncatedParentPath}${separator}${fileSection}`
     : `${clippedPathMarker}${fileSection}`;
 }
-
-export function summarizePathCandidate(
-  rawValue: string,
-  workingDirectory?: string | null,
-): { summary: string; summaryPath?: string } | null {
-  const value = rawValue.trim();
-  if (!value) {
-    return null;
-  }
-
-  const fileSystemPath = toFileSystemPath(value);
-  if (fileSystemPath) {
-    const relativePath = workingDirectory ? relativePathFromBase(fileSystemPath, workingDirectory) : null;
-    return {
-      summary: truncatePathText(relativePath ?? fileSystemPath),
-      summaryPath: fileSystemPath,
-    };
-  }
-
-  if (isAbsoluteFsPath(value)) {
-    const separator = value.includes('\\') ? '\\' : '/';
-    const relativePath = workingDirectory ? relativePathFromBase(value, workingDirectory) : null;
-    return {
-      summary: truncatePathText(relativePath ? convertPathSeparators(relativePath, separator) : value),
-      summaryPath: value,
-    };
-  }
-
-  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) {
-    return null;
-  }
-
-  return {
-    summary: truncatePathText(value),
-    summaryPath: workingDirectory ? joinFileSystemPath(workingDirectory, value) : undefined,
-  };
-}
-
 
 function looksLikeFileLeaf(value: string): boolean {
   const leaf = value.trim();

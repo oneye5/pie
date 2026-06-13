@@ -19,7 +19,7 @@
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { type AgentConfig, type AgentScope, discoverAgents, formatAgentList } from "../agents.js";
+import { discoverAgents } from "../agents.js";
 import { SubagentParams } from "../schema.js";
 import { renderSubagentCall, renderSubagentResult } from "../render.js";
 import { execute } from "./execute.js";

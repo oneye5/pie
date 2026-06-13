@@ -15,6 +15,7 @@ interface MessageHeaderProps {
 }
 
 export function MessageHeader({ label, duration, durationTitle, meta, metaTitle, title, actions, align = 'start' }: MessageHeaderProps) {
+  if (!label && !duration && !meta && !actions) return null;
   return (
     <div class={align === 'end' ? 'flex items-start justify-end gap-3' : 'flex items-start justify-between gap-3'}>
       <div class={align === 'end' ? 'flex min-w-0 flex-wrap items-center justify-end gap-[5px] text-right' : 'flex min-w-0 flex-wrap items-center gap-[5px]'} title={title}>

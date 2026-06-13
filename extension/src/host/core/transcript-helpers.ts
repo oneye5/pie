@@ -6,10 +6,6 @@ import type {
 } from '../../shared/protocol';
 import { cloneToolCall } from '../../shared/chat-message-parts';
 
-export function resolveAlias(aliasMap: Record<string, string>, messageId: string): string {
-  return aliasMap[messageId] ?? messageId;
-}
-
 export function ensureAssistantParts(message: ChatMessage): ChatMessagePart[] {
   if (message.parts) {
     return message.parts;

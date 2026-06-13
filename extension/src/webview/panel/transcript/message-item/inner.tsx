@@ -115,7 +115,8 @@ export function MessageItemInner({
   onEditConfirm,
   onEditCancel,
 }: MessageItemInnerProps) {
-  const headerActions = (
+  const showHeaderActions = pruningHeaderState || statusLabel;
+  const headerActions = showHeaderActions ? (
     <MessageHeaderActions
       pruningHeaderState={pruningHeaderState}
       pruningExpanded={pruningExpanded}
@@ -123,7 +124,7 @@ export function MessageItemInner({
       statusLabel={statusLabel}
       statusTone={statusTone}
     />
-  );
+  ) : null;
 
   return (
     <>

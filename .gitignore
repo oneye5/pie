@@ -49,6 +49,7 @@ out-tsc/
 .cache/
 .parcel-cache/
 .eslintcache
+.skylos/
 
 # Stale TypeScript emit alongside source (build outputs to /extension/out/)
 extension/src/**/*.js
@@ -91,3 +92,4 @@ nul
 
 # Installer-generated backups
 /settings.json.session-dir.*.bak
+.skylos/cache/grep_results.json

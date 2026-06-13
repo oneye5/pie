@@ -49,10 +49,6 @@ export function bootLog(
   appendBootTraceSync(record);
 }
 
-export function getBootTracePath(): string {
-  return BOOT_TRACE_PATH;
-}
-
 export function bootTraceSync(
   scope: string,
   event: string,

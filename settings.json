@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.78.0",
   "defaultProvider": "ollama",
-  "defaultModel": "minimax-m3:cloud",
-  "defaultThinkingLevel": "xhigh",
+  "defaultModel": "gpt-oss:20b-cloud",
+  "defaultThinkingLevel": "low",
   "sessionDir": "data/outcomes/sessions",
   "packages": [
     {
