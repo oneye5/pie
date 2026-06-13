@@ -179,11 +179,11 @@ Remove this guard when the v2 leaderboard is operational.
   vendor-neutral names. Each `TaskItem`/`ChainItem` carries its own `bucket` field.
 - **Data source: main-agent runs** — the leaderboard draws primarily from `RunSnapshot`
   records (main-agent outcomes). Subagent-specific metrics supplement later.
-- **Complexity score: 7 signals, equal weights** — line mutations, touched file count,
-  tool call count, busy duration, subagent composite mean (defaults to 0 for
-  non-subagent runs), verification count, input tokens. Percentile-normalized
-  against the current analytics store (recalculated each time), averaged.
-  Tunable with data.
+- **Complexity score: 6 signals, equal weights** — line mutations, touched file count,
+  tool call count, busy duration, verification count, input tokens.
+  Subagent task scores signal removed (no longer exists in v2).
+  Percentile-normalized against the current analytics store (recalculated each time),
+  averaged. Tunable with data. **(Revised 2026-06-13)**
 - **Point estimates, no CI lower bounds** — trust raw means/proportions. No per-model
   minimum run count. Global 40-run bootstrap gate is sufficient.
 - **Thinking levels as separate entries** — `modelId::thinkingLevel` is the leaderboard
@@ -192,18 +192,27 @@ Remove this guard when the v2 leaderboard is operational.
   probability. Ranking determines membership, not selection weight.
 - **No quality floor** — trust ranking + fallback to current active model.
 - **Relative tercile boundaries** — recalculated on each leaderboard computation.
-- **Cost efficiency** — composite quality × output tokens per USD, baked into the
-  composite score as a weighted dimension. No separate quality-tolerance +
-  cost-preference step.
+- **Two-stage leaderboard ranking** — first rank by quality composite (6 dims:
+  satisfaction, resolution rate, first-attempt success, tool reliability,
+  verification adoption, token efficiency — equal weights). Then within each
+  quality tier (top/bottom half), re-rank by cost. This separates quality and
+  cost concerns. **(Added 2026-06-13)**
 - **Best band = highest absolute composite score** — for entries appearing in
   multiple complexity bands, the band with the highest absolute composite outcome
   score wins.
-- **Simple model config: YAML** — eligible, thinking, disabled_reason, cost.
+- **Simple model config: YAML** — id, eligible, thinking (supported levels),
+  disabled_reason, cost (fallback when models.json pricing is unavailable).
+  This is the single authority for subagent-related model metadata.
+  `pricing.ts` continues to read `models.json` for real token pricing.
+  **(Revised 2026-06-13)**
 - **Config is eligibility authority** — `eligible: false` overrides leaderboard.
+  No automatic data-driven exclusion — bad models are manually disabled when
+  they prove problematic.
+- **Hard schema break** — `taskScores` replaced by `bucket` + optional `thinkingLevel`
+  everywhere (tool schema, agent frontmatter, types). No compatibility layer.
+  **(Added 2026-06-13)**
 
 ## Open questions for implementation
 
-- Cost efficiency dimension weight in the composite score
-- Leaderboard composite weights — retune from scratch for the stratified leaderboard
-  (existing weights are for the global analytics leaderboard with CI bounds;
-   the stratified leaderboard uses point estimates and needs its own calibration)
+- ~~Cost efficiency dimension weight in the composite score~~ → resolved: two-stage ranking
+- ~~Leaderboard composite weights~~ → resolved: 6 equal quality weights + cost tier re-rank

@@ -197,6 +197,66 @@ test('busy session.opened keeps local streaming rows while adopting incoming lat
   assert.equal(result.transcriptWindow.loadedEnd, 6);
 });
 
+test('busy session.opened dedupes equivalent assistant messages with different ids (regression: streaming assistant message with stable tool-call id was appended twice)', () => {
+  // The local host synthesizes assistant message ids as `req-uuid:N` while
+  // the SDK persists the same message under an SDK-assigned id. A
+  // `session.opened` arriving mid-stream can therefore carry the persisted
+  // form of a message that the local is still streaming. Both rows refer
+  // to the SAME logical assistant message; merging must not produce a
+  // duplicate transcript row.
+  const localAssistant: ChatMessage = {
+    id: 'req-abc:1',
+    role: 'assistant',
+    createdAt: '2026-06-13T05:20:00.000Z',
+    markdown: 'Let me first capture the pending question, then update the doc.',
+    thinking: 'Reasoning about plan',
+    status: 'streaming',
+    toolCalls: [{
+      id: 'call_function_xyz_1',
+      name: 'ask_user',
+      input: { question: 'How should the quality tolerance for cost-preference within buckets work?' },
+      status: 'running' as const,
+    }],
+  };
+  const incomingAssistant: ChatMessage = {
+    id: 'session-msg-uuid-zzz',
+    role: 'assistant',
+    createdAt: '2026-06-13T05:20:00.000Z',
+    markdown: 'Let me first capture the pending question, then update the doc.',
+    thinking: 'Reasoning about plan',
+    status: 'completed',
+    toolCalls: [{
+      id: 'call_function_xyz_1',
+      name: 'ask_user',
+      input: { question: 'How should the quality tolerance for cost-preference within buckets work?' },
+      status: 'running' as const,
+    }],
+  };
+  const localTranscript: ChatMessage[] = [
+    userMessage('user-1', 'Earlier prompt'),
+    userMessage('user-2', 'update the plans to reflect our decisions'),
+    localAssistant,
+  ];
+  const incomingTranscript: ChatMessage[] = [
+    userMessage('user-1', 'Earlier prompt'),
+    userMessage('user-2', 'update the plans to reflect our decisions'),
+    incomingAssistant,
+  ];
+
+  const result = resolveSessionOpenedTranscript({
+    busy: true,
+    localTranscript,
+    incomingTranscript,
+    incomingTranscriptWindow: window({ totalCount: 3, loadedEnd: 3 }),
+  });
+
+  const assistantMessages = result.transcript.filter((m) => m.role === 'assistant');
+  assert.equal(assistantMessages.length, 1, 'expected one assistant message, not duplicates');
+  // The local streaming row (with live tool-call running state) wins.
+  assert.equal(assistantMessages[0]?.id, 'req-abc:1');
+  assert.equal(assistantMessages[0]?.status, 'streaming');
+});
+
 test('busy session.opened preserves messages with running tool calls', () => {
   const localTranscript = [
     userMessage('user-1', 'Prompt'),
