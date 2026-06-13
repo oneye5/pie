@@ -310,7 +310,7 @@ export async function runSingleAgent(
 		cwd: sessionCwd,
 		agentDir: getAgentDir(),
 		appendSystemPrompt: agent.systemPrompt.trim() ? [agent.systemPrompt] : undefined,
-		noExtensions: true,
+		noExtensions: false,
 	});
 	await resourceLoader.reload();
 
