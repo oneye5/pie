@@ -24,8 +24,10 @@
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--status-chip-transition-duration) ease,
-    border-color var(--status-chip-transition-duration) ease;
+  transition:
+    background var(--status-chip-transition-duration) var(--panel-ease-out),
+    border-color var(--status-chip-transition-duration) var(--panel-ease-out),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .model-picker-trigger-compact {
@@ -72,10 +74,14 @@
   padding: 0 0 4px 0;
   border: 1px solid var(--panel-border);
   border-radius: var(--panel-radius-lg);
-  background: var(--panel-control-surface);
+  background: var(--panel-overlay-surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   box-shadow: var(--panel-shadow-overlay);
   outline: none;
   overflow-y: auto;
+  animation: panel-scale-in var(--panel-duration-entrance) var(--panel-ease-out-expo);
+  transform-origin: bottom left;
 }
 
 .model-picker-compact .model-picker-dropdown {
@@ -131,7 +137,9 @@
   color: var(--panel-foreground);
   cursor: pointer;
   white-space: nowrap;
-  transition: background 0.08s ease;
+  transition:
+    background var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .model-picker-row:hover,

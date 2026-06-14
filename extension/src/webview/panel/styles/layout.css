@@ -19,6 +19,7 @@
   gap: var(--panel-gap-md);
   padding: var(--panel-gap-xl) var(--panel-gap-lg) 20px;
   max-width: 360px;
+  animation: panel-entrance var(--panel-duration-entrance) var(--panel-ease-out-expo);
 }
 
 .empty-state-title {
@@ -57,7 +58,17 @@
   border: 1px solid transparent;
   cursor: pointer;
   font-size: 12px;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    box-shadow var(--panel-transition-normal),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
+}
+
+.btn:active:not(:disabled),
+.action-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn,
@@ -69,6 +80,7 @@
 .btn:hover,
 .action-btn.primary:hover:not(:disabled) {
   background: var(--vscode-button-hoverBackground);
+  box-shadow: 0 2px 8px -4px color-mix(in srgb, var(--panel-accent) 30%, transparent);
 }
 
 .btn.secondary,
@@ -81,6 +93,7 @@
 .btn.secondary:hover,
 .action-btn.secondary:hover {
   background: var(--vscode-button-secondaryHoverBackground, var(--panel-control-hover));
+  border-color: var(--panel-border);
 }
 
 .action-btn.danger {
@@ -113,4 +126,9 @@
   background: var(--panel-control-hover);
   border-color: var(--panel-border);
   color: var(--vscode-foreground);
+}
+
+.action-btn.icon-only:active:not(:disabled) {
+  transform: scale(0.93);
+  background: color-mix(in srgb, var(--panel-control-hover) 60%, var(--panel-control-surface));
 }

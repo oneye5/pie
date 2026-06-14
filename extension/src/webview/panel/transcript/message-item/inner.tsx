@@ -23,6 +23,7 @@ interface MessageItemShellProps {
   role: ChatMessage['role'];
   isCurrentlyStreaming: boolean;
   isClickableUserMsg: boolean;
+  isEditing: boolean;
   handleMessageClick: ((event: MouseEvent) => void) | undefined;
   children: ComponentChildren;
 }
@@ -32,6 +33,7 @@ export function MessageItemShell({
   role,
   isCurrentlyStreaming,
   isClickableUserMsg,
+  isEditing,
   handleMessageClick,
   children,
 }: MessageItemShellProps) {
@@ -39,15 +41,18 @@ export function MessageItemShell({
     <div
       class={cx(
         'flex w-fit max-w-[88%] min-w-0 flex-col gap-2 rounded-xl px-3 py-2.5',
+        'transition-[background-color,box-shadow] duration-[var(--panel-duration-normal)]',
         'forced-colors:border forced-colors:border-[ButtonText]',
         role === 'assistant' && 'self-start rounded-xl bg-card shadow-sm',
         role === 'user' && 'self-end rounded-xl bg-accent/15 shadow-none',
         role === 'system' && 'w-auto max-w-none self-stretch bg-surface shadow-none',
         isCurrentlyStreaming && 'w-[min(var(--message-assistant-width),100%)] max-[340px]:w-[min(var(--message-assistant-width-narrow),100%)]',
-        isClickableUserMsg && 'cursor-pointer hover:ring-1 hover:ring-border-subtle',
+        isClickableUserMsg && 'cursor-pointer hover:ring-1 hover:ring-border-subtle hover:bg-accent/20',
       )}
       data-message-id={messageId}
       data-role={role}
+      data-editing={isEditing ? 'true' : undefined}
+      data-streaming={isCurrentlyStreaming ? 'true' : undefined}
       onClick={handleMessageClick}
       title={isClickableUserMsg ? 'Click to edit' : undefined}
     >

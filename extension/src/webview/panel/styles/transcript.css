@@ -7,6 +7,8 @@
   overflow-y: auto;
   overflow-x: hidden;
   overflow-anchor: none;
+  scroll-behavior: smooth;
+  overscroll-behavior: contain;
   padding: var(--panel-gap-md) var(--panel-gap-lg) 10px;
   display: flex;
   flex-direction: column;
@@ -203,10 +205,19 @@
   line-height: 1;
   padding: 6px 10px;
   cursor: pointer;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .transcript-gap-btn:hover {
   background: var(--panel-control-hover);
+}
+
+.transcript-gap-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .transcript-gap-btn:disabled {
@@ -230,6 +241,8 @@
   border-radius: 999px;
   border: 1px solid var(--panel-border-subtle);
   background: var(--panel-overlay-surface);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
   color: var(--panel-muted);
   font-size: 15px;
   line-height: 1;
@@ -237,14 +250,24 @@
   cursor: pointer;
   z-index: 280;
   box-shadow: var(--panel-shadow-sm);
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
-  animation: transcript-jump-latest-in 0.18s ease-out;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring),
+    box-shadow var(--panel-transition-normal);
+  animation: transcript-jump-latest-in var(--panel-duration-entrance) var(--panel-ease-out-expo);
 }
 
 .transcript-jump-latest:hover {
   background: var(--panel-control-hover);
   border-color: var(--panel-border);
   color: var(--panel-foreground);
+  box-shadow: var(--panel-shadow-md);
+}
+
+.transcript-jump-latest:active {
+  transform: translateX(-50%) scale(0.92);
 }
 
 .transcript-jump-latest:focus-visible {
@@ -459,11 +482,19 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  transition:
+    background var(--panel-transition-fast),
+    opacity var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .message-retry-btn:hover {
   opacity: 1;
   background: var(--panel-control-hover);
+}
+
+.message-retry-btn:active:not(:disabled) {
+  transform: scale(0.95);
 }
 
 .message-retry-btn:disabled {
@@ -513,11 +544,19 @@
   padding: 2px 5px;
   border-radius: 4px;
   opacity: 0.7;
+  transition:
+    background var(--panel-transition-fast),
+    opacity var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .message-error-detail-btn:hover {
   opacity: 1;
   background: var(--panel-control-hover);
+}
+
+.message-error-detail-btn:active {
+  transform: scale(0.95);
 }
 
 /* ── Message body (markdown prose) ──────────────────────────────────────── */
@@ -614,12 +653,21 @@
   padding: 1px 6px;
   border-radius: 4px;
   flex-shrink: 0;
+  transition:
+    background var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .code-block-copy:hover,
 .code-block-toggle:hover {
   color: var(--panel-foreground);
   background: var(--panel-control-hover);
+}
+
+.code-block-copy:active,
+.code-block-toggle:active {
+  transform: scale(0.95);
 }
 
 .code-block-copy.copied {
@@ -759,6 +807,30 @@
   }
 }
 
+/* ── Message entrance animation ─────────────────────────────────────────── */
+/* Applied via the message-item shell for a subtle fade-up on appearance.    */
+/* Uses animation-play-state to avoid re-triggering when toggling edit mode:   */
+/* [data-editing] pauses the animation (rather than removing it) so the      */
+/* message doesn't flash back to opacity:0 when exiting edit mode.            */
+
+[data-role="assistant"],
+[data-role="user"],
+[data-role="system"] {
+  animation: panel-entrance var(--panel-duration-entrance) var(--panel-ease-out-expo) both;
+  animation-delay: 30ms;
+}
+
+/* Streaming messages should not animate (they're already visible) */
+[data-role][data-streaming="true"] {
+  animation: none;
+}
+
+/* Editing messages: pause the entrance animation so it doesn't re-trigger   */
+/* when exiting edit mode. The animation has already played by this point.  */
+[data-role][data-editing="true"] {
+  animation-play-state: paused;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .agent-activity-text {
     opacity: 0.82;
@@ -784,6 +856,13 @@
   .transcript-jump-latest {
     animation: none;
   }
+
+  /* Suppress message entrance animation in reduced-motion mode */
+  [data-role="assistant"],
+  [data-role="user"],
+  [data-role="system"] {
+    animation: none;
+  }
 }
 
 /* ── System prompt card ──────────────────────────────────────────────────── */
@@ -792,11 +871,17 @@
   border-radius: var(--panel-radius-md);
   cursor: pointer;
   user-select: none;
-  transition: background 0.12s ease;
+  transition:
+    background var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .system-prompt-card:hover {
   background: var(--panel-control-hover);
+}
+
+.system-prompt-card:active {
+  transform: scale(0.99);
 }
 
 @media (forced-colors: active) {

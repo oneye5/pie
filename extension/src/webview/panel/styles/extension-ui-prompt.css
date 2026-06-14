@@ -10,7 +10,7 @@
   border-top: 1px solid var(--panel-border);
   border-left: 3px solid var(--panel-accent);
   background: var(--panel-surface);
-  animation: ext-prompt-slide-up 150ms ease-out;
+  animation: ext-prompt-slide-up var(--panel-duration-entrance) var(--panel-ease-out-expo);
   outline: none;
 }
 
@@ -98,7 +98,15 @@
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
-  transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
+}
+
+.ext-prompt-btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .ext-prompt-btn.primary {
@@ -152,11 +160,15 @@
   font-weight: 400;
   line-height: 1;
   white-space: nowrap;
-  transition: color 0.1s ease;
+  transition: color var(--panel-transition-fast), transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .ext-prompt-cancel:hover {
   color: var(--panel-foreground);
+}
+
+.ext-prompt-cancel:active {
+  transform: scale(0.95);
 }
 
 .ext-prompt-cancel:focus-visible {
@@ -190,12 +202,19 @@
   text-align: left;
   overflow-wrap: anywhere;
   cursor: pointer;
-  transition: background 0.1s ease, border-color 0.1s ease;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .ext-prompt-option:hover {
   background: var(--panel-control-hover);
   border-color: color-mix(in srgb, var(--panel-accent) 28%, var(--panel-border));
+}
+
+.ext-prompt-option:active {
+  transform: scale(0.97);
 }
 
 .ext-prompt-option:focus-visible {
@@ -226,7 +245,7 @@
   color: var(--panel-foreground);
   font-size: 12px;
   line-height: 1.4;
-  transition: border-color 0.1s ease;
+  transition: border-color var(--panel-transition-fast), box-shadow var(--panel-transition-normal);
 }
 
 .ext-prompt-input::placeholder {
@@ -236,6 +255,7 @@
 .ext-prompt-input:focus {
   border-color: color-mix(in srgb, var(--panel-accent) 42%, var(--panel-border));
   outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--panel-accent) 12%, transparent);
 }
 
 /* ── Slide-in animation ───────────────────────────────────────────────────── */
@@ -250,7 +270,6 @@
     transform: translateY(0);
   }
 }
-
 /* ── Notify toast (transient, slides in from top) ─────────────────────────── */
 /* (unchanged — kept as-is since it's a separate concern)                    */
 
@@ -267,11 +286,13 @@
   border: 1px solid var(--panel-border);
   border-radius: var(--panel-radius-lg);
   background: var(--panel-overlay-surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   box-shadow: var(--panel-shadow-md);
   font-size: 13px;
   line-height: 1.4;
   color: var(--panel-foreground);
-  animation: notify-toast-enter 200ms ease-out;
+  animation: notify-toast-enter var(--panel-duration-entrance) var(--panel-ease-out-expo);
   pointer-events: auto;
 }
 

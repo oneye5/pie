@@ -12,7 +12,9 @@
   color: var(--vscode-foreground);
   font-size: 12px;
   line-height: 1.4;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast);
 }
 
 .pruning-banner:hover {

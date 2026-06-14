@@ -99,7 +99,11 @@
   text-align: left;
   overflow-wrap: anywhere;
   cursor: pointer;
-  transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .ask-user-option:hover {
@@ -114,6 +118,7 @@
 
 .ask-user-option:active {
   background: color-mix(in srgb, var(--panel-accent) 20%, var(--panel-control-hover));
+  transform: scale(0.97);
 }
 
 .ask-user-option-custom {
@@ -142,11 +147,15 @@
   font-weight: 400;
   line-height: 1;
   white-space: nowrap;
-  transition: color 0.1s ease;
+  transition: color var(--panel-transition-fast), transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .ask-user-cancel:hover {
   color: var(--panel-foreground);
+}
+
+.ask-user-cancel:active {
+  transform: scale(0.95);
 }
 
 .ask-user-cancel:focus-visible {
@@ -174,7 +183,7 @@
   color: var(--panel-foreground);
   font-size: 12px;
   line-height: 1.4;
-  transition: border-color 0.1s ease;
+  transition: border-color var(--panel-transition-fast), box-shadow var(--panel-transition-normal);
 }
 
 .ask-user-custom-input::placeholder {
@@ -184,6 +193,7 @@
 .ask-user-custom-input:focus {
   border-color: color-mix(in srgb, var(--panel-accent) 42%, var(--panel-border));
   outline: none;
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--panel-accent) 12%, transparent);
 }
 
 .ask-user-custom-submit {
@@ -199,11 +209,15 @@
   font-size: 11px;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.1s ease;
+  transition: background var(--panel-transition-fast), transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .ask-user-custom-submit:hover:not(:disabled) {
   background: var(--panel-accent-strong);
+}
+
+.ask-user-custom-submit:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .ask-user-custom-submit:disabled {
@@ -256,7 +270,7 @@
 /* ── Slide-up animation ──────────────────────────────────────────────────── */
 
 .ask-user-prompt {
-  animation: ask-user-slide-in 150ms ease-out;
+  animation: ask-user-slide-in var(--panel-duration-entrance) var(--panel-ease-out-expo);
 }
 
 @keyframes ask-user-slide-in {
@@ -269,7 +283,6 @@
     transform: translateY(0);
   }
 }
-
 @media (forced-colors: active) {
   .ask-user-prompt,
   .ask-user-completed,

@@ -98,6 +98,7 @@ export function MessageItemView({
       role={message.role}
       isCurrentlyStreaming={derived.isCurrentlyStreaming}
       isClickableUserMsg={derived.isClickableUserMsg}
+      isEditing={derived.isEditing}
       handleMessageClick={derived.handleMessageClick}
     >
       <MessageItemInner

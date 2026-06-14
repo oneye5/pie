@@ -53,24 +53,26 @@ export function InlineEditor({ initialText, capturedHeight, onConfirm, onCancel 
     : 'position:relative';
 
   return (
-    <div class="inline-editor" style={containerStyle}>
-      <textarea
-        ref={textareaRef}
-        class="inline-editor-textarea"
-        value={text}
-        onInput={handleInput}
-        onKeyDown={handleKeyDown}
-        aria-label="Edit message"
-        placeholder="Edit message…"
-      />
-      <div class="inline-editor-actions">
-        <button class="action-btn secondary" type="button" onClick={onCancel}>Cancel</button>
-        <button
-          class="action-btn primary"
-          type="button"
-          disabled={!text.trim()}
-          onClick={() => { if (text.trim()) onConfirm(text); }}
-        >Save</button>
+    <div class="inline-editor-wrapper">
+      <div class="inline-editor" style={containerStyle}>
+        <textarea
+          ref={textareaRef}
+          class="inline-editor-textarea"
+          value={text}
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          aria-label="Edit message"
+          placeholder="Edit message…"
+        />
+        <div class="inline-editor-actions">
+          <button class="action-btn secondary" type="button" onClick={onCancel}>Cancel</button>
+          <button
+            class="action-btn primary"
+            type="button"
+            disabled={!text.trim()}
+            onClick={() => { if (text.trim()) onConfirm(text); }}
+          >Save</button>
+        </div>
       </div>
     </div>
   );

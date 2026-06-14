@@ -40,7 +40,7 @@
   background: currentColor;
   opacity: 0.45;
   flex: 0 0 auto;
-  transition: opacity 0.3s ease;
+  transition: opacity var(--panel-duration-slow) var(--panel-ease-in-out);
 }
 
 /* Hide dot for non-running states to reduce visual clutter */
@@ -87,7 +87,15 @@
 
 .status-chip.has-error-detail {
   cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+  transition:
+    background var(--status-chip-transition-duration) var(--panel-ease-out),
+    border-color var(--status-chip-transition-duration) var(--panel-ease-out),
+    color var(--status-chip-transition-duration) var(--panel-ease-out),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
+}
+
+.status-chip.has-error-detail:active {
+  transform: scale(0.95);
 }
 
 .status-chip.has-error-detail:hover {

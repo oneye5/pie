@@ -1,5 +1,29 @@
 /* ── Inline editor ───────────────────────────────────────────────────────── */
-/* Editable textarea with overlay action buttons (save/cancel) */
+/* Editable textarea with overlay action buttons (save/cancel)               */
+/*
+ * The editor appears in-place of the message body when the user clicks a
+ * user message to edit it. The .inline-editor-wrapper provides the entry
+ * animation; .inline-editor holds layout; the textarea is the input.
+ */
+
+/* ── Wrapper: entry animation ────────────────────────────────────────────── */
+
+.inline-editor-wrapper {
+  animation: inline-editor-enter var(--panel-duration-entrance) var(--panel-ease-out-expo) both;
+}
+
+@keyframes inline-editor-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* ── Editor layout ───────────────────────────────────────────────────────── */
 
 .inline-editor {
   display: flex;
@@ -24,6 +48,14 @@
   line-height: 1.6;
   outline: none;
   overflow-y: auto;
+  transition:
+    border-color var(--panel-transition-fast),
+    box-shadow var(--panel-transition-normal);
+}
+
+.inline-editor-textarea:focus {
+  border-color: var(--panel-accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--panel-accent) 16%, transparent);
 }
 
 .inline-editor-textarea::placeholder {
@@ -31,7 +63,8 @@
   font-size: 11px;
 }
 
-/* Overlay actions sit at the bottom-right inside the textarea boundary */
+/* ── Overlay actions ─────────────────────────────────────────────────────── */
+
 .inline-editor-actions {
   display: flex;
   justify-content: flex-end;
@@ -39,4 +72,42 @@
   position: absolute;
   bottom: 8px;
   right: 8px;
+  animation: inline-editor-actions-enter var(--panel-duration-entrance) var(--panel-ease-out-expo) both;
+  animation-delay: 60ms;
+}
+
+@keyframes inline-editor-actions-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── User message edit-mode shell ─────────────────────────────────────────── */
+/* When a user message enters edit mode, the shell gets a visual indicator */
+
+[data-role="user"][data-editing="true"] {
+  background: color-mix(in srgb, var(--panel-accent) 8%, transparent);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--panel-accent) 12%, transparent),
+    var(--panel-shadow-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inline-editor-wrapper {
+    animation: none;
+  }
+  .inline-editor-actions {
+    animation: none;
+  }
+}
+
+@media (forced-colors: active) {
+  .inline-editor-textarea {
+    border-color: Highlight;
+  }
 }

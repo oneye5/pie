@@ -17,10 +17,12 @@
   color: var(--panel-foreground);
   overflow: hidden;
   white-space: nowrap;
-  transition: background var(--status-chip-transition-duration) ease,
-    border-color var(--status-chip-transition-duration) ease,
-    color var(--status-chip-transition-duration) ease,
-    opacity var(--status-chip-transition-duration) ease;
+  transition:
+    background var(--status-chip-transition-duration) var(--panel-ease-out),
+    border-color var(--status-chip-transition-duration) var(--panel-ease-out),
+    color var(--status-chip-transition-duration) var(--panel-ease-out),
+    opacity var(--status-chip-transition-duration) var(--panel-ease-out),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .panel-chip-label {
@@ -60,6 +62,11 @@
 .panel-chip-interactive:focus-visible {
   border-color: var(--panel-border-subtle);
   background: var(--panel-control-hover);
+}
+
+.panel-chip-interactive:active,
+.panel-chip-toolbar.panel-chip-select:active {
+  transform: scale(0.97);
 }
 
 .panel-chip:focus-visible {

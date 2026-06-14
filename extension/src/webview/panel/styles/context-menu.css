@@ -13,6 +13,9 @@
   font-size: 12px;
   text-align: left;
   white-space: nowrap;
+  transition:
+    background var(--panel-transition-fast),
+    color var(--panel-transition-fast);
 }
 
 .context-menu-item:hover {
@@ -90,13 +93,18 @@
   border-radius: var(--panel-radius-lg);
   border: 1px solid var(--panel-border-subtle);
   background: var(--panel-control-surface);
-  transition: border-color 0.12s ease, background 0.12s ease;
+  transition:
+    border-color var(--panel-transition-fast),
+    background var(--panel-transition-fast),
+    box-shadow var(--panel-transition-normal),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .attachment-card:hover,
 .attachment-card:focus-within {
   border-color: var(--panel-border);
   background: var(--panel-control-hover);
+  box-shadow: 0 2px 8px -4px rgba(0, 0, 0, 0.3);
 }
 
 .attachment-card-thumb,
@@ -169,13 +177,20 @@
   flex-shrink: 0;
   font-size: 13px;
   line-height: 1;
-  transition: background 0.12s ease, color 0.12s ease;
+  transition:
+    background var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .attachment-card-remove:hover,
 .attachment-card-remove:focus-visible {
   background: var(--panel-control-hover);
   color: var(--panel-foreground);
+}
+
+.attachment-card-remove:active {
+  transform: scale(0.88);
 }
 
 .attachment-card-remove:focus-visible {

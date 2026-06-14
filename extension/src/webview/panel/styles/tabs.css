@@ -15,7 +15,7 @@
   display: flex;
   align-items: flex-start;
   gap: 6px;
-  animation: notice-enter 180ms ease-out;
+  animation: notice-enter var(--panel-duration-entrance) var(--panel-ease-out-expo);
 }
 
 @keyframes notice-enter {
@@ -30,7 +30,6 @@
     max-height: 80px;
   }
 }
-
 @media (prefers-reduced-motion: reduce) {
   .notice {
     animation: none;
@@ -63,11 +62,19 @@
   padding: 0 7px;
   border-radius: var(--panel-radius-sm);
   opacity: 0.72;
+  transition:
+    opacity var(--panel-transition-fast),
+    background var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .notice-btn:hover {
   opacity: 1;
   background: var(--panel-control-hover);
+}
+
+.notice-btn:active {
+  transform: scale(0.95);
 }
 
 .notice-dismiss {
@@ -139,8 +146,9 @@ body.session-tab-dragging {
   background: transparent;
   position: relative;
   isolation: isolate;
-  transition: opacity 0.14s ease;
+  transition: opacity var(--panel-duration-fast) var(--panel-ease-out);
   flex: 0 1 var(--session-tab-max-width);
+  animation: panel-entrance var(--panel-duration-entrance) var(--panel-ease-out-expo);
 }
 
 /* Absolute fill renders the visual shell behind all interactive children */
@@ -151,7 +159,10 @@ body.session-tab-dragging {
   background: var(--session-tab-surface);
   box-shadow: inset 0 0 0 1px var(--session-tab-outline);
   pointer-events: none;
-  transition: background 0.14s ease, box-shadow 0.14s ease, opacity 0.14s ease;
+  transition:
+    background var(--panel-duration-normal) var(--panel-ease-out),
+    box-shadow var(--panel-duration-normal) var(--panel-ease-out),
+    opacity var(--panel-duration-fast) var(--panel-ease-out);
   z-index: 0;
 }
 
@@ -268,7 +279,15 @@ body.session-tab-dragging {
   flex-shrink: 0;
   background: var(--panel-control-surface);
   color: var(--panel-muted);
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
+}
+
+.session-tab-run-badge:active {
+  transform: scale(0.95);
 }
 
 .session-tab-run-badge.open {
@@ -331,7 +350,16 @@ body.session-tab-dragging {
   justify-content: center;
   /* Hidden by default; revealed when the tab is active or focused */
   opacity: 0.38;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    opacity var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
+}
+
+.session-tab-close:active:not(:disabled) {
+  transform: scale(0.88);
 }
 
 .session-tab:hover .session-tab-close,
@@ -423,7 +451,11 @@ body.session-tab-dragging {
   justify-content: center;
   margin-left: 6px;
   align-self: center;
-  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    transform var(--panel-duration-fast) var(--panel-ease-spring);
 }
 
 .session-tabs-new:hover:not(:disabled),
@@ -432,6 +464,10 @@ body.session-tab-dragging {
   border-color: var(--panel-border);
   color: var(--panel-foreground);
   outline: none;
+}
+
+.session-tabs-new:active:not(:disabled) {
+  transform: scale(0.92);
 }
 
 .session-tabs-new:disabled {
