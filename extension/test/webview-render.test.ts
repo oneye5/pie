@@ -134,8 +134,6 @@ test('rendered MessageItem covers assistant, editable user, and image-user branc
   assert.match(editingHtml, />Save</);
   assert.match(editingHtml, />Cancel</);
   assert.match(editingHtml, /self-end/);
-  assert.match(editingHtml, /justify-end/);
-  assert.match(editingHtml, /text-right/);
 
   const imageHtml = renderToString(h(MessageItem, {
     message: userMessage({

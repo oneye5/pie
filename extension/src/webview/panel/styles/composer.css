@@ -520,6 +520,25 @@
   padding: 3px 0;
   box-shadow: var(--panel-shadow-overlay);
   min-width: 220px;
+  animation: context-menu-enter 120ms ease-out;
+  transform-origin: top left;
+}
+
+@keyframes context-menu-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .block-context-menu {
+    animation: none;
+  }
 }
 
 .session-tab-context-menu {
@@ -549,6 +568,12 @@
   justify-content: center;
   padding: var(--panel-gap-xl);
   background: var(--panel-overlay-backdrop);
+  animation: dialog-backdrop-enter 150ms ease-out;
+}
+
+@keyframes dialog-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .run-outcome-dialog {
@@ -563,6 +588,25 @@
   border-radius: var(--panel-radius-xl);
   background: var(--panel-overlay-surface);
   box-shadow: var(--panel-shadow-overlay);
+  animation: dialog-enter 180ms ease-out;
+}
+
+@keyframes dialog-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-outcome-backdrop,
+  .run-outcome-dialog {
+    animation: none;
+  }
 }
 
 .run-outcome-header {

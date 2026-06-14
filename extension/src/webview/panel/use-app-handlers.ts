@@ -41,7 +41,6 @@ export interface AppHandlers {
 export function useAppHandlers(
   postMessage: (msg: WebviewToHostMessage) => void,
   activeSessionPathRef: { current: string | null },
-  viewStateActiveSessionPath: string | undefined,
   setDraftRestore: (value: null) => void,
   addOptimisticMessage: (msg: { localId: string; text: string; sessionPath: string }) => void,
   setContextMenu: (state: ContextMenuState | null) => void,
@@ -105,8 +104,10 @@ export function useAppHandlers(
   }, [postMessage, activeSessionPathRef]);
 
   const handleModelChange = useCallback((model: string, thinkingLevel: ThinkingLevel) => {
-    postMessage({ type: 'setModel', sessionPath: viewStateActiveSessionPath, defaultModel: model, defaultThinkingLevel: thinkingLevel });
-  }, [viewStateActiveSessionPath, postMessage]);
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'setModel', sessionPath, defaultModel: model, defaultThinkingLevel: thinkingLevel });
+  }, [postMessage, activeSessionPathRef]);
 
   const handleEditSend = useCallback((messageId: string, text: string) => {
     const sessionPath = activeSessionPathRef.current;

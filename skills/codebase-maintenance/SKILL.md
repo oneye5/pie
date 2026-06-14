@@ -92,3 +92,18 @@ earlier refactors, then re-run until clean.
 ### 7. .gitignore updates
 
 Check for any new 'noise' files that should be ignored. Add clear cut cases to the `.ignore` file, and flag ambiguous cases for human review using the ask user tool.
+
+### 8. Document drift
+
+```bash
+uv run codebase-maintenance/find_markdown_drift.py <directory> [options]
+```
+
+Stale internal references and broken external URLs in markdown files. Output sorted
+by last modified (oldest first). Broken refs are `[internal]`/`[external]`; ambiguous
+ones (403, 5xx, timeouts) are `[uncertain]`. Use `--check-anchors` to also validate
+`#heading` fragments. Fix internal broken refs first — they almost always mean
+something was moved without updating the docs. For uncertain external refs, re-run
+with `--verbose` before pruning. Verify semantic accuracy: a path may resolve but
+the surrounding prose may no longer describe the target's contents. Re-run after
+fixes to confirm.

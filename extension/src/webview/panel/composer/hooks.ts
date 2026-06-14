@@ -73,7 +73,7 @@ export function useComposerIndicators({
     activeThinkingLevel,
     modelSettings,
     availableModels,
-  }), [activeModelId, activeThinkingLevel, availableModels, modelSettings]);
+  }), [activeModelId, activeThinkingLevel, modelSettings?.defaultModel, modelSettings?.defaultThinkingLevel, availableModels.length]);
 
   const pricingByModelId = useMemo(() => {
     const map = new Map<string, TokenPricing>();

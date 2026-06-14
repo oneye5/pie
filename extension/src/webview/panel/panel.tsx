@@ -39,7 +39,8 @@ function escapeHtml(text: string): string {
 }
 
 function showRenderErrorOverlay(error: unknown) {
-  if (document.getElementById('pie-render-error-overlay')) return;
+  const existing = document.getElementById('pie-render-error-overlay');
+  if (existing) return;
 
   const overlay = document.createElement('div');
   overlay.id = 'pie-render-error-overlay';

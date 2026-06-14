@@ -245,6 +245,7 @@ function extractSubagentDirectCost(transcript: ChatMessage[]): number {
   for (const message of transcript) {
     if (message.role !== 'assistant') continue;
     for (const toolCall of toolCallsFromMessage(message)) {
+      if (typeof toolCall.name !== 'string') continue;
       if (toolCall.name.trim().toLowerCase() !== 'subagent' || toolCall.status === 'failed') continue;
       if (!isRecord(toolCall.result) || !isRecord(toolCall.result.details) || !Array.isArray(toolCall.result.details.results)) continue;
       for (const result of toolCall.result.details.results) {

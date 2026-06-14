@@ -59,15 +59,23 @@ function useAppBodyDerivedState(
   const recoverySessionPath = openTabPaths.find((p) => !isPendingTabPath(p)) ?? sessions[0]?.path ?? null;
   const needsSessionRecovery = hasActiveTabs && activeSession === null && recoverySessionPath !== null;
 
+  // Extract primitive values for memo deps to avoid re-computing on every host update
+  // when objects like availableModels[] and modelSettings{} get new references.
+  const activeModelId = activeSession?.modelId;
+  const activeThinkingLevel = activeSession?.thinkingLevel;
+  const settingsDefaultModel = modelSettings?.defaultModel;
+  const settingsDefaultThinkingLevel = modelSettings?.defaultThinkingLevel;
+  const modelCount = availableModels.length;
+
   const {
     selectedModel: pendingAssistantModelId,
     selectedLevel: pendingAssistantThinkingLevel,
   } = useMemo(() => resolveComposerModelState({
-    activeModelId: activeSession?.modelId,
-    activeThinkingLevel: activeSession?.thinkingLevel,
+    activeModelId,
+    activeThinkingLevel,
     modelSettings,
     availableModels,
-  }), [activeSession?.modelId, activeSession?.thinkingLevel, availableModels, modelSettings]);
+  }), [activeModelId, activeThinkingLevel, settingsDefaultModel, settingsDefaultThinkingLevel, modelCount]);
 
   const isAskUserHandledInline =
     !!activeSessionPath &&
@@ -316,7 +324,6 @@ export function AppBody({ adapter }: AppBodyProps) {
   const handlers = useAppHandlers(
     postMessage,
     activeSessionPathRef,
-    viewState.activeSession?.path,
     setDraftRestore,
     addOptimisticMessage,
     setContextMenu,

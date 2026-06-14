@@ -102,6 +102,24 @@
   border-top: 1px solid var(--panel-border);
   max-height: min(260px, calc(50vh - 38px));
   overflow-y: auto;
+  animation: file-changes-expand 150ms ease-out;
+}
+
+@keyframes file-changes-expand {
+  from {
+    max-height: 0;
+    opacity: 0;
+  }
+  to {
+    max-height: min(260px, calc(50vh - 38px));
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-changes-list {
+    animation: none;
+  }
 }
 
 .file-change-item {

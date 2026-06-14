@@ -308,3 +308,55 @@ test('buildSessionCostIndicator shows a live estimate while running without comp
   assert.match(result.tooltip, /Live turn estimate/);
   assert.match(result.tooltip, /126,500 tokens/);
 });
+
+test('buildSessionCostIndicator does not crash when a tool call has an undefined name (parts path)', () => {
+  // Regression: a streaming snapshot can deliver a tool call part whose name
+  // is undefined. extractSubagentDirectCost used to call .trim() on it
+  // unconditionally, crashing ComposerView via useComposerIndicators.
+  const summary = makeSummary({
+    inputTokens: 10_000,
+    outputTokens: 2_000,
+    totalTokens: 12_000,
+    reportedTurnCount: 1,
+  });
+  const transcript = [
+    {
+      id: 'm1',
+      role: 'assistant' as const,
+      createdAt: '',
+      markdown: '',
+      status: 'completed' as const,
+      parts: [
+        { kind: 'text' as const, text: 'doing work' },
+        { kind: 'toolCall' as const, toolCall: { id: 'tc1', name: undefined, input: {}, status: 'running' as const } },
+      ],
+    },
+  ];
+  const result = buildSessionCostIndicator(summary, undefined, 'Model', transcript as never, undefined);
+  assert.ok(result);
+});
+
+test('buildSessionCostIndicator does not crash when message.toolCalls has an undefined name', () => {
+  // Regression: same as above, but for the legacy toolCalls array on the message
+  // (the path used when message.parts is absent).
+  const summary = makeSummary({
+    inputTokens: 10_000,
+    outputTokens: 2_000,
+    totalTokens: 12_000,
+    reportedTurnCount: 1,
+  });
+  const transcript = [
+    {
+      id: 'm1',
+      role: 'assistant' as const,
+      createdAt: '',
+      markdown: '',
+      status: 'completed' as const,
+      toolCalls: [
+        { id: 'tc1', name: undefined, input: {}, status: 'running' as const },
+      ],
+    },
+  ];
+  const result = buildSessionCostIndicator(summary, undefined, 'Model', transcript as never, undefined);
+  assert.ok(result);
+});

@@ -37,11 +37,16 @@ export function ContextMenu({
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const scroll = () => onClose();
     document.addEventListener('mousedown', down);
     document.addEventListener('keydown', key);
+    window.addEventListener('scroll', scroll, { capture: true });
+    window.addEventListener('resize', scroll);
     return () => {
       document.removeEventListener('mousedown', down);
       document.removeEventListener('keydown', key);
+      window.removeEventListener('scroll', scroll, { capture: true });
+      window.removeEventListener('resize', scroll);
     };
   }, [onClose]);
 
