@@ -11,7 +11,6 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createInvalidAgentResult, summarizeInvalidAgentResults } from "../validation.js";
 import { getFinalOutput } from "../formatting.js";
-import { type TaskScores } from "../model-selection.js";
 import { type SingleResult, type SubagentDetails, MAX_PARALLEL_TASKS } from "../types.js";
 import type { AgentConfig, AgentScope } from "../agents.js";
 
@@ -57,8 +56,8 @@ interface ExecOpts {
 function executeLogic(
 	params: {
 		agent?: string; task?: string;
-		tasks?: { agent: string; task: string; cwd?: string; taskScores?: TaskScores }[];
-		chain?: { agent: string; task: string; cwd?: string; taskScores?: TaskScores }[];
+		tasks?: { agent: string; task: string; cwd?: string; bucket?: string; thinkingLevel?: string }[];
+		chain?: { agent: string; task: string; cwd?: string; bucket?: string; thinkingLevel?: string }[];
 		agentScope?: AgentScope;
 	},
 	opts?: ExecOpts,

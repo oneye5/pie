@@ -115,6 +115,8 @@ export interface DismissNoticeCommand extends CommandBase {
 export interface RespondExtensionUICommand extends CommandBase {
   kind: 'RespondExtensionUI';
   sessionPath: string;
+  /** The specific request being responded to. */
+  requestId: string;
   approved: boolean;
 }
 

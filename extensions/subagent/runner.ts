@@ -17,10 +17,14 @@ import {
 } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "./agents.js";
 import { getFinalOutput } from "./formatting.js";
-import type { ThinkingLevel } from "./model-selection.js";
+import type { ThinkingLevel, BucketSelection } from "./bucket-selector.js";
 import { resolveExecutionModel } from "./model-resolution.js";
 import type { OnUpdateCallback, SingleResult, SubagentDetails } from "./types.js";
 import { createInvalidAgentResult } from "./validation.js";
+import {
+	ParentExtensionUIBridgeProxy,
+	type ParentBridge,
+} from "./src/parent-extension-ui-bridge-proxy.js";
 
 /**
  * Per-prompt timeout: if the model doesn't produce a complete response within
@@ -274,9 +278,12 @@ export async function runSingleAgent(
 	makeDetails: (results: SingleResult[]) => SubagentDetails,
 	modelRegistry: ModelRegistry,
 	callerModel: Model<any> | undefined,
-	modelOverride: string | undefined,
-	thinkingLevel: ThinkingLevel | undefined,
+	bucketSelection: BucketSelection | undefined,
 	disabledProviders?: Set<string>,
+	/** The parent tool call ID, used to stamp subagent ask_user requests. */
+	_toolCallId?: string,
+	/** The parent session's UI bridge, for proxying ask_user calls. */
+	parentUiBridge?: ParentBridge,
 ): Promise<SingleResult> {
 	// 1. Preflight: locate the agent config or short-circuit with an invalid result.
 	const agent = agents.find((a) => a.name === agentName);
@@ -284,6 +291,8 @@ export async function runSingleAgent(
 
 	// 2. Resolve the model the session will run on.
 	const sessionCwd = cwd ?? defaultCwd;
+	const modelOverride = bucketSelection?.modelId;
+	const thinkingLevel = bucketSelection?.thinkingLevel;
 	const requestedModel = modelOverride ?? agent.model;
 	const {
 		resolvedModel,
@@ -327,6 +336,12 @@ export async function runSingleAgent(
 	// Capture the model the session actually selected (in case our hint was overridden).
 	if (session.agent?.state?.model) {
 		currentResult.model = session.agent.state.model.id;
+	}
+
+	// Inject the parent UI bridge proxy so subagent ask_user calls appear in the parent UI.
+	if (parentUiBridge && _toolCallId) {
+		const proxy = new ParentExtensionUIBridgeProxy(parentUiBridge, _toolCallId);
+		session.extensionRunner.setUIContext(proxy);
 	}
 
 	// 5. Subscribe to session events.

@@ -6,7 +6,7 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { Message } from "@mariozechner/pi-ai";
 import type { AgentScope } from "./agents.js";
-import type { TaskScores } from "./model-selection.js";
+import type { ThinkingLevel } from "./bucket-selector.js";
 
 export const MAX_PARALLEL_TASKS = 8;
 export const MAX_CONCURRENCY = 4;
@@ -47,20 +47,16 @@ export interface SingleResult {
 	step?: number;
 	/** Tool names currently executing in this subagent (cleared when tool finishes). */
 	runningTools?: string[];
-	/** The model actually chosen by scored selection. */
+	/** The model actually chosen by bucket selection. */
 	selectedModel?: string;
 	/** Thinking level applied to this run. */
-	thinkingLevel?: string;
-	/** Merged scores used for selection (after merge of defaults + caller overrides). */
-	taskScores?: TaskScores;
-	/** Raw scores the calling agent provided (before merge with defaults). */
-	callerScores?: TaskScores;
-	/** Agent's frontmatter default scores. */
-	agentDefaultScores?: TaskScores;
-	/** The top-K models that were candidates. */
+	thinkingLevel?: ThinkingLevel;
+	/** Bucket used for selection ("small", "medium", "frontier"). */
+	bucket?: string;
+	/** The models that were candidates in the selected bucket. */
 	selectionPool?: string[];
-	/** Dot product scores for the pool (parallel arrays with selectionPool). */
-	selectionFitScores?: number[];
+	/** Whether the active model fallback was used. */
+	fallback?: boolean;
 	/** Model that failed before this result was retried with a different model. */
 	failedModel?: string;
 	/** How many fallback attempts were made before this result (0 = first try). */

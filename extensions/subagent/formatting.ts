@@ -141,31 +141,24 @@ function shortenModelId(id: string): string {
 
 export function formatSelectionInfo(
 	result: {
-		taskScores?: Record<string, number>;
+		bucket?: string;
 		selectedModel?: string;
 		selectionPool?: string[];
-		selectionFitScores?: number[];
 		thinkingLevel?: string;
+		fallback?: boolean;
 		failedModel?: string;
 		retryCount?: number;
 		modelResolutionDiagnostic?: string;
 	},
 	themeFg: (color: any, text: string) => string,
 ): string | undefined {
-	if (!result.taskScores && !result.selectedModel) return undefined;
+	if (!result.bucket && !result.selectedModel) return undefined;
 
 	const parts: string[] = [];
 
-	// Task scores: p3 c1 r5 t4
-	if (result.taskScores) {
-		const s = result.taskScores;
-		const dims = [
-			s.precision != null ? `p${s.precision}` : null,
-			s.creativity != null ? `c${s.creativity}` : null,
-			s.reasoning != null ? `r${s.reasoning}` : null,
-			s.thoroughness != null ? `t${s.thoroughness}` : null,
-		].filter(Boolean);
-		if (dims.length > 0) parts.push(themeFg("dim", dims.join(" ")));
+	// Bucket hint
+	if (result.bucket) {
+		parts.push(themeFg("dim", result.bucket));
 	}
 
 	// Thinking level
@@ -173,23 +166,16 @@ export function formatSelectionInfo(
 		parts.push(themeFg("accent", result.thinkingLevel));
 	}
 
-	// Selected model with its score
-	if (result.selectedModel && result.selectionFitScores && result.selectionPool) {
-		const idx = result.selectionPool.indexOf(result.selectedModel);
-		const score = idx >= 0 ? result.selectionFitScores[idx] : undefined;
+	// Selected model
+	if (result.selectedModel && result.selectionPool) {
 		const shortName = shortenModelId(result.selectedModel);
-		const modelStr = score != null ? `${shortName}(${score.toFixed(1)})` : shortName;
+		const modelStr = result.fallback ? `${shortName} (fallback)` : shortName;
 		parts.push(themeFg("accent", "→ ") + themeFg("toolTitle", modelStr));
 
 		// Pool (other candidates)
 		const others = result.selectionPool
 			.filter((m) => m !== result.selectedModel)
-			.map((m) => {
-				const otherIdx = result.selectionPool!.indexOf(m);
-				const otherScore = otherIdx >= 0 ? result.selectionFitScores![otherIdx] : undefined;
-				const short = shortenModelId(m);
-				return otherScore != null ? `${short}(${otherScore.toFixed(1)})` : short;
-			});
+			.map((m) => shortenModelId(m));
 		if (others.length > 0) parts.push(themeFg("muted", `| ${others.join(", ")}`));
 	}
 

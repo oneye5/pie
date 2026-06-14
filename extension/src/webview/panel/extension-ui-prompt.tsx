@@ -24,7 +24,6 @@ export function ExtensionUIPrompt({ sessionPath, request, postMessage }: Extensi
           id={request.id}
           title={request.title}
           message={request.message}
-          timeout={request.timeout}
           extensionId={request.extensionId}
           onRespond={respond}
         />
@@ -35,7 +34,6 @@ export function ExtensionUIPrompt({ sessionPath, request, postMessage }: Extensi
           id={request.id}
           title={request.title}
           options={request.options}
-          timeout={request.timeout}
           extensionId={request.extensionId}
           onRespond={respond}
         />
@@ -46,7 +44,6 @@ export function ExtensionUIPrompt({ sessionPath, request, postMessage }: Extensi
           id={request.id}
           title={request.title}
           placeholder={request.placeholder}
-          timeout={request.timeout}
           extensionId={request.extensionId}
           onRespond={respond}
         />
@@ -171,7 +168,6 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
         <div class="ext-prompt-content">
           {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
           <span class="ext-prompt-text">{title}</span>
-          {remaining !== null && <span class="ext-prompt-countdown">{remaining}s</span>}
         </div>
         {!showCustomInput && (
           <button class="ext-prompt-cancel" type="button" onClick={() => onRespond({ id, cancelled: true })}>
@@ -274,7 +270,6 @@ function InputPrompt({ id, title, placeholder, timeout, extensionId, onRespond }
         <div class="ext-prompt-content">
           {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
           <span class="ext-prompt-text">{title}</span>
-          {remaining !== null && <span class="ext-prompt-countdown">{remaining}s</span>}
         </div>
         <button class="ext-prompt-cancel" type="button" onClick={() => onRespond({ id, cancelled: true })}>
           Cancel

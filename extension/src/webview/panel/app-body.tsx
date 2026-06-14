@@ -20,7 +20,7 @@ import { SessionTabs, Composer } from './ui';
 import { RunOutcomeDialog } from './run-outcome-dialog';
 import { NoticeBanner } from './components/notice-banner';
 import { NoticeContext } from './hooks/notice-context';
-import { AskUserContext } from './hooks/ask-user-context';
+import { AskUserContext, findMatchingRequest } from './hooks/ask-user-context';
 import { useHostSync } from './hooks/use-host-sync';
 import { isPendingTabPath } from '../../shared/tab-behavior';
 import { useAppHandlers, type AppHandlers } from './use-app-handlers';
@@ -70,8 +70,10 @@ function useAppBodyDerivedState(
   }), [activeSession?.modelId, activeSession?.thinkingLevel, availableModels, modelSettings]);
 
   const isAskUserHandledInline =
-    !!pendingExtensionUIRequest &&
-    pendingExtensionUIRequest.method === 'select' &&
+    !!activeSessionPath &&
+    Object.values(pendingExtensionUIRequestsBySession[activeSessionPath] ?? {}).some(
+      (req) => req.method === 'select',
+    ) &&
     transcript.some((msg) =>
       msg.parts?.some((p): p is ChatMessageToolCallPart =>
         p.kind === 'toolCall' && p.toolCall.name === 'ask_user' && p.toolCall.status === 'running'
@@ -81,8 +83,10 @@ function useAppBodyDerivedState(
   const askUserContextValue = useMemo(() => ({
     sessionPath: activeSessionPath,
     postMessage,
-    pendingRequest: pendingExtensionUIRequest,
-  }), [activeSessionPath, postMessage, pendingExtensionUIRequest]);
+    pendingRequests: activeSessionPath
+      ? (pendingExtensionUIRequestsBySession[activeSessionPath] ?? {})
+      : {},
+  }), [activeSessionPath, postMessage, pendingExtensionUIRequestsBySession]);
 
   return {
     panelSurface,

@@ -191,7 +191,19 @@ export function selectViewState(state: ArchState): ViewState {
     editingMessageId: transcript.editingMessageId,
     showOutcomeDialog: settings.showOutcomeDialog,
     pendingExtensionUIRequestsBySession: settings.pendingExtensionUIRequestsBySession,
-    pendingExtensionUIRequest: activePath ? settings.pendingExtensionUIRequestsBySession[activePath] ?? null : null,
+    pendingExtensionUIRequest: activePath
+      ? (() => {
+          const sessionMap = settings.pendingExtensionUIRequestsBySession[activePath];
+          if (!sessionMap) return null;
+          // Return the first pending request WITHOUT a subagentCallId for the
+          // bottom-bar prompt. Subagent-scoped requests render inline inside
+          // their subagent cards.
+          for (const req of Object.values(sessionMap)) {
+            if (!req.subagentCallId) return req;
+          }
+          return null;
+        })()
+      : null,
   };
 }
 

@@ -17,19 +17,15 @@ import type { AgentConfig } from "../agents.js";
 // Re-implementations for isolated testing (avoid SDK dep)
 // ============================================================
 
-function parseDefaultScores(raw: string | undefined): Record<string, number> | undefined {
-	if (!raw) return undefined;
-	const scores: Record<string, number> = {};
-	for (const part of raw.split(",")) {
-		const [key, val] = part.split("=").map((s) => s.trim());
-		const num = parseInt(val, 10);
-		if (key && !isNaN(num) && num >= 0 && num <= 5) {
-			if (key === "precision" || key === "creativity" || key === "thoroughness" || key === "reasoning") {
-				scores[key] = num;
-			}
-		}
-	}
-	return Object.keys(scores).length > 0 ? scores : undefined;
+function parseBucketAndThinking(rawBucket: string | undefined, rawThinking: string | undefined): { bucket?: string; thinkingLevel?: string } {
+	const VALID_BUCKETS = new Set(["small", "medium", "frontier"]);
+	const VALID_THINKING = new Set(["minimal", "low", "medium", "high", "xhigh"]);
+	const bucket = rawBucket?.trim();
+	const thinking = rawThinking?.trim();
+	return {
+		bucket: bucket && VALID_BUCKETS.has(bucket) ? bucket : undefined,
+		thinkingLevel: thinking && VALID_THINKING.has(thinking) ? thinking : undefined,
+	};
 }
 
 function formatAgentList(agents: AgentConfig[], maxItems: number): { text: string; remaining: number } {
@@ -43,101 +39,61 @@ function formatAgentList(agents: AgentConfig[], maxItems: number): { text: strin
 }
 
 // ============================================================
-// parseDefaultScores — MALFORMED INPUT TESTS
+// parseBucketAndThinking — INPUT TESTS
 // ============================================================
 
-test("parseDefaultScores: returns undefined for undefined input", () => {
-	assert.equal(parseDefaultScores(undefined), undefined);
+test("parseBucketAndThinking: returns empty for undefined inputs", () => {
+	const result = parseBucketAndThinking(undefined, undefined);
+	assert.equal(result.bucket, undefined);
+	assert.equal(result.thinkingLevel, undefined);
 });
 
-test("parseDefaultScores: returns undefined for empty string", () => {
-	assert.equal(parseDefaultScores(""), undefined);
+test("parseBucketAndThinking: returns empty for empty strings", () => {
+	const result = parseBucketAndThinking("", "");
+	assert.equal(result.bucket, undefined);
+	assert.equal(result.thinkingLevel, undefined);
 });
 
-test("parseDefaultScores: returns undefined for whitespace-only string", () => {
-	assert.equal(parseDefaultScores("   "), undefined);
+test("parseBucketAndThinking: returns empty for whitespace-only strings", () => {
+	const result = parseBucketAndThinking("   ", "   ");
+	assert.equal(result.bucket, undefined);
+	assert.equal(result.thinkingLevel, undefined);
 });
 
-test("parseDefaultScores: parses valid comma-separated dimensions", () => {
-	const scores = parseDefaultScores("precision=3,creativity=1,thoroughness=4,reasoning=5");
-	assert.deepEqual(scores, { precision: 3, creativity: 1, thoroughness: 4, reasoning: 5 });
+test("parseBucketAndThinking: parses valid bucket and thinkingLevel", () => {
+	const result = parseBucketAndThinking("medium", "high");
+	assert.equal(result.bucket, "medium");
+	assert.equal(result.thinkingLevel, "high");
 });
 
-test("parseDefaultScores: handles whitespace around delimiters", () => {
-	const scores = parseDefaultScores("  precision = 3 , creativity = 1  ");
-	assert.deepEqual(scores, { precision: 3, creativity: 1 });
+test("parseBucketAndThinking: handles whitespace around values", () => {
+	const result = parseBucketAndThinking("  small  ", "  xhigh  ");
+	assert.equal(result.bucket, "small");
+	assert.equal(result.thinkingLevel, "xhigh");
 });
 
-test("parseDefaultScores: ignores invalid dimension names", () => {
-	const scores = parseDefaultScores("precision=3,foo=4,bar=5,thoroughness=2");
-	assert.deepEqual(scores, { precision: 3, thoroughness: 2 });
+test("parseBucketAndThinking: rejects invalid bucket names", () => {
+	assert.equal(parseBucketAndThinking("tiny", undefined).bucket, undefined);
+	assert.equal(parseBucketAndThinking("large", undefined).bucket, undefined);
+	assert.equal(parseBucketAndThinking("frontier ", undefined).bucket, "frontier");
 });
 
-test("parseDefaultScores: ignores scores outside 0-5 range", () => {
-	assert.equal(parseDefaultScores("precision=6"), undefined);
-	assert.equal(parseDefaultScores("precision=-1"), undefined);
-	assert.equal(parseDefaultScores("precision=100"), undefined);
+test("parseBucketAndThinking: rejects invalid thinking levels", () => {
+	assert.equal(parseBucketAndThinking(undefined, "max").thinkingLevel, undefined);
+	assert.equal(parseBucketAndThinking(undefined, "off").thinkingLevel, undefined);
+	assert.equal(parseBucketAndThinking(undefined, "xhigh").thinkingLevel, "xhigh");
 });
 
-test("parseDefaultScores: ignores non-integer values (NaN)", () => {
-	assert.equal(parseDefaultScores("precision=abc"), undefined);
-	assert.equal(parseDefaultScores("precision=notanumber"), undefined);
+test("parseBucketAndThinking: parses only bucket when thinkingLevel omitted", () => {
+	const result = parseBucketAndThinking("frontier", undefined);
+	assert.equal(result.bucket, "frontier");
+	assert.equal(result.thinkingLevel, undefined);
 });
 
-test("parseDefaultScores: handles duplicate keys (last wins)", () => {
-	const scores = parseDefaultScores("precision=1,precision=5");
-	assert.deepEqual(scores, { precision: 5 });
-});
-
-test("parseDefaultScores: handles single comma — no valid pair", () => {
-	assert.equal(parseDefaultScores(","), undefined);
-});
-
-test("parseDefaultScores: handles trailing comma", () => {
-	const scores = parseDefaultScores("precision=3,");
-	assert.deepEqual(scores, { precision: 3 });
-});
-
-test("parseDefaultScores: handles leading comma", () => {
-	const scores = parseDefaultScores(",precision=3");
-	assert.deepEqual(scores, { precision: 3 });
-});
-
-test("parseDefaultScores: handles double-equals in value (only first = splits)", () => {
-	// key="precision", val="3=y"
-	const scores = parseDefaultScores("precision=3=4");
-	// parseInt("3=4") = 3 → valid!
-	assert.deepEqual(scores, { precision: 3 });
-});
-
-test("parseDefaultScores: handles value-only missing key", () => {
-	assert.equal(parseDefaultScores("=3"), undefined);
-});
-
-test("parseDefaultScores: handles key-only missing value", () => {
-	// key="precision", val="" → parseInt("") = NaN → ignored
-	assert.equal(parseDefaultScores("precision="), undefined);
-});
-
-test("parseDefaultScores: parses valid partial set (only some dimensions)", () => {
-	const scores = parseDefaultScores("precision=4");
-	assert.deepEqual(scores, { precision: 4 });
-});
-
-test("parseDefaultScores: zero is valid for all dimensions", () => {
-	const scores = parseDefaultScores("precision=0,creativity=0,thoroughness=0,reasoning=0");
-	assert.deepEqual(scores, { precision: 0, creativity: 0, thoroughness: 0, reasoning: 0 });
-});
-
-test("parseDefaultScores: five is valid for all dimensions", () => {
-	const scores = parseDefaultScores("precision=5,creativity=5,thoroughness=5,reasoning=5");
-	assert.deepEqual(scores, { precision: 5, creativity: 5, thoroughness: 5, reasoning: 5 });
-});
-
-test("parseDefaultScores: handles mixed valid/invalid entries", () => {
-	// Only precision and thoroughness are valid; creativity is out of range, reasoning is NaN
-	const scores = parseDefaultScores("precision=3,creativity=6,thoroughness=2,reasoning=xyz,foo=bar");
-	assert.deepEqual(scores, { precision: 3, thoroughness: 2 });
+test("parseBucketAndThinking: parses only thinkingLevel when bucket omitted", () => {
+	const result = parseBucketAndThinking(undefined, "low");
+	assert.equal(result.bucket, undefined);
+	assert.equal(result.thinkingLevel, "low");
 });
 
 // ============================================================
@@ -238,7 +194,8 @@ test("AgentConfig: required fields are present", () => {
 	assert.equal(agent.filePath, "/agents/worker.md");
 	assert.equal(agent.tools, undefined);
 	assert.equal(agent.model, undefined);
-	assert.equal(agent.defaultScores, undefined);
+	assert.equal(agent.bucket, undefined);
+	assert.equal(agent.thinkingLevel, undefined);
 });
 
 test("AgentConfig: optional fields can be set", () => {
@@ -250,11 +207,13 @@ test("AgentConfig: optional fields can be set", () => {
 		filePath: "/agents/worker.md",
 		tools: ["bash", "read"],
 		model: "gpt-5.4",
-		defaultScores: { precision: 3, creativity: 2, thoroughness: 3, reasoning: 1 },
+		bucket: "medium",
+		thinkingLevel: "high",
 	};
 	assert.deepEqual(agent.tools, ["bash", "read"]);
 	assert.equal(agent.model, "gpt-5.4");
-	assert.deepEqual(agent.defaultScores, { precision: 3, creativity: 2, thoroughness: 3, reasoning: 1 });
+	assert.equal(agent.bucket, "medium");
+	assert.equal(agent.thinkingLevel, "high");
 });
 
 // ============================================================
@@ -561,19 +520,20 @@ test("findNearestProjectAgentsDir: finds .pi/agents in parent dir", async (t) =>
 });
 
 // ============================================================
-// loadAgentsFromDir: frontmatter with defaultScores
+// loadAgentsFromDir: frontmatter with bucket and thinkingLevel
 // ============================================================
 
-test("loadAgentsFromDir: parses defaultScores from frontmatter", async (t) => {
+test("loadAgentsFromDir: parses bucket and thinkingLevel from frontmatter", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
-	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-scores-${Date.now()}`);
+	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-bucket-${Date.now()}`);
 	const agentsDir = path.join(tmpDir, ".pi", "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
-	fs.writeFileSync(path.join(agentsDir, "scored.md"), `---
-name: scored
-description: Has default scores
-defaultScores: precision=4,creativity=2,thoroughness=3,reasoning=5
+	fs.writeFileSync(path.join(agentsDir, "bucketed.md"), `---
+name: bucketed
+description: Has bucket and thinkingLevel
+bucket: medium
+thinkingLevel: high
 ---
 body
 `);
@@ -581,9 +541,42 @@ body
 
 	const result = discoverAgents(tmpDir, "project");
 	assert.equal(result.agents.length, 1);
-	assert.deepEqual(result.agents[0].defaultScores, {
-		precision: 4, creativity: 2, thoroughness: 3, reasoning: 5,
-	});
+	assert.equal(result.agents[0].bucket, "medium");
+	assert.equal(result.agents[0].thinkingLevel, "high");
+});
+
+test("loadAgentsFromDir: invalid bucket is ignored", async (t) => {
+	const { discoverAgents } = await import("../agents.js");
+	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-badbucket-${Date.now()}`);
+	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	fs.mkdirSync(agentsDir, { recursive: true });
+
+	fs.writeFileSync(path.join(agentsDir, "bad-bucket.md"), `---
+name: bad-bucket
+description: Invalid bucket
+bucket: tiny
+---
+body
+`);
+	t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+
+	const result = discoverAgents(tmpDir, "project");
+	assert.equal(result.agents.length, 1);
+	assert.equal(result.agents[0].bucket, undefined);
+});
+
+test("loadAgentsFromDir: no defaultScores in repo-level agents", async () => {
+	// Enforce that repo-level agent .md files do not use the deprecated defaultScores field
+	const { discoverAgents } = await import("../agents.js");
+	// Resolve the repo root from the test file location
+	const repoRoot = path.resolve(import.meta.dirname ?? __dirname, "..", "..", "..");
+	const result = discoverAgents(repoRoot, "project");
+	for (const agent of result.agents) {
+		// Read the raw frontmatter to check for defaultScores
+		const content = fs.readFileSync(agent.filePath, "utf-8");
+		const hasDefaultScores = /^defaultScores:/m.test(content);
+		assert.ok(!hasDefaultScores, `Agent "${agent.name}" at ${agent.filePath} must not use deprecated defaultScores field`);
+	}
 });
 
 test("loadAgentsFromDir: empty tools string results in undefined tools", async (t) => {

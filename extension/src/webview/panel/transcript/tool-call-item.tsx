@@ -1,10 +1,12 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
+import { useContext } from 'preact/hooks';
 import type { ChatPrefs, ToolCall } from '../../../shared/protocol';
 import { summarizeSubagentToolCallInput } from '../../../shared/tool-call-analysis';
 import { shouldOpenSubagentContextMenu } from './interactions';
 import { getToolCallContextType } from '../chat-prefs';
+import { AskUserContext } from '../hooks/ask-user-context';
 
 import {
   getRenderableSubagentResultFromToolCall,
@@ -22,6 +24,7 @@ import { TranscriptMessageList } from './transcript-message-list';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import { getToolRenderer } from './registry';
 import { useDisclosureOpen } from './use-disclosure-open';
+import { SubagentCallContext } from './subagent-call-context';
 
 interface ToolCallItemProps {
   toolCall: ToolCall;
@@ -186,9 +189,16 @@ function SubagentSingleBlock({
   const messages = subagentSingleResultToChatMessages(singleResult, `${toolCall.id}-${index}`);
   const nestedDisclosureDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
 
+  // Check if this subagent has a pending ask_user request (for blinking indicator).
+  const askUserCtx = useContext(AskUserContext);
+  const hasPendingAskUser = !open && Object.values(askUserCtx.pendingRequests).some(
+    (req) => req.method === 'select' && req.subagentCallId != null
+      && (req.subagentCallId === toolCall.id || req.subagentCallId.startsWith(`${toolCall.id}:`)),
+  );
+
   return (
     <div
-      class={`tool-call tool-call-legacy-shell tool-call-subagent ${status}`}
+      class={`tool-call tool-call-legacy-shell tool-call-subagent ${status}${hasPendingAskUser ? ' pending-ask-user' : ''}`}
       role="button"
       aria-expanded={open}
       tabIndex={0}
@@ -204,6 +214,7 @@ function SubagentSingleBlock({
         <StatusIndicator status={status} errorDetail={errorDetail} />
       </div>
       {open && (
+        <SubagentCallContext.Provider value={multipleResults ? `${toolCall.id}:${index}` : toolCall.id}>
         <div
           class="subagent-messages"
           onClick={(e) => e.stopPropagation()}
@@ -249,6 +260,7 @@ function SubagentSingleBlock({
             disclosureKey={nestedDisclosureDefaultsKey}
           />
         </div>
+        </SubagentCallContext.Provider>
       )}
     </div>
   );

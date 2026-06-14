@@ -172,12 +172,13 @@ test("SingleResult: retryCount and failedModel should appear together", () => {
 	}
 });
 
-test("SingleResult: selectionPool and selectionFitScores should have same length", () => {
+test("SingleResult: selectionPool and fallback are independent", () => {
 	const r: SingleResult = makeMinimalResult({
 		selectionPool: ["a", "b"],
-		selectionFitScores: [10, 8],
+		fallback: false,
 	});
-	assert.ok(r.selectionPool.length === r.selectionFitScores!.length);
+	assert.equal(r.fallback, false);
+	assert.deepEqual(r.selectionPool, ["a", "b"]);
 });
 
 test("SingleResult: modelResolutionDiagnostic should only appear when model resolution failed", () => {

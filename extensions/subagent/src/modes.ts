@@ -25,6 +25,8 @@ import {
 } from "../types.js";
 import type { SelectionContext } from "./execute.js";
 import { resolveModel, attachSelectionMetadata, isModelFailure, checkTrailLoop } from "./execute.js";
+import type { ParentBridge } from "./parent-extension-ui-bridge-proxy.js";
+import type { ThinkingLevel } from "../bucket-selector.js";
 
 type Mode = "single" | "parallel" | "chain";
 type MakeDetails = (mode: Mode, results: SingleResult[]) => SubagentDetails;
@@ -87,7 +89,9 @@ function isResultError(result: SingleResult): boolean {
 interface RunWithModelRetryArgs {
 	agent: AgentConfig;
 	excludeModels: Set<string>;
-	taskScores: SingleResult["taskScores"];
+	bucket: string | undefined;
+	thinkingLevel: string | undefined;
+	activeModelId: string;
 	selectionCtx: SelectionContext;
 	/** Build a fresh runtime context for the attempt. */
 	buildRuntime: () => SubagentRuntimeContext;
@@ -108,28 +112,30 @@ async function runWithModelRetry(args: RunWithModelRetryArgs): Promise<ModelRetr
 	let result: SingleResult | undefined;
 
 	for (let attempt = 0; attempt <= MAX_MODEL_RETRIES; attempt++) {
-		const resolved = resolveModel(
+		const resolved = await resolveModel(
 			args.agent,
-			args.selectionCtx.selectionConfig,
-			args.selectionCtx.allowedModelIds,
-			args.taskScores,
+			args.selectionCtx,
+			args.activeModelId,
+			args.bucket,
+			args.thinkingLevel as ThinkingLevel | undefined,
 			args.excludeModels,
 		);
 		result = await subagentRuntime.run(args.buildRuntime(), () => args.runAttempt(resolved));
 		attachSelectionMetadata(result, resolved);
 
-		const failure = isModelFailure(result, resolved.modelOverride, !!args.selectionCtx.selectionConfig);
+		const failure = isModelFailure(result, resolved.modelOverride, !!args.selectionCtx.bucketAssignments);
 		if (!failure || attempt >= MAX_MODEL_RETRIES) break;
 
 		args.excludeModels.add(resolved.modelOverride!);
 		result.failedModel = resolved.modelOverride;
 		result.retryCount = attempt + 1;
 
-		const next = resolveModel(
+		const next = await resolveModel(
 			args.agent,
-			args.selectionCtx.selectionConfig,
-			args.selectionCtx.allowedModelIds,
-			args.taskScores,
+			args.selectionCtx,
+			args.activeModelId,
+			args.bucket,
+			args.thinkingLevel as ThinkingLevel | undefined,
 			args.excludeModels,
 		);
 		if (!next.modelOverride) break;
@@ -149,6 +155,8 @@ export async function executeSingleMode(
 	onUpdate: OnUpdateCallback,
 	signal: AbortSignal,
 	selectionCtx: SelectionContext,
+	_toolCallId: string,
+	parentUiBridge: ParentBridge | undefined,
 ) {
 	if (checkTrailLoop(params.agent!, runtimeCtx.trail)) {
 		return {
@@ -167,11 +175,20 @@ export async function executeSingleMode(
 	const { result } = await runWithModelRetry({
 		agent: singleAgent,
 		excludeModels: new Set<string>(),
-		taskScores: params.taskScores,
+		bucket: params.bucket,
+		thinkingLevel: params.thinkingLevel,
+		activeModelId: ctx.model?.id ?? "",
 		selectionCtx,
 		buildRuntime: () => ({ depth: runtimeCtx.depth + 1, trail: [...runtimeCtx.trail, params.agent!] }),
-		runAttempt: (resolved) =>
-			runSingleAgent(
+		runAttempt: (resolved) => {
+			const sel = resolved.selection ?? {
+				modelId: resolved.modelOverride ?? ctx.model?.id ?? "",
+				thinkingLevel: resolved.thinkingLevel,
+				bucket: resolved.bucket ?? "medium",
+				pool: [],
+				fallback: true,
+			};
+			return runSingleAgent(
 				ctx.cwd,
 				agents,
 				params.agent!,
@@ -183,10 +200,12 @@ export async function executeSingleMode(
 				(res) => makeDetails("single", res),
 				ctx.modelRegistry,
 				ctx.model,
-				resolved.modelOverride,
-				resolved.thinkingLevel,
+				sel,
 				selectionCtx.disabledProviders,
-			),
+				_toolCallId,
+				parentUiBridge,
+			);
+		},
 	});
 
 	if (isResultError(result)) {
@@ -215,6 +234,8 @@ export async function executeParallelMode(
 	onUpdate: OnUpdateCallback,
 	signal: AbortSignal,
 	selectionCtx: SelectionContext,
+	_toolCallId: string,
+	parentUiBridge: ParentBridge | undefined,
 ) {
 	const tooMany = buildParallelTaskLimitError(params.tasks!.length, makeDetails);
 	if (tooMany) return tooMany;
@@ -233,6 +254,8 @@ export async function executeParallelMode(
 			allResults,
 			emitUpdate: emitParallelUpdate,
 			checkSessionLimit,
+			_toolCallId: `${_toolCallId}:${index}`,
+			parentUiBridge,
 		}),
 	);
 
@@ -249,6 +272,8 @@ interface ParallelTaskArgs {
 	allResults: SingleResult[];
 	emitUpdate: () => void;
 	checkSessionLimit: () => string | undefined;
+	_toolCallId: string;
+	parentUiBridge: ParentBridge | undefined;
 }
 
 async function runParallelTask(
@@ -256,7 +281,7 @@ async function runParallelTask(
 	index: number,
 	args: ParallelTaskArgs,
 ): Promise<SingleResult> {
-	const { ctx, agents, signal, selectionCtx, runtimeCtx, makeDetails, allResults, emitUpdate, checkSessionLimit } =
+	const { ctx, agents, signal, selectionCtx, runtimeCtx, makeDetails, allResults, emitUpdate, checkSessionLimit, _toolCallId, parentUiBridge } =
 		args;
 
 	const sessionLimitError = checkSessionLimit();
@@ -278,11 +303,20 @@ async function runParallelTask(
 	const { result } = await runWithModelRetry({
 		agent: parallelAgent,
 		excludeModels: new Set<string>(),
-		taskScores: t.taskScores,
+		bucket: t.bucket,
+		thinkingLevel: t.thinkingLevel,
+		activeModelId: ctx.model?.id ?? "",
 		selectionCtx,
 		buildRuntime: () => ({ depth: runtimeCtx.depth + 1, trail: [...runtimeCtx.trail, t.agent] }),
-		runAttempt: (resolved) =>
-			runSingleAgent(
+		runAttempt: (resolved) => {
+			const sel = resolved.selection ?? {
+				modelId: resolved.modelOverride ?? ctx.model?.id ?? "",
+				thinkingLevel: resolved.thinkingLevel,
+				bucket: resolved.bucket ?? "medium",
+				pool: [],
+				fallback: true,
+			};
+			return runSingleAgent(
 				ctx.cwd,
 				agents,
 				t.agent,
@@ -299,10 +333,12 @@ async function runParallelTask(
 				(res) => makeDetails("parallel", res),
 				ctx.modelRegistry,
 				ctx.model,
-				resolved.modelOverride,
-				resolved.thinkingLevel,
+				sel,
 				selectionCtx.disabledProviders,
-			),
+				_toolCallId,
+				parentUiBridge,
+			);
+		},
 	});
 
 	allResults[index] = result;
@@ -387,6 +423,8 @@ export async function executeChainMode(
 	onUpdate: OnUpdateCallback,
 	signal: AbortSignal,
 	selectionCtx: SelectionContext,
+	_toolCallId: string,
+	parentUiBridge: ParentBridge | undefined,
 ) {
 	const results: SingleResult[] = [];
 	let previousOutput = "";
@@ -410,11 +448,20 @@ export async function executeChainMode(
 		const { result } = await runWithModelRetry({
 			agent: chainAgent,
 			excludeModels: chainExcludeModels,
-			taskScores: step.taskScores,
+			bucket: step.bucket,
+			thinkingLevel: step.thinkingLevel,
+			activeModelId: ctx.model?.id ?? "",
 			selectionCtx,
 			buildRuntime: () => ({ depth: runtimeCtx.depth + 1, trail: [...runtimeCtx.trail, step.agent] }),
-			runAttempt: (resolved) =>
-				runSingleAgent(
+			runAttempt: (resolved) => {
+				const sel = resolved.selection ?? {
+					modelId: resolved.modelOverride ?? ctx.model?.id ?? "",
+					thinkingLevel: resolved.thinkingLevel,
+					bucket: resolved.bucket ?? "medium",
+					pool: [],
+					fallback: true,
+				};
+				return runSingleAgent(
 					ctx.cwd,
 					agents,
 					step.agent,
@@ -426,10 +473,12 @@ export async function executeChainMode(
 					(res) => makeDetails("chain", res),
 					ctx.modelRegistry,
 					ctx.model,
-					resolved.modelOverride,
-					resolved.thinkingLevel,
+					sel,
 					selectionCtx.disabledProviders,
-				),
+					_toolCallId,
+					parentUiBridge,
+				);
+			},
 		});
 
 		results.push(result);

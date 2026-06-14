@@ -5,7 +5,8 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'preact/hoo
 
 import { CUSTOM_SENTINEL } from '../../../../shared/ask-user-sentinel';
 import type { ExtensionUIResponsePayload, ToolCall, WebviewToHostMessage } from '../../../../shared/protocol';
-import { AskUserContext } from '../../hooks/ask-user-context';
+import { AskUserContext, findMatchingRequest } from '../../hooks/ask-user-context';
+import { SubagentCallContext } from '../subagent-call-context';
 import { ToolCallCard } from '../tool-call-card';
 import { getToolCallContextType } from '../../chat-prefs';
 import { registerToolRenderer, type ToolRendererProps } from '../registry';
@@ -268,21 +269,13 @@ function renderAskUserTool({
 }: ToolRendererProps) {
   const parsedInput = parseAskUserInput(toolCall.input);
   const askUserCtx = useContext(AskUserContext);
-  const pendingRequest = askUserCtx.pendingRequest;
+  const subagentCallId = useContext(SubagentCallContext);
+  const matchingRequest = findMatchingRequest(askUserCtx.pendingRequests, subagentCallId);
   const sessionPath = askUserCtx.sessionPath;
   const postMessage = askUserCtx.postMessage;
 
   // Running ask_user: show interactive prompt if we have a matching request
   if (toolCall.status === 'running' && parsedInput) {
-    // Match the pending request to this tool call: the request must be a
-    // 'select' method with an id (from the extension UI bridge).
-    const matchingRequest =
-      pendingRequest &&
-      pendingRequest.method === 'select' &&
-      pendingRequest.id
-        ? pendingRequest
-        : null;
-
     if (matchingRequest && sessionPath) {
       return (
         <AskUserInlinePrompt

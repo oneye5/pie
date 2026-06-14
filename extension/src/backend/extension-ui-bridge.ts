@@ -4,7 +4,6 @@ import type { ExtensionUIRequestPayload, ExtensionUIResponsePayload } from '../s
 
 interface PendingRequest {
   resolve: (response: ExtensionUIResponsePayload) => void;
-  timer?: ReturnType<typeof setTimeout>;
 }
 
 export interface ExtensionUIBridgeEmitter {
@@ -26,33 +25,33 @@ export class ExtensionUIBridge {
     this.emit = emit;
   }
 
-  async confirm(title: string, message: string, opts?: { timeout?: number }): Promise<boolean> {
+  async confirm(title: string, message: string, _opts?: { subagentCallId?: string }): Promise<boolean> {
     const id = crypto.randomUUID();
-    const payload: ExtensionUIRequestPayload = { id, method: 'confirm', title, message, timeout: opts?.timeout, sessionPath: this.sessionPath };
-    const response = await this.emitAndAwait(id, payload, opts?.timeout);
+    const payload: ExtensionUIRequestPayload = { id, method: 'confirm', title, message, sessionPath: this.sessionPath, subagentCallId: _opts?.subagentCallId };
+    const response = await this.emitAndAwait(id, payload);
     if (response.cancelled) return false;
     return response.confirmed ?? false;
   }
 
-  async select(title: string, options: string[], opts?: { timeout?: number }): Promise<string | undefined> {
+  async select(title: string, options: string[], _opts?: { subagentCallId?: string }): Promise<string | undefined> {
     const id = crypto.randomUUID();
-    const payload: ExtensionUIRequestPayload = { id, method: 'select', title, options, timeout: opts?.timeout, sessionPath: this.sessionPath };
-    const response = await this.emitAndAwait(id, payload, opts?.timeout);
+    const payload: ExtensionUIRequestPayload = { id, method: 'select', title, options, sessionPath: this.sessionPath, subagentCallId: _opts?.subagentCallId };
+    const response = await this.emitAndAwait(id, payload);
     if (response.cancelled) return undefined;
     return response.value;
   }
 
-  async input(title: string, placeholder?: string, opts?: { timeout?: number }): Promise<string | undefined> {
+  async input(title: string, placeholder?: string, _opts?: { subagentCallId?: string }): Promise<string | undefined> {
     const id = crypto.randomUUID();
-    const payload: ExtensionUIRequestPayload = { id, method: 'input', title, placeholder, timeout: opts?.timeout, sessionPath: this.sessionPath };
-    const response = await this.emitAndAwait(id, payload, opts?.timeout);
+    const payload: ExtensionUIRequestPayload = { id, method: 'input', title, placeholder, sessionPath: this.sessionPath, subagentCallId: _opts?.subagentCallId };
+    const response = await this.emitAndAwait(id, payload);
     if (response.cancelled) return undefined;
     return response.value;
   }
 
-  notify(message: string, type?: 'info' | 'warning' | 'error'): void {
+  notify(message: string, type?: 'info' | 'warning' | 'error', subagentCallId?: string): void {
     const id = crypto.randomUUID();
-    this.emit('extension_ui.request', { id, method: 'notify', message, notifyType: type, sessionPath: this.sessionPath });
+    this.emit('extension_ui.request', { id, method: 'notify', message, notifyType: type, sessionPath: this.sessionPath, subagentCallId });
   }
 
   // Stubs for methods the SDK interface declares but we don't need in the webview.
@@ -70,7 +69,6 @@ export class ExtensionUIBridge {
   resolveRequest(response: ExtensionUIResponsePayload): void {
     const pending = this.pending.get(response.id);
     if (!pending) return;
-    if (pending.timer) clearTimeout(pending.timer);
     this.pending.delete(response.id);
     pending.resolve(response);
   }
@@ -80,7 +78,6 @@ export class ExtensionUIBridge {
    */
   cancelAll(): void {
     for (const [id, pending] of this.pending) {
-      if (pending.timer) clearTimeout(pending.timer);
       pending.resolve({ id, cancelled: true });
     }
     this.pending.clear();
@@ -89,19 +86,9 @@ export class ExtensionUIBridge {
   private emitAndAwait(
     id: string,
     payload: ExtensionUIRequestPayload,
-    timeout?: number,
   ): Promise<ExtensionUIResponsePayload> {
     return new Promise<ExtensionUIResponsePayload>((resolve) => {
-      const pending: PendingRequest = { resolve };
-
-      if (timeout && timeout > 0) {
-        pending.timer = setTimeout(() => {
-          this.pending.delete(id);
-          resolve({ id, cancelled: true });
-        }, timeout);
-      }
-
-      this.pending.set(id, pending);
+      this.pending.set(id, { resolve });
       this.emit('extension_ui.request', payload);
     });
   }

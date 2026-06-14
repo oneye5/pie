@@ -378,7 +378,8 @@ export class MessageRouter {
     this.purgeHostStateForSession(msg.sessionPath);
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetEditingMessage', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, messageId: null } });
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetOutcomeDialog', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, visible: false } });
-    this.dispatchEvent({ kind: 'Command', cmd: { kind: 'RespondExtensionUI', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, approved: false } });
+    // Per-session pendingExtensionUIRequestsBySession is cleaned up by
+    // removeSessionFromState (triggered by SessionClosed above).
     this.sidebarProvider.postState();
   }
 
@@ -495,7 +496,7 @@ export class MessageRouter {
     const corrId = crypto.randomUUID();
     this.dispatchEvent({
       kind: 'Command',
-      cmd: { kind: 'RespondExtensionUI', corrId, sessionPath, approved: msg.response.confirmed === true },
+      cmd: { kind: 'RespondExtensionUI', corrId, sessionPath, requestId: msg.response.id, approved: msg.response.confirmed === true },
     });
     await this.backend.request('extension_ui.response', {
       sessionPath,

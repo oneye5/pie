@@ -4,12 +4,21 @@ import type { ComposerInput, ComposerInputDraft, ChatMessage } from './messages.
 import type { SessionSummary, TranscriptWindow, SystemPromptEntry, FileChangeEntry } from './sessions.js';
 import type { ExtensionInfo, PruningResult, PruningSettings, PruningCatalog, ChatPrefs, ActiveRunSummary, RunOutcome } from './settings.js';
 
+/** Base fields shared by all extension UI request variants. */
+export interface ExtensionUIRequestBase {
+  id: string;
+  sessionPath: string;
+  extensionId?: string;
+  /** When set, links this request to a subagent tool call in the parent session. */
+  subagentCallId?: string;
+}
+
 /** A pending extension UI request (backend → host → webview). */
 export type ExtensionUIRequestPayload =
-  | { id: string; method: 'confirm'; title: string; message: string; timeout?: number; extensionId?: string; sessionPath: string }
-  | { id: string; method: 'select'; title: string; options: string[]; timeout?: number; extensionId?: string; sessionPath: string }
-  | { id: string; method: 'input'; title: string; placeholder?: string; timeout?: number; extensionId?: string; sessionPath: string }
-  | { id: string; method: 'notify'; message: string; notifyType?: 'info' | 'warning' | 'error'; extensionId?: string; sessionPath: string };
+  | (ExtensionUIRequestBase & { method: 'confirm'; title: string; message: string })
+  | (ExtensionUIRequestBase & { method: 'select'; title: string; options: string[] })
+  | (ExtensionUIRequestBase & { method: 'input'; title: string; placeholder?: string })
+  | (ExtensionUIRequestBase & { method: 'notify'; message: string; notifyType?: 'info' | 'warning' | 'error' });
 
 /** Response from the webview (webview → host → backend). */
 export interface ExtensionUIResponsePayload {
@@ -71,9 +80,9 @@ export interface ViewState {
   editingMessageId: string | null;
   /** Whether the run-outcome dialog is open. */
   showOutcomeDialog: boolean;
-  /** Pending extension UI requests keyed by session path. */
-  pendingExtensionUIRequestsBySession: Record<string, ExtensionUIRequestPayload>;
-  /** Pending extension UI request for the active session, or null. */
+  /** Pending extension UI requests keyed by session path, then by request ID. */
+  pendingExtensionUIRequestsBySession: Record<string, Record<string, ExtensionUIRequestPayload>>;
+  /** First pending extension UI request for the active session, or null (for bottom-bar prompt). */
   pendingExtensionUIRequest: ExtensionUIRequestPayload | null;
 }
 

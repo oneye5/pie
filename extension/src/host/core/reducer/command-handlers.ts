@@ -293,7 +293,13 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     case 'RespondExtensionUI': {
       return {
         state: produce(state, (draft) => {
-          delete draft.settings.pendingExtensionUIRequestsBySession[cmd.sessionPath];
+          const sessionMap = draft.settings.pendingExtensionUIRequestsBySession[cmd.sessionPath];
+          if (sessionMap) {
+            delete sessionMap[cmd.requestId];
+            if (Object.keys(sessionMap).length === 0) {
+              delete draft.settings.pendingExtensionUIRequestsBySession[cmd.sessionPath];
+            }
+          }
         }),
         effects: cmd.approved
           ? [{ kind: 'PostImperative' as const, corrId: cmd.corrId, imperativeMessage: { type: 'extensionUiApproved', sessionPath: cmd.sessionPath } }]

@@ -17,7 +17,7 @@ interface SessionTabsProps {
   activeSession: SessionSummary | null;
   activeRunSummary: ActiveRunSummary | null;
   backendReady?: boolean;
-  pendingExtensionUIRequestsBySession: Record<string, import('../../../shared/protocol').ExtensionUIRequestPayload>;
+  pendingExtensionUIRequestsBySession: Record<string, Record<string, import('../../../shared/protocol').ExtensionUIRequestPayload>>;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
   onMove: (sessionPath: string | undefined, fromIndex: number, toIndex: number) => void;
@@ -237,6 +237,14 @@ function SessionTabContextMenu({
   );
 }
 
+function hasPendingRequest(
+  map: Record<string, Record<string, ExtensionUIRequestPayload>>,
+  sessionPath: string,
+): boolean {
+  const sessionMap = map[sessionPath];
+  return !!sessionMap && Object.keys(sessionMap).length > 0;
+}
+
 export function SessionTabs({
   sessions,
   openTabPaths,
@@ -299,7 +307,7 @@ export function SessionTabs({
             runningPathSet={runningPathSet}
             unreadFinishedPathSet={unreadFinishedPathSet}
             activeSession={activeSession}
-            hasPendingExtensionUIRequest={!!pendingExtensionUIRequestsBySession[tabPath]}
+            hasPendingExtensionUIRequest={hasPendingRequest(pendingExtensionUIRequestsBySession, tabPath)}
             activeRunSummary={activeRunSummary}
             onContextMenu={onContextMenu}
             onPointerDown={onPointerDown}

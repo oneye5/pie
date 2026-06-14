@@ -30,7 +30,9 @@ export function handleExtensionUIRequest(state: ArchState, event: Extract<Event,
   }
   return {
     state: produce(state, (draft) => {
-      draft.settings.pendingExtensionUIRequestsBySession[sessionPath] = event.request;
+      const sessionMap = draft.settings.pendingExtensionUIRequestsBySession[sessionPath] ?? {};
+      sessionMap[event.request.id] = event.request;
+      draft.settings.pendingExtensionUIRequestsBySession[sessionPath] = sessionMap;
     }),
     effects: [],
   };

@@ -240,29 +240,25 @@ test("formatToolCall: supports path-only edit/read variants", () => {
 
 // --- formatSelectionInfo ---
 
-test("formatSelectionInfo returns undefined when no scores or model", () => {
+test("formatSelectionInfo returns undefined when no bucket or model", () => {
 	assert.equal(formatSelectionInfo({}, fg), undefined);
 });
 
-test("formatSelectionInfo shows task scores", () => {
+test("formatSelectionInfo shows bucket hint", () => {
 	const result = formatSelectionInfo(
-		{ taskScores: { precision: 3, creativity: 1, reasoning: 5, thoroughness: 4 } },
+		{ bucket: "medium" },
 		fg,
 	);
 	assert.ok(result);
-	assert.match(result!, /p3/);
-	assert.match(result!, /c1/);
-	assert.match(result!, /r5/);
-	assert.match(result!, /t4/);
+	assert.match(result!, /medium/);
 });
 
 test("formatSelectionInfo shows selected model with pool", () => {
 	const result = formatSelectionInfo(
 		{
-			taskScores: { precision: 3 },
+			bucket: "medium",
 			selectedModel: "model-a",
 			selectionPool: ["model-a", "model-b"],
-			selectionFitScores: [10, 8],
 		},
 		fg,
 	);
@@ -271,9 +267,9 @@ test("formatSelectionInfo shows selected model with pool", () => {
 	assert.match(result!, /model-b/);
 });
 
-test("formatSelectionInfo shows thinking level alongside scores", () => {
+test("formatSelectionInfo shows thinking level", () => {
 	const result = formatSelectionInfo(
-		{ taskScores: { precision: 3 }, thinkingLevel: "high" },
+		{ bucket: "medium", thinkingLevel: "high" },
 		fg,
 	);
 	assert.ok(result);
@@ -283,10 +279,9 @@ test("formatSelectionInfo shows thinking level alongside scores", () => {
 test("formatSelectionInfo shows fallback info when model failed and was retried", () => {
 	const result = formatSelectionInfo(
 		{
-			taskScores: { precision: 3 },
+			bucket: "medium",
 			selectedModel: "model-b",
 			selectionPool: ["model-b", "model-c"],
-			selectionFitScores: [8, 6],
 			failedModel: "model-a",
 			retryCount: 1,
 		},
@@ -300,10 +295,9 @@ test("formatSelectionInfo shows fallback info when model failed and was retried"
 test("formatSelectionInfo hides fallback info when no failed model", () => {
 	const result = formatSelectionInfo(
 		{
-			taskScores: { precision: 3 },
+			bucket: "medium",
 			selectedModel: "model-b",
 			selectionPool: ["model-b"],
-			selectionFitScores: [8],
 		},
 		fg,
 	);
@@ -311,12 +305,12 @@ test("formatSelectionInfo hides fallback info when no failed model", () => {
 	assert.ok(!result!.includes("fallback"));
 });
 
-test("formatSelectionInfo handles missing peer score and includes diagnostics", () => {
+test("formatSelectionInfo handles fallback flag and includes diagnostics", () => {
 	const result = formatSelectionInfo(
 		{
 			selectedModel: "model-a:cloud",
 			selectionPool: ["model-a:cloud", "model-b:local"],
-			selectionFitScores: [9.2],
+			fallback: true,
 			failedModel: "model-z:cloud",
 			retryCount: 2,
 			modelResolutionDiagnostic: "model override not found",
@@ -324,15 +318,15 @@ test("formatSelectionInfo handles missing peer score and includes diagnostics", 
 		fg,
 	);
 	assert.ok(result);
-	assert.match(result!, /model-a\(9\.2\)/);
+	assert.match(result!, /model-a/);
+	assert.match(result!, /fallback/);
 	assert.match(result!, /\| model-b/);
-	assert.ok(!result!.includes("model-b("), "missing score should omit parentheses");
 	assert.match(result!, /fallback #2/);
 	assert.match(result!, /model override not found/);
 });
 
-test("formatSelectionInfo returns undefined when task score object has no dimensions", () => {
-	assert.equal(formatSelectionInfo({ taskScores: {} }, fg), undefined);
+test("formatSelectionInfo returns undefined when no bucket and no model", () => {
+	assert.equal(formatSelectionInfo({}, fg), undefined);
 });
 
 test("formatSelectionInfo handles selected model missing from pool", () => {
@@ -340,11 +334,9 @@ test("formatSelectionInfo handles selected model missing from pool", () => {
 		{
 			selectedModel: "chosen:local",
 			selectionPool: ["other:cloud"],
-			selectionFitScores: [4.4],
 		},
 		fg,
 	);
 	assert.ok(result);
 	assert.match(result!, /chosen/);
-	assert.ok(!result!.includes("chosen("), "missing score should omit selected-model parentheses");
 });

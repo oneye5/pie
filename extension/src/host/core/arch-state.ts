@@ -113,8 +113,8 @@ export interface SettingsState {
   availableExtensions: ExtensionInfo[];
   /** Whether the outcome dialog is showing. */
   showOutcomeDialog: boolean;
-  /** Per-session pending extension UI requests (ask-user inline choices). */
-  pendingExtensionUIRequestsBySession: Record<string, ExtensionUIRequestPayload>;
+  /** Per-session pending extension UI requests, keyed by request ID (ask-user inline choices). */
+  pendingExtensionUIRequestsBySession: Record<string, Record<string, ExtensionUIRequestPayload>>;
 }
 
 // ---------------------------------------------------------------------------

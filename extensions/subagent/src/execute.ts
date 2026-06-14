@@ -17,24 +17,31 @@ import {
 } from "../types.js";
 import { createInvalidAgentResult, summarizeInvalidAgentResults } from "../validation.js";
 import {
-	type TaskScores,
+	type BucketSelection,
+	type ThinkingLevel,
 	PROVIDER_TOGGLES_ENV,
+	getAllowedModelIdsForProviders,
 	getDisabledProviders,
-	loadSelectionConfig,
+	loadModelConfig,
 	parseProviderToggles,
 	selectModel,
-} from "../model-selection.js";
-import { loadModelPricing, resolveModelCost } from "../pricing.js";
+} from "../bucket-selector.js";
+import type { BucketAssignments, SimpleModelConfig } from "../bridge.js";
+import { getBucketAssignments } from "../bridge.js";
 import { MAX_DEPTH, MAX_SESSIONS_PER_CALL, makeDetails } from "./helpers.js";
+import type { ParentBridge } from "./parent-extension-ui-bridge-proxy.js";
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
 const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 
 /** Context for model selection settings and restrictions. */
 export interface SelectionContext {
-	selectionConfig: ReturnType<typeof loadSelectionConfig> | undefined;
+	modelConfig: SimpleModelConfig[];
 	disabledProviders: Set<string>;
 	allowedModelIds: Set<string> | undefined;
+	analyticsDir: string;
+	/** Cached bucket assignments for this tool call (computed once). */
+	bucketAssignments: BucketAssignments | undefined;
 }
 
 /**
@@ -72,59 +79,63 @@ export function validateSubagentParams(
 	return { mode, invalidResults };
 }
 
-/** Resolves which model to use for an agent based on task scores and configuration. */
-export function resolveModel(
+/** Resolves which model to use for an agent based on bucket hint and configuration. */
+export async function resolveModel(
 	agent: AgentConfig,
-	selectionConfig: ReturnType<typeof loadSelectionConfig> | undefined,
-	allowedModelIds: Set<string> | undefined,
-	perCallScores?: TaskScores,
+	selectionCtx: SelectionContext,
+	activeModelId: string,
+	perCallBucket?: string,
+	perCallThinkingLevel?: ThinkingLevel,
 	excludeModels?: Set<string>,
 ) {
-	const callerScores = perCallScores && Object.keys(perCallScores).length > 0 ? perCallScores : undefined;
-	const agentDefaultScores =
-		agent.defaultScores && Object.keys(agent.defaultScores).length > 0 ? agent.defaultScores : undefined;
-	const mergedScores: TaskScores = { ...agent.defaultScores, ...perCallScores };
-	if (!selectionConfig)
-		return {
-			modelOverride: undefined,
-			thinkingLevel: undefined,
-			selection: undefined,
-			callerScores,
-			agentDefaultScores,
-			mergedScores,
-		};
-	const selection = selectModel(mergedScores, selectionConfig, excludeModels, allowedModelIds);
+	const bucket = perCallBucket ?? agent.bucket ?? "medium";
+	const thinkingLevel = perCallThinkingLevel ?? agent.thinkingLevel;
+
+	// Load bucket assignments on first call (cached for subsequent calls)
+	if (!selectionCtx.bucketAssignments) {
+		selectionCtx.bucketAssignments = await getBucketAssignments(
+			selectionCtx.analyticsDir,
+			selectionCtx.modelConfig,
+		);
+	}
+
+	const selection = selectModel(
+		bucket,
+		thinkingLevel,
+		selectionCtx.bucketAssignments,
+		selectionCtx.modelConfig,
+		selectionCtx.allowedModelIds,
+		excludeModels,
+		activeModelId,
+	);
+
 	return {
-		modelOverride: selection?.modelId,
-		thinkingLevel: selection?.thinkingLevel,
+		modelOverride: selection.modelId,
+		thinkingLevel: selection.thinkingLevel,
 		selection,
-		callerScores,
-		agentDefaultScores,
-		mergedScores,
+		bucket,
 	};
 }
 
 /** Attaches model selection metadata to a subagent result. */
-export function attachSelectionMetadata(result: SingleResult, resolved: ReturnType<typeof resolveModel>): void {
+export function attachSelectionMetadata(result: SingleResult, resolved: Awaited<ReturnType<typeof resolveModel>>): void {
 	if (resolved.selection) {
 		result.selectedModel = resolved.selection.modelId;
 		result.selectionPool = resolved.selection.pool;
-		result.selectionFitScores = resolved.selection.fitScores;
 		result.thinkingLevel = resolved.selection.thinkingLevel;
+		result.bucket = resolved.selection.bucket;
+		result.fallback = resolved.selection.fallback;
 	}
-	result.taskScores = resolved.mergedScores;
-	result.callerScores = resolved.callerScores;
-	result.agentDefaultScores = resolved.agentDefaultScores;
 }
 
 /** Check if a subagent result represents a model-level failure that qualifies for retry. */
 export function isModelFailure(
 	result: SingleResult,
 	modelOverride: string | undefined,
-	hasSelectionConfig: boolean,
+	hasBucketAssignments: boolean,
 ): boolean {
 	return (
-		result.exitCode !== 0 && result.stopReason !== "aborted" && modelOverride !== undefined && hasSelectionConfig
+		result.exitCode !== 0 && result.stopReason !== "aborted" && modelOverride !== undefined && hasBucketAssignments
 	);
 }
 
@@ -261,24 +272,18 @@ async function maybeApproveProjectAgents(
 	};
 }
 
-/** Loads selection config, normalizes pricing, and resolves provider/model allowlists. */
+/** Loads simple model config, resolves analytics directory, and builds provider/model allowlists. */
 function setupModelSelection(ctx: ToolContext): SelectionContext {
-	const selectionConfigPath = path.join(CONFIG_ROOT, "model-profiles.json");
-	let selectionConfig: ReturnType<typeof loadSelectionConfig> | undefined;
+	const modelConfigPath = path.join(CONFIG_ROOT, "model-profiles.json");
+	let modelConfig: SimpleModelConfig[] = [];
 	try {
-		selectionConfig = loadSelectionConfig(selectionConfigPath);
+		modelConfig = loadModelConfig(modelConfigPath);
 	} catch {
 		/* ignore */
 	}
 
-	if (selectionConfig) {
-		const pricingRecords = loadModelPricing(path.join(CONFIG_ROOT, "models.json"));
-		for (const profile of selectionConfig.profiles) {
-			const dimAggregate = profile.precision + profile.creativity + profile.thoroughness + profile.reasoning;
-			const resolved = resolveModelCost(profile.id, pricingRecords, profile.cost, dimAggregate);
-			if (resolved.usedSource === "pricing") profile.normalizedCost = resolved.normalizedCost;
-		}
-	}
+	// Analytics directory: use the pi session data directory, falling back to analysis/data
+	const analyticsDir = path.join(CONFIG_ROOT, "analysis", "data");
 
 	const disabledProviders = getDisabledProviders(parseProviderToggles(process.env[PROVIDER_TOGGLES_ENV]));
 	const availableModels = ctx.modelRegistry.getAvailable();
@@ -288,7 +293,7 @@ function setupModelSelection(ctx: ToolContext): SelectionContext {
 			.map((m) => m.id),
 	);
 
-	return { selectionConfig, disabledProviders, allowedModelIds };
+	return { modelConfig, disabledProviders, allowedModelIds, analyticsDir, bucketAssignments: undefined };
 }
 
 /** Routes the validated request to the mode-specific execution function. */
@@ -303,6 +308,8 @@ async function dispatchToMode(
 	onUpdate: OnUpdateCallback,
 	signal: AbortSignal,
 	selectionCtx: SelectionContext,
+	_toolCallId: string,
+	parentUiBridge: ParentBridge | undefined,
 ) {
 	// Lazy import to avoid circular dependencies.
 	const { executeChainMode, executeParallelMode, executeSingleMode } = await import("./modes.js");
@@ -317,6 +324,8 @@ async function dispatchToMode(
 		onUpdate,
 		signal,
 		selectionCtx,
+		_toolCallId,
+		parentUiBridge,
 	] as const;
 	if (mode === "chain") return executeChainMode(...modeArgs);
 	if (mode === "parallel") return executeParallelMode(...modeArgs);
@@ -373,5 +382,7 @@ export async function execute(
 		onUpdate,
 		signal,
 		selectionCtx,
+		_toolCallId,
+		ctx.hasUI ? (ctx.ui as unknown as ParentBridge) : undefined,
 	);
 }

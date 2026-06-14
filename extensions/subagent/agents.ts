@@ -5,7 +5,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { TaskScores } from "./model-selection.js";
+import type { ThinkingLevel } from "./bucket-selector.js";
 
 export type AgentScope = "user" | "project" | "both";
 
@@ -14,7 +14,10 @@ export interface AgentConfig {
 	description: string;
 	tools?: string[];
 	model?: string;
-	defaultScores?: TaskScores;
+	/** Bucket hint for model selection: "small", "medium", or "frontier". */
+	bucket?: string;
+	/** Optional thinking level hint for model selection. */
+	thinkingLevel?: ThinkingLevel;
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -57,19 +60,16 @@ function parseFrontmatter<T extends Record<string, string>>(content: string): { 
 	return { frontmatter: frontmatter as T, body };
 }
 
-function parseDefaultScores(raw: string | undefined): TaskScores | undefined {
-	if (!raw) return undefined;
-	const scores: TaskScores = {};
-	for (const part of raw.split(",")) {
-		const [key, val] = part.split("=").map((s) => s.trim());
-		const num = parseInt(val, 10);
-		if (key && !isNaN(num) && num >= 0 && num <= 5) {
-			if (key === "precision" || key === "creativity" || key === "thoroughness" || key === "reasoning") {
-				scores[key] = num;
-			}
-		}
-	}
-	return Object.keys(scores).length > 0 ? scores : undefined;
+const VALID_BUCKETS = new Set(["small", "medium", "frontier"]);
+const VALID_THINKING_LEVELS = new Set<ThinkingLevel>(["minimal", "low", "medium", "high", "xhigh"]);
+
+function parseBucketAndThinking(rawBucket: string | undefined, rawThinking: string | undefined): { bucket?: string; thinkingLevel?: ThinkingLevel } {
+	const bucket = rawBucket?.trim();
+	const thinking = rawThinking?.trim() as ThinkingLevel | undefined;
+	return {
+		bucket: bucket && VALID_BUCKETS.has(bucket) ? bucket : undefined,
+		thinkingLevel: thinking && VALID_THINKING_LEVELS.has(thinking) ? thinking : undefined,
+	};
 }
 
 function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig[] {
@@ -109,12 +109,15 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			.map((t: string) => t.trim())
 			.filter(Boolean);
 
+		const { bucket, thinkingLevel } = parseBucketAndThinking(frontmatter.bucket, frontmatter.thinkingLevel);
+
 		agents.push({
 			name: frontmatter.name,
 			description: frontmatter.description,
 			tools: tools && tools.length > 0 ? tools : undefined,
 			model: frontmatter.model,
-			defaultScores: parseDefaultScores(frontmatter.defaultScores),
+			bucket,
+			thinkingLevel,
 			systemPrompt: body,
 			source,
 			filePath,

@@ -24,7 +24,7 @@ import { SubagentParams } from "../schema.js";
 import { renderSubagentCall, renderSubagentResult } from "../render.js";
 import { execute } from "./execute.js";
 
-const TASK_SCORE_GUIDANCE = "TaskScores: prefer the lowest score that fits; omit routine dimensions (omitted = 2). Use 3 for normal professional work, 4 for hard/high-risk or unusually complex work, and 5 only for rare frontier difficulty. Score difficulty, not importance or uncertainty. Reasoning is special: omit/2 requests low thinking; use 0 for direct/shallow work.";
+const BUCKET_GUIDANCE = "Bucket hint for model selection: 'small' (Haiku-class, busywork), 'medium' (Sonnet-class, main development), or 'frontier' (Opus-class, hardest problems). Defaults to 'medium' when omitted. Optional thinkingLevel: 'minimal', 'low', 'medium', 'high', 'xhigh'.";
 
 function buildDescription(disabled = false): string {
 	if (disabled) {
@@ -37,7 +37,7 @@ function buildDescription(disabled = false): string {
 		'The "agent" field must be an exact discovered agent name, not a scope keyword like "user", "project", or "both".',
 		'Default agent scope is "user" (from ~/.pi/agent/agents).',
 		'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
-		TASK_SCORE_GUIDANCE,
+		BUCKET_GUIDANCE,
 	];
 
 	try {
@@ -61,12 +61,12 @@ function buildPromptSnippet(disabled = false): string {
 		const { agents } = discoverAgents(process.cwd(), "user");
 		if (agents.length > 0) {
 			const names = agents.map((a) => a.name).join(", ");
-			return `Delegate tasks to specialized subagents with isolated context. Available agents: ${names}. ${TASK_SCORE_GUIDANCE}`;
+			return `Delegate tasks to specialized subagents with isolated context. Available agents: ${names}. ${BUCKET_GUIDANCE}`;
 		}
 	} catch {
 		/* ignore */
 	}
-	return `Delegate tasks to specialized subagents with isolated context. ${TASK_SCORE_GUIDANCE}`;
+	return `Delegate tasks to specialized subagents with isolated context. ${BUCKET_GUIDANCE}`;
 }
 
 /** Check whether subagent execution is disabled via flag or env var. */

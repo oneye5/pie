@@ -1,573 +1,380 @@
-topK: 2
 profiles:
   # === GITHUB COPILOT MODELS ===
-  #
-  # COST: the `cost` field below is a LEGACY fallback selector penalty (0–30+).
-  # Real token pricing is now the authoritative source, stored in `models.json`.
-  # The subagent selector resolves cost in this order:
-  #   1. Real token pricing from models.json → normalized via 10×√(blended/6.00)
-  #   2. Legacy `cost` field below (kept as fallback for models without token pricing)
-  #   3. Capability aggregate (precision+creativity+thoroughness+reasoning)
-  # See docs/internal/model-token-pricing-sources.md for evidence and baseline.
+  # cost: fallback cost estimate used by the stratified ranker when models.json
+  # pricing is unavailable. models.json remains the pricing authority via pricing.ts.
+  # eligible: false overrides leaderboard ranking — manually disable weak/broken models here.
+  # thinking: supported thinking levels for this model (used by bucket-selector).
 
   # --- Claude (current gen) ---
   - id: claude-opus-4.8
-    precision: 5
-    creativity: 4
-    thoroughness: 5
-    reasoning: 5
-    thinking: [medium]
     eligible: true
+    thinking: [medium]
+    disabled_reason: null
     cost: 30
 
   - id: claude-opus-4.7
-    precision: 5
-    creativity: 4
-    thoroughness: 5
-    reasoning: 5
-    thinking: [medium]
     eligible: true
+    thinking: [medium]
+    disabled_reason: null
     cost: 30
 
   - id: claude-opus-4.6
-    precision: 4
-    creativity: 5
-    thoroughness: 4
-    reasoning: 5
-    thinking: [low, medium, high, xhigh]
     eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
     cost: 18
 
   - id: claude-sonnet-4.6
-    precision: 4
-    creativity: 3
-    thoroughness: 4
-    reasoning: 4
-    thinking: [low, medium, high, xhigh]
     eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
     cost: 10
 
   - id: claude-sonnet-4.5
-    precision: 4
-    creativity: 3
-    thoroughness: 4
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 10
 
   - id: claude-haiku-4.5
-    precision: 3
-    creativity: 2
-    thoroughness: 2
-    reasoning: 3
-    thinking: [minimal, low, medium]
     eligible: true
+    thinking: [minimal, low, medium]
+    disabled_reason: null
     cost: 3
 
   # --- Claude (old gen, disabled) ---
   - id: claude-opus-4.5
-    precision: 5
-    creativity: 5
-    thoroughness: 5
-    reasoning: 5
-    thinking: [medium, high, xhigh]
     eligible: false
+    thinking: [medium, high, xhigh]
     disabled_reason: Superseded by opus-4.6/4.7
     cost: 18
 
   - id: claude-sonnet-4
-    precision: 4
-    creativity: 3
-    thoroughness: 4
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: false
+    thinking: [low, medium, high]
     disabled_reason: Superseded by sonnet-4.5/4.6
     cost: 10
 
   # --- GPT (current gen) ---
   - id: gpt-5.5
-    precision: 5
-    creativity: 4
-    thoroughness: 5
-    reasoning: 5
-    thinking: [medium, high, xhigh]
     eligible: true
+    thinking: [medium, high, xhigh]
+    disabled_reason: null
     cost: 25
 
   - id: gpt-5.4
-    precision: 4
-    creativity: 3
-    thoroughness: 5
-    reasoning: 5
-    thinking: [low, medium, high, xhigh]
     eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
     cost: 10
 
   - id: gpt-5.4-mini
-    precision: 3
-    creativity: 2
-    thoroughness: 3
-    reasoning: 3
-    thinking: [minimal, low, medium, high]
     eligible: true
+    thinking: [minimal, low, medium, high]
+    disabled_reason: null
     cost: 3
 
   - id: gpt-5.3-codex
-    precision: 4
-    creativity: 2
-    thoroughness: 4
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 10
 
   - id: gpt-5.2-codex
-    precision: 4
-    creativity: 2
-    thoroughness: 3
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 10
 
   - id: gpt-5.2
-    precision: 4
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 10
 
   # --- GPT (old gen, free-tier fallback enabled) ---
   - id: gpt-5.1
-    precision: 4
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: false
+    thinking: [low, medium, high]
     disabled_reason: Superseded by gpt-5.2+
     cost: 10
 
   - id: gpt-5.1-codex
-    precision: 4
-    creativity: 3
-    thoroughness: 4
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: false
+    thinking: [low, medium, high]
     disabled_reason: Superseded by gpt-5.2-codex/5.3-codex
     cost: 10
 
   - id: gpt-5.1-codex-max
-    precision: 4
-    creativity: 3
-    thoroughness: 4
-    reasoning: 4
-    thinking: [medium, high, xhigh]
     eligible: false
+    thinking: [medium, high, xhigh]
     disabled_reason: Superseded by gpt-5.3-codex
     cost: 10
 
   - id: gpt-5.1-codex-mini
-    precision: 3
-    creativity: 2
-    thoroughness: 3
-    reasoning: 3
-    thinking: [low, medium]
     eligible: false
+    thinking: [low, medium]
     disabled_reason: Superseded by gpt-5.4-mini
     cost: 3
 
   - id: gpt-5
-    precision: 3
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: false
+    thinking: [low, medium, high]
     disabled_reason: Superseded by gpt-5.4/5.5
     cost: 10
 
   - id: gpt-5-mini
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
+    eligible: false
     thinking: [low, medium]
-    eligible: true
+    disabled_reason: "repeated tool failures in subagent mode"
     cost: 0
 
   - id: gpt-4.1
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
+    eligible: false
     thinking: [minimal]
-    eligible: true
+    disabled_reason: "insufficient capability for reliable subagent use"
     cost: 0
 
   - id: gpt-4o
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 1
+    eligible: false
     thinking: [minimal]
-    eligible: true
+    disabled_reason: "insufficient capability for reliable subagent use"
     cost: 0
 
   # --- Gemini (copilot, current gen) ---
   - id: gemini-3.1-pro-preview
-    precision: 3
-    creativity: 5
-    thoroughness: 4
-    reasoning: 5
-    thinking: [medium, high, xhigh]
     eligible: true
+    thinking: [medium, high, xhigh]
+    disabled_reason: null
     cost: 10
 
   - id: gemini-3-pro-preview
-    precision: 3
-    creativity: 4
-    thoroughness: 3
-    reasoning: 4
-    thinking: [low, medium, high, xhigh]
     eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
     cost: 10
 
   - id: gemini-3-flash-preview
-    precision: 2
-    creativity: 3
-    thoroughness: 2
-    reasoning: 3
-    thinking: [minimal, low, medium, high]
     eligible: true
+    thinking: [minimal, low, medium, high]
+    disabled_reason: null
     cost: 3
 
   # --- Gemini (copilot, old gen) ---
   - id: gemini-2.5-pro
-    precision: 3
-    creativity: 3
-    thoroughness: 3
-    reasoning: 3
-    thinking: [minimal]
     eligible: false
+    thinking: [minimal]
     disabled_reason: Superseded by gemini-3.x
     cost: 10
 
   # --- Grok ---
   - id: grok-code-fast-1
-    precision: 3
-    creativity: 2
-    thoroughness: 3
-    reasoning: 3
-    thinking: [minimal, low, medium]
     eligible: true
+    thinking: [minimal, low, medium]
+    disabled_reason: null
     cost: 13
 
   # === OLLAMA CLOUD MODELS ===
   #
-  # COST: legacy fallback values. Real pricing in models.json (compute estimates
-  # from docs/internal/model-token-pricing-sources.md) is the authoritative source.
-  # The `cost` field here is only used when models.json has no pricing for a model.
+  # cost: fallback cost when models.json pricing unavailable.
+  # models.json via pricing.ts remains the pricing authority.
 
   # --- DeepSeek (current gen) ---
   - id: deepseek-v4-pro:cloud
-    precision: 5
-    creativity: 3
-    thoroughness: 5
-    reasoning: 5
-    thinking: [medium, high, xhigh]
     eligible: true
+    thinking: [medium, high, xhigh]
+    disabled_reason: null
     cost: 11
 
   - id: deepseek-v4-flash:cloud
-    precision: 3
-    creativity: 2
-    thoroughness: 3
-    reasoning: 3
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 6
 
   - id: deepseek-v3.2:cloud
-    precision: 4
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 10
 
   # --- Cogito ---
   - id: cogito-2.1:671b-cloud
-    precision: 4
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [medium, high, xhigh]
     eligible: true
+    thinking: [medium, high, xhigh]
+    disabled_reason: null
     cost: 10
 
   # --- Gemini (ollama) ---
   - id: gemini-3-flash-preview:cloud
-    precision: 3
-    creativity: 3
-    thoroughness: 2
-    reasoning: 3
-    thinking: [minimal, low, medium, high, xhigh]
     eligible: true
+    thinking: [minimal, low, medium, high, xhigh]
+    disabled_reason: null
     cost: 9
 
   - id: gemma4:31b-cloud
-    precision: 3
-    creativity: 3
-    thoroughness: 3
-    reasoning: 3
-    thinking: [minimal, low, medium]
     eligible: true
+    thinking: [minimal, low, medium]
+    disabled_reason: null
     cost: 9
 
   # --- Qwen (current gen) ---
   - id: qwen3.5:397b-cloud
-    precision: 4
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [medium, high, xhigh]
     eligible: true
+    thinking: [medium, high, xhigh]
+    disabled_reason: null
     cost: 7
 
   - id: qwen3.5:cloud
-    precision: 3
-    creativity: 3
-    thoroughness: 2
-    reasoning: 3
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 7
 
   - id: qwen3-next:80b-cloud
-    precision: 3
-    creativity: 2
-    thoroughness: 3
-    reasoning: 3
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 3
 
   - id: qwen3-vl:235b-cloud
-    precision: 4
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 8
 
   - id: qwen3-coder-next:cloud
-    precision: 4
-    creativity: 2
-    thoroughness: 3
-    reasoning: 2
-    thinking: [minimal]
     eligible: true
+    thinking: [minimal]
+    disabled_reason: null
     cost: 3
 
   - id: qwen3-coder:480b-cloud
-    precision: 4
-    creativity: 2
-    thoroughness: 3
-    reasoning: 3
-    thinking: [minimal]
     eligible: true
+    thinking: [minimal]
+    disabled_reason: null
     cost: 10
 
   # --- Qwen (old/redundant) ---
   - id: qwen3-vl:235b-instruct-cloud
-    precision: 3
-    creativity: 2
-    thoroughness: 3
-    reasoning: 2
-    thinking: [minimal]
     eligible: false
+    thinking: [minimal]
     disabled_reason: Redundant with qwen3-vl:235b-cloud thinking variant
     cost: 8
 
   # --- Kimi (current gen) ---
   - id: kimi-k2.6:cloud
-    precision: 4
-    creativity: 4
-    thoroughness: 4
-    reasoning: 5
-    thinking: [medium, high, xhigh]
     eligible: true
+    thinking: [medium, high, xhigh]
+    disabled_reason: null
     cost: 9
 
   - id: kimi-k2.5:cloud
-    precision: 4
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 9
 
   # --- Nemotron ---
   - id: nemotron-3-super:cloud
-    precision: 3
-    creativity: 3
-    thoroughness: 3
-    reasoning: 3
-    thinking: [low, medium, high, xhigh]
     eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
     cost: 6
 
   - id: nemotron-3-nano:30b-cloud
-    precision: 3
-    creativity: 2
-    thoroughness: 3
-    reasoning: 3
-    thinking: [minimal, low, medium]
     eligible: true
+    thinking: [minimal, low, medium]
+    disabled_reason: null
     cost: 9
 
   - id: nemotron-3-ultra:cloud
-    precision: 5
-    creativity: 3
-    thoroughness: 5
-    reasoning: 5
-    thinking: [low, medium, high, xhigh]
     eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
     cost: 6
 
   # --- GLM (current gen) ---
   - id: glm-5.1:cloud
-    precision: 5
-    creativity: 3
-    thoroughness: 4
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 10
 
   - id: glm-4.7:cloud
-    precision: 3
-    creativity: 3
-    thoroughness: 3
-    reasoning: 3
-    thinking: [low, medium]
     eligible: true
+    thinking: [low, medium]
+    disabled_reason: null
     cost: 9
 
   # --- GPT-OSS ---
   - id: gpt-oss:120b-cloud
-    precision: 4
-    creativity: 3
-    thoroughness: 3
-    reasoning: 4
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 18
 
   - id: gpt-oss:20b-cloud
-    precision: 3
-    creativity: 2
-    thoroughness: 2
-    reasoning: 3
-    thinking: [minimal, low, medium]
     eligible: false
+    thinking: [minimal, low, medium]
     disabled_reason: Superseded by gpt-oss:120b
     cost: 7
 
   # --- Minimax (current gen) ---
   - id: minimax-m2.7:cloud
-    precision: 3
-    creativity: 3
-    thoroughness: 3
-    reasoning: 3
-    thinking: [low, medium, high]
     eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
     cost: 5
 
   - id: minimax-m3:cloud
-    precision: 4
-    creativity: 4
-    thoroughness: 4
-    reasoning: 4
-    thinking: [low, medium, high, xhigh]
     eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
     cost: 7
 
   # --- Devstral / Mistral ---
   - id: devstral-2:123b-cloud
-    precision: 4
-    creativity: 2
-    thoroughness: 3
-    reasoning: 2
-    thinking: [minimal]
     eligible: true
+    thinking: [minimal]
+    disabled_reason: null
     cost: 18
 
   - id: devstral-small-2:24b-cloud
-    precision: 3
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
-    thinking: [minimal]
     eligible: true
+    thinking: [minimal]
+    disabled_reason: null
     cost: 8
 
   - id: mistral-large-3:675b-cloud
-    precision: 4
-    creativity: 3
-    thoroughness: 3
-    reasoning: 3
-    thinking: [minimal]
     eligible: true
+    thinking: [minimal]
+    disabled_reason: null
     cost: 10
 
   - id: ministral-3:14b-cloud
-    precision: 3
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
-    thinking: [minimal]
     eligible: true
+    thinking: [minimal]
+    disabled_reason: null
     cost: 6
 
   # === OLLAMA LOCAL MODELS ===
 
   # --- Pi local presets ---
   - id: mistral-7b-pi:latest
-    precision: 2
-    creativity: 2
-    thoroughness: 2
-    reasoning: 2
-    thinking: [minimal]
     eligible: false
+    thinking: [minimal]
     disabled_reason: Too small for agentic work
     cost: 8
 
   - id: llama3.2-3b-pi:latest
-    precision: 1
-    creativity: 1
-    thoroughness: 1
-    reasoning: 1
-    thinking: [minimal]
     eligible: false
+    thinking: [minimal]
     disabled_reason: Too small for agentic work
     cost: 4
 
   - id: gemma4-e2b-pi:latest
-    precision: 1
-    creativity: 1
-    thoroughness: 1
-    reasoning: 1
-    thinking: [minimal]
     eligible: false
+    thinking: [minimal]
     disabled_reason: Too small for agentic work
     cost: 4
