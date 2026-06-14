@@ -42,6 +42,15 @@
 /* Raw CSS custom properties consumed by component stylesheets via var().    */
 /* Not Tailwind tokens — components that use Tailwind utilities use @theme.  */
 
+/*
+ * Design decision: the pie webview is dark-only. It uses a bespoke night
+ * palette (`--panel-*`) that is intentionally independent of the VS Code
+ * theme. Light-mode variables were never shipped in production (they only
+ * existed in dev.html for browser-mode testing) and have been removed.
+ * If a light theme is needed in the future, a full contrast audit of all
+ * 15 component stylesheets would be required.
+ */
+
 :root {
   /* Bespoke night palette: intentionally independent from the VS Code theme. */
   --panel-black: #020203;

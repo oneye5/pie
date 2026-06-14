@@ -196,7 +196,6 @@ interface DraftRestoreOps {
 interface HostMessageContext {
   resetPerSessionState: () => void;
   hostInstanceIdRef: { current: string };
-  awaitingSnapshotRef: { current: boolean };
   activeSessionPathRef: { current: string | null };
   committedSessionPathRef: { current: string | null };
   clearTransientUi: () => void;
@@ -213,7 +212,6 @@ function handleStateMessage(msg: HostToWebviewMessage, ctx: HostMessageContext) 
   const nextActiveSessionPath = m.state.activeSession?.path ?? null;
   const sessionChanged = ctx.committedSessionPathRef.current !== null && ctx.committedSessionPathRef.current !== nextActiveSessionPath;
 
-  ctx.awaitingSnapshotRef.current = false;
   ctx.hostInstanceIdRef.current = m.hostInstanceId;
   ctx.activeSessionPathRef.current = nextActiveSessionPath;
   ctx.committedSessionPathRef.current = nextActiveSessionPath;
@@ -297,7 +295,6 @@ export function useHostSync(
 
   const revisionMapRef = useRef<Map<string, number>>(new Map());
 
-  const awaitingSnapshotRef = useRef(false);
   const hostInstanceIdRef = useRef('');
   const activeSessionPathRef = useRef<string | null>(null);
   const committedSessionPathRef = useRef<string | null>(null);
@@ -362,7 +359,6 @@ export function useHostSync(
       dispatchHostMessage(event.data as HostToWebviewMessage, {
         resetPerSessionState,
         hostInstanceIdRef,
-        awaitingSnapshotRef,
         activeSessionPathRef,
         committedSessionPathRef,
         clearTransientUi,
@@ -382,10 +378,6 @@ export function useHostSync(
   useStateAppliedDiagnostics(pendingStateApplied, postMessage);
 
   useFocusRefresh(postMessage);
-
-  // Suppress unused refs (they participate in the transport protocol but
-  // aren't surfaced to the caller yet).
-  void awaitingSnapshotRef;
 
   return { viewState, mergedTranscript, draftRestore, activeSessionPathRef, setDraftRestore, addOptimisticMessage };
 }

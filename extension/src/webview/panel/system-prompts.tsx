@@ -44,6 +44,7 @@ function SystemPromptCard({ prompt }: SystemPromptCardProps) {
       class="system-prompt-card"
       role="button"
       aria-expanded={open}
+      aria-label="Toggle system prompt"
       tabIndex={0}
       onClick={() => setOpen((value) => !value)}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((value) => !value); } }}
@@ -112,6 +113,7 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
         )}
         role="button"
         aria-expanded={groupOpen}
+        aria-label="Toggle system prompts group"
         tabIndex={0}
         onClick={() => setGroupOpen((v) => !v)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setGroupOpen((v) => !v); } }}

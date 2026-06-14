@@ -86,7 +86,7 @@ function ConfirmPrompt({ id, title, message, timeout, extensionId, onRespond }: 
   }, [id, onRespond]);
 
   return (
-    <div ref={containerRef} class="ext-prompt" tabIndex={-1} role="alertdialog" aria-label={title}>
+    <div ref={containerRef} class="ext-prompt" tabIndex={-1} role="alertdialog" aria-modal="true" aria-label={title}>
       <div class="ext-prompt-row">
         <div class="ext-prompt-content">
           {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
@@ -163,7 +163,7 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
   }, [id, customValue, onRespond]);
 
   return (
-    <div ref={containerRef} class="ext-prompt" tabIndex={-1} role="dialog" aria-label={title}>
+    <div ref={containerRef} class="ext-prompt" tabIndex={-1} role="dialog" aria-modal="true" aria-label={title}>
       <div class="ext-prompt-row">
         <div class="ext-prompt-content">
           {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
@@ -265,7 +265,7 @@ function InputPrompt({ id, title, placeholder, timeout, extensionId, onRespond }
   }, [id, value, onRespond]);
 
   return (
-    <div class="ext-prompt" role="dialog" aria-label={title}>
+    <div class="ext-prompt" role="dialog" aria-modal="true" aria-label={title}>
       <div class="ext-prompt-row">
         <div class="ext-prompt-content">
           {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}

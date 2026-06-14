@@ -269,3 +269,17 @@
     transform: translateY(0);
   }
 }
+
+@media (forced-colors: active) {
+  .ask-user-prompt,
+  .ask-user-completed,
+  .ask-user-prompt-loading {
+    border-color: Highlight;
+  }
+  .ask-user-option {
+    border-color: ButtonText;
+  }
+  .ask-user-custom-input {
+    border-color: ButtonText;
+  }
+}

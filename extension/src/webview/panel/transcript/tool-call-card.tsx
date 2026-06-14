@@ -373,6 +373,7 @@ export function ToolCallCard({
       )}
       role="button"
       aria-expanded={open}
+      aria-label="Toggle tool call details"
       tabIndex={0}
       onClick={() => setOpen((v) => !v)}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}

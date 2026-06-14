@@ -365,3 +365,17 @@
   border: 1px solid var(--panel-border-subtle);
   color: var(--panel-foreground);
 }
+
+@media (forced-colors: active) {
+  .file-changes-panel {
+    border-color: ButtonText;
+  }
+  .file-change-revert,
+  .file-change-open,
+  .file-change-copy {
+    color: ButtonText;
+  }
+  .file-type-icon.badge {
+    border-color: ButtonText;
+  }
+}

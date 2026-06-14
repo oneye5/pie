@@ -737,3 +737,31 @@
   justify-content: flex-end;
   gap: var(--panel-gap-md);
 }
+
+@media (forced-colors: active) {
+  .composer-run-action {
+    border-color: ButtonText;
+  }
+  .composer-run-action:disabled {
+    border-color: GrayText;
+  }
+  .toolbar-settings-trigger {
+    border-color: ButtonText;
+  }
+  .toolbar-settings-item-check {
+    border-color: ButtonText;
+  }
+  .toolbar-settings-item.checked .toolbar-settings-item-check {
+    border-color: Highlight;
+  }
+  .attachment-card {
+    border-color: ButtonText;
+  }
+  .attachment-card-remove {
+    color: ButtonText;
+  }
+  .toolbar-settings-select,
+  .toolbar-settings-stepper-btn {
+    border-color: ButtonText;
+  }
+}

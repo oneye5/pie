@@ -8,6 +8,7 @@ import { shouldOpenSubagentContextMenu } from './interactions';
 import { getToolCallContextType } from '../chat-prefs';
 import { AskUserContext } from '../hooks/ask-user-context';
 
+import { cx } from '../utils/cx';
 import {
   getRenderableSubagentResultFromToolCall,
   subagentSingleResultToChatMessages,
@@ -198,9 +199,10 @@ function SubagentSingleBlock({
 
   return (
     <div
-      class={`tool-call tool-call-legacy-shell tool-call-subagent ${status}${hasPendingAskUser ? ' pending-ask-user' : ''}`}
+      class={cx('tool-call tool-call-subagent', 'border border-border-subtle rounded-xl bg-card shadow-sm overflow-hidden cursor-pointer select-none transition-[border-color,background,box-shadow] duration-150 hover:border-border hover:bg-control-hover hover:shadow-md forced-colors:border forced-colors:border-[ButtonText]', status, hasPendingAskUser && 'pending-ask-user')}
       role="button"
       aria-expanded={open}
+      aria-label="Toggle subagent details"
       tabIndex={0}
       onClick={() => setOpen((v) => !v)}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}

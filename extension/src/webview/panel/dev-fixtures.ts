@@ -498,6 +498,86 @@ export const devFixtures: DevFixture[] = [
       ],
     }),
   },
+  {
+    id: 'pruning-expanded',
+    label: 'Pruning banner expanded',
+    state: baseState({
+      transcript: normalTranscript,
+      pruningResult: {
+        skillsKept: 3,
+        skillsTotal: 20,
+        toolsKept: 5,
+        toolsTotal: 80,
+        tokensSaved: 28000,
+        hasSkillPruning: true,
+        hasToolPruning: true,
+      },
+    }),
+  },
+  {
+    id: 'subagent-expanded',
+    label: 'Subagent expanded',
+    state: baseState({
+      transcript: [
+        ...normalTranscript,
+        assistantMessage('assistant-subagent-1', 'I delegated an accessibility review to the scout agent.', {
+          parts: [
+            { kind: 'text', text: 'I delegated an accessibility review to the scout agent.' },
+            {
+              kind: 'toolCall',
+              toolCall: {
+                id: 'tool-subagent-1',
+                name: 'subagent',
+                input: {
+                  task: 'Review the accessibility of tool-call components and report any missing ARIA attributes',
+                  bucket: 'small',
+                  agent: 'scout',
+                },
+                result: {
+                  content: [
+                    {
+                      type: 'text',
+                      text: 'Found 4 interactive elements missing aria-label attributes and 2 dialogs missing aria-modal. Recommend adding forced-colors coverage to 8 component stylesheets.',
+                    },
+                  ],
+                },
+                status: 'completed',
+                startedAt: Date.parse(now) - 8000,
+                durationMs: 4500,
+              },
+            },
+          ],
+          toolCalls: [
+            {
+              id: 'tool-subagent-1',
+              name: 'subagent',
+              input: {
+                task: 'Review the accessibility of tool-call components and report any missing ARIA attributes',
+                bucket: 'small',
+                agent: 'scout',
+              },
+              result: {
+                content: [
+                  {
+                    type: 'text',
+                    text: 'Found 4 interactive elements missing aria-label attributes and 2 dialogs missing aria-modal. Recommend adding forced-colors coverage to 8 component stylesheets.',
+                  },
+                ],
+              },
+              status: 'completed',
+              startedAt: Date.parse(now) - 8000,
+              durationMs: 4500,
+            },
+          ],
+        }),
+      ],
+    }),
+  },
+  {
+    id: 'narrow-viewport',
+    label: 'Narrow viewport',
+    state: baseState({ transcript: normalTranscript }),
+  },
 ];
 
 export const defaultDevFixtureId = 'chat';

@@ -197,3 +197,12 @@
 .composer-hint-error {
   color: var(--panel-warning);
 }
+
+@media (forced-colors: active) {
+  .context-menu-item {
+    border-color: ButtonText;
+  }
+  .context-menu-item:disabled {
+    color: GrayText;
+  }
+}

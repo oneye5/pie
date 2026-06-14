@@ -130,3 +130,13 @@
     transform: none;
   }
 }
+
+@media (forced-colors: active) {
+  .status-chip.has-error-detail {
+    border-color: ButtonText;
+  }
+  .status-chip-failed,
+  .status-chip-error {
+    color: LinkText;
+  }
+}

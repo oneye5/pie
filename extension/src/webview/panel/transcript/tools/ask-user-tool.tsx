@@ -145,6 +145,7 @@ function AskUserInlinePrompt({
       class="ask-user-prompt"
       tabIndex={-1}
       role="dialog"
+      aria-modal="true"
       aria-label={parsedInput.question}
       onContextMenu={(e) => { e.preventDefault(); handleContextMenu(e as unknown as MouseEvent); }}
     >

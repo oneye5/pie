@@ -234,3 +234,12 @@
   max-height: 300px;
   overflow-y: auto;
 }
+
+@media (forced-colors: active) {
+  .pruning-banner {
+    border-color: ButtonText;
+  }
+  .pruning-banner-summary {
+    color: ButtonText;
+  }
+}

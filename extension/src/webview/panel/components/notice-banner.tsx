@@ -32,7 +32,7 @@ export function NoticeBanner({ notice, onDismiss }: NoticeBannerProps) {
             {expanded ? 'Less' : 'More'}
           </button>
         )}
-        <button class="notice-btn notice-dismiss" onClick={onDismiss} title="Dismiss">✕</button>
+        <button class="notice-btn notice-dismiss" onClick={onDismiss} title="Dismiss" aria-label="Dismiss notice">✕</button>
       </div>
     </div>
   );

@@ -159,8 +159,7 @@ function ComposerView({
     [pendingComposerInputs],
   );
   const showAttachmentSummary = pendingComposerInputs.length > 1;
-  // Composer stays neutral; turn status is surfaced in the transcript activity strip.
-  const composerPlaceholder = '';
+  const composerPlaceholder = 'Ask anything…';
 
   return (
     <div class="composer-area flex shrink-0 flex-col gap-1.5 border-t border-border/50 bg-surface px-3 py-2 pb-2.5" ref={composerAreaRef}>

@@ -27,6 +27,7 @@ export function ReasoningBlock({ text, autoExpand, disclosureKey, onContextMenu 
       )}
       role="button"
       aria-expanded={open}
+      aria-label="Toggle reasoning details"
       tabIndex={0}
       onClick={() => setOpen((v) => !v)}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}

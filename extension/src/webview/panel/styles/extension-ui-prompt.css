@@ -363,3 +363,21 @@
     transform: translateY(-8px);
   }
 }
+
+@media (forced-colors: active) {
+  .ext-prompt {
+    border-color: Highlight;
+  }
+  .ext-prompt-btn {
+    border-color: ButtonText;
+  }
+  .ext-prompt-btn.primary {
+    border-color: Highlight;
+  }
+  .ext-prompt-option {
+    border-color: ButtonText;
+  }
+  .ext-prompt-input {
+    border-color: ButtonText;
+  }
+}

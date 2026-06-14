@@ -41,7 +41,7 @@ export function ErrorDetail({ detail }: { detail: string }) {
         >
           Copy
         </button>
-        <button class="message-error-detail-btn" onClick={() => setDismissed(true)} title="Dismiss">✕</button>
+        <button class="message-error-detail-btn" onClick={() => setDismissed(true)} title="Dismiss" aria-label="Dismiss error detail">✕</button>
       </span>
     </div>
   );

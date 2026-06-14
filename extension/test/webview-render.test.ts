@@ -647,8 +647,8 @@ test('rendered parallel subagent cards keep per-child summaries and statuses whi
   assert.match(html, /Review output/);
   assert.doesNotMatch(html, /scout: Gather logs/);
   assert.doesNotMatch(html, /reviewer: Review output/);
-  assert.equal((html.match(/tool-call tool-call-legacy-shell tool-call-subagent running/g) ?? []).length, 1);
-  assert.equal((html.match(/tool-call tool-call-legacy-shell tool-call-subagent failed/g) ?? []).length, 1);
+  assert.equal((html.match(/\btool-call\b[^>]*\btool-call-subagent\b[^>]*\brunning\b/g) ?? []).length, 1);
+  assert.equal((html.match(/\btool-call\b[^>]*\btool-call-subagent\b[^>]*\bfailed\b/g) ?? []).length, 1);
   assert.equal((html.match(/status-chip-running/g) ?? []).length, 0);
   assert.equal((html.match(/status-chip-failed/g) ?? []).length, 1);
 });
