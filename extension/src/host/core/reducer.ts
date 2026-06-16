@@ -116,7 +116,8 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
     case 'SetPruningSettingsResult':
     case 'CloseSessionResult':
     case 'DuplicateSessionResult':
-    case 'MoveSessionTabResult': {
+    case 'MoveSessionTabResult':
+    case 'ExtensionUiResponseResult': {
       return handleEffectResult(state, event);
     }
 
@@ -302,17 +303,26 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
       return handlePersistTabsResult(state, event);
     }
 
-    default:
+    default: {
+      // Exhaustiveness: the switch is total over `Event`. If this branch is
+      // reached, an Event kind is unhandled above — the `never` assignment
+      // turns that into a compile-time error so adding a new Event variant
+      // without a handler fails the build. At runtime we fail loud
+      // (error-level log) rather than silently dropping the event, but we do
+      // not throw so one malformed event cannot take down a streaming session.
+      const _exhaustive: never = event;
+      void _exhaustive;
       return {
         state,
         effects: [
           {
             kind: 'Log',
             corrId: '',
-            level: 'warn',
-            message: `Unhandled event: ${(event as { kind?: string }).kind}`,
+            level: 'error',
+            message: `reducer: unhandled event kind (type system bypassed?): ${(event as { kind?: string }).kind}`,
           },
         ],
       };
+    }
   }
 }

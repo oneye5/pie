@@ -5,7 +5,7 @@ export function buildRestoredSessionSummaries(
   rawTabs: readonly unknown[],
   restoredTabs: readonly string[],
   workspaceCwd: string,
-  modifiedAt = new Date().toISOString(),
+  modifiedAt: string,
 ): SessionSummary[] {
   const restoredNames = new Map<string, string>();
 

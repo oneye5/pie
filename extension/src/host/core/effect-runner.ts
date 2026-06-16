@@ -317,20 +317,12 @@ export class EffectRunner {
       })();
       return;
     }
-    // CQRS effect types — not yet implemented; no-op until runner is extended.
-    if (
-      effect.kind === 'FlashWindow' ||
-      effect.kind === 'PlayCompletionSound' ||
-      effect.kind === 'ExportRunAnalytics' ||
-      effect.kind === 'EvictTranscript' ||
-      effect.kind === 'DeriveFileChanges' ||
-      effect.kind === 'DeriveAvailableExtensions'
-    ) {
-      return;
-    }
-    // Exhaustiveness check — TS should reject unhandled kinds at compile time.
+    // Exhaustiveness check: TS rejects unhandled Effect kinds at compile time.
+    // Reachable only if the type system is bypassed (e.g. an `as` cast); fail
+    // loud via the log sink rather than silently dropping the effect.
     const _exhaustive: never = effect;
     void _exhaustive;
+    this.deps.log.log('error', `EffectRunner: unhandled effect kind (type system bypassed?): ${(effect as { kind?: string }).kind}`);
   }
 
   /**

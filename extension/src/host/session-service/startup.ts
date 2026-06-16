@@ -262,7 +262,7 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
   applyRestoredTabPaths(options, restoredTabs);
   persistIfTabStateChanged(options, storedRawTabs, rawTabs, preferredStartupPath, restoredStartupPath);
 
-  const cachedSessions = buildRestoredSessionSummaries(rawTabs, restoredTabs, workspaceCwd);
+  const cachedSessions = buildRestoredSessionSummaries(rawTabs, restoredTabs, workspaceCwd, new Date().toISOString());
   if (cachedSessions.length > 0) {
     dispatchArch({ kind: 'SessionSummariesReplaced', summaries: cachedSessions });
   }

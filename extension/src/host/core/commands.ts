@@ -203,7 +203,6 @@ export type Command =
   | ReorderTabsCommand
   | OpenFileDiffCommand
   | RevertFileCommand
-  | ExportAnalyticsCommand
   | CloseSessionCommand
   | SetEditingMessageCommand
   | SetOutcomeDialogCommand
@@ -258,11 +257,6 @@ export interface RevertFileCommand extends CommandBase {
   kind: 'RevertFile';
   sessionPath: string;
   filePath: string;
-}
-
-export interface ExportAnalyticsCommand extends CommandBase {
-  kind: 'ExportAnalytics';
-  sessionPath: string;
 }
 
 export interface CloseSessionCommand extends CommandBase {

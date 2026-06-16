@@ -6,6 +6,8 @@ import type { ReducerResult } from './helpers.js';
 import { appendLocalUserMessage, removeMessage } from './helpers.js';
 
 export function handleOptimisticMessageInserted(state: ArchState, event: Extract<Event, { kind: 'OptimisticMessageInserted' }>): ReducerResult {
+  // Pure: `new Date(event.timestamp)` is deterministic (timestamp injected by
+  // the dispatcher, not wall-clock time). See arch-boundary-guards.test.ts.
   const nextState = produce(state, (draft) => {
     appendLocalUserMessage(draft, event.sessionPath, event.localId, event.text, undefined, new Date(event.timestamp).toISOString());
   });

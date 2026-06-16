@@ -15,7 +15,7 @@ import {
 } from '../transcript-window.js';
 import type { ReducerResult } from './helpers.js';
 import { resolveAlias, enforceLoadedWindowBudget } from './helpers.js';
-import type { Event } from '../events.js';
+import type { Event, BackendEvent } from '../events.js';
 
 export function handleMessageStarted(state: ArchState, event: Extract<Event, { kind: 'MessageStarted' }>): ReducerResult {
   const { sessionPath, messageId, requestId, modelId, thinkingLevel, timestamp } = event;
@@ -192,7 +192,7 @@ export function handleMessageAborted(state: ArchState, event: Extract<Event, { k
   return { state: nextState, effects: [] };
 }
 
-export function handleStreamingEvent(state: ArchState, event: Event): ReducerResult {
+export function handleStreamingEvent(state: ArchState, event: Extract<BackendEvent, { kind: 'MessageStarted' } | { kind: 'MessageDelta' } | { kind: 'MessageThinking' } | { kind: 'ToolCall' } | { kind: 'MessageFinished' } | { kind: 'MessageAborted' }>): ReducerResult {
   switch (event.kind) {
     case 'MessageStarted':
       return handleMessageStarted(state, event);
@@ -206,17 +206,22 @@ export function handleStreamingEvent(state: ArchState, event: Event): ReducerRes
       return handleMessageFinished(state, event);
     case 'MessageAborted':
       return handleMessageAborted(state, event);
-    default:
+    default: {
+      // Exhaustiveness: the switch is total over the streaming-event kinds
+      // routed here from the top-level reducer.
+      const _exhaustive: never = event;
+      void _exhaustive;
       return {
         state,
         effects: [
           {
             kind: 'Log',
             corrId: '',
-            level: 'warn',
-            message: `Unhandled streaming event: ${(event as { kind?: string }).kind}`,
+            level: 'error',
+            message: `handleStreamingEvent: unhandled streaming kind (type system bypassed?): ${(event as { kind?: string }).kind}`,
           },
         ],
       };
+    }
   }
 }

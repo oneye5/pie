@@ -1,15 +1,16 @@
 /**
- * Phase 2 type spine — `Event` discriminated union.
+ * `Event` discriminated union — the sole input to the pure reducer.
  *
- * Events are inputs to the reducer. They include:
- *  - User intents wrapped as `{kind:'Command', cmd}` (Phase 4 will rewire the
- *    webview message handler to dispatch these instead of calling helpers).
- *  - Results of effects executed by `EffectRunner` (each `*Rpc` effect has a
- *    matching `*Result` event carrying the same `corrId`).
- *  - Backend events forwarded by the backend event parser (unified in Phase 5+).
+ * Events include:
+ *  - User intents wrapped as `{kind:'Command', cmd}` (posted by the webview
+ *    message bridge and other host entry points).
+ *  - Results of effects executed by `EffectRunner` (each side-effecting effect
+ *    has a matching `*Result` event carrying the same `corrId`).
+ *  - Backend events forwarded by the backend event parser.
  *
- * This file is the future replacement for ad-hoc helper calls scattered
- * across the host. Today, no code dispatches these events yet.
+ * The reducer switch in `core/reducer.ts` is total over this union: a missing
+ * handler is a compile-time error (see the `never` default), not a silent
+ * no-op. See `docs/STATE_CONTRACT.md` for the invariants.
  */
 
 import type { Command } from './commands';

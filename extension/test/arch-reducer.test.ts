@@ -11,7 +11,7 @@ test('reducer: initial state has empty pending ops and sessions records', () => 
   assert.deepEqual(initialArchState.sessions.interruptInFlightBySession, {});
 });
 
-test('reducer: unhandled event returns unchanged state with no effects', () => {
+test('reducer: SendResult for unknown corrId is a no-op (state unchanged, no effects)', () => {
   const event: Event = {
     kind: 'SendResult',
     corrId: 'c1',

@@ -236,19 +236,6 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
       };
     }
 
-    case 'ExportAnalytics': {
-      return {
-        state,
-        effects: [
-          {
-            kind: 'ExportRunAnalytics',
-            corrId: cmd.corrId,
-            sessionPath: cmd.sessionPath,
-          },
-        ],
-      };
-    }
-
     case 'CloseSession': {
       const { state: removedState } = removeSessionFromState(state, cmd.sessionPath);
       return {
@@ -522,17 +509,22 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
       };
     }
 
-    default:
+    default: {
+      // Exhaustiveness: the switch is total over `Command`. The `never`
+      // assignment makes an unhandled Command variant a compile-time error.
+      const _exhaustive: never = cmd;
+      void _exhaustive;
       return {
         state,
         effects: [
           {
             kind: 'Log',
             corrId: '',
-            level: 'warn',
-            message: `Unhandled command: ${(cmd as any).kind}`,
+            level: 'error',
+            message: `handleCommand: unhandled command kind (type system bypassed?): ${(cmd as { kind?: string }).kind}`,
           },
         ],
       };
+    }
   }
 }

@@ -4,7 +4,7 @@ import type { ArchState } from '../arch-state.js';
 import type { Effect } from '../effects.js';
 import type { ReducerResult } from './helpers.js';
 import { removeFromArray, removeMessage } from './helpers.js';
-import type { Event } from '../events.js';
+import type { Event, EffectResultEvent } from '../events.js';
 
 export function handleInterruptResult(state: ArchState, event: Extract<Event, { kind: 'InterruptResult' }>): ReducerResult {
   let nextState = state;
@@ -129,7 +129,7 @@ export function handleSetPrefsResult(state: ArchState, _event: Extract<Event, { 
   return { state, effects: [] };
 }
 
-export function handleEffectResult(state: ArchState, event: Event): ReducerResult {
+export function handleEffectResult(state: ArchState, event: Exclude<EffectResultEvent, { kind: 'TruncateResult' } | { kind: 'OpenSessionResult' } | { kind: 'CreateSessionResult' } | { kind: 'PersistTabsResult' }>): ReducerResult {
   switch (event.kind) {
     case 'InterruptResult':
       return handleInterruptResult(state, event);
@@ -157,7 +157,8 @@ export function handleEffectResult(state: ArchState, event: Event): ReducerResul
     case 'SetPruningSettingsResult':
     case 'CloseSessionResult':
     case 'DuplicateSessionResult':
-    case 'MoveSessionTabResult': {
+    case 'MoveSessionTabResult':
+    case 'ExtensionUiResponseResult': {
       if (!event.ok) {
         return {
           state,
@@ -174,17 +175,24 @@ export function handleEffectResult(state: ArchState, event: Event): ReducerResul
       }
       return { state, effects: [] };
     }
-    default:
+    default: {
+      // Exhaustiveness: the switch is total over the result kinds routed here.
+      // TruncateResult/OpenSessionResult/CreateSessionResult/PersistTabsResult
+      // are handled by dedicated handlers in misc-handlers.ts, so they are
+      // excluded from this function's param type — and from this switch.
+      const _exhaustive: never = event;
+      void _exhaustive;
       return {
         state,
         effects: [
           {
             kind: 'Log',
             corrId: '',
-            level: 'warn',
-            message: `Unhandled effect-result event: ${(event as { kind?: string }).kind}`,
+            level: 'error',
+            message: `handleEffectResult: unhandled result kind (type system bypassed?): ${(event as { kind?: string }).kind}`,
           },
         ],
       };
+    }
   }
 }

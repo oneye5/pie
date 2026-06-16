@@ -1,11 +1,8 @@
 /**
- * Target state shape for the CQRS reducer.
- *
- * This file defines the NEW `ArchState` that will replace the current Redux
- * store slices once the CQRS migration completes. Until then, these types
- * coexist with the Redux slice types; the reducer currently uses a smaller
- * `ArchState` defined here (for backward compatibility) that will be expanded
- * when the cutover happens.
+ * State shape for the CQRS reducer — the single source of truth for all
+ * application state. The pure reducer (`core/reducer.ts`) transitions this tree
+ * via `Event`s and emits `Effect`s; the projection (`core/projection.ts`)
+ * derives the `ViewState` the webview renders.
  *
  * Sub-state domains:
  * - **transcript**: Messages, tool calls, editing state, window metadata
@@ -191,10 +188,8 @@ export interface PendingState {
  * The projection function `selectViewState(ArchState) → ViewState`
  * derives what the webview sees from this tree.
  *
- * During the transition, the reducer uses a smaller ArchState (just pending,
- * sessions, messageIdAlias, currentTurnBySession). This expanded shape will
- * be activated when the Redux store is removed and all state moves into the
- * reducer.
+ * State-shape rule (binding): keyed collections MUST use `Record<string, T>`,
+ * never `Map`/`Set` — see `docs/STATE_CONTRACT.md`.
  */
 export interface ArchState {
   transcript: TranscriptState;

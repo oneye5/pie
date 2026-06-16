@@ -18,7 +18,7 @@
  * so the reducer can reconcile optimistic state (Phase 4).
  */
 
-import type { ComposerInput, ToolCall, ModelSettings, ChatPrefs } from '../../shared/protocol';
+import type { ComposerInput, ModelSettings, ChatPrefs } from '../../shared/protocol';
 
 export interface EffectBase {
   corrId: string;
@@ -114,46 +114,6 @@ export interface FileRevertEffect extends EffectBase {
   filePath: string;
 }
 
-// ─── Notification namespace ────────────────────────────────────────────────────
-
-export interface FlashWindowEffect extends EffectBase {
-  kind: 'FlashWindow';
-  sessionPath: string;
-}
-
-export interface PlayCompletionSoundEffect extends EffectBase {
-  kind: 'PlayCompletionSound';
-  volume: number;
-}
-
-// ─── Analytics namespace ────────────────────────────────────────────────────────
-
-export interface ExportRunAnalyticsEffect extends EffectBase {
-  kind: 'ExportRunAnalytics';
-  sessionPath: string;
-}
-
-// ─── Eviction namespace ─────────────────────────────────────────────────────────
-
-export interface EvictTranscriptEffect extends EffectBase {
-  kind: 'EvictTranscript';
-  sessionPath: string;
-  keepTailCount: number;
-}
-
-// ─── Derivation namespace ───────────────────────────────────────────────────────
-
-export interface DeriveFileChangesEffect extends EffectBase {
-  kind: 'DeriveFileChanges';
-  sessionPath: string;
-  messageId: string;
-  toolCall: ToolCall;
-}
-
-export interface DeriveAvailableExtensionsEffect extends EffectBase {
-  kind: 'DeriveAvailableExtensions';
-}
-
 export interface ExtensionUiResponseRpcEffect extends EffectBase {
   kind: 'ExtensionUiResponseRpc';
   sessionPath: string;
@@ -245,12 +205,12 @@ export type Effect =
   | PostImperativeEffect
   | FileDiffEffect
   | FileRevertEffect
-  | FlashWindowEffect
-  | PlayCompletionSoundEffect
-  | ExportRunAnalyticsEffect
-  | EvictTranscriptEffect
-  | DeriveFileChangesEffect
-  | DeriveAvailableExtensionsEffect
+
+
+
+
+
+
   | ExtensionUiResponseRpcEffect
   | AddFilesystemPathsEffect
   | LoadOlderTranscriptEffect

@@ -136,7 +136,6 @@ export function deriveFileChangeFromToolCall(
   messageId: string,
   timestamp: string,
 ): FileChangeEntry | null {
-  console.log('[pie:fileChanges] deriveFileChangeFromToolCall', { name: tool.name, inputKeys: isRecord(tool.input) ? Object.keys(tool.input as Record<string, unknown>) : typeof tool.input, looksFileModifying: looksLikeFileModifyingTool(tool.name) });
   const name = (tool.name || '').toLowerCase().trim();
   if (!looksLikeFileModifyingTool(name)) return null;
 
