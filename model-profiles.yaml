@@ -281,6 +281,12 @@ profiles:
     disabled_reason: null
     cost: 10
 
+  - id: glm-5.2:cloud
+    eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
+    cost: 10
+
   # --- GPT-OSS ---
   - id: gpt-oss:120b-cloud
     eligible: true

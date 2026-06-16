@@ -124,6 +124,7 @@ Cache pricing is NOT explicitly published for Ollama Cloud. Marked as `not appli
 | kimi-k2.5:cloud | $0.0533 | $0.0533 | ~32B (est.) | third-party | Earlier gen |
 | kimi-k2.7-code:cloud | $0.0533 | $0.0533 | ~32B (est.) | third-party | Coding-focused K2 variant; vision+tools+thinking |
 | nemotron-3-super:cloud | $0.0200 | $0.0200 | 12B | third-party | 120B MoE |
+| glm-5.2:cloud | $0.0667 | $0.0667 | 40B (est.) | third-party | 756B total, MoE; active params assumed same 40B generation as GLM-5/5.1 pending official spec |
 | glm-5.1:cloud | $0.0667 | $0.0667 | 40B | third-party | Current gen |
 | glm-5:cloud | $0.0667 | $0.0667 | 40B | third-party | 744B MoE; tools+thinking |
 | glm-4.7:cloud | $0.0533 | $0.0533 | 32B | third-party | Current gen |
@@ -222,3 +223,4 @@ Models with `unknown` confidence for pricing:
 |---|---|
 | 2026-06-01 | Initial evidence ledger created. Copilot pricing sourced from official docs (via internal copilot-model-pricing.md). Ollama Cloud pricing from compute estimates (via ollama-pro-cloud-models-ranked.md). |
 | 2026-06-15 | Synced Ollama Cloud model list: added glm-5, kimi-k2.7-code, minimax-m2.1, minimax-m2.5; removed 21 models no longer on cloud page |
+| 2026-06-17 | Added `glm-5.2:cloud` with compute-estimate pricing (active params estimated 40B pending official spec) |

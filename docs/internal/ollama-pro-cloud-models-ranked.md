@@ -4,7 +4,7 @@
 
 > **Pricing update (2026-06-04):** All per-token costs below are now sourced from the [Portkey-AI/models](https://github.com/Portkey-AI/models) open-source pricing database ([`configs.portkey.ai`](https://configs.portkey.ai/pricing)), converted to USD per 1M tokens. Cache prices are included where available from original provider files. The previous OpenRouter and H100 @ $3/hr methodologies are preserved at the bottom of this document for historical reference only.
 
-## Full Model List (22 models)
+## Full Model List (23 models)
 
 | Rank | Model ID | Display Name | Total Params | Active Params | Cost (USD / 1M tokens) — Portkey |
 |------|----------|--------------|-------------:|-------------:|----------------------------------------:|
@@ -12,26 +12,27 @@
 | 2 | kimi-k2.6:cloud | Kimi K2.6 | 1.04T | 32B | $0.7500 in / $3.5000 out |
 | 3 | kimi-k2.7-code:cloud | Kimi K2.7 Code | ~1T | 32B | $0.5700 in / $2.3000 out |
 | 4 | kimi-k2.5:cloud | Kimi K2.5 | ~1T | 32B (est.) | $0.4400 in / $2.0000 out |
-| 5 | glm-5.1:cloud | GLM 5.1 | 754B | 40B | $1.4000 in / $4.4000 out (cacheR $0.2600) |
-| 6 | glm-5:cloud | GLM 5 | 744B | 40B | $1.0000 in / $3.2000 out (cacheR $0.2000) |
-| 7 | nemotron-3-ultra:cloud | Nemotron 3 Ultra | 550B | 55B | $0.5000 in / $2.5000 out (cacheR $0.1500) |
-| 8 | qwen3-coder:480b-cloud | Qwen3 Coder 480B | 480B | 35B | $0.2200 in / $1.8000 out |
-| 9 | minimax-m3:cloud | MiniMax M3 | 428B | 22B | $0.6000 in / $2.4000 out (cacheR $0.1200) |
-| 10 | qwen3.5:397b-cloud | Qwen 3.5 397B (A17B variant) | 397B | 17B | $0.3900 in / $2.3400 out |
-| 11 | glm-4.7:cloud | GLM 4.7 | 355B | 32B | $0.6000 in / $2.2000 out (cacheR $0.1100) |
-| 12 | deepseek-v4-flash:cloud | DeepSeek V4 Flash | 284B | 13B | $0.1400 in / $0.2800 out (cacheR $0.0028) |
-| 13 | minimax-m2.7:cloud | MiniMax M2.7 | 230B | 10B | $0.3000 in / $1.2000 out |
-| 14 | minimax-m2.5:cloud | MiniMax M2.5 | 230B | 10B | $0.1500 in / $1.1500 out |
-| 15 | minimax-m2.1:cloud | MiniMax M2.1 | 230B | 10B | $0.2900 in / $0.9500 out |
-| 16 | nemotron-3-super:cloud | Nemotron 3 Super | 120B | 12B | $0.0900 in / $0.4500 out |
-| 17 | gpt-oss:120b-cloud | GPT OSS 120B | 120B | 120B | $0.0390 in / $0.1800 out |
-| 18 | qwen3-coder-next:cloud | Qwen3 Coder Next | 80B | 3B | $0.1100 in / $0.8000 out |
-| 19 | gemma4:31b-cloud | Gemma 4 31B | 31B | 31B | $0.1300 in / $0.3800 out |
-| 20 | gpt-oss:20b-cloud | GPT OSS 20B | 20B | 20B | $0.0300 in / $0.1400 out |
-| 21 | qwen3.5:cloud | Qwen 3.5 (default variants) | 397B | 35B / 27B / 9B / 4B / 2B / 0.8B | $0.2600 in / $1.5600 out |
-| 22 | gemini-3-flash-preview:cloud | Gemini 3 Flash Preview | undisclosed | — | $0.5000 in / $3.0000 out (cacheW $0.5000, cacheR $0.0500) |
+| 5 | glm-5.2:cloud | GLM 5.2 | 756B | 40B (est.) | TBD — compute estimate $0.0667 in / $0.0667 out |
+| 6 | glm-5.1:cloud | GLM 5.1 | 754B | 40B | $1.4000 in / $4.4000 out (cacheR $0.2600) |
+| 7 | glm-5:cloud | GLM 5 | 744B | 40B | $1.0000 in / $3.2000 out (cacheR $0.2000) |
+| 8 | nemotron-3-ultra:cloud | Nemotron 3 Ultra | 550B | 55B | $0.5000 in / $2.5000 out (cacheR $0.1500) |
+| 9 | qwen3-coder:480b-cloud | Qwen3 Coder 480B | 480B | 35B | $0.2200 in / $1.8000 out |
+| 10 | minimax-m3:cloud | MiniMax M3 | 428B | 22B | $0.6000 in / $2.4000 out (cacheR $0.1200) |
+| 11 | qwen3.5:397b-cloud | Qwen 3.5 397B (A17B variant) | 397B | 17B | $0.3900 in / $2.3400 out |
+| 12 | glm-4.7:cloud | GLM 4.7 | 355B | 32B | $0.6000 in / $2.2000 out (cacheR $0.1100) |
+| 13 | deepseek-v4-flash:cloud | DeepSeek V4 Flash | 284B | 13B | $0.1400 in / $0.2800 out (cacheR $0.0028) |
+| 14 | minimax-m2.7:cloud | MiniMax M2.7 | 230B | 10B | $0.3000 in / $1.2000 out |
+| 15 | minimax-m2.5:cloud | MiniMax M2.5 | 230B | 10B | $0.1500 in / $1.1500 out |
+| 16 | minimax-m2.1:cloud | MiniMax M2.1 | 230B | 10B | $0.2900 in / $0.9500 out |
+| 17 | nemotron-3-super:cloud | Nemotron 3 Super | 120B | 12B | $0.0900 in / $0.4500 out |
+| 18 | gpt-oss:120b-cloud | GPT OSS 120B | 120B | 120B | $0.0390 in / $0.1800 out |
+| 19 | qwen3-coder-next:cloud | Qwen3 Coder Next | 80B | 3B | $0.1100 in / $0.8000 out |
+| 20 | gemma4:31b-cloud | Gemma 4 31B | 31B | 31B | $0.1300 in / $0.3800 out |
+| 21 | gpt-oss:20b-cloud | GPT OSS 20B | 20B | 20B | $0.0300 in / $0.1400 out |
+| 22 | qwen3.5:cloud | Qwen 3.5 (default variants) | 397B | 35B / 27B / 9B / 4B / 2B / 0.8B | $0.2600 in / $1.5600 out |
+| 23 | gemini-3-flash-preview:cloud | Gemini 3 Flash Preview | undisclosed | — | $0.5000 in / $3.0000 out (cacheW $0.5000, cacheR $0.0500) |
 
-**Key observation:** Portkey pricing is often asymmetric (input ≠ output) and differs significantly from the old compute estimates. Models with cache support (DeepSeek V4, Gemini 3 Flash, GLM, Nemotron 3 Ultra, MiniMax M3) now show cache read/write costs where available. These are real billed rates from the upstream providers, not lower-bound compute projections.
+**Key observation:** Portkey pricing is often asymmetric (input ≠ output) and differs significantly from the old compute estimates. Models with cache support (DeepSeek V4, Gemini 3 Flash, GLM, Nemotron 3 Ultra, MiniMax M3) now show cache read/write costs where available. These are real billed rates from the upstream providers, not lower-bound compute projections. `glm-5.2:cloud` is newly released and not yet listed in Portkey; the compute-estimate placeholder is $0.0667/1M in/out.
 
 ---
 
@@ -39,7 +40,7 @@
 
 | Tier | Range | Count | Models |
 |------|-------|------:|---------|
-| Frontier | >600B | 6 | DeepSeek-V4-Pro, Kimi K2.6/K2.7-Code/K2.5, GLM-5.1/5 |
+| Frontier | >600B | 7 | DeepSeek-V4-Pro, Kimi K2.6/K2.7-Code/K2.5, GLM-5.2/5.1/5 |
 | Large | 200–600B | 10 | Nemotron-3-Ultra, Qwen3-Coder-480B, MiniMax-M3, Qwen-3.5-397B, GLM-4.7, DeepSeek-V4-Flash, MiniMax-M2.7/M2.5/M2.1, Qwen-3.5 (default) |
 | Medium | 80–200B | 3 | Nemotron-3-Super, GPT-OSS-120B, Qwen3-Coder-Next |
 | Compact | <40B | 2 | Gemma-4-31B, GPT-OSS-20B |
@@ -56,6 +57,7 @@ These models support explicit reasoning/thinking modes:
 - glm-4.7:cloud
 - glm-5:cloud
 - glm-5.1:cloud
+- glm-5.2:cloud
 - gpt-oss:120b-cloud
 - gpt-oss:20b-cloud
 - kimi-k2.5:cloud

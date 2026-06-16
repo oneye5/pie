@@ -411,6 +411,7 @@ explained in the notes column.
 | nemotron-3-super:cloud | 3 | 3 | 3 | 3 | 120B MoE (12B active); limited benchmarks | Small active params; no data to justify 4s |
 | glm-5:cloud | 4 | 3 | 4 | 4 | SWE-V ~75%→4, AIME ~93% | 744B MoE (40B active); similar tier to glm-5.1 |
 | glm-5.1:cloud | 4 | 3 | 4 | 4 | SWE-V 77.8%→4, AIME 95.3%, GPQA 86.2%→3† | †R: proxy says 3, scored 4 (AIME 95.3% + thinking=[high] justifies +1). P: SWE-V 77.8% < 80% threshold = 4 |
+| glm-5.2:cloud | 4 | 3 | 4 | 4 | New release; benchmark data pending | Assumed same generation/scale as GLM-5.1 until independent evals are available; thinking includes xhigh |
 | glm-4.7:cloud | 3 | 3 | 3 | 3 | 355B MoE (32B active); limited benchmarks | Older gen; heuristic scoring |
 | gpt-oss:120b-cloud | 4 | 3 | 3 | 4 | 120B dense; limited benchmarks | Dense 120B justifies 4 on precision/reasoning |
 | minimax-m2.1:cloud | 3 | 3 | 2 | 3 | 230B MoE (10B active); tools only | No thinking mode; heuristic scoring similar to m2.7 |
