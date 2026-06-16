@@ -31,8 +31,11 @@ export default defineConfig(({ mode }) => {
             assetFileNames: 'assets/[name]-[hash][extname]',
             format: 'cjs',
           },
-          external: [/^[\w-]+$/], // external all bare specifiers, e.g. vscode, node:fs
+          external: (id) => id === 'vscode' || id.startsWith('node:'),
         },
+      },
+      ssr: {
+        noExternal: true,
       },
       resolve: {
         alias: {
