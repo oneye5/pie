@@ -5,6 +5,8 @@ import * as vscode from 'vscode';
 import { BackendClient } from '../backend/client';
 import { resolveSessionOpenedTranscript } from '../core/session-opened-transcript';
 import { type RunObserver } from '../stats-service';
+import { auditLog } from '../util/audit';
+import { toErrorMessage } from '../util/error-message';
 
 
 import { isPendingTabPath } from '../../shared/tab-behavior';
@@ -206,7 +208,7 @@ export class SessionMessageActions {
         this.scheduleRender();
       });
     } catch (err) {
-      this.dispatchArch({ kind: 'Error', sessionPath, error: `Failed to set model: ${(err as Error).message}` });
+      this.dispatchArch({ kind: 'Error', sessionPath, error: `Failed to set model: ${toErrorMessage(err)}` });
       this.scheduleRender();
     }
   }
@@ -223,8 +225,8 @@ export class SessionMessageActions {
         this.dispatchArch({ kind: 'AvailableModelsChanged', sessionPath, models });
       }
       this.scheduleRender();
-    } catch {
-      // Non-fatal: model hydration failure does not break the extension.
+    } catch (err) {
+      auditLog(this.context, 'session-service', 'hydrateModelState.failed', { error: toErrorMessage(err) });
     }
   }
 
@@ -315,7 +317,7 @@ export class SessionMessageActions {
       this.state.evictInactiveTranscriptWindows();
       this.scheduleRender();
     } catch (error) {
-      this.dispatchArch({ kind: 'Error', sessionPath, error: `Failed to load transcript page: ${(error as Error).message}` });
+      this.dispatchArch({ kind: 'Error', sessionPath, error: `Failed to load transcript page: ${toErrorMessage(error)}` });
       this.scheduleRender();
     } finally {
       this.inFlightTranscriptPageBySession.delete(sessionPath);

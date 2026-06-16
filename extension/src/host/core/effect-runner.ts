@@ -24,6 +24,7 @@
 
 import type { Effect, SendRpcEffect, EditRpcEffect, InterruptRpcEffect, TruncateRpcEffect, ExtensionUiResponseRpcEffect } from './effects';
 import { isLifecycleEffect, isRpcEffect } from './effects';
+import { toErrorMessage } from '../util/error-message';
 import type { EffectResultEvent } from './events';
 import type { FileDiffService } from './file-diff-service';
 import type { ChatPrefs, ComposerInput, PruningSettings, RunOutcome, ThinkingLevel } from '../../shared/protocol';
@@ -115,7 +116,7 @@ export class EffectRunner {
           await this.deps.service.setModel(effect.sessionPath, effect.modelSettings.defaultModel, effect.modelSettings.defaultThinkingLevel);
           this.deps.dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -126,7 +127,7 @@ export class EffectRunner {
           await this.deps.service.setPrefs(effect.prefs);
           this.deps.dispatch({ kind: 'SetPrefsResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'SetPrefsResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'SetPrefsResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -157,7 +158,7 @@ export class EffectRunner {
           await this.deps.fileDiffService.openFileDiff(effect.sessionPath, effect.filePath);
           this.deps.dispatch({ kind: 'FileDiffResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'FileDiffResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'FileDiffResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -168,7 +169,7 @@ export class EffectRunner {
           await this.deps.fileDiffService.revertFile(effect.sessionPath, effect.filePath);
           this.deps.dispatch({ kind: 'FileRevertResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'FileRevertResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'FileRevertResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -179,7 +180,7 @@ export class EffectRunner {
           await this.deps.service.addFilesystemPaths(effect.sessionPath, effect.paths, effect.source);
           this.deps.dispatch({ kind: 'AddFilesystemPathsResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'AddFilesystemPathsResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'AddFilesystemPathsResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -190,7 +191,7 @@ export class EffectRunner {
           await this.deps.service.loadOlderTranscript(effect.sessionPath);
           this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -201,7 +202,7 @@ export class EffectRunner {
           await this.deps.service.loadNewerTranscript(effect.sessionPath);
           this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -212,7 +213,7 @@ export class EffectRunner {
           await this.deps.service.jumpToLatestTranscript(effect.sessionPath);
           this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -223,7 +224,7 @@ export class EffectRunner {
           this.deps.statsService.recordOutcome(effect.sessionPath, effect.outcome);
           this.deps.dispatch({ kind: 'RecordOutcomeResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'RecordOutcomeResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'RecordOutcomeResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -234,7 +235,7 @@ export class EffectRunner {
           this.deps.statsService.startNewTask(effect.sessionPath);
           this.deps.dispatch({ kind: 'StartNewTaskResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'StartNewTaskResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'StartNewTaskResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -245,7 +246,7 @@ export class EffectRunner {
           this.deps.statsService.continueTask(effect.sessionPath);
           this.deps.dispatch({ kind: 'ContinueTaskResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'ContinueTaskResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'ContinueTaskResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -256,7 +257,7 @@ export class EffectRunner {
           await this.deps.fileDiffService.openFileInEditor(effect.sessionPath, effect.filePath);
           this.deps.dispatch({ kind: 'OpenFileInEditorResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'OpenFileInEditorResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'OpenFileInEditorResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -268,7 +269,7 @@ export class EffectRunner {
           await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(effect.path));
           this.deps.dispatch({ kind: 'OpenFileResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'OpenFileResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'OpenFileResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -279,7 +280,7 @@ export class EffectRunner {
           await this.deps.service.setPruningSettings(effect.settings);
           this.deps.dispatch({ kind: 'SetPruningSettingsResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'SetPruningSettingsResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'SetPruningSettingsResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -290,7 +291,7 @@ export class EffectRunner {
           await this.deps.service.closeSession(effect.sessionPath);
           this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -301,7 +302,7 @@ export class EffectRunner {
           this.deps.service.duplicateSession(effect.sessionPath);
           this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -312,7 +313,7 @@ export class EffectRunner {
           this.deps.service.moveSessionTab(effect.sessionPath, effect.fromIndex, effect.toIndex);
           this.deps.dispatch({ kind: 'MoveSessionTabResult', corrId: effect.corrId, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'MoveSessionTabResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+          this.deps.dispatch({ kind: 'MoveSessionTabResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -346,7 +347,7 @@ export class EffectRunner {
           await backend.request(rpcMethodFor(effect), rpcParamsFor(effect));
           dispatch(rpcResultFor(effect, { ok: true }));
         } catch (err) {
-          dispatch(rpcResultFor(effect, { ok: false, error: (err as Error).message }));
+          dispatch(rpcResultFor(effect, { ok: false, error: toErrorMessage(err) }));
         }
       });
     });
@@ -382,7 +383,7 @@ export class EffectRunner {
             corrId: effect.corrId,
             sessionPath: effect.sessionPath,
             ok: false,
-            error: (err as Error).message,
+            error: toErrorMessage(err),
           });
         }
       });
@@ -414,7 +415,7 @@ export class EffectRunner {
           });
           dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
-          dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: (err as Error).message });
+          dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       });
     });
@@ -461,14 +462,14 @@ export class EffectRunner {
             corrId: effect.corrId,
             sessionPath: effect.sessionPath,
             ok: false,
-            error: (err as Error).message,
+            error: toErrorMessage(err),
           });
         } else {
           dispatch({
             kind: 'CreateSessionResult',
             corrId: effect.corrId,
             ok: false,
-            error: (err as Error).message,
+            error: toErrorMessage(err),
           });
         }
       }
@@ -485,7 +486,7 @@ export class EffectRunner {
           kind: 'PersistTabsResult',
           corrId: effect.corrId,
           ok: false,
-          error: (err as Error).message,
+          error: toErrorMessage(err),
         });
       }
     })();

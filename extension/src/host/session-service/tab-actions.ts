@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 import { BackendClient } from '../backend/client';
 import { type RunObserver } from '../stats-service';
 import { auditLog, bootLog } from '../util/audit';
+import { toErrorMessage } from '../util/error-message';
 import {
   getNextVisibleTabPathOnClose,
   isPendingTabPath,
@@ -79,7 +80,7 @@ export class SessionTabActions {
     }).catch((err) => {
       this.state.handleSelectionFailure(
         selectionToken,
-        `Failed to create session: ${(err as Error).message}`,
+        `Failed to create session: ${toErrorMessage(err)}`,
       );
     });
 
@@ -137,11 +138,11 @@ export class SessionTabActions {
       bootLog('session-tabs', 'session.open.failed', {
         selectionToken,
         sessionPath,
-        message: (err as Error).message,
+        message: toErrorMessage(err),
       });
       this.state.handleSelectionFailure(
         selectionToken,
-        `Failed to open session: ${(err as Error).message}`,
+        `Failed to open session: ${toErrorMessage(err)}`,
       );
     });
   }
@@ -261,7 +262,7 @@ export class SessionTabActions {
     }).catch((err) => {
       this.state.handleSelectionFailure(
         selectionToken,
-        `Failed to duplicate session: ${(err as Error).message}`,
+        `Failed to duplicate session: ${toErrorMessage(err)}`,
       );
     });
   }

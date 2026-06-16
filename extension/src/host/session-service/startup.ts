@@ -13,6 +13,7 @@ import { SessionServiceEvents } from './events';
 import { SessionServiceState } from './state';
 import { buildRestoredSessionSummaries } from '../core/restored-session-summaries';
 import { bootLog } from '../util/audit';
+import { toErrorMessage } from '../util/error-message';
 import { publishBackendReady } from './backend-ready';
 import type { ArchState } from '../core/arch-state';
 import type { Event } from '../core/events';
@@ -144,7 +145,7 @@ async function resolveAndCacheRuntimePaths(options: StartSessionBackendOptions):
     return { nodePath, sdkPath };
   } catch (err) {
     options.dispatchArch({ kind: 'NoticeShown', notice:
-      `pie setup error: ${(err as Error).message}. ` +
+      `pie setup error: ${toErrorMessage(err)}. ` +
         'Set pie.nodePath and pie.sdkPath in settings.',
     });
     return null;
@@ -180,9 +181,9 @@ async function startBackendWithLogging(
     });
     return true;
   } catch (err) {
-    options.dispatchArch({ kind: 'NoticeShown', notice: `Failed to start PI backend: ${(err as Error).message}` });
+    options.dispatchArch({ kind: 'NoticeShown', notice: `Failed to start PI backend: ${toErrorMessage(err)}` });
     bootLog('session-startup', 'backend.startFailed', {
-      message: (err as Error).message,
+      message: toErrorMessage(err),
     });
     return false;
   }
@@ -233,8 +234,8 @@ async function listAndOpenFirstSession(options: StartSessionBackendOptions): Pro
     if (toOpen) {
       options.openSession(toOpen);
     }
-  } catch {
-    // Non-fatal; session list may be empty on a fresh install.
+  } catch (err) {
+    bootLog('session-startup', 'listAndOpenFirstSession.failed', { error: toErrorMessage(err) });
   }
 }
 

@@ -1,5 +1,6 @@
 import { readPruningSettings, writePruningSettings, pruningSettingsFileExists } from './pruning-settings';
 import type { PruningSettings } from '../../shared/protocol';
+import { toErrorMessage } from '../util/error-message';
 
 /**
  * Minimal storage surface for persisting pruning settings.
@@ -33,7 +34,7 @@ export async function loadPersistedPruningSettings(
       return;
     } catch (error) {
       console.warn(
-        `[pie] failed to load pruning settings from settings.json: ${(error as Error).message}; falling back to stored state`,
+        `[pie] failed to load pruning settings from settings.json: ${toErrorMessage(error)}; falling back to stored state`,
       );
     }
   }
@@ -65,7 +66,7 @@ export async function savePruningSettings(
     result = await writePruningSettings(updates);
   } catch (error) {
     result = { ...getCurrent(), ...updates };
-    const message = `Failed to update pruning settings: ${(error as Error).message}`;
+    const message = `Failed to update pruning settings: ${toErrorMessage(error)}`;
     console.warn(`[pie] ${message}`);
     onError?.(message);
   }

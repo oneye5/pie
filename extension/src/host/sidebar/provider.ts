@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import * as vscode from 'vscode';
 
 import { assertInvariant, auditLog, bootLog } from '../util/audit';
+import { toErrorMessage } from '../util/error-message';
 import {
   buildStateEnvelope,
   canPostSnapshotToWebview,
@@ -399,7 +400,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       })
       .catch((error: unknown) => {
         this.syncState = reconcilePostedMessageDelivery(this.syncState, message, false);
-        console.warn(`[pie] Failed to post ${message.type} message to webview: ${(error as Error).message}`);
+        console.warn(`[pie] Failed to post ${message.type} message to webview: ${toErrorMessage(error)}`);
       });
   }
 
@@ -563,7 +564,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     } catch (error) {
       this.reloadingForAssetMismatch = false;
       this.reloadingForStateAppliedTimeout = false;
-      console.warn(`[pie] Failed to hot reload webview assets after ${changedPath}: ${(error as Error).message}`);
+      console.warn(`[pie] Failed to hot reload webview assets after ${changedPath}: ${toErrorMessage(error)}`);
     }
   }
 

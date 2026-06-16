@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 import { attachJsonlLineReader, serializeJsonLine } from '../../shared/jsonl';
 import { RequestTracker } from '../../shared/request-tracker';
 import { bootTraceSync } from '../util/audit';
+import { toErrorMessage } from '../util/error-message';
 import {
   assertProtocolVersion,
   type BackendReadyPayload,
@@ -236,7 +237,7 @@ export class BackendClient implements vscode.Disposable {
       // failure mode is debuggable.
       const preview = line.length > 200 ? `${line.slice(0, 200)}…` : line;
        
-      console.warn(`[pie] dropped non-JSON backend line: ${(error as Error).message} :: ${preview}`);
+      console.warn(`[pie] dropped non-JSON backend line: ${toErrorMessage(error)} :: ${preview}`);
       return;
     }
 
