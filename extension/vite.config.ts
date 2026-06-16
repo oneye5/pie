@@ -5,39 +5,75 @@ import * as url from 'node:url';
 
 const rootDir = path.dirname(url.fileURLToPath(import.meta.url));
 const srcDir = path.join(rootDir, 'src');
-const outDir = path.join(rootDir, 'out', 'webview', 'panel');
+const outDir = path.join(rootDir, 'out');
 
-export default defineConfig({
-  root: srcDir,
-  publicDir: false,
-  build: {
-    target: 'es2022',
-    outDir,
-    emptyOutDir: true,
-    manifest: true,
-    cssCodeSplit: true,
-    modulePreload: { polyfill: false },
-    rollupOptions: {
-      input: path.join(srcDir, 'webview', 'panel', 'panel.tsx'),
-      output: {
-        entryFileNames: 'assets/[name]-[hash].js',
-        chunkFileNames: 'assets/[name]-[hash].js',
-        assetFileNames: 'assets/[name]-[hash][extname]',
+const webviewOutDir = path.join(outDir, 'webview', 'panel');
+
+export default defineConfig(({ mode }) => {
+  if (mode === 'node') {
+    return {
+      root: srcDir,
+      publicDir: false,
+      build: {
+        target: 'node20',
+        outDir,
+        emptyOutDir: true,
+        manifest: false,
+        ssr: true,
+        rollupOptions: {
+          input: {
+            extension: path.join(srcDir, 'extension.ts'),
+            backend: path.join(srcDir, 'backend', 'index.ts'),
+          },
+          output: {
+            entryFileNames: '[name].js',
+            chunkFileNames: '[name]-[hash].js',
+            assetFileNames: 'assets/[name]-[hash][extname]',
+            format: 'cjs',
+          },
+          external: [/^[\w-]+$/], // external all bare specifiers, e.g. vscode, node:fs
+        },
+      },
+      resolve: {
+        alias: {
+          '@shared': path.join(srcDir, 'shared'),
+        },
+      },
+    };
+  }
+
+  return {
+    root: srcDir,
+    publicDir: false,
+    build: {
+      target: 'es2022',
+      outDir: webviewOutDir,
+      emptyOutDir: true,
+      manifest: true,
+      cssCodeSplit: true,
+      modulePreload: { polyfill: false },
+      rollupOptions: {
+        input: path.join(srcDir, 'webview', 'panel', 'panel.tsx'),
+        output: {
+          entryFileNames: 'assets/[name]-[hash].js',
+          chunkFileNames: 'assets/[name]-[hash].js',
+          assetFileNames: 'assets/[name]-[hash][extname]',
+        },
       },
     },
-  },
-  esbuild: {
-    jsx: 'automatic',
-    jsxImportSource: 'preact',
-  },
-  css: {
-    postcss: {
-      plugins: [tailwindcssPostcss()],
+    esbuild: {
+      jsx: 'automatic',
+      jsxImportSource: 'preact',
     },
-  },
-  resolve: {
-    alias: {
-      '@shared': path.join(srcDir, 'shared'),
+    css: {
+      postcss: {
+        plugins: [tailwindcssPostcss()],
+      },
     },
-  },
+    resolve: {
+      alias: {
+        '@shared': path.join(srcDir, 'shared'),
+      },
+    },
+  };
 });

@@ -5,10 +5,7 @@ import path from 'node:path';
 import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import esbuild from 'esbuild';
-
 const rootDir = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
-const srcDir = path.join(rootDir, 'src');
 const outDir = path.join(rootDir, 'out');
 
 const watchMode = process.argv.includes('--watch');
@@ -20,30 +17,9 @@ const webviewRelativeDir = path.join('webview', webviewViewName);
 let syncTimer;
 let syncQueue = Promise.resolve();
 
-function createNodeBuildOptions(entryPoint, outfile, extraOptions = {}) {
-  return {
-    entryPoints: [path.join(srcDir, entryPoint)],
-    bundle: true,
-    platform: 'node',
-    format: 'cjs',
-    outfile: path.join(outDir, outfile),
-    sourcemap: true,
-    target: 'node20',
-    ...extraOptions,
-  };
-}
-
-function createBuildConfigurations() {
-  return [
-    createNodeBuildOptions('extension.ts', 'extension.js', { external: ['vscode'] }),
-    createNodeBuildOptions(path.join('backend', 'index.ts'), 'backend.js'),
-  ];
-}
-
 const LEGACY_EXTENSION_IDS = Object.freeze([
   'pi-config.pi-assistant',
 ]);
-
 
 async function listInstalledExtensionDirs(extensionRoot) {
   try {
@@ -136,14 +112,14 @@ function scheduleSyncToInstalledExtension() {
   }, 120);
 }
 
-async function buildWebview() {
-  console.log('[build] Building webview with Vite...');
-  execSync('npx vite build', { cwd: rootDir, stdio: 'inherit' });
+function runViteBuild(args = '') {
+  console.log(`[build] Running Vite build ${args}...`.trim());
+  execSync(`npx vite build ${args}`.trim(), { cwd: rootDir, stdio: 'inherit' });
 }
 
-function runViteWatch() {
-  console.log('[build] Starting Vite watch for webview...');
-  const child = spawn('npx vite build --watch', {
+function runViteWatch(mode) {
+  console.log(`[build] Starting Vite watch (${mode})...`);
+  const child = spawn(`npx vite build --watch --mode ${mode}`, {
     cwd: rootDir,
     stdio: 'inherit',
     shell: true,
@@ -174,37 +150,42 @@ function createBuiltWebviewWatcher() {
   return watcher;
 }
 
+async function typecheck() {
+  if (skipTypecheck) {
+    return;
+  }
+
+  try {
+    execSync('npx tsc --noEmit -p tsconfig.json', { cwd: rootDir, stdio: 'pipe' });
+  } catch (err) {
+    const output = err.stdout?.toString() || err.stderr?.toString() || '';
+    console.error('[build] TypeScript errors detected — fix before building:\n');
+    console.error(output);
+    console.error('\n[build] Use --skip-typecheck to bypass (not recommended).');
+    process.exit(1);
+  }
+}
+
 async function buildOnce() {
   await rm(outDir, { recursive: true, force: true });
   await mkdir(outDir, { recursive: true });
 
-  // Gate on typecheck: catch interface/usage mismatches before bundling.
-  // This prevents silent runtime crashes from fields missing in shared types.
-  // Use --skip-typecheck to bypass temporarily during iterative development.
-  if (!skipTypecheck) {
-    try {
-      execSync('npx tsc --noEmit -p tsconfig.json', { cwd: rootDir, stdio: 'pipe' });
-    } catch (err) {
-      const output = err.stdout?.toString() || err.stderr?.toString() || '';
-      console.error('[build] TypeScript errors detected — fix before building:\n');
-      console.error(output);
-      console.error('\n[build] Use --skip-typecheck to bypass (not recommended).');
-      process.exit(1);
-    }
-  }
+  await typecheck();
 
-  await Promise.all(createBuildConfigurations().map((config) => esbuild.build(config)));
-  await buildWebview();
+  runViteBuild('--mode node');
+  runViteBuild();
   await syncToInstalledExtension();
 }
 
 if (watchMode) {
-  const contexts = await Promise.all(createBuildConfigurations().map((config) => esbuild.context(config)));
+  await mkdir(outDir, { recursive: true });
   await mkdir(path.join(outDir, webviewRelativeDir), { recursive: true });
-  const viteProcess = runViteWatch();
+
+  const nodeViteProcess = runViteWatch('node');
+  const webviewViteProcess = runViteWatch();
   const builtWebviewWatcher = createBuiltWebviewWatcher();
 
-  await Promise.all(contexts.map((context) => context.watch()));
+  // Sync once after initial Node build; the webview watcher will handle subsequent changes.
   await syncToInstalledExtension();
 
   const shutdown = async () => {
@@ -214,8 +195,8 @@ if (watchMode) {
     }
 
     builtWebviewWatcher.close();
-    viteProcess.kill();
-    await Promise.all(contexts.map((context) => context.dispose()));
+    nodeViteProcess.kill();
+    webviewViteProcess.kill();
   };
 
   process.once('SIGINT', () => {

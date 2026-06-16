@@ -61,11 +61,14 @@ test('build script removes stale installed output before syncing rebuilt assets'
   );
 });
 
-test('build script builds the webview with Vite', async () => {
+test('build script builds everything with Vite', async () => {
   const buildScript = await readFile(new URL('../scripts/build.mjs', import.meta.url), 'utf8');
 
-  assert.match(buildScript, /function buildWebview\(\)/);
-  assert.match(buildScript, /execSync\('npx vite build'/);
-  assert.match(buildScript, /function runViteWatch\(\)/);
-  assert.match(buildScript, /spawn\('npx vite build --watch'/);
+  assert.match(buildScript, /function runViteBuild\(/);
+  assert.match(buildScript, /npx vite build/);
+  assert.match(buildScript, /function runViteWatch\(/);
+  assert.match(buildScript, /npx vite build --watch --mode \$\{mode\}/);
+  assert.match(buildScript, /const nodeViteProcess = runViteWatch\('node'\)/);
+  assert.doesNotMatch(buildScript, /import esbuild from 'esbuild'/);
+  assert.doesNotMatch(buildScript, /esbuild\.build\(/);
 });
