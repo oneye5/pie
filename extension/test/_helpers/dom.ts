@@ -3,6 +3,7 @@
  * Installs happy-dom globals so Preact components can mount.
  */
 import { Window } from 'happy-dom';
+import { setTimeout as nativeSetTimeout, clearTimeout as nativeClearTimeout } from 'node:timers';
 
 let installed = false;
 
@@ -54,6 +55,24 @@ export function installDom(): void {
 
   // Set window itself
   installGlobal('window', window);
+
+  // happy-dom implements requestAnimationFrame via a ref'd setImmediate that it tracks in its
+  // AsyncTaskManager. A lingering rAF chain (e.g. the transcript virtualizer scheduling a frame
+  // on every render) keeps the Node event loop alive forever with ~0 CPU and no visible handle,
+  // so the test process never exits and the file-level test "fails" on the runner's wait. Back
+  // rAF with an UNREF'd native timer so pending frames never block process exit. Callbacks still
+  // fire while the test is actively running (the event loop is spinning); only post-test lingering
+  // frames become non-blocking.
+  const unrefRaf = (callback: (time: number) => void): any => {
+    const handle = nativeSetTimeout(() => callback((globalThis as any).performance?.now?.() ?? 0), 16) as any;
+    if (handle && typeof handle.unref === 'function') handle.unref();
+    return handle;
+  };
+  const unrefCaf = (handle: any): void => { nativeClearTimeout(handle); };
+  installGlobal('requestAnimationFrame', unrefRaf);
+  installGlobal('cancelAnimationFrame', unrefCaf);
+  (window as any).requestAnimationFrame = unrefRaf;
+  (window as any).cancelAnimationFrame = unrefCaf;
 
   // Stub ResizeObserver (happy-dom doesn't provide one)
   if (typeof globalThis.ResizeObserver === 'undefined') {

@@ -62,7 +62,11 @@ test('openSession serializes backend session.open requests through the lifecycle
     const result = reducer(archState, event);
     archState = result.state;
   };
-  const state = new SessionServiceState(context, backend, () => undefined, getArchState, dispatchArch);
+  // Disable the 60s selection-request timeout watchdog: this test exercises request
+  // serialization, not timeout behavior. An armed-but-uncleared 60s timer keeps the Node
+  // process alive for a minute after the test, so the file-level test "fails" on the runner's
+  // wait. Passing 0 makes armSelectionRequestTimeout() a no-op (no timer armed, nothing to leak).
+  const state = new SessionServiceState(context, backend, () => undefined, getArchState, dispatchArch, 0);
   const tabs = new SessionTabActions({
     context,
     backend,
