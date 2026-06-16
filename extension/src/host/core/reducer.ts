@@ -61,6 +61,30 @@ import {
   handleOpenSessionResult,
   handlePersistTabsResult,
 } from './reducer/misc-handlers.js';
+import {
+  handleBackendReadyChanged,
+  handlePruningSettingsChanged,
+  handleWorkspaceCwdChanged,
+  handleTranscriptPageLoaded,
+  handleFileChangesUpdated,
+  handleActiveRunSummaryChanged,
+  handleSessionMetadataChanged,
+  handleAvailableModelsChanged,
+  handlePendingExtensionUIRequestsCleared,
+  handleAnalyticsFactorsChanged,
+  handleAvailableExtensionsChanged,
+  handleAssistantMessageErrorStamped,
+  handleComposerInputsReplaced,
+  handlePendingPathReplaced,
+  handleTranscriptTrimmed,
+  handleRunningSessionsChanged,
+  handleUnreadFinishedSessionsChanged,
+  handleSessionSummaryUpserted,
+  handleSessionSummariesReplaced,
+  handleSessionScopeCleared,
+  handleTabOpened,
+  handleOpenTabsChanged,
+} from './reducer/host-handlers.js';
 
 /**
  * Reducer: routes events to per-kind handlers.
@@ -75,7 +99,24 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
 
     case 'InterruptResult':
     case 'SendResult':
-    case 'EditResult': {
+    case 'EditResult':
+    case 'FileDiffResult':
+    case 'FileRevertResult':
+    case 'SetModelResult':
+    case 'SetPrefsResult':
+    case 'AddFilesystemPathsResult':
+    case 'LoadOlderTranscriptResult':
+    case 'LoadNewerTranscriptResult':
+    case 'JumpToLatestTranscriptResult':
+    case 'RecordOutcomeResult':
+    case 'StartNewTaskResult':
+    case 'ContinueTaskResult':
+    case 'OpenFileInEditorResult':
+    case 'OpenFileResult':
+    case 'SetPruningSettingsResult':
+    case 'CloseSessionResult':
+    case 'DuplicateSessionResult':
+    case 'MoveSessionTabResult': {
       return handleEffectResult(state, event);
     }
 
@@ -119,6 +160,96 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
 
     case 'SessionListChanged': {
       return handleSessionListChanged(state, event);
+    }
+
+    // ─── Host events ───────────────────────────────────────────────────────
+
+    case 'BackendReadyChanged': {
+      return handleBackendReadyChanged(state, event);
+    }
+
+    case 'PruningSettingsChanged': {
+      return handlePruningSettingsChanged(state, event);
+    }
+
+    case 'WorkspaceCwdChanged': {
+      return handleWorkspaceCwdChanged(state, event);
+    }
+
+    case 'TranscriptPageLoaded': {
+      return handleTranscriptPageLoaded(state, event);
+    }
+
+    case 'FileChangesUpdated': {
+      return handleFileChangesUpdated(state, event);
+    }
+
+    case 'ActiveRunSummaryChanged': {
+      return handleActiveRunSummaryChanged(state, event);
+    }
+
+    case 'SessionMetadataChanged': {
+      return handleSessionMetadataChanged(state, event);
+    }
+
+    case 'AvailableModelsChanged': {
+      return handleAvailableModelsChanged(state, event);
+    }
+
+    case 'PendingExtensionUIRequestsCleared': {
+      return handlePendingExtensionUIRequestsCleared(state, event);
+    }
+
+    case 'AnalyticsFactorsChanged': {
+      return handleAnalyticsFactorsChanged(state, event);
+    }
+
+    case 'AvailableExtensionsChanged': {
+      return handleAvailableExtensionsChanged(state, event);
+    }
+
+    case 'AssistantMessageErrorStamped': {
+      return handleAssistantMessageErrorStamped(state, event);
+    }
+
+    case 'ComposerInputsReplaced': {
+      return handleComposerInputsReplaced(state, event);
+    }
+
+    case 'PendingPathReplaced': {
+      return handlePendingPathReplaced(state, event);
+    }
+
+    case 'TranscriptTrimmed': {
+      return handleTranscriptTrimmed(state, event);
+    }
+
+    case 'RunningSessionsChanged': {
+      return handleRunningSessionsChanged(state, event);
+    }
+
+    case 'UnreadFinishedSessionsChanged': {
+      return handleUnreadFinishedSessionsChanged(state, event);
+    }
+
+    case 'SessionSummaryUpserted': {
+      return handleSessionSummaryUpserted(state, event);
+    }
+
+    case 'SessionSummariesReplaced': {
+      return handleSessionSummariesReplaced(state, event);
+    }
+
+    case 'SessionScopeCleared': {
+      return handleSessionScopeCleared(state, event);
+    }
+
+    case 'TabOpened': {
+      return handleTabOpened(state, event);
+    }
+
+    case 'OpenTabsChanged': {
+      return handleOpenTabsChanged(state, event);
     }
 
     // ─── UI events ─────────────────────────────────────────────────────────
@@ -172,6 +303,16 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
     }
 
     default:
-      return { state, effects: [] };
+      return {
+        state,
+        effects: [
+          {
+            kind: 'Log',
+            corrId: '',
+            level: 'warn',
+            message: `Unhandled event: ${(event as { kind?: string }).kind}`,
+          },
+        ],
+      };
   }
 }

@@ -52,6 +52,19 @@ export class ParentExtensionUIBridgeProxy implements ExtensionUIContext {
     this.parentBridge.notify(message, type, this.subagentCallId);
   }
 
+  /**
+   * Cancel pending parent-bridge dialog requests. Called when the subagent is
+   * aborted (parent close / timeout) so an in-flight `ask_user` prompt does not
+   * hang — the parent bridge ignores the abort signal, so without this the
+   * pending promise would never settle. Delegates to the parent bridge's
+   * `cancelAll()`, which resolves outstanding requests as cancelled. While a
+   * subagent is running the parent agent loop is blocked awaiting its result,
+   * so the only outstanding parent-bridge requests are subagent-scoped.
+   */
+  cancelAll(): void {
+    this.parentBridge.cancelAll();
+  }
+
   // ── TUI methods (no-ops for subagent sessions) ────────────────────────────
 
   onTerminalInput(): () => void { return () => undefined; }

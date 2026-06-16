@@ -9,7 +9,7 @@ import type {
 } from '../../shared/protocol';
 import { dispatchSessionBackendEvent } from '../core/event-dispatch';
 import type { OnSessionCompleted, OnSessionPathResolved, ScheduleRender } from './types';
-import type { BackendEvent } from '../core/events';
+import type { Event } from '../core/events';
 import type { ArchState } from '../core/arch-state';
 import { SessionServiceState } from './state';
 import { onMessageDelta, onMessageThinking, onMessageStarted, onMessageFinished, onMessageAborted } from './handlers/streaming.js';
@@ -24,9 +24,8 @@ interface SessionServiceEventsOptions {
   onSessionPathResolved?: OnSessionPathResolved;
   runObserver: RunObserver;
   state: SessionServiceState;
-  dispatchArch: (event: BackendEvent) => void;
+  dispatchArch: (event: Event) => void;
   getArchState: () => ArchState;
-  mutateArchState: (recipe: (draft: ArchState) => void) => void;
 }
 
 export class SessionServiceEvents {
@@ -38,9 +37,8 @@ export class SessionServiceEvents {
   private readonly state: SessionServiceState;
   private eventDisposable?: vscode.Disposable;
   private exitDisposable?: vscode.Disposable;
-  private readonly dispatchArch: (event: BackendEvent) => void;
+  private readonly dispatchArch: (event: Event) => void;
   private readonly getArchState: () => ArchState;
-  private readonly mutateArchState: (recipe: (draft: ArchState) => void) => void;
 
   constructor(options: SessionServiceEventsOptions) {
     this.context = options.context;
@@ -51,7 +49,6 @@ export class SessionServiceEvents {
     this.dispatchArch = options.dispatchArch;
     this.state = options.state;
     this.getArchState = options.getArchState;
-    this.mutateArchState = options.mutateArchState;
   }
 
   attach(backend: BackendClient): void {
@@ -61,7 +58,6 @@ export class SessionServiceEvents {
         context: this.context,
         scheduleRender: this.scheduleRender,
         runObserver: this.runObserver,
-        mutateArchState: this.mutateArchState,
         state: this.state,
         getArchState: this.getArchState,
         dispatchArch: this.dispatchArch,
@@ -89,7 +85,6 @@ export class SessionServiceEvents {
       payload,
       {
         getArchState: this.getArchState,
-        mutateArchState: this.mutateArchState,
         dispatchArch: this.dispatchArch,
         runObserver: this.runObserver,
         scheduleRender: this.scheduleRender,
@@ -132,7 +127,6 @@ export class SessionServiceEvents {
       sessionPath,
       {
         getArchState: this.getArchState,
-        mutateArchState: this.mutateArchState,
         dispatchArch: this.dispatchArch,
         runObserver: this.runObserver,
         scheduleRender: this.scheduleRender,
@@ -168,7 +162,6 @@ export class SessionServiceEvents {
     return {
       context: this.context,
       getArchState: this.getArchState,
-      mutateArchState: this.mutateArchState,
       dispatchArch: this.dispatchArch,
       runObserver: this.runObserver,
       state: this.state,

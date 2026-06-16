@@ -56,8 +56,8 @@ export interface TranscriptState {
   systemPromptsBySession: Record<string, SystemPromptEntry[]>;
   /** Transcript window (scroll/pagination state) keyed by session path. */
   windowBySession: Record<string, TranscriptWindow>;
-  /** ID of the message currently being edited, or null. */
-  editingMessageId: string | null;
+  /** Per-session message ID currently being edited. */
+  editingMessageIdBySession: Record<string, string | null>;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,8 +111,8 @@ export interface SettingsState {
   prefs: ChatPrefs;
   /** Extensions that provide tool integrations. */
   availableExtensions: ExtensionInfo[];
-  /** Whether the outcome dialog is showing. */
-  showOutcomeDialog: boolean;
+  /** Per-session outcome dialog visibility. */
+  showOutcomeDialogBySession: Record<string, boolean>;
   /** Per-session pending extension UI requests, keyed by request ID (ask-user inline choices). */
   pendingExtensionUIRequestsBySession: Record<string, Record<string, ExtensionUIRequestPayload>>;
 }
@@ -129,6 +129,8 @@ export interface ComposerState {
   pendingComposerInputsBySession: Record<string, ComposerInput[]>;
   /** Active run summary per session (for analytics export). */
   activeRunSummaryBySession: Record<string, ActiveRunSummary | null>;
+  /** Draft composer text per session, persisted across reloads and session switches. */
+  draftTextBySession: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +176,8 @@ export interface PendingState {
   messageIdAlias: Record<string, string>;
   /** Tracks the first message of the current streaming turn per session. */
   currentTurnBySession: Record<string, CurrentTurn>;
+  /** Maps backend request IDs to optimistic local message IDs for ID finalization. */
+  requestIdToLocalId: Record<string, { sessionPath: string; localId: string }>;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +212,7 @@ export function createInitialArchState(): ArchState {
       bySession: {},
       systemPromptsBySession: {},
       windowBySession: {},
-      editingMessageId: null,
+      editingMessageIdBySession: {},
     },
     sessions: {
       sessions: [],
@@ -229,12 +233,13 @@ export function createInitialArchState(): ArchState {
       notice: null,
       prefs: { ...DEFAULT_CHAT_PREFS },
       availableExtensions: [],
-      showOutcomeDialog: false,
+      showOutcomeDialogBySession: {},
       pendingExtensionUIRequestsBySession: {},
     },
     composer: {
       pendingComposerInputsBySession: {},
       activeRunSummaryBySession: {},
+      draftTextBySession: {},
     },
     fileChanges: {
       bySession: {},
@@ -243,6 +248,7 @@ export function createInitialArchState(): ArchState {
       ops: {},
       messageIdAlias: {},
       currentTurnBySession: {},
+      requestIdToLocalId: {},
     },
   };
 }

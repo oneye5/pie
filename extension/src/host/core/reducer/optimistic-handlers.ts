@@ -7,7 +7,7 @@ import { appendLocalUserMessage, removeMessage } from './helpers.js';
 
 export function handleOptimisticMessageInserted(state: ArchState, event: Extract<Event, { kind: 'OptimisticMessageInserted' }>): ReducerResult {
   const nextState = produce(state, (draft) => {
-    appendLocalUserMessage(draft, event.sessionPath, event.localId, event.text, undefined);
+    appendLocalUserMessage(draft, event.sessionPath, event.localId, event.text, undefined, new Date(event.timestamp).toISOString());
   });
   return { state: nextState, effects: [] };
 }

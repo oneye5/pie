@@ -399,28 +399,24 @@ explained in the notes column.
 | grok-code-fast-1 | 3 | 2 | 3 | 3 | Limited independent benchmarks | Code-focused; no creativity evidence |
 | deepseek-v4-pro:cloud | 5 | 3 | 5 | 5 | LiveCode 93.5% (max), SWE-V high | Frontier open-source. C: methodical, not inventive |
 | deepseek-v4-flash:cloud | 3 | 2 | 3 | 3 | Scaled-down v4-pro; 284B MoE (13B active) | Family heuristic; significantly smaller active params |
-| deepseek-v3.2:cloud | 4 | 3 | 3 | 4 | SWE-V ~78% (Speciale variant)→4 | T: moderate thoroughness despite high precision |
-| cogito-2.1:671b-cloud | 4 | 3 | 3 | 4 | Limited independent benchmarks | 671B MoE; scored from family heuristic. No GPQA/SWE-V data to justify 5 on reasoning |
 | gemini-3-flash-preview:cloud | 3 | 3 | 2 | 3 | Same underlying model as copilot flash | Should match copilot variant scores |
 | gemma4:31b-cloud | 3 | 3 | 3 | 3 | 31B dense; limited benchmarks | Parameter-tier heuristic |
 | qwen3.5:397b-cloud | 4 | 3 | 3 | 4 | AIME 91.3%, GPQA 88.4%→3† | †R: proxy says 3, scored 4 (AIME 91.3% + thinking=[xhigh] justifies +1). C/T: no strong evidence for 4 |
 | qwen3.5:cloud | 3 | 3 | 2 | 3 | Smaller variant of 397b; mixed sizes | Size penalty; less thorough |
-| qwen3-next:80b-cloud | 3 | 2 | 3 | 3 | 80B MoE (3B active); limited benchmarks | Very small active params; heuristic scoring |
-| qwen3-vl:235b-cloud | 4 | 3 | 3 | 4 | 235B MoE (22B active) | VL-specialized; moderate thoroughness |
 | qwen3-coder-next:cloud | 4 | 2 | 3 | 2 | 80B MoE (3B active); code-specialized | Very small active params limit all dims. †P: scored 4 despite code focus (−1 from proxy-5; tiny active params) |
 | qwen3-coder:480b-cloud | 4 | 2 | 3 | 3 | 480B MoE (35B active); code-specialized | P: no SWE-V data to justify 5; scored 4 from family. T: no evidence for 4 |
+| kimi-k2.7-code:cloud | 4 | 3 | 4 | 5 | Built on K2.6 with coding improvements | †R: scored 5 (inherits K2.6 reasoning + coding enhancements). P: code-focused but broad capability |
 | kimi-k2.6:cloud | 4 | 4 | 4 | 5 | AIME 96.4%, GPQA ~91%→4† | †R: proxy says 4, scored 5 (AIME 96.4% + HLE 54.0% (tools) + thinking=[xhigh]; +1). Top open-weight model |
 | kimi-k2.5:cloud | 4 | 3 | 3 | 4 | Earlier gen than k2.6; less data | Family heuristic; less thorough than k2.6 |
 | nemotron-3-super:cloud | 3 | 3 | 3 | 3 | 120B MoE (12B active); limited benchmarks | Small active params; no data to justify 4s |
-| nemotron-3-nano:30b-cloud | 3 | 2 | 3 | 3 | 30B dense; limited benchmarks | Parameter-tier heuristic |
+| glm-5:cloud | 4 | 3 | 4 | 4 | SWE-V ~75%→4, AIME ~93% | 744B MoE (40B active); similar tier to glm-5.1 |
 | glm-5.1:cloud | 4 | 3 | 4 | 4 | SWE-V 77.8%→4, AIME 95.3%, GPQA 86.2%→3† | †R: proxy says 3, scored 4 (AIME 95.3% + thinking=[high] justifies +1). P: SWE-V 77.8% < 80% threshold = 4 |
 | glm-4.7:cloud | 3 | 3 | 3 | 3 | 355B MoE (32B active); limited benchmarks | Older gen; heuristic scoring |
 | gpt-oss:120b-cloud | 4 | 3 | 3 | 4 | 120B dense; limited benchmarks | Dense 120B justifies 4 on precision/reasoning |
+| minimax-m2.1:cloud | 3 | 3 | 2 | 3 | 230B MoE (10B active); tools only | No thinking mode; heuristic scoring similar to m2.7 |
+| minimax-m2.5:cloud | 3 | 3 | 3 | 4 | 230B MoE (10B active); tools+thinking | Family heuristic; similar to m2.7 with thinking mode |
 | minimax-m2.7:cloud | 3 | 3 | 3 | 3 | 230B MoE (10B active); limited benchmarks | Small active params; heuristic scoring |
-| devstral-2:123b-cloud | 4 | 2 | 3 | 2 | 123B dense; code-focused | Dense 123B but code-specialized; no thinking depth |
-| devstral-small-2:24b-cloud | 3 | 2 | 2 | 2 | 24B dense; code-focused | Small model; limited across all dims |
-| mistral-large-3:675b-cloud | 4 | 3 | 3 | 3 | 675B MoE (41B active); limited benchmarks | Large MoE but non-thinking model; moderate thoroughness |
-| ministral-3:14b-cloud | 3 | 2 | 2 | 2 | 14B dense | Small model; limited |
+
 *Anthropic-claimed, pending independent verification
 
 ### 2026-05-16 recalibration highlights

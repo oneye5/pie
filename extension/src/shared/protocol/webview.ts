@@ -1,4 +1,3 @@
-import type { PatchOp } from './core.js';
 import type { ThinkingLevel, ModelSettings, ModelInfo, ContextWindowUsage } from './models.js';
 import type { ComposerInput, ComposerInputDraft, ChatMessage } from './messages.js';
 import type { SessionSummary, TranscriptWindow, SystemPromptEntry, FileChangeEntry } from './sessions.js';
@@ -56,6 +55,8 @@ export interface ViewState {
   activeRunSummary: ActiveRunSummary | null;
   /** Per-session run summaries used for tab affordances and context menus. */
   runSummariesBySession: Record<string, ActiveRunSummary | null>;
+  /** Persisted composer draft text for the active session. */
+  draftText: string;
   busy: boolean;
   notice: string | null;
   /** True once the backend process has started and emitted `backend.ready`. */
@@ -103,19 +104,6 @@ export type HostToWebviewMessage =
       state: ViewState;
     }
   | {
-      /**
-       * Patch envelope carries `sessionPath` at the envelope level (not per-op):
-       * all ops in a single envelope address the same session. The webview routes
-       * the envelope to that session's mirror.
-       */
-      type: 'patch';
-      protocolVersion: number;
-      sessionPath: string;
-      hostInstanceId: string;
-      revision: number;
-      op: PatchOp;
-    }
-  | {
       type: 'sendRejected';
       sessionPath: string;
       text: string;
@@ -148,6 +136,7 @@ export type WebviewToHostMessage =
   | { type: 'openFile'; path: string }
   | { type: 'addComposerInput'; sessionPath: string; input: ComposerInputDraft }
   | { type: 'removeComposerInput'; sessionPath: string; inputId: string }
+  | { type: 'setComposerDraft'; sessionPath: string; text: string }
   | {
       type: 'send';
       sessionPath: string;
@@ -158,7 +147,7 @@ export type WebviewToHostMessage =
        * host-confirmed message. */
       localId?: string;
     }
-  | { type: 'editMessage'; sessionPath: string; messageId: string; text: string }
+  | { type: 'editMessage'; sessionPath: string; messageId: string; text: string; localId?: string }
   | { type: 'interrupt'; sessionPath: string }
   | { type: 'newSession' }
   | { type: 'openSession'; sessionPath: string }
@@ -179,11 +168,11 @@ export type WebviewToHostMessage =
     }
   | { type: 'setPrefs'; prefs: Partial<ChatPrefs> }
   | { type: 'setPruningSettings'; settings: Partial<PruningSettings> }
-  | { type: 'startEdit'; messageId: string }
-  | { type: 'cancelEdit' }
+  | { type: 'startEdit'; sessionPath: string; messageId: string }
+  | { type: 'cancelEdit'; sessionPath: string }
   | { type: 'dismissNotice' }
-  | { type: 'openOutcomeDialog' }
-  | { type: 'closeOutcomeDialog' }
+  | { type: 'openOutcomeDialog'; sessionPath: string }
+  | { type: 'closeOutcomeDialog'; sessionPath: string }
   | { type: 'openFileDiff'; sessionPath: string; filePath: string }
   | { type: 'openFileInEditor'; sessionPath: string; filePath: string }
   | { type: 'revertFile'; sessionPath: string; filePath: string }

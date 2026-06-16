@@ -6,7 +6,6 @@ import { assertInvariant, auditLog, bootLog } from '../util/audit';
 import {
   buildStateEnvelope,
   canPostSnapshotToWebview,
-  clearSessionSync,
   createSidebarSyncState,
   flushDirtySnapshot,
   reconcilePostedMessageDelivery,
@@ -42,11 +41,10 @@ const STATE_APPLIED_RELOAD_WINDOW_MS = 30_000;
  * Responsibilities:
  * - Resolves the webview HTML once and handles incoming messages.
  * - Posts full-state snapshots (`state`) on demand or on a debounced schedule.
- * - Posts incremental `patch` messages for high-frequency streaming updates.
  * - Posts imperative messages (e.g. `sendRejected`) outside the state flow.
  *
  * Each outgoing envelope carries a monotonically increasing `revision` and a
- * stable `hostInstanceId` so the webview can detect missed patches and
+ * stable `hostInstanceId` so the webview can detect missed snapshots and
  * host-side counter resets.
  */
 export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.Disposable {
@@ -236,8 +234,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   }
 
   /**
-   * Post a full state snapshot immediately. Resets per-session revisions so
-   * the webview can rebase its mirrors from the snapshot.
+   * Post a full state snapshot immediately. The snapshot is authoritative:
+   * the webview rebuilds its state from the snapshot.
    */
   postState(): void {
     if (this.scheduleTimer !== undefined) {
@@ -327,13 +325,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   }
 
   /** Drop sync bookkeeping for a session that was closed or invalidated. */
-  clearSessionSync(sessionPath: string): void {
-    this.syncState = clearSessionSync(this.syncState, sessionPath);
+  /** Drop sync bookkeeping for a session that was closed or invalidated (no-op). */
+  clearSessionSync(_sessionPath: string): void {
+    // no-op: sync state no longer tracks per-session revisions
   }
 
   /**
    * Post an imperative message that does not carry a revision. The webview
-   * handles these independently from the state/patch flow.
+   * handles these independently from the state flow.
    */
   postImperative(msg: HostToWebviewMessage): void {
     if (!this.view || !this.webviewReady) return;
@@ -392,8 +391,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           bootLog('sidebar-provider', 'message.deliveryFailed', {
             hostInstanceId: this.hostInstanceId,
             messageType: message.type,
-            revision: message.type === 'state' || message.type === 'patch' ? message.revision : null,
-            sessionPath: message.type === 'patch' ? message.sessionPath : null,
+            revision: message.type === 'state' ? message.revision : null,
             visible: this.view?.visible ?? false,
             webviewReady: this.webviewReady,
           });

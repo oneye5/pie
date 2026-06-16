@@ -222,6 +222,11 @@ export function validateWebviewToHostMessage(
       if (!isString(value.inputId)) return fail('removeComposerInput: missing `inputId`');
       return { ok: true, value: value as WebviewToHostMessage };
 
+    case 'setComposerDraft':
+      if (!isString(value.sessionPath)) return fail('setComposerDraft: missing `sessionPath`');
+      if (!isString(value.text)) return fail('setComposerDraft: missing string `text`');
+      return { ok: true, value: value as WebviewToHostMessage };
+
     case 'send':
       if (!isString(value.sessionPath)) return fail('send: missing `sessionPath`');
       if (!isString(value.text)) return fail('send: missing string `text`');
@@ -287,13 +292,23 @@ export function validateWebviewToHostMessage(
       return { ok: true, value: value as WebviewToHostMessage };
 
     case 'startEdit':
+      if (!isString(value.sessionPath)) return fail('startEdit: missing string `sessionPath`');
       if (!isString(value.messageId)) return fail('startEdit: missing string `messageId`');
       return { ok: true, value: value as WebviewToHostMessage };
 
     case 'cancelEdit':
+      if (!isString(value.sessionPath)) return fail('cancelEdit: missing string `sessionPath`');
+      return { ok: true, value: value as WebviewToHostMessage };
+
     case 'dismissNotice':
+      return { ok: true, value: value as WebviewToHostMessage };
+
     case 'openOutcomeDialog':
+      if (!isString(value.sessionPath)) return fail('openOutcomeDialog: missing string `sessionPath`');
+      return { ok: true, value: value as WebviewToHostMessage };
+
     case 'closeOutcomeDialog':
+      if (!isString(value.sessionPath)) return fail('closeOutcomeDialog: missing string `sessionPath`');
       return { ok: true, value: value as WebviewToHostMessage };
 
     case 'stateApplied':

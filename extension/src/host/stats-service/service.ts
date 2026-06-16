@@ -21,7 +21,7 @@ export class StatsService implements RunObserver {
 
   constructor(options: StatsServiceOptions) {
     this.scheduleRender = options.scheduleRender ?? (() => undefined);
-    const mutateArchState = options.mutateArchState ?? ((_recipe) => { /* no-op if not provided */ });
+    const dispatchArchEvent = options.dispatchArchEvent ?? ((_event) => { /* no-op if not provided */ });
     const getArchState = options.getArchState ?? (() => { throw new Error('getArchState not provided'); });
     const now = options.now ?? defaultNow;
     const createId = options.createId ?? defaultCreateId;
@@ -38,7 +38,7 @@ export class StatsService implements RunObserver {
     });
     const tracker = new SessionRunTracker({
       getArchState,
-      mutateArchState,
+      dispatchArchEvent,
       scheduleRender: this.scheduleRender,
       schedulePersist: (snapshotToAppend, outcomeToAppend) => (
         this.storage.schedulePersist(snapshotToAppend, outcomeToAppend)

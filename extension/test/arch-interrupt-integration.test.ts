@@ -65,6 +65,30 @@ function makeSerializingDeps(): {
     tabs: { async persistTabs() {} },
     log: { log() {} },
     postImperative: { postImperative() {} },
+    fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
+    service: {
+      async setModel() {},
+      setPrefs() {},
+      bumpSessionDataEpoch() {},
+      async addFilesystemPaths() {},
+      async loadOlderTranscript() {},
+      async loadNewerTranscript() {},
+      async jumpToLatestTranscript() {},
+      async closeSession() {},
+      async setPruningSettings() {},
+      duplicateSession() {},
+      moveSessionTab() {},
+      createNewSession() { return '/new'; },
+      openSession() {},
+    },
+    statsService: {
+      prepareForSend() {},
+      onTruncatedAfter() {},
+      onMessageEdited() {},
+      recordOutcome() {},
+      startNewTask() {},
+      continueTask() {},
+    },
     dispatch: (e) => events.push(e),
   };
 
@@ -82,7 +106,7 @@ test('serialization: SendRpc queued before InterruptRpc executes send first (FIF
   const runner = new EffectRunner(deps);
 
   // Queue send, then immediately queue interrupt for the same session.
-  const sendEffect: Effect = { kind: 'SendRpc', corrId: 'c-send', sessionPath: '/a', text: 'hi', inputs: [] };
+  const sendEffect: Effect = { kind: 'SendRpc', corrId: 'c-send', sessionPath: '/a', text: 'hi', inputs: [], localId: 'local-1' };
   const interruptEffect: Effect = { kind: 'InterruptRpc', corrId: 'c-int', sessionPath: '/a' };
 
   runner.run(sendEffect);
@@ -106,7 +130,7 @@ test('serialization: interrupt does not race ahead of a preceding send on the sa
 
   // Simulate the real scenario: reducer returns SendRpc from a Send command,
   // then InterruptRpc from an Interrupt command issued immediately after.
-  runner.run({ kind: 'SendRpc', corrId: 'c1', sessionPath: '/s', text: 'msg', inputs: [] });
+  runner.run({ kind: 'SendRpc', corrId: 'c1', sessionPath: '/s', text: 'msg', inputs: [], localId: 'local-2' });
   runner.run({ kind: 'InterruptRpc', corrId: 'c2', sessionPath: '/s' });
 
   await settle();

@@ -21,13 +21,13 @@ import {
   type TreatmentChangeKind,
 } from '../run-analytics';
 import { SessionRunStateManager } from './run-state-manager';
-import type { GetArchState, MutateArchState } from './types';
+import type { GetArchState, DispatchArchEvent } from './types';
 
 const TOOL_FAILURE_SAMPLE_LIMIT = 20;
 
 interface SessionRunTrackerOptions {
   getArchState: GetArchState;
-  mutateArchState: MutateArchState;
+  dispatchArchEvent: DispatchArchEvent;
   scheduleRender: () => void;
   schedulePersist: (snapshotToAppend?: RunSnapshot, outcomeToAppend?: OutcomeHistoryLogEntry) => void;
   now: () => Date;
@@ -37,17 +37,17 @@ interface SessionRunTrackerOptions {
 
 export class SessionRunTracker {
   private readonly getArchState: GetArchState;
-  private readonly mutateArchState: MutateArchState;
+  private readonly dispatchArchEvent: DispatchArchEvent;
   private readonly scheduleRender: () => void;
   private readonly runState: SessionRunStateManager;
 
   constructor(options: SessionRunTrackerOptions) {
     this.getArchState = options.getArchState;
-    this.mutateArchState = options.mutateArchState;
+    this.dispatchArchEvent = options.dispatchArchEvent;
     this.scheduleRender = options.scheduleRender;
     this.runState = new SessionRunStateManager({
       getArchState: options.getArchState,
-      mutateArchState: options.mutateArchState,
+      dispatchArchEvent: options.dispatchArchEvent,
       schedulePersist: options.schedulePersist,
       now: options.now,
       createId: options.createId,
@@ -378,9 +378,7 @@ export class SessionRunTracker {
       this.runState.finalizeCurrentRun(sessionPath, 'closed_unscored');
     }
     this.runState.sessions.delete(sessionPath);
-    this.mutateArchState((draft) => {
-      draft.composer.activeRunSummaryBySession[sessionPath] = null;
-    });
+    this.dispatchArchEvent({ kind: 'ActiveRunSummaryChanged', sessionPath, summary: null });
     this.runState.persist();
     this.scheduleRender();
   }

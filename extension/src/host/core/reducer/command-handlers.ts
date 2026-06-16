@@ -30,7 +30,7 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
       // agent_start event which fires after the pruning prepass).
       const nextRunningPaths = addToArray(state.sessions.runningSessionPaths, cmd.sessionPath);
       const nextState = produce(state, (draft) => {
-        appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.composedText, cmd.userParts);
+        appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.composedText, cmd.userParts, new Date(cmd.timestamp).toISOString());
         draft.pending.ops[cmd.corrId] = {
           kind: 'send',
           sessionPath: cmd.sessionPath,
@@ -38,6 +38,7 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
           previousSummary: cmd.previousSummary,
         };
         draft.sessions.runningSessionPaths = nextRunningPaths;
+        delete draft.composer.draftTextBySession[cmd.sessionPath];
       });
 
       return {
@@ -49,6 +50,7 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
             sessionPath: cmd.sessionPath,
             text: cmd.text,
             inputs: cmd.inputs,
+            localId: cmd.localId,
           },
         ],
       };
@@ -59,8 +61,8 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
       // webview shows an activity indicator right away.
       const nextRunningPaths = addToArray(state.sessions.runningSessionPaths, cmd.sessionPath);
       const nextState = produce(state, (draft) => {
-        draft.transcript.editingMessageId = null;
-        appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.text, undefined);
+        draft.transcript.editingMessageIdBySession[cmd.sessionPath] = null;
+        appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.text, undefined, new Date(cmd.timestamp).toISOString());
         draft.pending.ops[cmd.corrId] = {
           kind: 'edit',
           sessionPath: cmd.sessionPath,
@@ -79,8 +81,44 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
             sessionPath: cmd.sessionPath,
             messageId: cmd.messageId,
             text: cmd.text,
+            localId: cmd.localId,
           },
         ],
+      };
+    }
+
+    case 'TruncateAfter': {
+      return {
+        state,
+        effects: [{
+          kind: 'TruncateRpc',
+          corrId: cmd.corrId,
+          sessionPath: cmd.sessionPath,
+          messageId: cmd.messageId,
+        }],
+      };
+    }
+
+    case 'OpenSession': {
+      return {
+        state,
+        effects: [{
+          kind: 'OpenSession',
+          corrId: cmd.corrId,
+          sessionPath: cmd.sessionPath,
+          selectionToken: cmd.selectionToken,
+        }],
+      };
+    }
+
+    case 'CreateSession': {
+      return {
+        state,
+        effects: [{
+          kind: 'CreateSession',
+          corrId: cmd.corrId,
+          selectionToken: cmd.selectionToken,
+        }],
       };
     }
 
@@ -93,7 +131,7 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
             modelSettings: cmd.modelSettings,
           },
         },
-        effects: [],
+        effects: [{ kind: 'SetModelRpc', corrId: cmd.corrId, sessionPath: cmd.sessionPath, modelSettings: cmd.modelSettings }],
       };
     }
 
@@ -117,17 +155,18 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
             prefs: deepMerged,
           },
         },
-        effects: [],
+        effects: [{ kind: 'SetPrefsRpc', corrId: cmd.corrId, prefs: cmd.prefs }],
       };
     }
 
     case 'SelectSession': {
+      const sessionPath = cmd.sessionPath || null;
       return {
         state: {
           ...state,
           sessions: {
             ...state.sessions,
-            activeSessionPath: cmd.sessionPath,
+            activeSessionPath: sessionPath,
             unreadFinishedSessionPaths: removeFromArray(
               state.sessions.unreadFinishedSessionPaths,
               cmd.sessionPath,
@@ -211,7 +250,11 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'CloseSession': {
-      return removeSessionFromState(state, cmd.sessionPath);
+      const { state: removedState } = removeSessionFromState(state, cmd.sessionPath);
+      return {
+        state: removedState,
+        effects: [{ kind: 'CloseSession', corrId: cmd.corrId, sessionPath: cmd.sessionPath }],
+      };
     }
 
     case 'PersistTabs': {
@@ -263,10 +306,19 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
       };
     }
 
+    case 'SetComposerDraft': {
+      return {
+        state: produce(state, (draft) => {
+          draft.composer.draftTextBySession[cmd.sessionPath] = cmd.text;
+        }),
+        effects: [],
+      };
+    }
+
     case 'SetEditingMessage': {
       return {
         state: produce(state, (draft) => {
-          draft.transcript.editingMessageId = cmd.messageId;
+          draft.transcript.editingMessageIdBySession[cmd.sessionPath] = cmd.messageId;
         }),
         effects: [],
       };
@@ -275,7 +327,7 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     case 'SetOutcomeDialog': {
       return {
         state: produce(state, (draft) => {
-          draft.settings.showOutcomeDialog = cmd.visible;
+          draft.settings.showOutcomeDialogBySession[cmd.sessionPath] = cmd.visible;
         }),
         effects: [],
       };
@@ -301,13 +353,186 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
             }
           }
         }),
-        effects: cmd.approved
-          ? [{ kind: 'PostImperative' as const, corrId: cmd.corrId, imperativeMessage: { type: 'extensionUiApproved', sessionPath: cmd.sessionPath } }]
-          : [],
+        effects: [
+          { kind: 'ExtensionUiResponseRpc', corrId: cmd.corrId, sessionPath: cmd.sessionPath, response: cmd.response },
+          ...(cmd.approved ? [{ kind: 'PostImperative' as const, corrId: cmd.corrId, imperativeMessage: { type: 'extensionUiApproved', sessionPath: cmd.sessionPath } }] : []),
+        ],
+      };
+    }
+
+    case 'AddFilesystemPaths': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'AddFilesystemPaths',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+            paths: cmd.paths,
+            source: cmd.source,
+          },
+        ],
+      };
+    }
+
+    case 'LoadOlderTranscript': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'LoadOlderTranscript',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+          },
+        ],
+      };
+    }
+
+    case 'LoadNewerTranscript': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'LoadNewerTranscript',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+          },
+        ],
+      };
+    }
+
+    case 'JumpToLatestTranscript': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'JumpToLatestTranscript',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+          },
+        ],
+      };
+    }
+
+    case 'RecordOutcome': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'RecordOutcome',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+            outcome: cmd.outcome,
+          },
+        ],
+      };
+    }
+
+    case 'StartNewTask': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'StartNewTask',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+          },
+        ],
+      };
+    }
+
+    case 'ContinueTask': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'ContinueTask',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+          },
+        ],
+      };
+    }
+
+    case 'OpenFileInEditor': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'OpenFileInEditor',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+            filePath: cmd.filePath,
+          },
+        ],
+      };
+    }
+
+    case 'OpenFile': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'OpenFile',
+            corrId: cmd.corrId,
+            path: cmd.path,
+          },
+        ],
+      };
+    }
+
+    case 'SetPruningSettings': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'SetPruningSettings',
+            corrId: cmd.corrId,
+            settings: cmd.settings,
+          },
+        ],
+      };
+    }
+
+    case 'DuplicateSession': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'DuplicateSession',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+          },
+        ],
+      };
+    }
+
+    case 'MoveSessionTab': {
+      return {
+        state,
+        effects: [
+          {
+            kind: 'MoveSessionTab',
+            corrId: cmd.corrId,
+            sessionPath: cmd.sessionPath,
+            fromIndex: cmd.fromIndex,
+            toIndex: cmd.toIndex,
+          },
+        ],
       };
     }
 
     default:
-      return { state, effects: [] };
+      return {
+        state,
+        effects: [
+          {
+            kind: 'Log',
+            corrId: '',
+            level: 'warn',
+            message: `Unhandled command: ${(cmd as any).kind}`,
+          },
+        ],
+      };
   }
 }

@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { produce } from 'immer';
-
 import { SessionRunTracker } from '../src/host/stats-service/tracker';
 import { createInitialArchState } from '../src/host/core/arch-state';
+import { reducer } from '../src/host/core/reducer';
+import type { Event } from '../src/host/core/events';
 import type { ArchState } from '../src/host/core/arch-state';
 import type { ComposerInput, RunOutcome, SessionAnalyticsFactors } from '../src/shared/protocol';
+import { produce } from 'immer';
 
 function createHarness() {
   const sessionPath = '/workspace/session.jsonl';
@@ -34,13 +35,14 @@ function createHarness() {
   });
 
   const getArchState = () => archState;
-  const mutateArchState = (recipe: (draft: ArchState) => void) => {
-    archState = produce(archState, recipe);
+  const dispatchArchEvent = (event: Event) => {
+    const result = reducer(archState, event);
+    archState = result.state;
   };
 
   const tracker = new SessionRunTracker({
     getArchState,
-    mutateArchState,
+    dispatchArchEvent,
     scheduleRender: () => {
       renderCount += 1;
     },
@@ -68,9 +70,7 @@ function createHarness() {
       experimentAssignment = value;
     },
     setAnalyticsFactors(sessionPath: string, factors: SessionAnalyticsFactors) {
-      mutateArchState((draft) => {
-        draft.sessions.analyticsFactorsBySession[sessionPath] = factors;
-      });
+      dispatchArchEvent({ kind: 'AnalyticsFactorsChanged', sessionPath, factors });
     },
   };
 }

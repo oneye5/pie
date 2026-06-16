@@ -193,7 +193,7 @@ function SubagentSingleBlock({
   // Check if this subagent has a pending ask_user request (for blinking indicator).
   const askUserCtx = useContext(AskUserContext);
   const hasPendingAskUser = !open && Object.values(askUserCtx.pendingRequests).some(
-    (req) => req.method === 'select' && req.subagentCallId != null
+    (req) => (req.method === 'select' || req.method === 'confirm' || req.method === 'input') && req.subagentCallId != null
       && (req.subagentCallId === toolCall.id || req.subagentCallId.startsWith(`${toolCall.id}:`)),
   );
 

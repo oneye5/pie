@@ -6,9 +6,10 @@ import type {
   ToolCall,
 } from '../../shared/protocol';
 import type { ArchState } from '../core/arch-state';
+import type { Event } from '../core/events';
 import type { TaskBoundaryIntent, RunSnapshot } from '../run-analytics';
 
-export type MutateArchState = (recipe: (draft: ArchState) => void) => void;
+export type DispatchArchEvent = (event: Event) => void;
 export type GetArchState = () => ArchState;
 
 export interface SessionRunState {
@@ -70,7 +71,7 @@ export interface StatsServiceOptions {
   legacyWorkspaceIds?: string[];
   scheduleRender?: () => void;
   getArchState?: GetArchState;
-  mutateArchState?: MutateArchState;
+  dispatchArchEvent?: DispatchArchEvent;
   now?: () => Date;
   createId?: () => string;
   getExperimentAssignment?: () => string | null;

@@ -27,6 +27,7 @@ import { buildTranscriptPageRequest } from '../core/transcript-window';
 import { SessionServiceState } from './state';
 import type { ScheduleRender } from './types';
 import type { ArchState } from '../core/arch-state';
+import type { Event } from '../core/events';
 
 interface SessionMessageActionsOptions {
   context: vscode.ExtensionContext;
@@ -36,7 +37,7 @@ interface SessionMessageActionsOptions {
   state: SessionServiceState;
   createNewSession: () => string;
   getArchState: () => ArchState;
-  mutateArchState: (recipe: (draft: ArchState) => void) => void;
+  dispatchArch: (event: Event) => void;
 }
 
 export class SessionMessageActions {
@@ -47,7 +48,7 @@ export class SessionMessageActions {
   private readonly state: SessionServiceState;
   private readonly createNewSession: () => string;
   private readonly getArchState: () => ArchState;
-  private readonly mutateArchState: (recipe: (draft: ArchState) => void) => void;
+  private readonly dispatchArch: (event: Event) => void;
   private readonly transcriptPageRequestSeqBySession = new Map<string, number>();
   private readonly inFlightTranscriptPageBySession = new Set<string>();
 
@@ -59,7 +60,7 @@ export class SessionMessageActions {
     this.state = options.state;
     this.createNewSession = options.createNewSession;
     this.getArchState = options.getArchState;
-    this.mutateArchState = options.mutateArchState;
+    this.dispatchArch = options.dispatchArch;
   }
 
   normalizeAttachUris(uris: vscode.Uri[]): vscode.Uri[] {
@@ -95,12 +96,12 @@ export class SessionMessageActions {
         this.scheduleRender,
         this.runObserver,
         this.getArchState,
-        this.mutateArchState,
+        this.dispatchArch,
       );
       if (!input) {
         continue;
       }
-      upsertPendingComposerInput(sessionPath, input, this.getArchState, this.mutateArchState);
+      upsertPendingComposerInput(sessionPath, input, this.getArchState, this.dispatchArch);
     }
 
     this.scheduleRender();
@@ -122,13 +123,13 @@ export class SessionMessageActions {
       this.scheduleRender,
       this.runObserver,
       this.getArchState,
-      this.mutateArchState,
+      this.dispatchArch,
     );
     if (!input) {
       return;
     }
 
-    upsertPendingComposerInput(sessionPath, input, this.getArchState, this.mutateArchState);
+    upsertPendingComposerInput(sessionPath, input, this.getArchState, this.dispatchArch);
     this.scheduleRender();
   }
 
@@ -138,17 +139,12 @@ export class SessionMessageActions {
       return;
     }
 
-    this.mutateArchState((draft) => {
-      const list = draft.composer.pendingComposerInputsBySession[sessionPath];
-      if (!list) return;
-      const filtered = list.filter((input) => input.id !== inputId);
-      if (filtered.length === list.length) return;
-      if (filtered.length === 0) {
-        delete draft.composer.pendingComposerInputsBySession[sessionPath];
-      } else {
-        draft.composer.pendingComposerInputsBySession[sessionPath] = filtered;
-      }
-    });
+    const existing = this.getArchState().composer.pendingComposerInputsBySession[sessionPath] ?? [];
+    const filtered = existing.filter((input) => input.id !== inputId);
+    if (filtered.length === existing.length) {
+      return;
+    }
+    this.dispatchArch({ kind: 'ComposerInputsReplaced', sessionPath, inputs: filtered.length > 0 ? filtered : null });
     this.scheduleRender();
   }
 
@@ -192,43 +188,25 @@ export class SessionMessageActions {
 
     try {
       await this.state.enqueueLifecycle(async () => {
-        const result = await this.backend.request<ModelSettings>('settings.set', {
+        await this.backend.request<ModelSettings>('settings.set', {
           sessionPath,
           defaultModel,
           defaultThinkingLevel,
         });
-        this.mutateArchState((draft) => {
-          draft.settings.modelSettings = result;
-          delete draft.settings.contextUsageBySession[sessionPath];
-        });
+        this.dispatchArch({ kind: 'ContextUsageChanged', sessionPath, contextUsage: null });
         this.state.bumpSessionDataEpoch(sessionPath);
 
-        const archState = this.getArchState();
-        const session = archState.sessions.sessions.find((s) => s.path === sessionPath);
-        if (session) {
-          this.mutateArchState((draft) => {
-            const idx = draft.sessions.sessions.findIndex((s) => s.path === sessionPath);
-            if (idx !== -1) {
-              draft.sessions.sessions[idx] = {
-                ...draft.sessions.sessions[idx],
-                modelId: defaultModel,
-                thinkingLevel: defaultThinkingLevel,
-              };
-            }
-          });
-        }
+        this.dispatchArch({ kind: 'SessionMetadataChanged', sessionPath, modelId: defaultModel, thinkingLevel: defaultThinkingLevel });
 
         if (shouldClearPendingImages) {
-          clearPendingImageInputs(sessionPath, this.getArchState, this.mutateArchState);
+          clearPendingImageInputs(sessionPath, this.getArchState, this.dispatchArch);
         }
 
         this.runObserver.onModelConfigChanged(sessionPath, defaultModel, defaultThinkingLevel);
         this.scheduleRender();
       });
     } catch (err) {
-      this.mutateArchState((draft) => {
-        draft.settings.notice = `Failed to set model: ${(err as Error).message}`;
-      });
+      this.dispatchArch({ kind: 'Error', sessionPath, error: `Failed to set model: ${(err as Error).message}` });
       this.scheduleRender();
     }
   }
@@ -239,13 +217,11 @@ export class SessionMessageActions {
         this.backend.request<ModelSettings>('settings.get'),
         this.backend.request<ModelInfo[]>('models.list', { sessionPath }),
       ]);
-      this.mutateArchState((draft) => {
-        draft.settings.modelSettings = modelSettings;
-        const existing = draft.settings.availableModelsBySession[sessionPath] ?? [];
-        if (models.length > 0 || existing.length === 0) {
-          draft.settings.availableModelsBySession[sessionPath] = models;
-        }
-      });
+      this.dispatchArch({ kind: 'Command', cmd: { kind: 'SetModel', corrId: `hydrate:${Date.now()}`, sessionPath, modelSettings } });
+      const existing = this.getArchState().settings.availableModelsBySession[sessionPath] ?? [];
+      if (models.length > 0 || existing.length === 0) {
+        this.dispatchArch({ kind: 'AvailableModelsChanged', sessionPath, models });
+      }
       this.scheduleRender();
     } catch {
       // Non-fatal: model hydration failure does not break the extension.
@@ -328,18 +304,18 @@ export class SessionMessageActions {
         localTranscript: this.getArchState().transcript.bySession[payload.sessionPath] ?? [],
       });
 
-      this.mutateArchState((draft) => {
-        draft.transcript.bySession[payload.sessionPath] = resolution.transcript;
-        draft.transcript.windowBySession[payload.sessionPath] = resolution.transcriptWindow;
+      this.dispatchArch({
+        kind: 'TranscriptPageLoaded',
+        sessionPath: payload.sessionPath,
+        transcript: resolution.transcript,
+        transcriptWindow: resolution.transcriptWindow,
       });
 
       this.state.touchSessionTranscript(payload.sessionPath);
       this.state.evictInactiveTranscriptWindows();
       this.scheduleRender();
     } catch (error) {
-      this.mutateArchState((draft) => {
-        draft.settings.notice = `Failed to load transcript page: ${(error as Error).message}`;
-      });
+      this.dispatchArch({ kind: 'Error', sessionPath, error: `Failed to load transcript page: ${(error as Error).message}` });
       this.scheduleRender();
     } finally {
       this.inFlightTranscriptPageBySession.delete(sessionPath);
@@ -372,24 +348,18 @@ export class SessionMessageActions {
     // the user switched tabs mid-flight (R3 / B4). If sessionPath is missing,
     // treat it as a malformed request and refuse.
     if (!sessionPath) {
-      this.mutateArchState((draft) => {
-        draft.settings.notice = `Cannot ${actionName}: missing session reference.`;
-      });
+      this.dispatchArch({ kind: 'NoticeShown', notice: `Cannot ${actionName}: missing session reference.` });
       this.scheduleRender();
       return null;
     }
     const resolvedSessionPath = sessionPath;
     if (isPendingTabPath(resolvedSessionPath)) {
-      this.mutateArchState((draft) => {
-        draft.settings.notice = `Cannot ${actionName}: the session is still opening.`;
-      });
+      this.dispatchArch({ kind: 'NoticeShown', notice: `Cannot ${actionName}: the session is still opening.` });
       this.scheduleRender();
       return null;
     }
     if (!this.getArchState().sessions.openTabPaths.includes(resolvedSessionPath)) {
-      this.mutateArchState((draft) => {
-        draft.settings.notice = `Cannot ${actionName}: the selected session is no longer open.`;
-      });
+      this.dispatchArch({ kind: 'NoticeShown', notice: `Cannot ${actionName}: the selected session is no longer open.` });
       this.scheduleRender();
       return null;
     }
@@ -416,9 +386,7 @@ export class SessionMessageActions {
       return null;
     }
     if (!archState.sessions.openTabPaths.includes(sessionPath)) {
-      this.mutateArchState((draft) => {
-        draft.settings.notice = 'Cannot update composer inputs: the selected session is no longer open.';
-      });
+      this.dispatchArch({ kind: 'NoticeShown', notice: 'Cannot update composer inputs: the selected session is no longer open.' });
       this.scheduleRender();
       return null;
     }

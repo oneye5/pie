@@ -2,7 +2,6 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
-import { produce } from 'immer';
 import * as vscode from 'vscode';
 
 import { EMPTY_DIFF_SCHEME, EmptyDiffContentProvider, FileDiffService } from './core/file-diff-service';
@@ -110,9 +109,7 @@ export class PieExtension implements vscode.Disposable {
       scheduleRender: () => this.scheduleRender(),
       getExperimentAssignment: () => this.getExperimentAssignment(),
       getArchState: () => this.archState,
-      mutateArchState: (recipe) => {
-        this.archState = produce(this.archState, recipe);
-      },
+      dispatchArchEvent: (event) => this.dispatchArchEvent(event),
     });
 
     this.service = new SessionService(
@@ -122,9 +119,6 @@ export class PieExtension implements vscode.Disposable {
       (message) => this.sidebarProvider.postImperative(message),
       (event) => this.dispatchArchEvent(event),
       () => this.archState,
-      (recipe) => {
-        this.archState = produce(this.archState, recipe);
-      },
       (event) => {
         this.handleSessionCompleted(event);
       },
@@ -176,6 +170,9 @@ export class PieExtension implements vscode.Disposable {
       postImperative: {
         postImperative: (message) => this.sidebarProvider.postImperative(message as import('../shared/protocol').HostToWebviewMessage),
       },
+      fileDiffService: this.fileDiffService,
+      service: this.service,
+      statsService: this.statsService,
       dispatch: (event) => this.dispatchArchEvent(event),
     });
 

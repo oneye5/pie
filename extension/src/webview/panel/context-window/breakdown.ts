@@ -168,19 +168,19 @@ function buildContributors(
   // Transcript messages.
   for (const message of transcript) {
     if (message.role === 'user') {
-      const tokens = estimateTextTokens(message.markdown);
-      const raw = message.markdown.replace(/\n+/g, ' ').trim();
+      const tokens = typeof message.markdown === 'string' ? estimateTextTokens(message.markdown) : 0;
+      const raw = typeof message.markdown === 'string' ? message.markdown.replace(/\n+/g, ' ').trim() : '';
       const note = raw.length > 0
         ? truncateText(raw, 60)
         : undefined;
       items.push({ label: 'User message', note, tokens, originalIndex: index++ });
     } else if (message.role === 'assistant') {
       // Assistant prose and reasoning go to "other".
-      otherEstimated += estimateTextTokens(message.markdown);
+      otherEstimated += typeof message.markdown === 'string' ? estimateTextTokens(message.markdown) : 0;
       otherEstimated += estimateTextTokens(message.thinking ?? '');
 
       for (const toolCall of message.toolCalls ?? []) {
-        const toolName = toolCall.name.toLowerCase().trim();
+        const toolName = typeof toolCall.name === 'string' ? toolCall.name.toLowerCase().trim() : '';
         if (toolName === 'read_file' || toolName === 'read') {
           const path = extractToolCallFilePath(toolCall.input);
           if (path) {

@@ -152,7 +152,7 @@ test('reducer: InterruptResult{ok:false} clears flag and produces Log effect', (
 test('reducer: non-Interrupt Command passes through unchanged', () => {
   const event: Event = {
     kind: 'Command',
-    cmd: { kind: 'Send', corrId: 'c1', sessionPath: '/a', text: 'hello', inputs: [], composedText: 'hello', localId: 'local:1', previousSummary: null },
+    cmd: { kind: 'Send', corrId: 'c1', sessionPath: '/a', text: 'hello', inputs: [], composedText: 'hello', localId: 'local:1', previousSummary: null, timestamp: 1 },
   };
 
   // Send is now handled by the reducer (Phase 4), so it should NOT pass through unchanged.
@@ -169,6 +169,7 @@ test('reducer: Send command inserts optimistic message and produces SendRpc', ()
       kind: 'Send', corrId: 'c-send', sessionPath: '/s',
       text: 'raw', inputs: [], composedText: 'composed', localId: 'loc-1',
       userParts: [{ kind: 'text', text: 'raw' }], previousSummary: null,
+      timestamp: 1,
     },
   };
 
@@ -288,7 +289,7 @@ test('reducer: SendResult for unknown corrId is a no-op', () => {
 test('reducer: Edit command records pending, inserts optimistic message, produces EditRpc', () => {
   const event: Event = {
     kind: 'Command',
-    cmd: { kind: 'Edit', corrId: 'c-edit', sessionPath: '/s', messageId: 'msg-1', text: 'new text', localId: 'loc-e1' },
+    cmd: { kind: 'Edit', corrId: 'c-edit', sessionPath: '/s', messageId: 'msg-1', text: 'new text', localId: 'loc-e1', timestamp: 1 },
   };
 
   const result = reducer(initialArchState, event);
@@ -365,6 +366,7 @@ test('reducer: MessageStarted with new requestId creates currentTurn and assista
     requestId: 'req-1',
     modelId: 'gpt-5',
     thinkingLevel: 'high',
+    timestamp: 1,
   };
 
   const result = reducer(initialArchState, event);
@@ -407,6 +409,7 @@ test('reducer: MessageStarted with same requestId creates alias and updates cano
     messageId: 'msg-2',
     requestId: 'req-1',
     modelId: 'gpt-5',
+    timestamp: 1,
   };
 
   const result = reducer(state, event);
@@ -428,6 +431,7 @@ test('reducer: MessageStarted without requestId does not update currentTurnBySes
     kind: 'MessageStarted',
     sessionPath: '/s',
     messageId: 'msg-x',
+    timestamp: 1,
   };
 
   const result = reducer(initialArchState, event);
@@ -631,6 +635,7 @@ test('reducer: full alias lifecycle — multi-turn accumulation', () => {
   // Turn 1: MessageStarted creates first turn
   let { state } = reducer(initialArchState, {
     kind: 'MessageStarted', sessionPath: '/s', messageId: 'req1:1', requestId: 'req1', modelId: 'gpt-5',
+    timestamp: 1,
   });
 
   // Verify assistant message created
@@ -647,6 +652,7 @@ test('reducer: full alias lifecycle — multi-turn accumulation', () => {
   // Turn 2: same requestId → alias created
   r = reducer(state, {
     kind: 'MessageStarted', sessionPath: '/s', messageId: 'req1:2', requestId: 'req1',
+    timestamp: 1,
   });
   state = r.state;
   assert.equal(state.pending.messageIdAlias['req1:2'], 'req1:1');
@@ -753,6 +759,7 @@ test('reducer: Send command with duplicate localId upserts existing optimistic m
       localId,
       userParts: undefined,
       previousSummary: null,
+      timestamp: 1,
     },
   }).state;
 
@@ -772,9 +779,379 @@ test('reducer: Send command with duplicate localId upserts existing optimistic m
       localId,
       userParts: undefined,
       previousSummary: null,
+      timestamp: 1,
     },
   }).state;
 
   assert.equal(state2.transcript.bySession[sessionPath]?.length, 1);
   assert.equal(state2.transcript.bySession[sessionPath]?.[0]?.markdown, 'second');
+});
+
+// ─── Phase 4: Additional command coverage ───────────────────────────────────
+
+test('reducer: DuplicateSession command produces DuplicateSession effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'DuplicateSession', corrId: 'c-dup', sessionPath: '/s' },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'DuplicateSession');
+  if (result.effects[0]?.kind === 'DuplicateSession') {
+    assert.equal(result.effects[0].corrId, 'c-dup');
+    assert.equal(result.effects[0].sessionPath, '/s');
+  }
+});
+
+test('reducer: MoveSessionTab command produces MoveSessionTab effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'MoveSessionTab', corrId: 'c-move', sessionPath: '/s', fromIndex: 0, toIndex: 2 },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'MoveSessionTab');
+  if (result.effects[0]?.kind === 'MoveSessionTab') {
+    assert.equal(result.effects[0].corrId, 'c-move');
+    assert.equal(result.effects[0].sessionPath, '/s');
+    assert.equal(result.effects[0].fromIndex, 0);
+    assert.equal(result.effects[0].toIndex, 2);
+  }
+});
+
+test('reducer: AddFilesystemPaths command produces AddFilesystemPaths effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'AddFilesystemPaths', corrId: 'c-afp', sessionPath: '/s', paths: ['/a', '/b'], source: 'picker' },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'AddFilesystemPaths');
+  if (result.effects[0]?.kind === 'AddFilesystemPaths') {
+    assert.equal(result.effects[0].corrId, 'c-afp');
+    assert.equal(result.effects[0].sessionPath, '/s');
+    assert.deepEqual(result.effects[0].paths, ['/a', '/b']);
+    assert.equal(result.effects[0].source, 'picker');
+  }
+});
+
+test('reducer: LoadOlderTranscript command produces LoadOlderTranscript effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'LoadOlderTranscript', corrId: 'c-old', sessionPath: '/s' },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'LoadOlderTranscript');
+  if (result.effects[0]?.kind === 'LoadOlderTranscript') {
+    assert.equal(result.effects[0].corrId, 'c-old');
+    assert.equal(result.effects[0].sessionPath, '/s');
+  }
+});
+
+test('reducer: LoadNewerTranscript command produces LoadNewerTranscript effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'LoadNewerTranscript', corrId: 'c-new', sessionPath: '/s' },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'LoadNewerTranscript');
+  if (result.effects[0]?.kind === 'LoadNewerTranscript') {
+    assert.equal(result.effects[0].corrId, 'c-new');
+    assert.equal(result.effects[0].sessionPath, '/s');
+  }
+});
+
+test('reducer: JumpToLatestTranscript command produces JumpToLatestTranscript effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'JumpToLatestTranscript', corrId: 'c-jump', sessionPath: '/s' },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'JumpToLatestTranscript');
+  if (result.effects[0]?.kind === 'JumpToLatestTranscript') {
+    assert.equal(result.effects[0].corrId, 'c-jump');
+    assert.equal(result.effects[0].sessionPath, '/s');
+  }
+});
+
+test('reducer: RecordOutcome command produces RecordOutcome effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'RecordOutcome', corrId: 'c-out', sessionPath: '/s', outcome: { resolution: 'resolved', satisfaction: 5 } },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'RecordOutcome');
+  if (result.effects[0]?.kind === 'RecordOutcome') {
+    assert.equal(result.effects[0].corrId, 'c-out');
+    assert.equal(result.effects[0].sessionPath, '/s');
+    assert.deepEqual(result.effects[0].outcome, { resolution: 'resolved', satisfaction: 5 });
+  }
+});
+
+test('reducer: StartNewTask command produces StartNewTask effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'StartNewTask', corrId: 'c-start', sessionPath: '/s' },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'StartNewTask');
+  if (result.effects[0]?.kind === 'StartNewTask') {
+    assert.equal(result.effects[0].corrId, 'c-start');
+    assert.equal(result.effects[0].sessionPath, '/s');
+  }
+});
+
+test('reducer: ContinueTask command produces ContinueTask effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'ContinueTask', corrId: 'c-cont', sessionPath: '/s' },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'ContinueTask');
+  if (result.effects[0]?.kind === 'ContinueTask') {
+    assert.equal(result.effects[0].corrId, 'c-cont');
+    assert.equal(result.effects[0].sessionPath, '/s');
+  }
+});
+
+// ─── Phase 4: CloseSessionResult ────────────────────────────────────────────
+
+test('reducer: CloseSessionResult{ok:true} returns unchanged state with no effects', () => {
+  const result = reducer(initialArchState, { kind: 'CloseSessionResult', corrId: 'c-close', ok: true });
+  assert.deepEqual(result.state, initialArchState);
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: CloseSessionResult{ok:false} produces Log effect', () => {
+  const result = reducer(initialArchState, { kind: 'CloseSessionResult', corrId: 'c-close', ok: false, error: 'network' });
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'Log');
+  if (result.effects[0]?.kind === 'Log') {
+    assert.equal(result.effects[0].level, 'error');
+    assert.match(result.effects[0].message, /CloseSessionResult failed/);
+  }
+});
+
+// ─── Phase 4: requestIdToLocalId reconciliation ───────────────────────────────
+
+test('reducer: SendResult{ok:true} with requestId stores requestIdToLocalId mapping', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    pending: {
+      ...initialArchState.pending,
+      ops: {
+        'c-send': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null },
+      },
+    },
+  };
+
+  const result = reducer(state, {
+    kind: 'SendResult',
+    corrId: 'c-send',
+    sessionPath: '/s',
+    ok: true,
+    requestId: 'req-1',
+  });
+
+  assert.deepEqual(result.state.pending.requestIdToLocalId['req-1'], {
+    sessionPath: '/s',
+    localId: 'loc-1',
+  });
+});
+
+test('reducer: MessageStarted cleans up requestIdToLocalId mapping without corrupting transcript', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{ id: 'loc-1', role: 'user' as const, createdAt: '', markdown: 'hello', status: 'completed' as const }],
+      },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+    pending: {
+      ...initialArchState.pending,
+      requestIdToLocalId: {
+        'req-1': { sessionPath: '/s', localId: 'loc-1' },
+      },
+    },
+  };
+
+  const result = reducer(state, {
+    kind: 'MessageStarted',
+    sessionPath: '/s',
+    messageId: 'real-msg-1',
+    requestId: 'req-1',
+    timestamp: 1,
+  });
+
+  // The optimistic user message must keep its localId — MessageStarted carries
+  // the assistant message ID, not the user message ID.
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'loc-1');
+  assert.ok(msg, 'optimistic user message should keep localId');
+  assert.equal(msg!.role, 'user');
+  // Mapping should be cleaned up to avoid leaks.
+  assert.equal(result.state.pending.requestIdToLocalId['req-1'], undefined);
+});
+
+test('reducer: MessageStarted without matching requestIdToLocalId leaves transcript untouched', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{ id: 'loc-1', role: 'user' as const, createdAt: '', markdown: 'hello', status: 'completed' as const }],
+      },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+    pending: {
+      ...initialArchState.pending,
+      requestIdToLocalId: {
+        'req-other': { sessionPath: '/s', localId: 'loc-1' },
+      },
+    },
+  };
+
+  const result = reducer(state, {
+    kind: 'MessageStarted',
+    sessionPath: '/s',
+    messageId: 'real-msg-1',
+    requestId: 'req-1',
+    timestamp: 1,
+  });
+
+  // Local message should still exist under localId.
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'loc-1');
+  assert.ok(msg, 'local message should remain untouched');
+  // req-other mapping should still exist since requestId was req-1, not req-other.
+  assert.deepEqual(result.state.pending.requestIdToLocalId['req-other'], { sessionPath: '/s', localId: 'loc-1' });
+});
+
+test('reducer: SetComposerDraft command stores draft text for a session', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'SetComposerDraft', corrId: 'c-draft', sessionPath: '/s', text: 'hello world' },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.equal(result.state.composer.draftTextBySession['/s'], 'hello world');
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: Send command clears the persisted draft for the session', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    composer: {
+      ...initialArchState.composer,
+      draftTextBySession: { '/s': 'should clear' },
+    },
+  };
+
+  const event: Event = {
+    kind: 'Command',
+    cmd: {
+      kind: 'Send', corrId: 'c-send', sessionPath: '/s',
+      text: 'raw', inputs: [], composedText: 'composed', localId: 'loc-1',
+      userParts: undefined, previousSummary: null, timestamp: 1,
+    },
+  };
+
+  const result = reducer(state, event);
+
+  assert.equal(result.state.composer.draftTextBySession['/s'], undefined);
+});
+
+test('reducer: Edit command does not clear the persisted draft', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'msg-1', role: 'user' as const, createdAt: '', markdown: 'original', status: 'completed' as const }] },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+    composer: {
+      ...initialArchState.composer,
+      draftTextBySession: { '/s': 'keep me' },
+    },
+  };
+
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'Edit', corrId: 'c-edit', sessionPath: '/s', messageId: 'msg-1', text: 'edited', localId: 'loc-e1', timestamp: 1 },
+  };
+
+  const result = reducer(state, event);
+
+  assert.equal(result.state.composer.draftTextBySession['/s'], 'keep me');
+});
+
+// ─── Phase 4: DuplicateSessionResult / MoveSessionTabResult ───────────────────
+
+test('reducer: DuplicateSessionResult{ok:true} returns unchanged state with no effects', () => {
+  const result = reducer(initialArchState, { kind: 'DuplicateSessionResult', corrId: 'c-dup', ok: true });
+  assert.deepEqual(result.state, initialArchState);
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: DuplicateSessionResult{ok:false} produces Log effect', () => {
+  const result = reducer(initialArchState, { kind: 'DuplicateSessionResult', corrId: 'c-dup', ok: false, error: 'fail' });
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'Log');
+  if (result.effects[0]?.kind === 'Log') {
+    assert.equal(result.effects[0].level, 'error');
+    assert.match(result.effects[0].message, /DuplicateSessionResult failed/);
+  }
+});
+
+test('reducer: MoveSessionTabResult{ok:true} returns unchanged state with no effects', () => {
+  const result = reducer(initialArchState, { kind: 'MoveSessionTabResult', corrId: 'c-move', ok: true });
+  assert.deepEqual(result.state, initialArchState);
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: MoveSessionTabResult{ok:false} produces Log effect', () => {
+  const result = reducer(initialArchState, { kind: 'MoveSessionTabResult', corrId: 'c-move', ok: false, error: 'fail' });
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'Log');
+  if (result.effects[0]?.kind === 'Log') {
+    assert.equal(result.effects[0].level, 'error');
+    assert.match(result.effects[0].message, /MoveSessionTabResult failed/);
+  }
 });

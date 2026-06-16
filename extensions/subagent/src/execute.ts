@@ -51,9 +51,30 @@ export interface SelectionContext {
 export function validateSubagentParams(
 	params: SubagentParams,
 	agents: AgentConfig[],
-): { mode: "single" | "parallel" | "chain"; invalidResults: SingleResult[] } {
+):
+	| { ok: true; mode: "single" | "parallel" | "chain"; invalidResults: SingleResult[] }
+	| { ok: false; invalidResults: SingleResult[] } {
 	const hasChain = (params.chain?.length ?? 0) > 0;
 	const hasTasks = (params.tasks?.length ?? 0) > 0;
+	const hasSingle = Boolean(params.agent && params.task);
+	const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
+	if (modeCount !== 1) {
+		return {
+			ok: false,
+			invalidResults: [
+				{
+					agent: "",
+					agentSource: "unknown",
+					task: "",
+					exitCode: 1,
+					messages: [],
+					stderr: "Invalid parameters. Provide exactly one mode.",
+					usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+				},
+			],
+		};
+	}
+
 	const mode = hasChain ? "chain" : hasTasks ? "parallel" : "single";
 
 	const invalidResults: SingleResult[] = [];
@@ -76,7 +97,7 @@ export function validateSubagentParams(
 		invalidResults.push(createInvalidAgentResult(params.agent, params.task, agents));
 	}
 
-	return { mode, invalidResults };
+	return { ok: true, mode, invalidResults };
 }
 
 /** Resolves which model to use for an agent based on bucket hint and configuration. */
@@ -282,8 +303,12 @@ function setupModelSelection(ctx: ToolContext): SelectionContext {
 		/* ignore */
 	}
 
-	// Analytics directory: use the pi session data directory, falling back to analysis/data
-	const analyticsDir = path.join(CONFIG_ROOT, "analysis", "data");
+	// Analytics directory: prefer an explicit env override (set by the pi host),
+	// falling back to the in-repo analysis/data directory.
+	const configuredAnalyticsDir = process.env.PI_ANALYTICS_DIR?.trim();
+	const analyticsDir = configuredAnalyticsDir
+		? path.resolve(configuredAnalyticsDir)
+		: path.join(CONFIG_ROOT, "analysis", "data");
 
 	const disabledProviders = getDisabledProviders(parseProviderToggles(process.env[PROVIDER_TOGGLES_ENV]));
 	const availableModels = ctx.modelRegistry.getAvailable();
@@ -351,15 +376,12 @@ export async function execute(
 	const checkSessionLimit = createSessionLimitChecker();
 	const discovery = discoverAgents(ctx.cwd, agentScope);
 	const agents = discovery.agents;
-	const { mode, invalidResults } = validateSubagentParams(params, agents);
-
-	const hasChain = (params.chain?.length ?? 0) > 0;
-	const hasTasks = (params.tasks?.length ?? 0) > 0;
-	const hasSingle = Boolean(params.agent && params.task);
-	const modeCount = Number(hasChain) + Number(hasTasks) + Number(hasSingle);
-	if (modeCount !== 1) {
+	const validation = validateSubagentParams(params, agents);
+	if (!validation.ok) {
 		return modeCountErrorResponse(agents, agentScope, discovery.projectAgentsDir);
 	}
+	const { mode, invalidResults } = validation;
+
 	if (invalidResults.length > 0) {
 		return invalidAgentsResponse(invalidResults, mode, agentScope, discovery.projectAgentsDir);
 	}

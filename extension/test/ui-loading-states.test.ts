@@ -648,6 +648,7 @@ test('Send command optimistically marks session as running for instant Stop butt
       localId: 'local-1',
       userParts: undefined,
       previousSummary: null,
+      timestamp: 1,
     },
   });
 
@@ -678,6 +679,7 @@ test('SendResult failure removes optimistic message from transcript', async () =
       localId: 'local-1',
       userParts: undefined,
       previousSummary: null,
+      timestamp: 1,
     },
   }).state;
 

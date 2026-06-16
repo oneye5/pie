@@ -8,6 +8,8 @@ import { createInitialArchState } from '../src/host/core/arch-state';
 import type { ArchState } from '../src/host/core/arch-state';
 import { SessionServiceState } from '../src/host/session-service/state';
 import { SessionTabActions } from '../src/host/session-service/tab-actions';
+import { reducer } from '../src/host/core/reducer';
+import type { Event } from '../src/host/core/events';
 
 function createExtensionContext() {
   return {
@@ -56,10 +58,11 @@ test('openSession serializes backend session.open requests through the lifecycle
   const context = createExtensionContext();
   let archState = createInitialArchState();
   const getArchState = () => archState;
-  const mutateArchState = (recipe: (draft: ArchState) => void) => {
-    archState = produce(archState, recipe);
+  const dispatchArch = (event: Event) => {
+    const result = reducer(archState, event);
+    archState = result.state;
   };
-  const state = new SessionServiceState(context, backend, () => undefined, getArchState, mutateArchState);
+  const state = new SessionServiceState(context, backend, () => undefined, getArchState, dispatchArch);
   const tabs = new SessionTabActions({
     context,
     backend,
@@ -67,7 +70,7 @@ test('openSession serializes backend session.open requests through the lifecycle
     runObserver: NOOP_RUN_OBSERVER,
     state,
     getArchState,
-    mutateArchState,
+    dispatchArch,
   });
 
   tabs.openSession(sessionPaths[0]);

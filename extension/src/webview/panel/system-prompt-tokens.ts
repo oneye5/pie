@@ -6,6 +6,9 @@ const compactTokenFormatter = new Intl.NumberFormat(undefined, {
 });
 
 export function estimateTextTokens(text: string): number {
+  if (typeof text !== 'string') {
+    return 0;
+  }
   const trimmed = text.trim();
   if (!trimmed) {
     return 0;

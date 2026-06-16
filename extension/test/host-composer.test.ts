@@ -5,10 +5,12 @@ import {
   validateAndMaterializeComposerInput,
   modelSupportsInputKind,
   type GetArchState,
-  type MutateArchState,
+  type DispatchArchEvent,
 } from '../src/host/core/composer';
 import { createInitialArchState } from '../src/host/core/arch-state';
 import type { ArchState } from '../src/host/core/arch-state';
+import { reducer } from '../src/host/core/reducer';
+import type { Event } from '../src/host/core/events';
 
 const NOOP_RENDER = () => {};
 const NOOP_OBSERVER = {
@@ -33,10 +35,10 @@ function makeGetArchState(state: ArchState): GetArchState {
   return () => state;
 }
 
-function makeMutateArchState(stateRef: { current: ArchState }): MutateArchState {
-  return (recipe) => {
-    const { produce } = require('immer');
-    stateRef.current = produce(stateRef.current, recipe);
+function makeDispatchArchEvent(stateRef: { current: ArchState }): DispatchArchEvent {
+  return (event: Event) => {
+    const result = reducer(stateRef.current, event);
+    stateRef.current = result.state;
   };
 }
 
@@ -60,7 +62,7 @@ test('validateAndMaterializeComposerInput accepts imageBlob when model supports 
 
   const stateRef = { current: state };
   const getArchState = makeGetArchState(state);
-  const mutateArchState = makeMutateArchState(stateRef);
+  const dispatchArchEvent = makeDispatchArchEvent(stateRef);
 
   const input = validateAndMaterializeComposerInput(
     '/s',
@@ -76,7 +78,7 @@ test('validateAndMaterializeComposerInput accepts imageBlob when model supports 
     NOOP_RENDER,
     NOOP_OBSERVER,
     getArchState,
-    mutateArchState,
+    dispatchArchEvent,
   );
 
   assert.ok(input, 'imageBlob should be accepted when model supports images');
@@ -103,7 +105,7 @@ test('validateAndMaterializeComposerInput rejects imageBlob when model does not 
 
   const stateRef = { current: state };
   const getArchState = makeGetArchState(state);
-  const mutateArchState = makeMutateArchState(stateRef);
+  const dispatchArchEvent = makeDispatchArchEvent(stateRef);
 
   const input = validateAndMaterializeComposerInput(
     '/s',
@@ -119,7 +121,7 @@ test('validateAndMaterializeComposerInput rejects imageBlob when model does not 
     NOOP_RENDER,
     NOOP_OBSERVER,
     getArchState,
-    mutateArchState,
+    dispatchArchEvent,
   );
 
   assert.equal(input, null);

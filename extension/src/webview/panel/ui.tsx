@@ -20,6 +20,7 @@ import type {
   SystemPromptEntry,
   ThinkingLevel,
   TranscriptWindow,
+  WebviewToHostMessage,
 } from '../../shared/protocol';
 import { describeComposerInputSummary } from './composer/inputs';
 import { ComposerAttachments } from './composer/attachments';
@@ -38,6 +39,8 @@ export { SessionTabs } from './session-tabs';
 
 interface ComposerProps {
   busy: boolean;
+  sessionPath: string | null;
+  draftText: string;
   draftRestore?: { text: string; nonce: number } | null;
   activeModelId?: string;
   activeThinkingLevel?: ThinkingLevel;
@@ -55,6 +58,7 @@ interface ComposerProps {
   pendingComposerInputs: ComposerInput[];
   activeRunSummary?: ActiveRunSummary | null;
   focusTrigger?: string;
+  postMessage: (msg: WebviewToHostMessage) => void;
   onSend: (text: string) => void;
   onInterrupt: () => void;
   onOpenFilePicker: () => void;
@@ -68,6 +72,8 @@ interface ComposerProps {
 
 function ComposerView({
   busy,
+  sessionPath,
+  draftText,
   draftRestore,
   activeModelId,
   activeThinkingLevel,
@@ -85,6 +91,7 @@ function ComposerView({
   pendingComposerInputs,
   activeRunSummary,
   focusTrigger,
+  postMessage,
   onSend,
   onInterrupt,
   onOpenFilePicker,
@@ -132,6 +139,9 @@ function ComposerView({
     busy,
     onSend,
     pendingComposerInputsLength: pendingComposerInputs.length,
+    sessionPath,
+    draftText,
+    postMessage,
     draftRestore,
     focusTrigger,
     onAddInput,

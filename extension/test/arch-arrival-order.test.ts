@@ -33,6 +33,7 @@ function sendCommand(corrId: string, sessionPath: string): Event {
       localId: `local:${corrId}`,
       userParts: [{ kind: 'text', text: 'hello' }],
       previousSummary: null,
+      timestamp: 1,
     },
   };
 }
@@ -47,6 +48,7 @@ function editCommand(corrId: string, sessionPath: string): Event {
       messageId: 'msg-1',
       text: 'edited text',
       localId: `local:${corrId}`,
+      timestamp: 1,
     },
   };
 }

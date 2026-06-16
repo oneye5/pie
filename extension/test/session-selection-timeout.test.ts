@@ -6,6 +6,8 @@ import { produce } from 'immer';
 import { SessionServiceState } from '../src/host/session-service/state';
 import { createInitialArchState } from '../src/host/core/arch-state';
 import type { ArchState } from '../src/host/core/arch-state';
+import { reducer } from '../src/host/core/reducer';
+import type { Event } from '../src/host/core/events';
 
 function createExtensionContext() {
   return {
@@ -31,8 +33,9 @@ async function waitFor(predicate: () => boolean, attempts = 40): Promise<void> {
 test('selection timeout clears pending tab and surfaces a notice', async () => {
   let archState = createInitialArchState();
   const getArchState = () => archState;
-  const mutateArchState = (recipe: (draft: ArchState) => void) => {
-    archState = produce(archState, recipe);
+  const dispatchArch = (event: Event) => {
+    const result = reducer(archState, event);
+    archState = result.state;
   };
 
   const backend = { request: async () => undefined } as any;
@@ -40,10 +43,10 @@ test('selection timeout clears pending tab and surfaces a notice', async () => {
   let renderCount = 0;
   const state = new SessionServiceState(context, backend, () => {
     renderCount += 1;
-  }, getArchState, mutateArchState, 15);
+  }, getArchState, dispatchArch, 15);
 
   const pendingPath = `__pending__:selection-timeout-${Date.now()}`;
-  mutateArchState((draft) => {
+  archState = produce(archState, (draft) => {
     draft.sessions.sessions.push({
       path: pendingPath,
       name: 'Loading...',
@@ -78,8 +81,9 @@ test('selection timeout clears pending tab and surfaces a notice', async () => {
 test('finishing a selection request cancels its timeout watchdog', async () => {
   let archState = createInitialArchState();
   const getArchState = () => archState;
-  const mutateArchState = (recipe: (draft: ArchState) => void) => {
-    archState = produce(archState, recipe);
+  const dispatchArch = (event: Event) => {
+    const result = reducer(archState, event);
+    archState = result.state;
   };
 
   const backend = { request: async () => undefined } as any;
@@ -87,7 +91,7 @@ test('finishing a selection request cancels its timeout watchdog', async () => {
   let renderCount = 0;
   const state = new SessionServiceState(context, backend, () => {
     renderCount += 1;
-  }, getArchState, mutateArchState, 15);
+  }, getArchState, dispatchArch, 15);
 
   const token = state.beginSelectionRequest('/workspace/session-a.jsonl');
   state.finishSelectionRequest(token);

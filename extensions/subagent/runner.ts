@@ -8,13 +8,7 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Message, Model } from "@mariozechner/pi-ai";
-import {
-	createAgentSession,
-	DefaultResourceLoader,
-	getAgentDir,
-	type ModelRegistry,
-	SessionManager,
-} from "@mariozechner/pi-coding-agent";
+import type { ModelRegistry } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "./agents.js";
 import { getFinalOutput } from "./formatting.js";
 import type { ThinkingLevel, BucketSelection } from "./bucket-selector.js";
@@ -25,6 +19,53 @@ import {
 	ParentExtensionUIBridgeProxy,
 	type ParentBridge,
 } from "./src/parent-extension-ui-bridge-proxy.js";
+
+interface SessionLike {
+	agent?: { state?: { model?: { id: string } } };
+	extensionRunner: { setUIContext: (ctx: unknown) => void };
+	subscribe: (cb: (event: any) => void) => () => void;
+	prompt: (prompt: string) => Promise<void>;
+	abort: () => Promise<void>;
+	dispose: () => void;
+}
+
+interface ResourceLoaderLike {
+	reload: () => Promise<void>;
+}
+
+interface SubagentSdk {
+	createSession: (args: {
+		cwd: string;
+		modelRegistry: ModelRegistry;
+		model: Model<any> | undefined;
+		thinkingLevel: ThinkingLevel | undefined;
+		tools: string[] | undefined;
+		sessionManager: unknown;
+		resourceLoader: ResourceLoaderLike;
+	}) => Promise<{ session: SessionLike }>;
+	createResourceLoader: (args: {
+		cwd: string;
+		agentDir: string;
+		appendSystemPrompt: string[] | undefined;
+		noExtensions: boolean;
+	}) => ResourceLoaderLike;
+	createSessionManager: (cwd: string) => unknown;
+	getAgentDir: () => string;
+}
+
+let cachedSdkPromise: Promise<SubagentSdk> | undefined;
+
+async function loadSubagentSdk(): Promise<SubagentSdk> {
+	if (!cachedSdkPromise) {
+		cachedSdkPromise = import("@mariozechner/pi-coding-agent").then((sdk) => ({
+			createSession: sdk.createAgentSession,
+			createResourceLoader: (args) => new sdk.DefaultResourceLoader(args),
+			createSessionManager: (cwd) => sdk.SessionManager.inMemory(cwd),
+			getAgentDir: sdk.getAgentDir,
+		}));
+	}
+	return cachedSdkPromise;
+}
 
 /**
  * Per-prompt timeout: if the model doesn't produce a complete response within
@@ -207,11 +248,11 @@ function handleMessageEnd(
 }
 
 /** Build a per-call abort signal that fires on either the parent signal or the timeout. */
-function buildCombinedAbortSignal(parentSignal: AbortSignal | undefined): {
+function buildCombinedAbortSignal(parentSignal: AbortSignal | undefined, timeoutMs: number): {
 	timeoutSignal: AbortSignal;
 	onAbort: (handler: () => void) => () => void;
 } {
-	const timeoutSignal = AbortSignal.timeout(SUBAGENT_PROMPT_TIMEOUT_MS);
+	const timeoutSignal = AbortSignal.timeout(timeoutMs);
 	const signal = parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal;
 	const onAbort = (handler: () => void): (() => void) => {
 		signal.addEventListener("abort", handler, { once: true });
@@ -221,10 +262,10 @@ function buildCombinedAbortSignal(parentSignal: AbortSignal | undefined): {
 }
 
 /** Apply a timeout-failure to a result. */
-function applyTimeoutFailure(result: SingleResult): void {
+function applyTimeoutFailure(result: SingleResult, timeoutMs: number): void {
 	result.exitCode = 1;
 	result.stopReason = "timeout";
-	result.errorMessage = `Subagent timed out after ${SUBAGENT_PROMPT_TIMEOUT_MS / 1000}s waiting for model response.`;
+	result.errorMessage = `Subagent timed out after ${timeoutMs / 1000}s waiting for model response.`;
 	result.streamingText = undefined;
 }
 
@@ -284,6 +325,11 @@ export async function runSingleAgent(
 	_toolCallId?: string,
 	/** The parent session's UI bridge, for proxying ask_user calls. */
 	parentUiBridge?: ParentBridge,
+	/** Internal test seam to avoid loading the real SDK and long timeout delays. */
+	_internal?: {
+		sdk?: SubagentSdk;
+		timeoutMs?: number;
+	},
 ): Promise<SingleResult> {
 	// 1. Preflight: locate the agent config or short-circuit with an invalid result.
 	const agent = agents.find((a) => a.name === agentName);
@@ -312,24 +358,27 @@ export async function runSingleAgent(
 	const streamingTextRef = { value: "" };
 	const emitUpdate = createUpdateEmitter(currentResult, onUpdate, makeDetails, streamingTextRef);
 
+	const sdk = _internal?.sdk ?? (await loadSubagentSdk());
+	const promptTimeoutMs = _internal?.timeoutMs ?? SUBAGENT_PROMPT_TIMEOUT_MS;
+
 	// 4. Build an isolated resource loader and create the session.
 	// - appendSystemPrompt threads the agent's instructions into the system prompt
 	// - noExtensions prevents recursive loading of the subagent extension itself
-	const resourceLoader = new DefaultResourceLoader({
+	const resourceLoader = sdk.createResourceLoader({
 		cwd: sessionCwd,
-		agentDir: getAgentDir(),
+		agentDir: sdk.getAgentDir(),
 		appendSystemPrompt: agent.systemPrompt.trim() ? [agent.systemPrompt] : undefined,
 		noExtensions: false,
 	});
 	await resourceLoader.reload();
 
-	const { session } = await createAgentSession({
+	const { session } = await sdk.createSession({
 		cwd: sessionCwd,
 		modelRegistry,
 		model: resolvedModel,
 		thinkingLevel,
 		tools: agent.tools,
-		sessionManager: SessionManager.inMemory(sessionCwd),
+		sessionManager: sdk.createSessionManager(sessionCwd),
 		resourceLoader,
 	});
 
@@ -339,8 +388,9 @@ export async function runSingleAgent(
 	}
 
 	// Inject the parent UI bridge proxy so subagent ask_user calls appear in the parent UI.
+	let proxy: ParentExtensionUIBridgeProxy | undefined;
 	if (parentUiBridge && _toolCallId) {
-		const proxy = new ParentExtensionUIBridgeProxy(parentUiBridge, _toolCallId);
+		proxy = new ParentExtensionUIBridgeProxy(parentUiBridge, _toolCallId);
 		session.extensionRunner.setUIContext(proxy);
 	}
 
@@ -354,19 +404,23 @@ export async function runSingleAgent(
 			// If the parent signal is already aborted, run the prompt anyway
 			// (it'll abort quickly) and return an explicit abort result.
 			void session.abort();
+			// Settle any in-flight parent-bridge ask_user prompt so it can't hang.
+			proxy?.cancelAll();
 			await session.prompt(`Task: ${task}`);
 			currentResult.exitCode = 1;
 			if (!currentResult.errorMessage) currentResult.errorMessage = "Subagent was aborted";
 			return currentResult;
 		}
 
-		const { timeoutSignal, onAbort } = buildCombinedAbortSignal(signal);
+		const { timeoutSignal, onAbort } = buildCombinedAbortSignal(signal, promptTimeoutMs);
 		let timedOut = false;
 		const removeAbortListener = onAbort(() => {
 			// If the prompt timeout has fired (even if the parent signal also fired
 			// simultaneously), flag it as a timeout so callers can distinguish the cause.
 			if (timeoutSignal.aborted) timedOut = true;
 			void session.abort();
+			// Settle any in-flight parent-bridge ask_user prompt so it can't hang.
+			proxy?.cancelAll();
 		});
 
 		try {
@@ -379,7 +433,7 @@ export async function runSingleAgent(
 		}
 
 		if (timedOut) {
-			applyTimeoutFailure(currentResult);
+			applyTimeoutFailure(currentResult, promptTimeoutMs);
 			return currentResult;
 		}
 

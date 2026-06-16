@@ -1,7 +1,7 @@
 import type { RunObserver } from '../../stats-service';
 import type { ArchState } from '../../core/arch-state';
 import type { SessionServiceState } from '../state';
-import type { BackendEvent } from '../../core/events';
+import type { Event } from '../../core/events';
 import { deriveFileChangeFromToolCall, deriveFileChangesFromSubagentResult } from '../../core/file-change-derivation';
 import { isRecord } from '../../../shared/type-guards';
 import type {
@@ -35,8 +35,7 @@ function upsertFileChange(list: FileChangeEntry[], change: FileChangeEntry): voi
 
 interface HandlerDeps {
   getArchState: () => ArchState;
-  mutateArchState: (recipe: (draft: ArchState) => void) => void;
-  dispatchArch: (event: BackendEvent) => void;
+  dispatchArch: (event: Event) => void;
   runObserver: RunObserver;
   state: SessionServiceState;
   scheduleRender: () => void;
@@ -73,10 +72,10 @@ export function onToolStarted(payload: ToolStartedPayload, deps: HandlerDeps): v
   );
   console.log('[pie:fileChanges] onToolStarted', { name: payload.name, hasInput: !!payload.input, inputType: typeof payload.input, fileChange: fileChange ? fileChange.path : null });
   if (fileChange) {
-    deps.mutateArchState((draft) => {
-      const list = (draft.fileChanges.bySession[sessionPath] ??= []);
-      upsertFileChange(list, fileChange);
-    });
+    const existing = deps.getArchState().fileChanges.bySession[sessionPath] ?? [];
+    const next = [...existing];
+    upsertFileChange(next, fileChange);
+    deps.dispatchArch({ kind: 'FileChangesUpdated', sessionPath, fileChanges: next });
     deps.scheduleRender();
   }
 
@@ -123,12 +122,12 @@ export function onToolFinished(payload: ToolFinishedPayload, deps: HandlerDeps):
     );
     console.log('[pie:fileChanges] onToolFinished subagent', { toolCallId: payload.toolCallId, changeCount: subagentChanges.length });
     if (subagentChanges.length > 0) {
-      deps.mutateArchState((draft) => {
-        const list = (draft.fileChanges.bySession[sessionPath] ??= []);
-        for (const change of subagentChanges) {
-          upsertFileChange(list, change);
-        }
-      });
+      const existingChanges = deps.getArchState().fileChanges.bySession[sessionPath] ?? [];
+      const next = [...existingChanges];
+      for (const change of subagentChanges) {
+        upsertFileChange(next, change);
+      }
+      deps.dispatchArch({ kind: 'FileChangesUpdated', sessionPath, fileChanges: next });
       deps.scheduleRender();
     }
   }

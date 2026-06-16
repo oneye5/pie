@@ -7,3 +7,5 @@
 - Use the 'ask_user' tool for important decisions, ie the high level structure of a system.
 
 - Always verify your work before completion using a sub agent.
+
+- Commit your changes after task completion (scoped to just your changes, there may be unrelated local changes, dont commit these)

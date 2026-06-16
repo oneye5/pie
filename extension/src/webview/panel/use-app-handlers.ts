@@ -67,12 +67,28 @@ export function useAppHandlers(
   const handleNewSession = useCallback(() => postMessage({ type: 'newSession' }), [postMessage]);
   const handleCloseTab = useCallback((path: string) => postMessage({ type: 'closeSession', sessionPath: path }), [postMessage]);
   const handleDuplicateTab = useCallback((path: string) => postMessage({ type: 'duplicateSession', sessionPath: path }), [postMessage]);
-  const handleMarkComplete = useCallback(() => postMessage({ type: 'openOutcomeDialog' }), [postMessage]);
-  const handleCancelOutcome = useCallback(() => postMessage({ type: 'closeOutcomeDialog' }), [postMessage]);
-  const handleCancelEdit = useCallback(() => postMessage({ type: 'cancelEdit' }), [postMessage]);
+  const handleMarkComplete = useCallback(() => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'openOutcomeDialog', sessionPath });
+  }, [postMessage, activeSessionPathRef]);
+  const handleCancelOutcome = useCallback(() => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'closeOutcomeDialog', sessionPath });
+  }, [postMessage, activeSessionPathRef]);
+  const handleCancelEdit = useCallback(() => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'cancelEdit', sessionPath });
+  }, [postMessage, activeSessionPathRef]);
   const handleSetPrefs = useCallback((partial: Partial<ChatPrefs>) => postMessage({ type: 'setPrefs', prefs: partial }), [postMessage]);
   const handleSetPruningSettings = useCallback((partial: Partial<PruningSettings>) => postMessage({ type: 'setPruningSettings', settings: partial }), [postMessage]);
-  const handleEditRequest = useCallback((messageId: string) => postMessage({ type: 'startEdit', messageId }), [postMessage]);
+  const handleEditRequest = useCallback((messageId: string) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'startEdit', sessionPath, messageId });
+  }, [postMessage, activeSessionPathRef]);
 
   const handleAddComposerInput = useCallback((input: ComposerInputDraft) => {
     const sessionPath = activeSessionPathRef.current;
@@ -100,7 +116,7 @@ export function useAppHandlers(
     if (!sessionPath) return;
     postMessage({ type: 'recordOutcome', sessionPath, outcome });
     postMessage({ type: 'closeSession', sessionPath });
-    postMessage({ type: 'closeOutcomeDialog' });
+    postMessage({ type: 'closeOutcomeDialog', sessionPath });
   }, [postMessage, activeSessionPathRef]);
 
   const handleModelChange = useCallback((model: string, thinkingLevel: ThinkingLevel) => {
@@ -112,7 +128,8 @@ export function useAppHandlers(
   const handleEditSend = useCallback((messageId: string, text: string) => {
     const sessionPath = activeSessionPathRef.current;
     if (!sessionPath) return;
-    postMessage({ type: 'editMessage', sessionPath, messageId, text });
+    const localId = createLocalMessageId('edit');
+    postMessage({ type: 'editMessage', sessionPath, messageId, text, localId });
   }, [postMessage, activeSessionPathRef]);
 
   const handleOpenFileDiff = useCallback((filePath: string) => {

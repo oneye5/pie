@@ -5,6 +5,7 @@ import type { Event } from '../events.js';
 import type { ReducerResult } from './helpers.js';
 import { addToArray, removeFromArray, upsertSessionSummary, removeSessionFromState } from './helpers.js';
 import type { SessionSummary } from '../../../shared/protocol.js';
+import { resolveSessionOpenedTranscript } from '../session-opened-transcript.js';
 
 function mergeSessionSummaryPreservingLocalName(
   existing: SessionSummary | undefined,
@@ -69,6 +70,15 @@ export function handleSessionOpened(state: ArchState, event: Extract<Event, { ki
   const { sessionPath, payload } = event;
   let next: ArchState = state;
 
+  const localTranscript = state.transcript.bySession[sessionPath] ?? [];
+  const { transcript: resolvedTranscript, transcriptWindow: resolvedWindow } =
+    resolveSessionOpenedTranscript({
+      busy: payload.busy,
+      incomingTranscript: payload.transcript,
+      incomingTranscriptWindow: payload.transcriptWindow,
+      localTranscript,
+    });
+
   // Sessions: running state, backend ready, upsert summary
   const nextRunningSessionPaths = payload.busy
     ? addToArray(state.sessions.runningSessionPaths, sessionPath)
@@ -110,11 +120,11 @@ export function handleSessionOpened(state: ArchState, event: Extract<Event, { ki
       ...next.transcript,
       bySession: {
         ...next.transcript.bySession,
-        [sessionPath]: payload.transcript,
+        [sessionPath]: resolvedTranscript,
       },
       windowBySession: {
         ...next.transcript.windowBySession,
-        [sessionPath]: payload.transcriptWindow,
+        [sessionPath]: resolvedWindow,
       },
       ...(payload.systemPrompts && {
         systemPromptsBySession: {

@@ -81,16 +81,29 @@ describe('findMatchingRequest', () => {
     assert.equal(result, null);
   });
 
-  it('skips non-select methods (confirm, input, notify)', () => {
+  it('matches confirm request for main-agent context', () => {
     const pending: Record<string, ExtensionUIRequestPayload> = {
       'req-c': confirmReq(),
-      'req-i': inputReq(),
-      'req-s': selectReq({ id: 'req-s' }),
+      'req-s': selectReq({ id: 'req-s', subagentCallId: 'call_abc' }),
     };
     const result = findMatchingRequest(pending, undefined);
     assert.ok(result);
-    assert.equal(result!.method, 'select');
-    assert.equal(result!.id, 'req-s');
+    assert.equal(result!.method, 'confirm');
+    assert.equal(result!.id, 'req-c');
+  });
+
+  it('matches input request for subagent context', () => {
+    const pending: Record<string, ExtensionUIRequestPayload> = {
+      'req-i': inputReq(),
+      'req-sub': {
+        ...inputReq('req-sub'),
+        subagentCallId: 'call_abc',
+      },
+    };
+    const result = findMatchingRequest(pending, 'call_abc');
+    assert.ok(result);
+    assert.equal(result!.method, 'input');
+    assert.equal(result!.id, 'req-sub');
   });
 
   it('returns null when pending requests is empty', () => {

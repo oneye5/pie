@@ -22,9 +22,11 @@
  * which precludes re-entrant blocking even if a reducer chains effects.
  */
 
-import type { Effect } from './effects';
+import type { Effect, SendRpcEffect, EditRpcEffect, InterruptRpcEffect, TruncateRpcEffect, ExtensionUiResponseRpcEffect } from './effects';
 import { isLifecycleEffect, isRpcEffect } from './effects';
 import type { EffectResultEvent } from './events';
+import type { FileDiffService } from './file-diff-service';
+import type { ChatPrefs, ComposerInput, PruningSettings, RunOutcome, ThinkingLevel } from '../../shared/protocol';
 
 /** Minimal backend surface the runner needs. Matches `BackendClient.request`. */
 export interface BackendLike {
@@ -59,12 +61,40 @@ export interface PostImperativeSink {
   postImperative(message: { type: string; sessionPath?: string; text?: string; localId?: string }): void;
 }
 
+export interface SessionServiceLike {
+  setModel(sessionPath: string | undefined, defaultModel: string, defaultThinkingLevel: ThinkingLevel): Promise<void>;
+  setPrefs(prefs: Partial<ChatPrefs>): void;
+  bumpSessionDataEpoch(sessionPath: string): void;
+  addFilesystemPaths(sessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
+  loadOlderTranscript(sessionPath: string): Promise<void>;
+  loadNewerTranscript(sessionPath: string): Promise<void>;
+  jumpToLatestTranscript(sessionPath: string): Promise<void>;
+  closeSession(sessionPath: string): Promise<void>;
+  setPruningSettings(updates: Partial<PruningSettings>): Promise<void>;
+  duplicateSession(sessionPath: string): void;
+  moveSessionTab(sessionPath: string | undefined, fromIndex: number, toIndex: number): void;
+  createNewSession(): string;
+  openSession(sessionPath: string): void;
+}
+
+export interface StatsServiceLike {
+  prepareForSend(sessionPath: string, inputs: ComposerInput[]): void;
+  onTruncatedAfter(sessionPath: string, messageId: string): void;
+  onMessageEdited(sessionPath: string, messageId: string): void;
+  recordOutcome(sessionPath: string, outcome: RunOutcome): void;
+  startNewTask(sessionPath: string): void;
+  continueTask(sessionPath: string): void;
+}
+
 export interface EffectRunnerDeps {
   backend: BackendLike;
   queues: QueueRouter;
   tabs: TabPersistenceSink;
   log: LogSink;
   postImperative: PostImperativeSink;
+  fileDiffService: FileDiffService;
+  service: SessionServiceLike;
+  statsService: StatsServiceLike;
   /** Called with each `*Result` event the runner produces. */
   dispatch: (event: EffectResultEvent) => void;
 }
@@ -79,6 +109,28 @@ export class EffectRunner {
    * completion; this preserves the no-re-entrant-blocking invariant.
    */
   run(effect: Effect): void {
+    if (effect.kind === 'SetModelRpc') {
+      void (async () => {
+        try {
+          await this.deps.service.setModel(effect.sessionPath, effect.modelSettings.defaultModel, effect.modelSettings.defaultThinkingLevel);
+          this.deps.dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'SetPrefsRpc') {
+      void (async () => {
+        try {
+          await this.deps.service.setPrefs(effect.prefs);
+          this.deps.dispatch({ kind: 'SetPrefsResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'SetPrefsResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
     if (isRpcEffect(effect)) {
       this.runRpc(effect);
       return;
@@ -99,10 +151,174 @@ export class EffectRunner {
       this.deps.postImperative.postImperative(effect.imperativeMessage);
       return;
     }
+    if (effect.kind === 'FileDiff') {
+      void (async () => {
+        try {
+          await this.deps.fileDiffService.openFileDiff(effect.sessionPath, effect.filePath);
+          this.deps.dispatch({ kind: 'FileDiffResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'FileDiffResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'FileRevert') {
+      void (async () => {
+        try {
+          await this.deps.fileDiffService.revertFile(effect.sessionPath, effect.filePath);
+          this.deps.dispatch({ kind: 'FileRevertResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'FileRevertResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'AddFilesystemPaths') {
+      void (async () => {
+        try {
+          await this.deps.service.addFilesystemPaths(effect.sessionPath, effect.paths, effect.source);
+          this.deps.dispatch({ kind: 'AddFilesystemPathsResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'AddFilesystemPathsResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'LoadOlderTranscript') {
+      void (async () => {
+        try {
+          await this.deps.service.loadOlderTranscript(effect.sessionPath);
+          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'LoadNewerTranscript') {
+      void (async () => {
+        try {
+          await this.deps.service.loadNewerTranscript(effect.sessionPath);
+          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'JumpToLatestTranscript') {
+      void (async () => {
+        try {
+          await this.deps.service.jumpToLatestTranscript(effect.sessionPath);
+          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'RecordOutcome') {
+      void (async () => {
+        try {
+          this.deps.statsService.recordOutcome(effect.sessionPath, effect.outcome);
+          this.deps.dispatch({ kind: 'RecordOutcomeResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'RecordOutcomeResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'StartNewTask') {
+      void (async () => {
+        try {
+          this.deps.statsService.startNewTask(effect.sessionPath);
+          this.deps.dispatch({ kind: 'StartNewTaskResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'StartNewTaskResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'ContinueTask') {
+      void (async () => {
+        try {
+          this.deps.statsService.continueTask(effect.sessionPath);
+          this.deps.dispatch({ kind: 'ContinueTaskResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'ContinueTaskResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'OpenFileInEditor') {
+      void (async () => {
+        try {
+          await this.deps.fileDiffService.openFileInEditor(effect.sessionPath, effect.filePath);
+          this.deps.dispatch({ kind: 'OpenFileInEditorResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'OpenFileInEditorResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'OpenFile') {
+      void (async () => {
+        try {
+          const vscode = await import('vscode');
+          await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(effect.path));
+          this.deps.dispatch({ kind: 'OpenFileResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'OpenFileResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'SetPruningSettings') {
+      void (async () => {
+        try {
+          await this.deps.service.setPruningSettings(effect.settings);
+          this.deps.dispatch({ kind: 'SetPruningSettingsResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'SetPruningSettingsResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'CloseSession') {
+      void (async () => {
+        try {
+          await this.deps.service.closeSession(effect.sessionPath);
+          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'DuplicateSession') {
+      void (async () => {
+        try {
+          this.deps.service.duplicateSession(effect.sessionPath);
+          this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'MoveSessionTab') {
+      void (async () => {
+        try {
+          this.deps.service.moveSessionTab(effect.sessionPath, effect.fromIndex, effect.toIndex);
+          this.deps.dispatch({ kind: 'MoveSessionTabResult', corrId: effect.corrId, ok: true });
+        } catch (err) {
+          this.deps.dispatch({ kind: 'MoveSessionTabResult', corrId: effect.corrId, ok: false, error: (err as Error).message });
+        }
+      })();
+      return;
+    }
     // CQRS effect types — not yet implemented; no-op until runner is extended.
     if (
-      effect.kind === 'FileDiff' ||
-      effect.kind === 'FileRevert' ||
       effect.kind === 'FlashWindow' ||
       effect.kind === 'PlayCompletionSound' ||
       effect.kind === 'ExportRunAnalytics' ||
@@ -122,7 +338,7 @@ export class EffectRunner {
    * exists to preserve serialization with legacy `send`/`edit` callers that
    * still use the same lifecycle queue directly.
    */
-  private runRpc(effect: Extract<Effect, { kind: `${string}Rpc` }>): void {
+  private runRpc(effect: RpcEffect): void {
     if (effect.kind === 'EditRpc') {
       this.runEditRpc(effect);
       return;
@@ -149,14 +365,17 @@ export class EffectRunner {
    * so the host can bind events to sessions.
    */
   private runSendRpc(effect: Extract<Effect, { kind: 'SendRpc' }>): void {
-    const { queues, backend, dispatch } = this.deps;
+    const { queues, backend, dispatch, service, statsService } = this.deps;
     void queues.enqueueLifecycle(async () => {
       await queues.enqueueSessionOperation(effect.sessionPath, async () => {
         try {
+          service.bumpSessionDataEpoch(effect.sessionPath);
+          statsService.prepareForSend(effect.sessionPath, effect.inputs);
           const response = await backend.request<{ requestId?: string }>('message.send', {
             sessionPath: effect.sessionPath,
             text: effect.text,
             inputs: effect.inputs,
+            localId: effect.localId,
           });
           dispatch({
             kind: 'SendResult',
@@ -184,10 +403,14 @@ export class EffectRunner {
    * fails atomically (matching the legacy behavior).
    */
   private runEditRpc(effect: Extract<Effect, { kind: 'EditRpc' }>): void {
-    const { queues, backend, dispatch } = this.deps;
+    const { queues, backend, dispatch, service, statsService } = this.deps;
     void queues.enqueueLifecycle(async () => {
       await queues.enqueueSessionOperation(effect.sessionPath, async () => {
         try {
+          service.bumpSessionDataEpoch(effect.sessionPath);
+          statsService.onTruncatedAfter(effect.sessionPath, effect.messageId);
+          statsService.onMessageEdited(effect.sessionPath, effect.messageId);
+          statsService.prepareForSend(effect.sessionPath, []);
           await backend.request('session.truncateAfter', {
             sessionPath: effect.sessionPath,
             entryId: effect.messageId,
@@ -195,6 +418,7 @@ export class EffectRunner {
           await backend.request('message.send', {
             sessionPath: effect.sessionPath,
             text: effect.text,
+            localId: effect.localId,
           });
           dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
@@ -204,15 +428,25 @@ export class EffectRunner {
     });
   }
 
+  /**
+   * Create/open session lifecycle. Delegates to the session service, which
+   * performs the full tab lifecycle setup: registering a selection-request
+   * token (so the backend's `session.opened` event activates and opens the
+   * tab), inserting a placeholder summary, dispatching `TabOpened`/
+   * `SelectSession`, persisting tabs, and enqueueing the backend RPC with the
+   * registered token. Calling the backend directly here would skip that setup
+   * and the new/opened session would never activate.
+   *
+   * The service methods dispatch arch events synchronously, so we defer them to
+   * a microtask (matching `CloseSession`/`DuplicateSession`) to avoid
+   * re-entrant dispatch while the outer effects loop is still running.
+   */
   private runLifecycle(effect: Extract<Effect, { kind: 'OpenSession' | 'CreateSession' }>): void {
-    const { queues, backend, dispatch } = this.deps;
-    void queues.enqueueLifecycle(async () => {
+    const { service, dispatch } = this.deps;
+    void (async () => {
       try {
         if (effect.kind === 'OpenSession') {
-          await backend.request('session.open', {
-            sessionPath: effect.sessionPath,
-            selectionToken: effect.selectionToken,
-          });
+          service.openSession(effect.sessionPath);
           dispatch({
             kind: 'OpenSessionResult',
             corrId: effect.corrId,
@@ -220,13 +454,11 @@ export class EffectRunner {
             ok: true,
           });
         } else {
-          const result = await backend.request<{ sessionPath: string }>('session.create', {
-            selectionToken: effect.selectionToken,
-          });
+          const sessionPath = service.createNewSession();
           dispatch({
             kind: 'CreateSessionResult',
             corrId: effect.corrId,
-            sessionPath: result.sessionPath,
+            sessionPath,
             ok: true,
           });
         }
@@ -248,7 +480,7 @@ export class EffectRunner {
           });
         }
       }
-    });
+    })();
   }
 
   private runPersistTabs(effect: Extract<Effect, { kind: 'PersistTabs' }>): void {
@@ -270,7 +502,7 @@ export class EffectRunner {
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-type RpcEffect = Extract<Effect, { kind: `${string}Rpc` }>;
+type RpcEffect = SendRpcEffect | EditRpcEffect | InterruptRpcEffect | TruncateRpcEffect | ExtensionUiResponseRpcEffect;
 
 function rpcMethodFor(effect: RpcEffect): string {
   switch (effect.kind) {
@@ -285,6 +517,8 @@ function rpcMethodFor(effect: RpcEffect): string {
       return 'message.interrupt';
     case 'TruncateRpc':
       return 'session.truncateAfter';
+    case 'ExtensionUiResponseRpc':
+      return 'extension_ui.response';
   }
 }
 
@@ -298,6 +532,8 @@ function rpcParamsFor(effect: RpcEffect): unknown {
       return { sessionPath: effect.sessionPath };
     case 'TruncateRpc':
       return { sessionPath: effect.sessionPath, entryId: effect.messageId };
+    case 'ExtensionUiResponseRpc':
+      return { sessionPath: effect.sessionPath, response: effect.response };
   }
 }
 
@@ -319,5 +555,7 @@ function rpcResultFor(
       return { kind: 'InterruptResult', ...base };
     case 'TruncateRpc':
       return { kind: 'TruncateResult', ...base };
+    case 'ExtensionUiResponseRpc':
+      return { kind: 'ExtensionUiResponseResult', ...base };
   }
 }

@@ -73,11 +73,13 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
   const { [sp]: _t, ...remainingTranscripts } = state.transcript.bySession;
   const { [sp]: _sp, ...remainingSystemPrompts } = state.transcript.systemPromptsBySession;
   const { [sp]: _w, ...remainingWindows } = state.transcript.windowBySession;
+  const { [sp]: _e, ...remainingEditing } = state.transcript.editingMessageIdBySession;
   const { [sp]: _i, ...remainingInterrupts } = state.sessions.interruptInFlightBySession;
   const { [sp]: _a, ...remainingAnalytics } = state.sessions.analyticsFactorsBySession;
   const { [sp]: _ct, ...remainingTurns } = state.pending.currentTurnBySession;
   const { [sp]: _m, ...remainingModels } = state.settings.availableModelsBySession;
   const { [sp]: _cu, ...remainingContext } = state.settings.contextUsageBySession;
+  const { [sp]: _o, ...remainingOutcome } = state.settings.showOutcomeDialogBySession;
   const { [sp]: _eui, ...remainingExtUI } = state.settings.pendingExtensionUIRequestsBySession;
   const { [sp]: _ci, ...remainingComposer } = state.composer.pendingComposerInputsBySession;
   const { [sp]: _rs, ...remainingRunSummaries } = state.composer.activeRunSummaryBySession;
@@ -88,6 +90,11 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
     if (op.sessionPath !== sp) remainingOps[corrId] = op;
   }
 
+  const remainingRequestIdToLocalId: Record<string, { sessionPath: string; localId: string }> = {};
+  for (const [requestId, mapping] of Object.entries(state.pending.requestIdToLocalId)) {
+    if (mapping.sessionPath !== sp) remainingRequestIdToLocalId[requestId] = mapping;
+  }
+
   return {
     state: {
       ...state,
@@ -96,6 +103,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         bySession: remainingTranscripts,
         systemPromptsBySession: remainingSystemPrompts,
         windowBySession: remainingWindows,
+        editingMessageIdBySession: remainingEditing,
       },
       sessions: {
         ...state.sessions,
@@ -110,6 +118,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         ...state.settings,
         availableModelsBySession: remainingModels,
         contextUsageBySession: remainingContext,
+        showOutcomeDialogBySession: remainingOutcome,
         pendingExtensionUIRequestsBySession: remainingExtUI,
       },
       composer: {
@@ -125,6 +134,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         ...state.pending,
         ops: remainingOps,
         currentTurnBySession: remainingTurns,
+        requestIdToLocalId: remainingRequestIdToLocalId,
       },
     },
     effects: [],
@@ -168,6 +178,7 @@ export function appendLocalUserMessage(
   id: string,
   text: string,
   userParts: UserContentPart[] | undefined,
+  createdAt: string,
 ) {
   const list = draft.transcript.bySession[sessionPath] ?? [];
   const existingIndex = list.findIndex((m: ChatMessage) => m.id === id);
@@ -175,7 +186,7 @@ export function appendLocalUserMessage(
     list[existingIndex] = {
       id,
       role: 'user',
-      createdAt: new Date().toISOString(),
+      createdAt,
       markdown: markdownFromUserParts(userParts, text),
       userParts,
       status: 'completed',
@@ -184,7 +195,7 @@ export function appendLocalUserMessage(
     list.push({
       id,
       role: 'user',
-      createdAt: new Date().toISOString(),
+      createdAt,
       markdown: markdownFromUserParts(userParts, text),
       userParts,
       status: 'completed',

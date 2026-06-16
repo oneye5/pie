@@ -192,19 +192,6 @@ profiles:
     disabled_reason: null
     cost: 6
 
-  - id: deepseek-v3.2:cloud
-    eligible: true
-    thinking: [low, medium, high]
-    disabled_reason: null
-    cost: 10
-
-  # --- Cogito ---
-  - id: cogito-2.1:671b-cloud
-    eligible: true
-    thinking: [medium, high, xhigh]
-    disabled_reason: null
-    cost: 10
-
   # --- Gemini (ollama) ---
   - id: gemini-3-flash-preview:cloud
     eligible: true
@@ -231,18 +218,6 @@ profiles:
     disabled_reason: null
     cost: 7
 
-  - id: qwen3-next:80b-cloud
-    eligible: true
-    thinking: [low, medium, high]
-    disabled_reason: null
-    cost: 3
-
-  - id: qwen3-vl:235b-cloud
-    eligible: true
-    thinking: [low, medium, high]
-    disabled_reason: null
-    cost: 8
-
   - id: qwen3-coder-next:cloud
     eligible: true
     thinking: [minimal]
@@ -255,17 +230,16 @@ profiles:
     disabled_reason: null
     cost: 10
 
-  # --- Qwen (old/redundant) ---
-  - id: qwen3-vl:235b-instruct-cloud
-    eligible: false
-    thinking: [minimal]
-    disabled_reason: Redundant with qwen3-vl:235b-cloud thinking variant
-    cost: 8
-
   # --- Kimi (current gen) ---
   - id: kimi-k2.6:cloud
     eligible: true
     thinking: [medium, high, xhigh]
+    disabled_reason: null
+    cost: 9
+
+  - id: kimi-k2.7-code:cloud
+    eligible: true
+    thinking: [low, medium, high]
     disabled_reason: null
     cost: 9
 
@@ -282,12 +256,6 @@ profiles:
     disabled_reason: null
     cost: 6
 
-  - id: nemotron-3-nano:30b-cloud
-    eligible: true
-    thinking: [minimal, low, medium]
-    disabled_reason: null
-    cost: 9
-
   - id: nemotron-3-ultra:cloud
     eligible: true
     thinking: [low, medium, high, xhigh]
@@ -295,17 +263,23 @@ profiles:
     cost: 6
 
   # --- GLM (current gen) ---
-  - id: glm-5.1:cloud
-    eligible: true
-    thinking: [low, medium, high]
-    disabled_reason: null
-    cost: 10
-
   - id: glm-4.7:cloud
     eligible: true
     thinking: [low, medium]
     disabled_reason: null
     cost: 9
+
+  - id: glm-5:cloud
+    eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
+    cost: 10
+
+  - id: glm-5.1:cloud
+    eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
+    cost: 10
 
   # --- GPT-OSS ---
   - id: gpt-oss:120b-cloud
@@ -321,6 +295,18 @@ profiles:
     cost: 7
 
   # --- Minimax (current gen) ---
+  - id: minimax-m2.1:cloud
+    eligible: true
+    thinking: [minimal]
+    disabled_reason: null
+    cost: 5
+
+  - id: minimax-m2.5:cloud
+    eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
+    cost: 5
+
   - id: minimax-m2.7:cloud
     eligible: true
     thinking: [low, medium, high]
@@ -332,31 +318,6 @@ profiles:
     thinking: [low, medium, high, xhigh]
     disabled_reason: null
     cost: 7
-
-  # --- Devstral / Mistral ---
-  - id: devstral-2:123b-cloud
-    eligible: true
-    thinking: [minimal]
-    disabled_reason: null
-    cost: 18
-
-  - id: devstral-small-2:24b-cloud
-    eligible: true
-    thinking: [minimal]
-    disabled_reason: null
-    cost: 8
-
-  - id: mistral-large-3:675b-cloud
-    eligible: true
-    thinking: [minimal]
-    disabled_reason: null
-    cost: 10
-
-  - id: ministral-3:14b-cloud
-    eligible: true
-    thinking: [minimal]
-    disabled_reason: null
-    cost: 6
 
   # === OLLAMA LOCAL MODELS ===
 

@@ -20,7 +20,7 @@ import { SessionTabs, Composer } from './ui';
 import { RunOutcomeDialog } from './run-outcome-dialog';
 import { NoticeBanner } from './components/notice-banner';
 import { NoticeContext } from './hooks/notice-context';
-import { AskUserContext, findMatchingRequest } from './hooks/ask-user-context';
+import { AskUserContext } from './hooks/ask-user-context';
 import { useHostSync } from './hooks/use-host-sync';
 import { isPendingTabPath } from '../../shared/tab-behavior';
 import { useAppHandlers, type AppHandlers } from './use-app-handlers';
@@ -48,7 +48,6 @@ function useAppBodyDerivedState(
     modelSettings,
     availableModels,
     pendingExtensionUIRequestsBySession,
-    pendingExtensionUIRequest,
     transcript,
   } = viewState;
 
@@ -242,6 +241,7 @@ interface BottomSectionProps {
   transcript: ChatMessage[];
   transcriptWindow: ViewState['transcriptWindow'];
   draftRestore: { text: string; nonce: number } | null;
+  draftText: string;
   pendingComposerInputs: ViewState['pendingComposerInputs'];
   activeRunSummary: ViewState['activeRunSummary'];
   handlers: Pick<AppHandlers, 'handleSend' | 'handleInterrupt' | 'handleOpenFilePicker' | 'handleAddComposerInput' | 'handleRemoveComposerInput' | 'handleModelChange' | 'handleSetPrefs' | 'handleSetPruningSettings' | 'handleMarkComplete'>;
@@ -268,6 +268,7 @@ function BottomSection({
   transcript,
   transcriptWindow,
   draftRestore,
+  draftText,
   pendingComposerInputs,
   activeRunSummary,
   handlers,
@@ -280,6 +281,9 @@ function BottomSection({
         <ExtensionUIPrompt sessionPath={activeSessionPath} request={pendingExtensionUIRequest} postMessage={postMessage} />
       )}
       <Composer
+        sessionPath={activeSessionPath}
+        draftText={draftText}
+        postMessage={postMessage}
         busy={busy}
         activeModelId={activeSession?.modelId}
         activeThinkingLevel={activeSession?.thinkingLevel}
@@ -432,6 +436,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         transcript={viewState.transcript}
         transcriptWindow={viewState.transcriptWindow}
         draftRestore={draftRestore}
+        draftText={viewState.draftText}
         pendingComposerInputs={viewState.pendingComposerInputs}
         activeRunSummary={viewState.activeRunSummary}
         handlers={handlers}

@@ -191,6 +191,9 @@ function costBreakdownFromUsage(usage: CostUsage, pricing: TokenPricing) {
 }
 
 function estimateTextTokens(text: string): number {
+  if (typeof text !== 'string') {
+    return 0;
+  }
   const trimmed = text.trim();
   return trimmed ? Math.ceil(trimmed.length / 4) : 0;
 }

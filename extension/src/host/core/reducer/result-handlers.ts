@@ -41,9 +41,16 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
 
   if (event.ok) {
     // Success: clear composer inputs directly + remove pending op
+    // Also record requestId→localId mapping for optimistic ID finalization.
     const nextState = produce(state, (draft) => {
       draft.pending.ops = restOps;
       delete draft.composer.pendingComposerInputsBySession[pending.sessionPath];
+      if (event.requestId) {
+        draft.pending.requestIdToLocalId[event.requestId] = {
+          sessionPath: pending.sessionPath,
+          localId: pending.localId,
+        };
+      }
     });
     return { state: nextState, effects: [] };
   }
@@ -114,6 +121,14 @@ export function handleEditResult(state: ArchState, event: Extract<Event, { kind:
   return { state: nextState, effects };
 }
 
+export function handleSetModelResult(state: ArchState, _event: Extract<Event, { kind: 'SetModelResult' }>): ReducerResult {
+  return { state, effects: [] };
+}
+
+export function handleSetPrefsResult(state: ArchState, _event: Extract<Event, { kind: 'SetPrefsResult' }>): ReducerResult {
+  return { state, effects: [] };
+}
+
 export function handleEffectResult(state: ArchState, event: Event): ReducerResult {
   switch (event.kind) {
     case 'InterruptResult':
@@ -122,7 +137,54 @@ export function handleEffectResult(state: ArchState, event: Event): ReducerResul
       return handleSendResult(state, event);
     case 'EditResult':
       return handleEditResult(state, event);
-    default:
+    case 'FileDiffResult':
       return { state, effects: [] };
+    case 'FileRevertResult':
+      return { state, effects: [] };
+    case 'SetModelResult':
+      return handleSetModelResult(state, event);
+    case 'SetPrefsResult':
+      return handleSetPrefsResult(state, event);
+    case 'AddFilesystemPathsResult':
+    case 'LoadOlderTranscriptResult':
+    case 'LoadNewerTranscriptResult':
+    case 'JumpToLatestTranscriptResult':
+    case 'RecordOutcomeResult':
+    case 'StartNewTaskResult':
+    case 'ContinueTaskResult':
+    case 'OpenFileInEditorResult':
+    case 'OpenFileResult':
+    case 'SetPruningSettingsResult':
+    case 'CloseSessionResult':
+    case 'DuplicateSessionResult':
+    case 'MoveSessionTabResult': {
+      if (!event.ok) {
+        return {
+          state,
+          effects: [
+            {
+              kind: 'Log',
+              corrId: event.corrId,
+              level: 'error',
+              message: `${event.kind} failed`,
+              data: { error: event.error },
+            },
+          ],
+        };
+      }
+      return { state, effects: [] };
+    }
+    default:
+      return {
+        state,
+        effects: [
+          {
+            kind: 'Log',
+            corrId: '',
+            level: 'warn',
+            message: `Unhandled effect-result event: ${(event as { kind?: string }).kind}`,
+          },
+        ],
+      };
   }
 }

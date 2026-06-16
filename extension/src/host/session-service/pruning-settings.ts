@@ -1,4 +1,5 @@
 import * as fs from 'node:fs/promises';
+import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
 import { DEFAULT_PRUNING_SETTINGS, type PruningMode, type PruningSettings, type ThinkingLevel } from '../../shared/protocol';
@@ -7,12 +8,17 @@ import { DEFAULT_PRUNING_SETTINGS, type PruningMode, type PruningSettings, type 
  * Resolve the settings.json path from PI_CODING_AGENT_DIR.
  * Returns null if the env var is not set.
  */
-function resolveSettingsPath(): string | null {
+export function resolveSettingsPath(): string | null {
   const agentDir = process.env.PI_CODING_AGENT_DIR;
   if (!agentDir) {
     return null;
   }
   return path.join(agentDir, 'settings.json');
+}
+
+export function pruningSettingsFileExists(): boolean {
+  const settingsPath = resolveSettingsPath();
+  return settingsPath ? existsSync(settingsPath) : false;
 }
 
 const VALID_MODES = new Set<PruningMode>(['auto', 'shadow', 'off']);

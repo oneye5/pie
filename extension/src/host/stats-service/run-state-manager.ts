@@ -26,13 +26,13 @@ import {
 import {
   emptySessionRunState,
   type GetArchState,
-  type MutateArchState,
+  type DispatchArchEvent,
   type SessionRunState,
 } from './types';
 
 interface SessionRunStateManagerOptions {
   getArchState: GetArchState;
-  mutateArchState: MutateArchState;
+  dispatchArchEvent: DispatchArchEvent;
   schedulePersist: (snapshotToAppend?: RunSnapshot, outcomeToAppend?: OutcomeHistoryLogEntry) => void;
   now: () => Date;
   createId: () => string;
@@ -42,7 +42,7 @@ interface SessionRunStateManagerOptions {
 export class SessionRunStateManager {
   readonly sessions = new Map<string, SessionRunState>();
   private readonly getArchState: GetArchState;
-  private readonly mutateArchState: MutateArchState;
+  private readonly dispatchArchEvent: DispatchArchEvent;
   private readonly schedulePersistCallback: SessionRunStateManagerOptions['schedulePersist'];
   private readonly now: () => Date;
   private readonly createId: () => string;
@@ -50,7 +50,7 @@ export class SessionRunStateManager {
 
   constructor(options: SessionRunStateManagerOptions) {
     this.getArchState = options.getArchState;
-    this.mutateArchState = options.mutateArchState;
+    this.dispatchArchEvent = options.dispatchArchEvent;
     this.schedulePersistCallback = options.schedulePersist;
     this.now = options.now;
     this.createId = options.createId;
@@ -283,8 +283,10 @@ export class SessionRunStateManager {
       state?.currentRun ?? state?.lastRun ?? null,
       state?.nextTaskIntent === 'new_task',
     );
-    this.mutateArchState((draft) => {
-      draft.composer.activeRunSummaryBySession[sessionPath] = summary;
+    this.dispatchArchEvent({
+      kind: 'ActiveRunSummaryChanged',
+      sessionPath,
+      summary,
     });
   }
 

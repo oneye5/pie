@@ -11,7 +11,7 @@ import {
 import type { SessionOpenedPayload, SessionSummary } from '../../shared/protocol';
 import type { ScheduleRender } from './types';
 import { SessionServiceState } from './state';
-import { mergeSessionSummary } from './helpers';
+import type { Event } from '../core/events';
 import type { ArchState } from '../core/arch-state';
 
 interface SessionTabActionsOptions {
@@ -21,7 +21,7 @@ interface SessionTabActionsOptions {
   runObserver: RunObserver;
   state: SessionServiceState;
   getArchState: () => ArchState;
-  mutateArchState: (recipe: (draft: ArchState) => void) => void;
+  dispatchArch: (event: Event) => void;
 }
 
 export class SessionTabActions {
@@ -31,7 +31,7 @@ export class SessionTabActions {
   private readonly runObserver: RunObserver;
   private readonly state: SessionServiceState;
   private readonly getArchState: () => ArchState;
-  private readonly mutateArchState: (recipe: (draft: ArchState) => void) => void;
+  private readonly dispatchArch: (event: Event) => void;
 
   constructor(options: SessionTabActionsOptions) {
     this.context = options.context;
@@ -40,7 +40,7 @@ export class SessionTabActions {
     this.runObserver = options.runObserver;
     this.state = options.state;
     this.getArchState = options.getArchState;
-    this.mutateArchState = options.mutateArchState;
+    this.dispatchArch = options.dispatchArch;
   }
 
   createNewSession(): string {
@@ -54,34 +54,20 @@ export class SessionTabActions {
       selectionToken,
     });
 
-    this.mutateArchState((draft) => {
-      // upsertSession
-      const incoming: SessionSummary = {
-        path: pendingPath,
-        name: 'New Session',
-        cwd,
-        modifiedAt: new Date().toISOString(),
-        messageCount: 0,
-        isPlaceholder: true,
-      };
-      const idx = draft.sessions.sessions.findIndex((s) => s.path === incoming.path);
-      if (idx === -1) {
-        draft.sessions.sessions = [incoming, ...draft.sessions.sessions];
-      } else {
-        draft.sessions.sessions[idx] = mergeSessionSummary(draft.sessions.sessions[idx], incoming);
-      }
-      // ensureOpenTab
-      if (!draft.sessions.openTabPaths.includes(pendingPath)) {
-        draft.sessions.openTabPaths = [...draft.sessions.openTabPaths, pendingPath];
-      }
-      // setActiveSessionPath
-      draft.sessions.activeSessionPath = pendingPath;
-      draft.sessions.runningSessionPaths = draft.sessions.runningSessionPaths
-        .filter((p) => p !== pendingPath);
-      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-        .filter((p) => p !== pendingPath);
-      draft.composer.activeRunSummaryBySession[pendingPath] = null;
-    });
+    const incoming: SessionSummary = {
+      path: pendingPath,
+      name: 'New Session',
+      cwd,
+      modifiedAt: new Date().toISOString(),
+      messageCount: 0,
+      isPlaceholder: true,
+    };
+    this.dispatchArch({ kind: 'SessionSummaryUpserted', summary: incoming });
+    this.dispatchArch({ kind: 'TabOpened', sessionPath: pendingPath });
+    this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: pendingPath } });
+    const runningPaths = this.getArchState().sessions.runningSessionPaths.filter((p) => p !== pendingPath);
+    this.dispatchArch({ kind: 'RunningSessionsChanged', sessionPaths: runningPaths });
+    this.dispatchArch({ kind: 'ActiveRunSummaryChanged', sessionPath: pendingPath, summary: null });
     this.state.saveOpenTabs();
     this.scheduleRender();
 
@@ -125,33 +111,21 @@ export class SessionTabActions {
       hadExistingSummary: !!existing,
     });
 
-    this.mutateArchState((draft) => {
-      if (!existing) {
-        // upsertSession placeholder
-        const incoming: SessionSummary = {
-          path: sessionPath,
-          name: 'Loading...',
-          isPlaceholder: true,
-          cwd: draft.sessions.workspaceCwd ?? '',
-          modifiedAt: new Date().toISOString(),
-          messageCount: 0,
-        };
-        const idx = draft.sessions.sessions.findIndex((s) => s.path === incoming.path);
-        if (idx === -1) {
-          draft.sessions.sessions = [incoming, ...draft.sessions.sessions];
-        } else {
-          draft.sessions.sessions[idx] = mergeSessionSummary(draft.sessions.sessions[idx], incoming);
-        }
-      }
-      // setActiveSessionPath
-      draft.sessions.activeSessionPath = sessionPath;
-      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-        .filter((p) => p !== sessionPath);
-      // ensureOpenTab
-      if (!draft.sessions.openTabPaths.includes(sessionPath)) {
-        draft.sessions.openTabPaths = [...draft.sessions.openTabPaths, sessionPath];
-      }
-    });
+    if (!existing) {
+      const incoming: SessionSummary = {
+        path: sessionPath,
+        name: 'Loading...',
+        isPlaceholder: true,
+        cwd: archState.sessions.workspaceCwd ?? '',
+        modifiedAt: new Date().toISOString(),
+        messageCount: 0,
+      };
+      this.dispatchArch({ kind: 'SessionSummaryUpserted', summary: incoming });
+    }
+    if (!wasOpenTab) {
+      this.dispatchArch({ kind: 'TabOpened', sessionPath });
+    }
+    this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath } });
     this.state.touchSessionTranscript(sessionPath);
     this.state.evictInactiveTranscriptWindows();
     this.state.saveOpenTabs();
@@ -190,60 +164,29 @@ export class SessionTabActions {
     this.state.clearSelectionRequestsForPath(sessionPath);
 
     this.runObserver.onSessionClosed(sessionPath);
-    this.mutateArchState((draft) => {
-      // removeOpenTab
-      draft.sessions.openTabPaths = draft.sessions.openTabPaths.filter((p) => p !== sessionPath);
-      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-        .filter((p) => p !== sessionPath);
-    });
+    this.dispatchArch({ kind: 'Command', cmd: { kind: 'CloseTab', corrId: `close:${Date.now()}`, sessionPath } });
     this.state.clearSessionScope(sessionPath);
     this.state.saveOpenTabs();
 
     if (archState.sessions.activeSessionPath === sessionPath) {
       if (nextPath) {
-        if (isPendingTabPath(nextPath)) {
-          this.mutateArchState((draft) => {
-            draft.sessions.activeSessionPath = nextPath;
-            draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-              .filter((p) => p !== nextPath);
-          });
+        if (isPendingTabPath(nextPath) || archState.sessions.sessions.find((s) => s.path === nextPath)) {
+          this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: nextPath } });
         } else {
-          const existing = archState.sessions.sessions.find((s) => s.path === nextPath);
-          if (existing) {
-            this.mutateArchState((draft) => {
-              draft.sessions.activeSessionPath = existing.path;
-              draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-                .filter((p) => p !== existing.path);
-            });
-          } else {
-            const placeholder: SessionSummary = {
-              path: nextPath,
-              name: 'Loading...',
-              isPlaceholder: true,
-              cwd: archState.sessions.workspaceCwd ?? '',
-              modifiedAt: new Date().toISOString(),
-              messageCount: 0,
-            };
-            this.mutateArchState((draft) => {
-              // upsertSession
-              const idx = draft.sessions.sessions.findIndex((s) => s.path === placeholder.path);
-              if (idx === -1) {
-                draft.sessions.sessions = [placeholder, ...draft.sessions.sessions];
-              } else {
-                draft.sessions.sessions[idx] = mergeSessionSummary(draft.sessions.sessions[idx], placeholder);
-              }
-              // setActiveSessionPath
-              draft.sessions.activeSessionPath = placeholder.path;
-              draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-                .filter((p) => p !== placeholder.path);
-            });
-            void this.openSession(nextPath);
-          }
+          const placeholder: SessionSummary = {
+            path: nextPath,
+            name: 'Loading...',
+            isPlaceholder: true,
+            cwd: archState.sessions.workspaceCwd ?? '',
+            modifiedAt: new Date().toISOString(),
+            messageCount: 0,
+          };
+          this.dispatchArch({ kind: 'SessionSummaryUpserted', summary: placeholder });
+          this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: placeholder.path } });
+          void this.openSession(nextPath);
         }
       } else {
-        this.mutateArchState((draft) => {
-          draft.sessions.activeSessionPath = null;
-        });
+        this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: '' } });
       }
     }
 
@@ -259,8 +202,9 @@ export class SessionTabActions {
       toIndex,
     });
 
-    this.mutateArchState((draft) => {
-      draft.sessions.openTabPaths = moveOpenTabPath(draft.sessions.openTabPaths, { sessionPath, fromIndex, toIndex });
+    this.dispatchArch({
+      kind: 'Command',
+      cmd: { kind: 'ReorderTabs', corrId: `reorder:${Date.now()}`, openTabPaths: moveOpenTabPath(this.getArchState().sessions.openTabPaths, { sessionPath, fromIndex, toIndex }) },
     });
     this.state.saveOpenTabs();
     this.state.assertSelectionInvariant('moveSessionTab');
@@ -271,17 +215,13 @@ export class SessionTabActions {
     const archState = this.getArchState();
     const source = archState.sessions.sessions.find((s) => s.path === sourceSessionPath);
     if (!source) {
-      this.mutateArchState((draft) => {
-        draft.settings.notice = 'Cannot duplicate: session not found.';
-      });
+      this.dispatchArch({ kind: 'NoticeShown', notice: 'Cannot duplicate: session not found.' });
       this.scheduleRender();
       return;
     }
 
     if (isPendingTabPath(sourceSessionPath)) {
-      this.mutateArchState((draft) => {
-        draft.settings.notice = 'Cannot duplicate: session is still being created.';
-      });
+      this.dispatchArch({ kind: 'NoticeShown', notice: 'Cannot duplicate: session is still being created.' });
       this.scheduleRender();
       return;
     }
@@ -295,44 +235,20 @@ export class SessionTabActions {
       selectionToken,
     });
 
-    this.mutateArchState((draft) => {
-      // Show a placeholder tab for the duplicate immediately.
-      const incoming: SessionSummary = {
-        path: pendingPath,
-        name: `${source.name} (copy)`,
-        cwd: source.cwd,
-        modifiedAt: new Date().toISOString(),
-        messageCount: source.messageCount,
-        isPlaceholder: true,
-      };
-      // upsertSession
-      const idx = draft.sessions.sessions.findIndex((s) => s.path === incoming.path);
-      if (idx === -1) {
-        draft.sessions.sessions = [incoming, ...draft.sessions.sessions];
-      } else {
-        draft.sessions.sessions[idx] = mergeSessionSummary(draft.sessions.sessions[idx], incoming);
-      }
-
-      // Insert duplicate tab right after the source tab.
-      const afterIndex = draft.sessions.openTabPaths.indexOf(sourceSessionPath);
-      if (afterIndex === -1) {
-        draft.sessions.openTabPaths = [...draft.sessions.openTabPaths, pendingPath];
-      } else {
-        draft.sessions.openTabPaths = [
-          ...draft.sessions.openTabPaths.slice(0, afterIndex + 1),
-          pendingPath,
-          ...draft.sessions.openTabPaths.slice(afterIndex + 1),
-        ];
-      }
-
-      // setActiveSessionPath
-      draft.sessions.activeSessionPath = pendingPath;
-      draft.sessions.runningSessionPaths = draft.sessions.runningSessionPaths
-        .filter((p) => p !== pendingPath);
-      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-        .filter((p) => p !== pendingPath);
-      draft.composer.activeRunSummaryBySession[pendingPath] = null;
-    });
+    const incoming: SessionSummary = {
+      path: pendingPath,
+      name: `${source.name} (copy)`,
+      cwd: source.cwd,
+      modifiedAt: new Date().toISOString(),
+      messageCount: source.messageCount,
+      isPlaceholder: true,
+    };
+    this.dispatchArch({ kind: 'SessionSummaryUpserted', summary: incoming });
+    this.dispatchArch({ kind: 'TabOpened', sessionPath: pendingPath, insertAfter: sourceSessionPath });
+    this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: pendingPath } });
+    const runningPaths = this.getArchState().sessions.runningSessionPaths.filter((p) => p !== pendingPath);
+    this.dispatchArch({ kind: 'RunningSessionsChanged', sessionPaths: runningPaths });
+    this.dispatchArch({ kind: 'ActiveRunSummaryChanged', sessionPath: pendingPath, summary: null });
 
     this.state.saveOpenTabs();
     this.scheduleRender();

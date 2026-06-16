@@ -1,7 +1,7 @@
 import type { RunObserver } from '../../stats-service';
 import type { ArchState } from '../../core/arch-state';
 import type { SessionServiceState } from '../state';
-import type { BackendEvent } from '../../core/events';
+import type { Event } from '../../core/events';
 import type {
   MessageAbortedPayload,
   MessageDeltaPayload,
@@ -12,8 +12,7 @@ import type {
 
 interface HandlerDeps {
   getArchState: () => ArchState;
-  mutateArchState: (recipe: (draft: ArchState) => void) => void;
-  dispatchArch: (event: BackendEvent) => void;
+  dispatchArch: (event: Event) => void;
   runObserver: RunObserver;
   state: SessionServiceState;
   scheduleRender: () => void;
@@ -61,6 +60,7 @@ export function onMessageStarted(payload: MessageStartedPayload, deps: HandlerDe
     requestId: payload.requestId,
     modelId: payload.modelId,
     thinkingLevel: payload.thinkingLevel,
+    timestamp: Date.now(),
   });
 
   deps.state.bindRequestSessionPath(payload.requestId, sessionPath);
@@ -70,15 +70,11 @@ export function onMessageStarted(payload: MessageStartedPayload, deps: HandlerDe
     const archState = deps.getArchState();
     const session = archState.sessions.sessions.find((s: any) => s.path === sessionPath);
     if (session && (session.modelId !== payload.modelId || session.thinkingLevel !== payload.thinkingLevel)) {
-      deps.mutateArchState((draft) => {
-        const idx = draft.sessions.sessions.findIndex((s: any) => s.path === sessionPath);
-        if (idx !== -1) {
-          draft.sessions.sessions[idx] = {
-            ...draft.sessions.sessions[idx],
-            modelId: payload.modelId,
-            thinkingLevel: payload.thinkingLevel,
-          };
-        }
+      deps.dispatchArch({
+        kind: 'SessionMetadataChanged',
+        sessionPath,
+        modelId: payload.modelId,
+        thinkingLevel: payload.thinkingLevel,
       });
     }
   }

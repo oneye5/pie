@@ -14,6 +14,7 @@ import {
 import { StatsService } from '../src/host/stats-service';
 import { workspaceHash } from '../src/host/stats-service/helpers';
 import { createInitialArchState, type ArchState } from '../src/host/core/arch-state';
+import { reducer } from '../src/host/core/reducer';
 import { produce } from 'immer';
 import type { ModelSettings, SessionSummary } from '../src/shared/protocol';
 import type { ComposerInput } from '../src/shared/protocol';
@@ -118,7 +119,7 @@ test('StatsService records run outcomes and persists snapshot metrics', async ()
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-a',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -240,7 +241,7 @@ test('StatsService migrates legacy analytics files into data/outcomes', async ()
       legacyUsageDataRootPath: tempDir,
       workspaceId,
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -284,7 +285,7 @@ test('StatsService starts a new task group on the next send after startNewTask',
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-b',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -366,7 +367,7 @@ test('StatsService restores active run summaries from checkpointed state', async
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-c',
       getArchState: () => firstArchState,
-      mutateArchState: (recipe) => { firstArchState = produce(firstArchState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(firstArchState, event); firstArchState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -379,7 +380,7 @@ test('StatsService restores active run summaries from checkpointed state', async
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-c',
       getArchState: () => secondArchState,
-      mutateArchState: (recipe) => { secondArchState = produce(secondArchState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(secondArchState, event); secondArchState = result.state; },
     });
 
     await secondStats.start();
@@ -439,7 +440,7 @@ test('StatsService restores completed runs and queued new-task state across rest
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-c-rated',
       getArchState: () => firstArchState,
-      mutateArchState: (recipe) => { firstArchState = produce(firstArchState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(firstArchState, event); firstArchState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -455,7 +456,7 @@ test('StatsService restores completed runs and queued new-task state across rest
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-c-rated',
       getArchState: () => secondArchState,
-      mutateArchState: (recipe) => { secondArchState = produce(secondArchState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(secondArchState, event); secondArchState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -529,7 +530,7 @@ test('StatsService counts multiple assistant turns using distinct turn ids withi
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-d',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -588,7 +589,7 @@ test('StatsService marks runs mixed when model config changes mid-run', async ()
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-e',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -642,7 +643,7 @@ test('StatsService carries unsupported input attempts into the next run snapshot
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-f',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -719,7 +720,7 @@ test('StatsService captures structured analytics factors and experiment assignme
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-g',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
       getExperimentAssignment: () => 'exp-a',
     });
@@ -776,7 +777,7 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-h',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 
@@ -967,7 +968,7 @@ test('StatsService tracks busy durations and mixed treatment changes', async () 
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-i',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
       now: () => new Date(currentMs),
       getExperimentAssignment: () => 'exp-a',
@@ -1035,7 +1036,7 @@ test('StatsService migrates legacy runs analytics files into data/outcomes', asy
       legacyUsageDataRootPath: tempDir,
       workspaceId,
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -1075,7 +1076,7 @@ test('StatsService migrates repo-local usage-data roots for legacy workspace has
       workspaceId: currentWorkspaceId,
       legacyWorkspaceIds: [legacyWorkspaceId],
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -1113,7 +1114,7 @@ test('StatsService migrates legacy canonical roots for legacy workspace hashes',
       workspaceId: currentWorkspaceId,
       legacyWorkspaceIds: [legacyWorkspaceId],
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -1155,7 +1156,7 @@ test('StatsService migrates legacy global data/outcomes roots for legacy workspa
       workspaceId: currentWorkspaceId,
       legacyWorkspaceIds: [legacyWorkspaceId],
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -1214,7 +1215,7 @@ test('StatsService prefers newer snapshots across overlapping legacy roots', asy
       legacyUsageDataRootPath: path.join(tempDir, 'global-storage'),
       workspaceId,
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -1255,7 +1256,7 @@ test('StatsService merges overlapping legacy snapshot history instead of skippin
       legacyUsageDataRootPath: tempDir,
       workspaceId,
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -1314,7 +1315,7 @@ test('StatsService keeps canonical snapshot entries when the same run exists in 
       legacyUsageDataRootPath: tempDir,
       workspaceId,
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -1375,7 +1376,7 @@ test('StatsService merges legacy checkpoint sessions with existing canonical che
       legacyUsageDataRootPath: tempDir,
       workspaceId,
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -1443,7 +1444,7 @@ test('StatsService prefers the newer checkpoint state for overlapping session pa
       legacyUsageDataRootPath: tempDir,
       workspaceId,
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
     });
 
     await stats.start();
@@ -1500,7 +1501,7 @@ test('StatsService tolerates auto-export write failures during startup and persi
       legacyUsageDataRootPath: tempDir,
       workspaceId,
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 

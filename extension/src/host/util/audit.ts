@@ -6,7 +6,18 @@ import type * as vscode from 'vscode';
 
 const BOOT_TRACE_PATH = path.join(os.tmpdir(), 'pie-boot-trace.jsonl');
 
+/** Boot tracing is off by default to avoid synchronous disk I/O on hot paths. */
+let bootTraceEnabled = process.env.PI_BOOT_LOG === '1';
+
+/** Enable or disable boot tracing at runtime. */
+export function setBootTraceEnabled(enabled: boolean): void {
+  bootTraceEnabled = enabled;
+}
+
 function appendBootTraceSync(record: Record<string, unknown>): void {
+  if (!bootTraceEnabled) {
+    return;
+  }
   try {
     fsSync.mkdirSync(path.dirname(BOOT_TRACE_PATH), { recursive: true });
     fsSync.appendFileSync(BOOT_TRACE_PATH, `${JSON.stringify(record)}\n`, 'utf8');
@@ -37,6 +48,9 @@ export function bootLog(
   event: string,
   payload: Record<string, unknown> = {},
 ): void {
+  if (!bootTraceEnabled) {
+    return;
+  }
   const record = {
     ts: new Date().toISOString(),
     pid: process.pid,
@@ -54,6 +68,9 @@ export function bootTraceSync(
   event: string,
   payload: Record<string, unknown> = {},
 ): void {
+  if (!bootTraceEnabled) {
+    return;
+  }
   appendBootTraceSync({
     ts: new Date().toISOString(),
     pid: process.pid,

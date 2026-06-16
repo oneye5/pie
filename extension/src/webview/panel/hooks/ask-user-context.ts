@@ -28,11 +28,11 @@ export const AskUserContext = createContext<AskUserContextValue>({
 });
 
 /**
- * Find the pending 'select' request that matches a given subagentCallId.
+ * Find the pending ask_user request that matches a given subagentCallId.
  *
  * - When `subagentCallId` is undefined (main agent), returns the first
- *   'select' request that also has no `subagentCallId`.
- * - When `subagentCallId` is provided (subagent), returns the 'select'
+ *   request (`select`, `confirm`, or `input`) that also has no `subagentCallId`.
+ * - When `subagentCallId` is provided (subagent), returns the matching
  *   request whose `subagentCallId` matches exactly.
  */
 export function findMatchingRequest(
@@ -40,7 +40,7 @@ export function findMatchingRequest(
   subagentCallId?: string,
 ): ExtensionUIRequestPayload | null {
   for (const request of Object.values(pendingRequests)) {
-    if (request.method !== 'select') continue;
+    if (request.method !== 'select' && request.method !== 'confirm' && request.method !== 'input') continue;
     if (request.subagentCallId === subagentCallId) return request;
   }
   return null;

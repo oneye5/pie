@@ -12,7 +12,7 @@ import type {
   ViewState,
   WebviewToHostMessage,
 } from '../../../shared/protocol';
-import { DEFAULT_CHAT_PREFS, DEFAULT_PRUNING_SETTINGS, EMPTY_TRANSCRIPT_WINDOW } from '../../../shared/protocol';
+import { DEFAULT_CHAT_PREFS, DEFAULT_PRUNING_SETTINGS, EMPTY_TRANSCRIPT_WINDOW, WEBVIEW_PROTOCOL_VERSION } from '../../../shared/protocol';
 
 /**
  * Fill gaps in host-delivered state with safe defaults and log violations.
@@ -37,6 +37,7 @@ export const EMPTY_VIEW_STATE: ViewState = {
   transcript: [],
   transcriptWindow: { ...EMPTY_TRANSCRIPT_WINDOW },
   transcriptLoaded: false,
+  draftText: '',
   pendingComposerInputs: [],
   activeRunSummary: null,
   runSummariesBySession: {},
@@ -205,8 +206,33 @@ interface HostMessageContext {
   setPendingStateApplied: (v: PendingStateApplied | null) => void;
 }
 
+/** Tracks whether the webview has already warned about a host/webview
+ * protocol mismatch, so the warning fires once rather than on every state
+ * message. */
+let warnedProtocolMismatch = false;
+
+/**
+ * Warn (once) when the host posts a webview-channel protocol version that does
+ * not match this build's compiled-in expectation. The webview does not refuse
+ * to load — it ships together with the host, so a mismatch generally indicates
+ * a stale hot-reload rather than a genuine incompatibility.
+ */
+function warnOnProtocolMismatch(hostProtocolVersion: number): void {
+  if (warnedProtocolMismatch) {
+    return;
+  }
+  if (hostProtocolVersion !== WEBVIEW_PROTOCOL_VERSION) {
+    warnedProtocolMismatch = true;
+    console.warn(
+      `[pie] Webview protocol mismatch: host posted version ${hostProtocolVersion} but this webview build expects ${WEBVIEW_PROTOCOL_VERSION}. ` +
+        'This usually means a stale hot-reload — rebuild and reload both sides together.',
+    );
+  }
+}
+
 function handleStateMessage(msg: HostToWebviewMessage, ctx: HostMessageContext) {
   const m = msg as Extract<HostToWebviewMessage, { type: 'state' }>;
+  warnOnProtocolMismatch(m.protocolVersion);
   ctx.resetPerSessionState();
   const hostChanged = ctx.hostInstanceIdRef.current && m.hostInstanceId !== ctx.hostInstanceIdRef.current;
   const nextActiveSessionPath = m.state.activeSession?.path ?? null;
@@ -293,8 +319,6 @@ export function useHostSync(
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [pendingStateApplied, setPendingStateApplied] = useState<PendingStateApplied | null>(null);
 
-  const revisionMapRef = useRef<Map<string, number>>(new Map());
-
   const hostInstanceIdRef = useRef('');
   const activeSessionPathRef = useRef<string | null>(null);
   const committedSessionPathRef = useRef<string | null>(null);
@@ -306,7 +330,7 @@ export function useHostSync(
   }, []);
 
   const resetPerSessionState = useCallback(() => {
-    revisionMapRef.current.clear();
+    // no-op: per-session revision tracking removed
   }, []);
 
   useEffect(() => {

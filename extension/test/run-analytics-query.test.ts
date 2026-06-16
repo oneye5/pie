@@ -8,6 +8,7 @@ import { produce } from 'immer';
 import { StatsService } from '../src/host/stats-service';
 import { exportRunAnalyticsStore, queryRunAnalyticsStore } from '../src/host/run-analytics/query';
 import { createInitialArchState, type ArchState } from '../src/host/core/arch-state';
+import { reducer } from '../src/host/core/reducer';
 import type { SessionAnalyticsFactors } from '../src/shared/protocol';
 
 async function withTempDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -69,7 +70,7 @@ test('queryRunAnalyticsStore returns finalized snapshots and checkpointed open r
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-query',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
       getExperimentAssignment: () => 'treatment-a',
     });
@@ -123,7 +124,7 @@ test('exportRunAnalyticsStore writes a supported JSON export payload', async () 
       legacyUsageDataRootPath: tempDir,
       workspaceId: 'workspace-export',
       getArchState: () => archState,
-      mutateArchState: (recipe) => { archState = produce(archState, recipe); },
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
       createId: () => `id-${++idCounter}`,
     });
 

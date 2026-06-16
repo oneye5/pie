@@ -18,7 +18,7 @@
  * so the reducer can reconcile optimistic state (Phase 4).
  */
 
-import type { ComposerInput, ToolCall } from '../../shared/protocol';
+import type { ComposerInput, ToolCall, ModelSettings, ChatPrefs } from '../../shared/protocol';
 
 export interface EffectBase {
   corrId: string;
@@ -30,6 +30,8 @@ export interface SendRpcEffect extends EffectBase {
   text: string;
   /** Composer inputs (file refs, images) sent alongside the text. */
   inputs: ComposerInput[];
+  /** Pre-generated local ID for optimistic message reconciliation. */
+  localId: string;
 }
 
 export interface EditRpcEffect extends EffectBase {
@@ -37,6 +39,8 @@ export interface EditRpcEffect extends EffectBase {
   sessionPath: string;
   messageId: string;
   text: string;
+  /** Pre-generated local ID for optimistic message reconciliation. */
+  localId: string;
 }
 
 export interface InterruptRpcEffect extends EffectBase {
@@ -74,6 +78,17 @@ export interface LogEffect extends EffectBase {
   level: LogLevel;
   message: string;
   data?: unknown;
+}
+
+export interface SetModelRpcEffect extends EffectBase {
+  kind: 'SetModelRpc';
+  sessionPath: string;
+  modelSettings: ModelSettings;
+}
+
+export interface SetPrefsRpcEffect extends EffectBase {
+  kind: 'SetPrefsRpc';
+  prefs: Partial<ChatPrefs>;
 }
 
 // ─── Real side effects ────────────────────────────────────────────────────────
@@ -139,6 +154,83 @@ export interface DeriveAvailableExtensionsEffect extends EffectBase {
   kind: 'DeriveAvailableExtensions';
 }
 
+export interface ExtensionUiResponseRpcEffect extends EffectBase {
+  kind: 'ExtensionUiResponseRpc';
+  sessionPath: string;
+  response: import('../../shared/protocol').ExtensionUIResponsePayload;
+}
+
+export interface AddFilesystemPathsEffect extends EffectBase {
+  kind: 'AddFilesystemPaths';
+  sessionPath: string | undefined;
+  paths: string[];
+  source: 'picker' | 'drop';
+}
+
+export interface LoadOlderTranscriptEffect extends EffectBase {
+  kind: 'LoadOlderTranscript';
+  sessionPath: string;
+}
+
+export interface LoadNewerTranscriptEffect extends EffectBase {
+  kind: 'LoadNewerTranscript';
+  sessionPath: string;
+}
+
+export interface JumpToLatestTranscriptEffect extends EffectBase {
+  kind: 'JumpToLatestTranscript';
+  sessionPath: string;
+}
+
+export interface RecordOutcomeEffect extends EffectBase {
+  kind: 'RecordOutcome';
+  sessionPath: string;
+  outcome: import('../../shared/protocol').RunOutcome;
+}
+
+export interface StartNewTaskEffect extends EffectBase {
+  kind: 'StartNewTask';
+  sessionPath: string;
+}
+
+export interface ContinueTaskEffect extends EffectBase {
+  kind: 'ContinueTask';
+  sessionPath: string;
+}
+
+export interface OpenFileInEditorEffect extends EffectBase {
+  kind: 'OpenFileInEditor';
+  sessionPath: string;
+  filePath: string;
+}
+
+export interface OpenFileEffect extends EffectBase {
+  kind: 'OpenFile';
+  path: string;
+}
+
+export interface SetPruningSettingsEffect extends EffectBase {
+  kind: 'SetPruningSettings';
+  settings: Partial<import('../../shared/protocol').PruningSettings>;
+}
+
+export interface CloseSessionEffect extends EffectBase {
+  kind: 'CloseSession';
+  sessionPath: string;
+}
+
+export interface DuplicateSessionEffect extends EffectBase {
+  kind: 'DuplicateSession';
+  sessionPath: string;
+}
+
+export interface MoveSessionTabEffect extends EffectBase {
+  kind: 'MoveSessionTab';
+  sessionPath: string | undefined;
+  fromIndex: number;
+  toIndex: number;
+}
+
 export type Effect =
   | SendRpcEffect
   | EditRpcEffect
@@ -148,6 +240,8 @@ export type Effect =
   | CreateSessionEffect
   | PersistTabsEffect
   | LogEffect
+  | SetModelRpcEffect
+  | SetPrefsRpcEffect
   | PostImperativeEffect
   | FileDiffEffect
   | FileRevertEffect
@@ -156,19 +250,34 @@ export type Effect =
   | ExportRunAnalyticsEffect
   | EvictTranscriptEffect
   | DeriveFileChangesEffect
-  | DeriveAvailableExtensionsEffect;
+  | DeriveAvailableExtensionsEffect
+  | ExtensionUiResponseRpcEffect
+  | AddFilesystemPathsEffect
+  | LoadOlderTranscriptEffect
+  | LoadNewerTranscriptEffect
+  | JumpToLatestTranscriptEffect
+  | RecordOutcomeEffect
+  | StartNewTaskEffect
+  | ContinueTaskEffect
+  | OpenFileInEditorEffect
+  | OpenFileEffect
+  | SetPruningSettingsEffect
+  | CloseSessionEffect
+  | DuplicateSessionEffect
+  | MoveSessionTabEffect;
 
 // ─── Type guards ────────────────────────────────────────────────────────────────
 
 /** True for any effect whose `kind` ends in `Rpc` and routes through the double-wrap. */
 export function isRpcEffect(
   e: Effect,
-): e is SendRpcEffect | EditRpcEffect | InterruptRpcEffect | TruncateRpcEffect {
+): e is SendRpcEffect | EditRpcEffect | InterruptRpcEffect | TruncateRpcEffect | ExtensionUiResponseRpcEffect {
   return (
     e.kind === 'SendRpc' ||
     e.kind === 'EditRpc' ||
     e.kind === 'InterruptRpc' ||
-    e.kind === 'TruncateRpc'
+    e.kind === 'TruncateRpc' ||
+    e.kind === 'ExtensionUiResponseRpc'
   );
 }
 

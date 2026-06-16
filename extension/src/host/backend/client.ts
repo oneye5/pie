@@ -3,6 +3,7 @@ import * as vscode from 'vscode';
 
 import { attachJsonlLineReader, serializeJsonLine } from '../../shared/jsonl';
 import { RequestTracker } from '../../shared/request-tracker';
+import { bootTraceSync } from '../util/audit';
 import {
   assertProtocolVersion,
   type BackendReadyPayload,
@@ -30,9 +31,11 @@ const DEFAULT_RPC_TIMEOUT_MS = 30_000;
  * budget; very fast in-memory queries can use the default.
  */
 const RPC_TIMEOUTS_MS: Record<string, number> = {
+  'runtimePrefs.set': 5_000,
   'session.list': 60_000,
   'session.create': 60_000,
   'session.open': 60_000,
+  'session.preload': 60_000,
   'session.loadTranscriptPage': 30_000,
   'settings.set': 60_000,
   'settings.get': 15_000,
@@ -189,14 +192,20 @@ export class BackendClient implements vscode.Disposable {
     const timeoutMs = RPC_TIMEOUTS_MS[method] ?? DEFAULT_RPC_TIMEOUT_MS;
     const responsePromise = this.requests.create(id, timeoutMs);
 
+    bootTraceSync('backend-client', 'request.sent', { id, method, timeoutMs });
     this.proc.stdin.write(serializeJsonLine({ id, method, params }));
 
-    const response = await responsePromise;
-    if (!response.ok) {
-      throw new Error(response.error.message);
+    try {
+      const response = await responsePromise;
+      bootTraceSync('backend-client', 'response.received', { id, method });
+      if (!response.ok) {
+        throw new Error(response.error.message);
+      }
+      return response.result as TResult;
+    } catch (error) {
+      bootTraceSync('backend-client', 'request.failed', { id, method, error: error instanceof Error ? error.message : String(error) });
+      throw error;
     }
-
-    return response.result as TResult;
   }
 
   /**

@@ -11,7 +11,6 @@ import {
   type ContextUsageChangedPayload,
   type HostToWebviewMessage,
   type ModelInfo,
-  type PatchOp,
   type SessionAnalyticsFactors,
   type SessionOpenedPayload,
   type ToolFinishedPayload,
@@ -96,9 +95,8 @@ test('ChatMessage.userParts supports structured user image content', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Snapshot envelope contract: every state and patch carries hostInstanceId +
-// revision. The webview uses these to detect host-side counter resets and
-// missed patches respectively.
+// Snapshot envelope contract: every state envelope carries hostInstanceId +
+// revision. The webview uses these to detect host-side counter resets.
 // ---------------------------------------------------------------------------
 
 test('HostToWebviewMessage state envelope carries hostInstanceId and revision', () => {
@@ -127,6 +125,7 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
       pendingComposerInputs: [],
       activeRunSummary: null,
       runSummariesBySession: {},
+      draftText: '',
       busy: false,
       notice: null,
       backendReady: false,
@@ -167,36 +166,6 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
     assert.equal(msg.state.activeRunSummary, null);
     assert.deepEqual(msg.state.runSummariesBySession, {});
   }
-});
-
-test('HostToWebviewMessage patch envelope carries hostInstanceId and revision', () => {
-  const msg: HostToWebviewMessage = {
-    type: 'patch',
-    protocolVersion: 1,
-    sessionPath: '/tmp/session-a',
-    hostInstanceId: 'abc',
-    revision: 8,
-    op: { kind: 'messageDelta', messageId: 'm1', delta: 'hello' },
-  };
-  assert.equal(msg.type, 'patch');
-  if (msg.type === 'patch') {
-    assert.equal(msg.op.kind, 'messageDelta');
-    assert.equal(msg.sessionPath, '/tmp/session-a');
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Overlay clear contract: host sends `clearOverlay` to instruct the webview
-// to drop streaming bytes for specific messages once the snapshot has been
-// updated. An undefined `messageIds` means clear all overlays.
-// ---------------------------------------------------------------------------
-
-test('PatchOp.clearOverlay accepts targeted and untargeted forms', () => {
-  const targeted: PatchOp = { kind: 'clearOverlay', messageIds: ['m1', 'm2'] };
-  const all: PatchOp = { kind: 'clearOverlay' };
-  assert.equal(targeted.kind, 'clearOverlay');
-  assert.deepEqual((targeted as { messageIds: string[] }).messageIds, ['m1', 'm2']);
-  assert.equal(all.kind, 'clearOverlay');
 });
 
 // ---------------------------------------------------------------------------

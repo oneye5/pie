@@ -124,6 +124,7 @@ test('arch: concurrent sends across different sessions do not interfere', () => 
       localId: 'loc-a',
       userParts: [],
       previousSummary: null,
+      timestamp: 1,
     },
   }).state;
 
@@ -139,6 +140,7 @@ test('arch: concurrent sends across different sessions do not interfere', () => 
       localId: 'loc-b',
       userParts: [],
       previousSummary: null,
+      timestamp: 1,
     },
   });
 
@@ -189,6 +191,7 @@ test('arch: MessageStarted without modelId still creates turn and assistant mess
     sessionPath: '/s',
     messageId: 'msg-1',
     requestId: 'req-1',
+    timestamp: 1,
   });
 
   assert.deepEqual(result.state.pending.currentTurnBySession['/s'], {
@@ -222,6 +225,7 @@ test('arch: MessageStarted with different requestId starts a new turn', () => {
     sessionPath: '/s',
     messageId: 'msg-new',
     requestId: 'req-new',
+    timestamp: 1,
   });
 
   assert.deepEqual(result.state.pending.currentTurnBySession['/s'], {
@@ -250,6 +254,7 @@ test('arch: MessageStarted without requestId does not change current turn', () =
     sessionPath: '/s',
     messageId: 'msg-2',
     // no requestId
+    timestamp: 1,
   });
 
   // currentTurnBySession unchanged because no requestId
@@ -309,11 +314,12 @@ test('arch: every streaming event mutates state directly (no SyncEffects)', () =
     sessionPath: '/s',
     messageId: 'm1',
     requestId: 'r1',
+    timestamp: 1,
   });
   const seededState = seedResult.state;
 
   const events: Event[] = [
-    { kind: 'MessageStarted', sessionPath: '/s', messageId: 'm1', requestId: 'r1' },
+    { kind: 'MessageStarted', sessionPath: '/s', messageId: 'm1', requestId: 'r1', timestamp: 1 },
     { kind: 'MessageDelta', sessionPath: '/s', messageId: 'm1', delta: 'hi' },
     { kind: 'MessageThinking', sessionPath: '/s', messageId: 'm1', thinking: 'plan' },
     { kind: 'ToolCall', sessionPath: '/s', messageId: 'm1', toolCall: { id: 't1', name: 'bash', input: {}, status: 'running' } },

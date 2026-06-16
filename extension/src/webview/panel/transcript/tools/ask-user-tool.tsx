@@ -1,14 +1,14 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useCallback, useContext, useEffect, useRef, useState } from 'preact/hooks';
+import { useContext } from 'preact/hooks';
 
-import { CUSTOM_SENTINEL } from '../../../../shared/ask-user-sentinel';
-import type { ExtensionUIResponsePayload, ToolCall, WebviewToHostMessage } from '../../../../shared/protocol';
+import type { ToolCall } from '../../../../shared/protocol';
 import { AskUserContext, findMatchingRequest } from '../../hooks/ask-user-context';
 import { SubagentCallContext } from '../subagent-call-context';
 import { ToolCallCard } from '../tool-call-card';
 import { getToolCallContextType } from '../../chat-prefs';
+import { ExtensionUIPrompt } from '../../extension-ui-prompt';
 import { registerToolRenderer, type ToolRendererProps } from '../registry';
 import type { TranscriptContextMenuHandler } from '../types';
 
@@ -72,153 +72,6 @@ function parseAskUserResult(result: unknown): AskUserResult | null {
   return null;
 }
 
-// ─── Inline prompt for running ask_user ───────────────────────────────────────
-
-function AskUserInlinePrompt({
-  toolCall,
-  parsedInput,
-  request,
-  sessionPath,
-  postMessage,
-  onContextMenu,
-}: {
-  toolCall: ToolCall;
-  parsedInput: AskUserInput;
-  request: { id: string; options?: string[] } | null;
-  sessionPath: string | null;
-  postMessage: (msg: WebviewToHostMessage) => void;
-  onContextMenu: TranscriptContextMenuHandler;
-}) {
-  const [customValue, setCustomValue] = useState('');
-  const [showCustomInput, setShowCustomInput] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
-  const customInputRef = useRef<HTMLInputElement>(null);
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (showCustomInput && customInputRef.current) {
-      customInputRef.current.focus();
-    }
-  }, [showCustomInput]);
-
-  useEffect(() => {
-    containerRef.current?.focus();
-  }, []);
-
-  const respond = useCallback((response: ExtensionUIResponsePayload) => {
-    if (submitted) return;
-    setSubmitted(true);
-    postMessage({ type: 'extensionUiResponse', sessionPath, response } as WebviewToHostMessage);
-  }, [submitted, sessionPath, postMessage]);
-
-  // Use the matching request's options (which may include CUSTOM_SENTINEL),
-  // but fall back to the parsed input's options if no request is matched yet.
-  const displayOptions = request?.options
-    ? request.options.filter((o) => o !== CUSTOM_SENTINEL)
-    : parsedInput.options;
-
-  const allowCustom = parsedInput.allowCustom !== false || displayOptions.length === 0;
-  const contextText = parsedInput.context;
-
-  const handleCustomSubmit = useCallback(() => {
-    if (customValue.trim()) {
-      respond({ id: request?.id ?? '', value: customValue.trim() });
-    }
-  }, [customValue, request, respond]);
-
-  const handleCustomKeyDown = useCallback((e: KeyboardEvent) => {
-    if (e.key === 'Enter' && customValue.trim()) {
-      e.preventDefault();
-      handleCustomSubmit();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      respond({ id: request?.id ?? '', cancelled: true });
-    }
-  }, [customValue, handleCustomSubmit, respond, request]);
-
-  const contextType = getToolCallContextType('ask_user');
-  const handleContextMenu = (e: MouseEvent) => onContextMenu(contextType, JSON.stringify(toolCall, null, 2), e);
-
-  return (
-    <div
-      ref={containerRef}
-      class="ask-user-prompt"
-      tabIndex={-1}
-      role="dialog"
-      aria-modal="true"
-      aria-label={parsedInput.question}
-      onContextMenu={(e) => { e.preventDefault(); handleContextMenu(e as unknown as MouseEvent); }}
-    >
-      <div class="ask-user-header">
-        <span class="ask-user-icon">?</span>
-        <span class="ask-user-question">{parsedInput.question}</span>
-      </div>
-      {contextText && <div class="ask-user-context">{contextText}</div>}
-      {!submitted && !showCustomInput && (
-        <div class="ask-user-options">
-          {displayOptions.map((option) => (
-            <button
-              key={option}
-              class="ask-user-option"
-              type="button"
-              onClick={() => respond({ id: request?.id ?? '', value: option })}
-            >
-              {option}
-            </button>
-          ))}
-          {allowCustom && (
-            <button
-              class="ask-user-option ask-user-option-custom"
-              type="button"
-              onClick={() => setShowCustomInput(true)}
-            >
-              ✎ Write my own answer…
-            </button>
-          )}
-          <button
-            class="ask-user-cancel"
-            type="button"
-            onClick={() => respond({ id: request?.id ?? '', cancelled: true })}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-      {!submitted && showCustomInput && (
-        <div class="ask-user-custom-row">
-          <input
-            ref={customInputRef}
-            class="ask-user-custom-input"
-            type="text"
-            value={customValue}
-            placeholder="Type your answer…"
-            onInput={(e) => setCustomValue((e.target as HTMLInputElement).value)}
-            onKeyDown={handleCustomKeyDown}
-          />
-          <button
-            class="ask-user-custom-submit"
-            type="button"
-            disabled={!customValue.trim()}
-            onClick={handleCustomSubmit}
-          >
-            Submit
-          </button>
-          <button
-            class="ask-user-cancel"
-            type="button"
-            onClick={() => respond({ id: request?.id ?? '', cancelled: true })}
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-      {submitted && (
-        <div class="ask-user-pending">Waiting for response…</div>
-      )}
-    </div>
-  );
-}
-
 // ─── Completed ask_user display ───────────────────────────────────────────────
 
 function AskUserCompleted({ toolCall, parsedInput, parsedResult, onContextMenu }: {
@@ -276,30 +129,41 @@ function renderAskUserTool({
   const postMessage = askUserCtx.postMessage;
 
   // Running ask_user: show interactive prompt if we have a matching request
-  if (toolCall.status === 'running' && parsedInput) {
+  if (toolCall.status === 'running') {
     if (matchingRequest && sessionPath) {
       return (
-        <AskUserInlinePrompt
-          toolCall={toolCall}
-          parsedInput={parsedInput}
-          request={matchingRequest}
-          sessionPath={sessionPath}
-          postMessage={postMessage}
-          onContextMenu={onContextMenu}
-        />
+        <div onContextMenu={(e) => { e.preventDefault(); onContextMenu(getToolCallContextType('ask_user'), JSON.stringify(toolCall, null, 2), e as unknown as MouseEvent); }}>
+          <ExtensionUIPrompt
+            sessionPath={sessionPath}
+            request={matchingRequest}
+            postMessage={postMessage}
+          />
+        </div>
       );
     }
 
     // No matching request yet — show the question with a "waiting" indicator
     // and a gentle nudge that the UI is loading. This handles the brief moment
     // before the extension_ui.request event reaches the webview.
+    if (parsedInput) {
+      return (
+        <div class="ask-user-prompt ask-user-prompt-loading">
+          <div class="ask-user-header">
+            <span class="ask-user-icon">?</span>
+            <span class="ask-user-question">{parsedInput.question}</span>
+          </div>
+          {parsedInput.context && <div class="ask-user-context">{parsedInput.context}</div>}
+          <div class="ask-user-pending">Loading response options…</div>
+        </div>
+      );
+    }
+
     return (
       <div class="ask-user-prompt ask-user-prompt-loading">
         <div class="ask-user-header">
           <span class="ask-user-icon">?</span>
-          <span class="ask-user-question">{parsedInput.question}</span>
+          <span class="ask-user-question">Loading prompt…</span>
         </div>
-        {parsedInput.context && <div class="ask-user-context">{parsedInput.context}</div>}
         <div class="ask-user-pending">Loading response options…</div>
       </div>
     );

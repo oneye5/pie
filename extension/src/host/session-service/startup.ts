@@ -6,16 +6,16 @@ import { BackendClient } from '../backend/client';
 import { buildRestoredSessionPlan, filterRestorableStoredTabs } from '../core/restored-session-plan';
 import { createCommandExecutor } from '../../shared/exec-command';
 import { resolveChatPrefs } from '../../shared/protocol';
-import { readPruningSettings } from './pruning-settings';
 import { resolveNodePath, resolveSdkPath } from '../../shared/runtime-resolution';
 import type { ChatPrefs, SessionSummary } from '../../shared/protocol';
+import { SessionService } from './service';
 import { SessionServiceEvents } from './events';
 import { SessionServiceState } from './state';
 import { buildRestoredSessionSummaries } from '../core/restored-session-summaries';
 import { bootLog } from '../util/audit';
 import { publishBackendReady } from './backend-ready';
-import { mergeSessionSummary } from './helpers';
 import type { ArchState } from '../core/arch-state';
+import type { Event } from '../core/events';
 
 const PREFS_STORAGE_KEY = 'chatPrefs';
 const SDK_PATH_CACHE_KEY = 'resolvedSdkPath';
@@ -26,9 +26,10 @@ interface StartSessionBackendOptions {
   scheduleRender: () => void;
   events: SessionServiceEvents;
   state: SessionServiceState;
+  service: SessionService;
   openSession: (sessionPath: string) => void;
   getArchState: () => ArchState;
-  mutateArchState: (recipe: (draft: ArchState) => void) => void;
+  dispatchArch: (event: Event) => void;
 }
 
 function resolveWorkspaceCwd(): string {
@@ -38,17 +39,14 @@ function resolveWorkspaceCwd(): string {
 function applyStoredPrefs(options: StartSessionBackendOptions): void {
   const storedPrefs = options.context.globalState.get<Partial<ChatPrefs>>(PREFS_STORAGE_KEY);
   if (storedPrefs) {
-    options.mutateArchState((draft) => {
-      draft.settings.prefs = resolveChatPrefs({ ...draft.settings.prefs, ...storedPrefs });
-    });
+    const merged = resolveChatPrefs({ ...options.getArchState().settings.prefs, ...storedPrefs });
+    options.dispatchArch({ kind: 'Command', cmd: { kind: 'SetPrefs', corrId: `prefs:${Date.now()}`, prefs: storedPrefs } });
+    void options.context.globalState.update(PREFS_STORAGE_KEY, merged);
   }
 }
 
-function loadPruningSettingsAsync(options: StartSessionBackendOptions): void {
-  readPruningSettings().then(
-    (ps) => options.mutateArchState((draft) => { draft.settings.pruningSettings = ps; }),
-    () => { /* defaults remain */ },
-  );
+async function loadPruningSettingsFromService(options: StartSessionBackendOptions): Promise<void> {
+  await options.service.loadPruningSettings();
 }
 
 function computeRestorePlan(options: StartSessionBackendOptions) {
@@ -76,11 +74,7 @@ function computeRestorePlan(options: StartSessionBackendOptions) {
 }
 
 function applyRestoredTabPaths(options: StartSessionBackendOptions, restoredTabs: string[]): void {
-  options.mutateArchState((draft) => {
-    draft.sessions.openTabPaths = restoredTabs;
-    draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-      .filter((p) => restoredTabs.includes(p));
-  });
+  options.dispatchArch({ kind: 'OpenTabsChanged', openTabPaths: restoredTabs });
 }
 
 function persistIfTabStateChanged(
@@ -96,26 +90,6 @@ function persistIfTabStateChanged(
   ) {
     void options.context.globalState.update('openTabPaths', rawTabs);
     void options.context.globalState.update('activeSessionPath', restoredStartupPath ?? undefined);
-  }
-}
-
-function replaceSessionSummaries(draft: ArchState, incoming: SessionSummary[]): void {
-  const mergedByPath = new Map<string, SessionSummary>();
-  for (const item of incoming) {
-    const existing = mergedByPath.get(item.path) ?? draft.sessions.sessions.find((s) => s.path === item.path);
-    mergedByPath.set(item.path, mergeSessionSummary(existing, item));
-  }
-  for (const s of draft.sessions.sessions) {
-    if (!mergedByPath.has(s.path) && draft.sessions.openTabPaths.includes(s.path)) {
-      mergedByPath.set(s.path, s);
-    }
-  }
-  const activeSession = draft.sessions.activeSessionPath
-    ? draft.sessions.sessions.find((session) => session.path === draft.sessions.activeSessionPath)
-    : undefined;
-  draft.sessions.sessions = [...mergedByPath.values()];
-  if (activeSession && !mergedByPath.has(activeSession.path) && draft.sessions.openTabPaths.includes(activeSession.path)) {
-    draft.sessions.sessions.push(activeSession);
   }
 }
 
@@ -168,10 +142,9 @@ async function resolveAndCacheRuntimePaths(options: StartSessionBackendOptions):
     }
     return { nodePath, sdkPath };
   } catch (err) {
-    options.mutateArchState((draft) => {
-      draft.settings.notice =
-        `pie setup error: ${(err as Error).message}. ` +
-          'Set pie.nodePath and pie.sdkPath in settings.';
+    options.dispatchArch({ kind: 'NoticeShown', notice:
+      `pie setup error: ${(err as Error).message}. ` +
+        'Set pie.nodePath and pie.sdkPath in settings.',
     });
     return null;
   }
@@ -206,9 +179,7 @@ async function startBackendWithLogging(
     });
     return true;
   } catch (err) {
-    options.mutateArchState((draft) => {
-      draft.settings.notice = `Failed to start PI backend: ${(err as Error).message}`;
-    });
+    options.dispatchArch({ kind: 'NoticeShown', notice: `Failed to start PI backend: ${(err as Error).message}` });
     bootLog('session-startup', 'backend.startFailed', {
       message: (err as Error).message,
     });
@@ -254,9 +225,7 @@ function bootLogBackendReadyDispatched(options: StartSessionBackendOptions): voi
 async function listAndOpenFirstSession(options: StartSessionBackendOptions): Promise<void> {
   try {
     const sessions = await options.backend.request<SessionSummary[]>('session.list');
-    options.mutateArchState((draft) => {
-      replaceSessionSummaries(draft, sessions);
-    });
+    options.dispatchArch({ kind: 'SessionSummariesReplaced', summaries: sessions });
     options.scheduleRender();
 
     const toOpen = sessions[0]?.path;
@@ -272,14 +241,12 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
   options.state.resetRuntimeState();
 
   const workspaceCwd = resolveWorkspaceCwd();
-  const { mutateArchState } = options;
+  const { dispatchArch } = options;
 
-  mutateArchState((draft) => {
-    draft.sessions.workspaceCwd = workspaceCwd;
-  });
+  dispatchArch({ kind: 'WorkspaceCwdChanged', workspaceCwd });
 
   applyStoredPrefs(options);
-  loadPruningSettingsAsync(options);
+  await loadPruningSettingsFromService(options);
 
   const {
     storedRawTabs,
@@ -296,17 +263,11 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
 
   const cachedSessions = buildRestoredSessionSummaries(rawTabs, restoredTabs, workspaceCwd);
   if (cachedSessions.length > 0) {
-    mutateArchState((draft) => {
-      replaceSessionSummaries(draft, cachedSessions);
-    });
+    dispatchArch({ kind: 'SessionSummariesReplaced', summaries: cachedSessions });
   }
 
   if (restoredStartupPath) {
-    mutateArchState((draft) => {
-      draft.sessions.activeSessionPath = restoredStartupPath;
-      draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-        .filter((p) => p !== restoredStartupPath);
-    });
+    dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: restoredStartupPath } });
   }
 
   bootLogRestorePrepared(restoredStartupPath, cachedSessions.length, droppedPaths.length, restoredTabs.length, preloadPaths.length);
@@ -333,7 +294,7 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
   await sendRuntimePrefsWithLogging(options, restoredStartupPath);
 
   const restoreError = publishBackendReady({
-    mutateArchState,
+    dispatchArch,
     scheduleRender: options.scheduleRender,
     openSession: options.openSession,
     preloadSessions: (sessionPaths) => options.state.preloadSessions(sessionPaths),

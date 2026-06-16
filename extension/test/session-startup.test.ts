@@ -1,12 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { produce } from 'immer';
-
 import { publishBackendReady } from '../src/host/session-service/backend-ready';
 import { buildRestoredSessionSummaries } from '../src/host/core/restored-session-summaries';
 import { createInitialArchState } from '../src/host/core/arch-state';
-import type { ArchState } from '../src/host/core/arch-state';
+import { reducer } from '../src/host/core/reducer';
+import type { Event } from '../src/host/core/events';
 
 test('buildRestoredSessionSummaries creates placeholders for string-only restored tabs', () => {
   const summaries = buildRestoredSessionSummaries(
@@ -41,13 +40,14 @@ test('buildRestoredSessionSummaries preserves persisted tab names', () => {
 test('publishBackendReady sets backendReady before restore open and keeps it true on restore failure', () => {
   let archState = createInitialArchState();
   const getArchState = () => archState;
-  const mutateArchState = (recipe: (draft: ArchState) => void) => {
-    archState = produce(archState, recipe);
+  const dispatchArch = (event: Event) => {
+    const result = reducer(archState, event);
+    archState = result.state;
   };
 
   const calls: string[] = [];
   const failure = publishBackendReady({
-    mutateArchState,
+    dispatchArch,
     scheduleRender: () => {
       calls.push(`render:${getArchState().settings.backendReady}`);
     },

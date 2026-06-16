@@ -269,8 +269,10 @@ export function selectModel(
 
   // If pool is empty, fall back to active model
   if (pool.length === 0) {
+    // If the active model itself has been excluded, return empty to signal exhaustion.
+    const fallbackId = activeModelId && !excludeModels?.has(activeModelId) ? activeModelId : "";
     return {
-      modelId: activeModelId,
+      modelId: fallbackId,
       thinkingLevel,
       bucket,
       pool: [],

@@ -38,6 +38,7 @@ export interface SessionServiceLike {
   createNewSession(): string;
   openSession(sessionPath: string): void;
   closeSession(sessionPath: string): Promise<void>;
+  duplicateSession(sessionPath: string): void;
   moveSessionTab(sessionPath: string | undefined, fromIndex: number, toIndex: number): void;
   loadOlderTranscript(sessionPath?: string): Promise<void>;
   loadNewerTranscript(sessionPath?: string): Promise<void>;
@@ -122,6 +123,9 @@ export class MessageRouter {
       case 'addComposerInput':
         return await this.onAddComposerInput(msg as Extract<WebviewToHostMessage, { type: 'addComposerInput' }>);
 
+      case 'setComposerDraft':
+        return this.onSetComposerDraft(msg as Extract<WebviewToHostMessage, { type: 'setComposerDraft' }>);
+
       case 'removeComposerInput':
         return this.onRemoveComposerInput(msg as Extract<WebviewToHostMessage, { type: 'removeComposerInput' }>);
 
@@ -136,6 +140,9 @@ export class MessageRouter {
 
       case 'closeSession':
         return await this.onCloseSession(msg as Extract<WebviewToHostMessage, { type: 'closeSession' }>);
+
+      case 'duplicateSession':
+        return await this.onDuplicateSession(msg as Extract<WebviewToHostMessage, { type: 'duplicateSession' }>);
 
       case 'moveSessionTab':
         return this.onMoveSessionTab(msg as Extract<WebviewToHostMessage, { type: 'moveSessionTab' }>);
@@ -159,7 +166,7 @@ export class MessageRouter {
         return this.onContinueTask(msg as Extract<WebviewToHostMessage, { type: 'continueTask' }>);
 
       case 'setModel':
-        return await this.onSetModel(msg as Extract<WebviewToHostMessage, { type: 'setModel' }>);
+        return this.onSetModel(msg as Extract<WebviewToHostMessage, { type: 'setModel' }>);
 
       case 'openFileDiff':
         return await this.onOpenFileDiff(msg as Extract<WebviewToHostMessage, { type: 'openFileDiff' }>);
@@ -180,16 +187,16 @@ export class MessageRouter {
         return this.onStartEdit(msg as Extract<WebviewToHostMessage, { type: 'startEdit' }>);
 
       case 'cancelEdit':
-        return this.onCancelEdit();
+        return this.onCancelEdit(msg as Extract<WebviewToHostMessage, { type: 'cancelEdit' }>);
 
       case 'dismissNotice':
         return this.onDismissNotice();
 
       case 'openOutcomeDialog':
-        return this.onOpenOutcomeDialog();
+        return this.onOpenOutcomeDialog(msg as Extract<WebviewToHostMessage, { type: 'openOutcomeDialog' }>);
 
       case 'closeOutcomeDialog':
-        return this.onCloseOutcomeDialog();
+        return this.onCloseOutcomeDialog(msg as Extract<WebviewToHostMessage, { type: 'closeOutcomeDialog' }>);
 
       case 'stateApplied':
         return this.onStateApplied(msg as Extract<WebviewToHostMessage, { type: 'stateApplied' }>);
@@ -255,11 +262,9 @@ export class MessageRouter {
     if (!text.trim() && inputs.length === 0) return;
 
     // Pre-compute values the reducer needs.
-    this.service.bumpSessionDataEpoch(sessionPath);
-    this.statsService.prepareForSend(sessionPath, inputs);
     const composedText = buildPromptText(text, inputs);
     const userParts = buildOptimisticUserParts(text, inputs);
-    const localId = webviewLocalId ?? `local:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const localId = webviewLocalId ?? `local:${crypto.randomUUID()}`;
 
     // Optimistic session name.
     let previousSummary = null as SessionSummary | null;
@@ -277,7 +282,7 @@ export class MessageRouter {
     const corrId = crypto.randomUUID();
     this.dispatchEvent({
       kind: 'Command',
-      cmd: { kind: 'Send', corrId, sessionPath, text, inputs, composedText, localId, userParts, previousSummary },
+      cmd: { kind: 'Send', corrId, sessionPath, text, inputs, composedText, localId, userParts, previousSummary, timestamp: Date.now() },
     });
   }
 
@@ -301,17 +306,14 @@ export class MessageRouter {
       return;
     }
 
-    this.service.bumpSessionDataEpoch(sessionPath);
-    this.statsService.onTruncatedAfter(sessionPath, messageId);
-    this.statsService.onMessageEdited(sessionPath, messageId);
-    this.statsService.prepareForSend(sessionPath, []);
-    const localId = `local:edit:${Date.now()}:${Math.random().toString(36).slice(2)}`;
+    const webviewLocalId = msg.localId;
+    const localId = webviewLocalId ?? `local:edit:${crypto.randomUUID()}`;
 
     // Dispatch through CQRS spine.
     const corrId = crypto.randomUUID();
     this.dispatchEvent({
       kind: 'Command',
-      cmd: { kind: 'Edit', corrId, sessionPath, messageId, text, localId },
+      cmd: { kind: 'Edit', corrId, sessionPath, messageId, text, localId, timestamp: Date.now() },
     });
   }
 
@@ -339,104 +341,212 @@ export class MessageRouter {
       title: 'Attach file path(s) to message',
     });
     if (!uris || uris.length === 0) return;
-    await this.service.addFilesystemPaths(undefined, uris.map((u) => u.fsPath), 'picker');
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'AddFilesystemPaths', corrId, sessionPath: undefined, paths: uris.map((u) => u.fsPath), source: 'picker' },
+    });
   }
 
   private async onAddComposerInput(msg: Extract<WebviewToHostMessage, { type: 'addComposerInput' }>): Promise<void> {
-    await this.service.addComposerInput(msg.sessionPath, msg.input);
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'AddComposerInput', corrId, sessionPath: msg.sessionPath, input: msg.input },
+    });
+  }
+
+  private onSetComposerDraft(msg: Extract<WebviewToHostMessage, { type: 'setComposerDraft' }>): void {
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'SetComposerDraft', corrId, sessionPath: msg.sessionPath, text: msg.text },
+    });
   }
 
   private onRemoveComposerInput(msg: Extract<WebviewToHostMessage, { type: 'removeComposerInput' }>): void {
-    this.service.removeComposerInput(msg.sessionPath, msg.inputId);
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'RemoveComposerInput', corrId, sessionPath: msg.sessionPath, inputId: msg.inputId },
+    });
   }
 
   private async onOpenFile(msg: Extract<WebviewToHostMessage, { type: 'openFile' }>): Promise<void> {
     if (typeof msg.path !== 'string' || !msg.path.trim()) return;
-    await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(msg.path));
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'OpenFile', corrId, path: msg.path },
+    });
   }
 
   private onNewSession(): void {
-    this.service.createNewSession();
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'CreateSession', corrId, selectionToken: crypto.randomUUID() },
+    });
     this.sidebarProvider.postState();
   }
 
   private onOpenSession(msg: Extract<WebviewToHostMessage, { type: 'openSession' }>): void {
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetEditingMessage', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, messageId: null } });
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetOutcomeDialog', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, visible: false } });
-    this.service.openSession(msg.sessionPath);
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'OpenSession', corrId, sessionPath: msg.sessionPath, selectionToken: crypto.randomUUID() },
+    });
     this.sidebarProvider.postState();
   }
 
-  private async onCloseSession(msg: Extract<WebviewToHostMessage, { type: 'closeSession' }>): Promise<void> {
-    await this.service.closeSession(msg.sessionPath);
-    // Cleanup per-session bookkeeping that lives outside the SessionService.
-    // - Arch reducer state (pending RPCs, currentTurn map) via SessionClosed event.
-    // - UI singletons (editing/outcome/extensionUI) when they belonged to this session.
-    // - Host-owned queues + service-side per-session maps via purgeHostStateForSession.
-    // This is the central fix for B4 cross-session bleed.
-    this.dispatchEvent({ kind: 'SessionClosed', sessionPath: msg.sessionPath });
-    this.purgeHostStateForSession(msg.sessionPath);
+  private onDuplicateSession(msg: Extract<WebviewToHostMessage, { type: 'duplicateSession' }>): void {
+    const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath : null;
+    if (!sessionPath) {
+      this.dispatchEvent({ kind: 'NoticeShown', notice: 'Protocol defect: duplicateSession arrived without a sessionPath.' });
+      return;
+    }
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'DuplicateSession', corrId, sessionPath },
+    });
+  }
+
+  private onCloseSession(msg: Extract<WebviewToHostMessage, { type: 'closeSession' }>): void {
+    this.dispatchEvent({ kind: 'Command', cmd: { kind: 'CloseSession', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath } });
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetEditingMessage', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, messageId: null } });
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetOutcomeDialog', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, visible: false } });
-    // Per-session pendingExtensionUIRequestsBySession is cleaned up by
-    // removeSessionFromState (triggered by SessionClosed above).
     this.sidebarProvider.postState();
   }
 
   private onMoveSessionTab(msg: Extract<WebviewToHostMessage, { type: 'moveSessionTab' }>): void {
-    this.service.moveSessionTab(msg.sessionPath, msg.fromIndex, msg.toIndex);
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'MoveSessionTab', corrId, sessionPath: msg.sessionPath, fromIndex: msg.fromIndex, toIndex: msg.toIndex },
+    });
     this.sidebarProvider.postState();
   }
 
   private async onLoadOlderTranscript(msg: Extract<WebviewToHostMessage, { type: 'loadOlderTranscript' }>): Promise<void> {
-    await this.service.loadOlderTranscript(msg.sessionPath);
+    const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath : null;
+    if (!sessionPath) {
+      this.dispatchEvent({ kind: 'NoticeShown', notice: 'Protocol defect: loadOlderTranscript arrived without a sessionPath.' });
+      return;
+    }
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'LoadOlderTranscript', corrId, sessionPath },
+    });
   }
 
   private async onLoadNewerTranscript(msg: Extract<WebviewToHostMessage, { type: 'loadNewerTranscript' }>): Promise<void> {
-    await this.service.loadNewerTranscript(msg.sessionPath);
+    const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath : null;
+    if (!sessionPath) {
+      this.dispatchEvent({ kind: 'NoticeShown', notice: 'Protocol defect: loadNewerTranscript arrived without a sessionPath.' });
+      return;
+    }
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'LoadNewerTranscript', corrId, sessionPath },
+    });
   }
 
   private async onJumpToLatestTranscript(msg: Extract<WebviewToHostMessage, { type: 'jumpToLatestTranscript' }>): Promise<void> {
-    await this.service.jumpToLatestTranscript(msg.sessionPath);
+    const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath : null;
+    if (!sessionPath) {
+      this.dispatchEvent({ kind: 'NoticeShown', notice: 'Protocol defect: jumpToLatestTranscript arrived without a sessionPath.' });
+      return;
+    }
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'JumpToLatestTranscript', corrId, sessionPath },
+    });
   }
 
   private onRecordOutcome(msg: Extract<WebviewToHostMessage, { type: 'recordOutcome' }>): void {
-    this.statsService.recordOutcome(msg.sessionPath, msg.outcome);
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'RecordOutcome', corrId, sessionPath: msg.sessionPath, outcome: msg.outcome },
+    });
   }
 
   private onStartNewTask(msg: Extract<WebviewToHostMessage, { type: 'startNewTask' }>): void {
-    this.statsService.startNewTask(msg.sessionPath);
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'StartNewTask', corrId, sessionPath: msg.sessionPath },
+    });
   }
 
   private onContinueTask(msg: Extract<WebviewToHostMessage, { type: 'continueTask' }>): void {
-    this.statsService.continueTask(msg.sessionPath);
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'ContinueTask', corrId, sessionPath: msg.sessionPath },
+    });
   }
 
-  private async onSetModel(msg: Extract<WebviewToHostMessage, { type: 'setModel' }>): Promise<void> {
-    await this.service.setModel(msg.sessionPath, msg.defaultModel, msg.defaultThinkingLevel);
+  private onSetModel(msg: Extract<WebviewToHostMessage, { type: 'setModel' }>): void {
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: {
+        kind: 'SetModel',
+        corrId: crypto.randomUUID(),
+        sessionPath: msg.sessionPath || '',
+        modelSettings: {
+          defaultModel: msg.defaultModel,
+          defaultThinkingLevel: msg.defaultThinkingLevel,
+        },
+      },
+    });
   }
 
-  private async onOpenFileDiff(msg: Extract<WebviewToHostMessage, { type: 'openFileDiff' }>): Promise<void> {
-    await this.fileDiffService.openFileDiff(msg.sessionPath, msg.filePath);
+  private onOpenFileDiff(msg: Extract<WebviewToHostMessage, { type: 'openFileDiff' }>): void {
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'OpenFileDiff', corrId, sessionPath: msg.sessionPath, filePath: msg.filePath, status: 'modified' },
+    });
   }
 
   private async onOpenFileInEditor(msg: Extract<WebviewToHostMessage, { type: 'openFileInEditor' }>): Promise<void> {
-    await this.fileDiffService.openFileInEditor(msg.sessionPath, msg.filePath);
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'OpenFileInEditor', corrId, sessionPath: msg.sessionPath, filePath: msg.filePath },
+    });
   }
 
-  private async onRevertFile(msg: Extract<WebviewToHostMessage, { type: 'revertFile' }>): Promise<void> {
-    await this.fileDiffService.revertFile(msg.sessionPath, msg.filePath);
+  private onRevertFile(msg: Extract<WebviewToHostMessage, { type: 'revertFile' }>): void {
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'RevertFile', corrId, sessionPath: msg.sessionPath, filePath: msg.filePath },
+    });
     this.dispatchEvent({ kind: 'FileChangeRemoved', sessionPath: msg.sessionPath, filePath: msg.filePath });
     this.scheduleRender();
   }
 
   private onSetPrefs(msg: Extract<WebviewToHostMessage, { type: 'setPrefs' }>): void {
-    this.service.setPrefs(msg.prefs);
-    this.sidebarProvider.postState();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'SetPrefs', corrId: crypto.randomUUID(), prefs: msg.prefs },
+    });
   }
 
   private async onSetPruningSettings(msg: Extract<WebviewToHostMessage, { type: 'setPruningSettings' }>): Promise<void> {
-    await this.service.setPruningSettings(msg.settings);
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'SetPruningSettings', corrId, settings: msg.settings },
+    });
     this.scheduleRender();
   }
 
@@ -444,15 +554,15 @@ export class MessageRouter {
     const corrId = crypto.randomUUID();
     this.dispatchEvent({
       kind: 'Command',
-      cmd: { kind: 'SetEditingMessage', corrId, sessionPath: this.getArchState().sessions.activeSessionPath ?? '', messageId: msg.messageId },
+      cmd: { kind: 'SetEditingMessage', corrId, sessionPath: msg.sessionPath, messageId: msg.messageId },
     });
   }
 
-  private onCancelEdit(): void {
+  private onCancelEdit(msg: Extract<WebviewToHostMessage, { type: 'cancelEdit' }>): void {
     const corrId = crypto.randomUUID();
     this.dispatchEvent({
       kind: 'Command',
-      cmd: { kind: 'SetEditingMessage', corrId, sessionPath: this.getArchState().sessions.activeSessionPath ?? '', messageId: null },
+      cmd: { kind: 'SetEditingMessage', corrId, sessionPath: msg.sessionPath, messageId: null },
     });
   }
 
@@ -464,19 +574,19 @@ export class MessageRouter {
     });
   }
 
-  private onOpenOutcomeDialog(): void {
+  private onOpenOutcomeDialog(msg: Extract<WebviewToHostMessage, { type: 'openOutcomeDialog' }>): void {
     const corrId = crypto.randomUUID();
     this.dispatchEvent({
       kind: 'Command',
-      cmd: { kind: 'SetOutcomeDialog', corrId, sessionPath: this.getArchState().sessions.activeSessionPath ?? '', visible: true },
+      cmd: { kind: 'SetOutcomeDialog', corrId, sessionPath: msg.sessionPath, visible: true },
     });
   }
 
-  private onCloseOutcomeDialog(): void {
+  private onCloseOutcomeDialog(msg: Extract<WebviewToHostMessage, { type: 'closeOutcomeDialog' }>): void {
     const corrId = crypto.randomUUID();
     this.dispatchEvent({
       kind: 'Command',
-      cmd: { kind: 'SetOutcomeDialog', corrId, sessionPath: this.getArchState().sessions.activeSessionPath ?? '', visible: false },
+      cmd: { kind: 'SetOutcomeDialog', corrId, sessionPath: msg.sessionPath, visible: false },
     });
   }
 
@@ -496,11 +606,7 @@ export class MessageRouter {
     const corrId = crypto.randomUUID();
     this.dispatchEvent({
       kind: 'Command',
-      cmd: { kind: 'RespondExtensionUI', corrId, sessionPath, requestId: msg.response.id, approved: msg.response.confirmed === true },
-    });
-    await this.backend.request('extension_ui.response', {
-      sessionPath,
-      response: msg.response,
+      cmd: { kind: 'RespondExtensionUI', corrId, sessionPath, requestId: msg.response.id, approved: msg.response.confirmed === true, response: msg.response },
     });
   }
 

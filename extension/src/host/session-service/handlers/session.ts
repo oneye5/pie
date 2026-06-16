@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { RunObserver } from '../../stats-service';
 import type { ArchState } from '../../core/arch-state';
 import type { SessionServiceState } from '../state';
-import type { BackendEvent } from '../../core/events';
+import type { Event } from '../../core/events';
 import type { OnSessionCompleted } from '../types';
 import type {
   ContextUsageChangedPayload,
@@ -17,8 +17,7 @@ import { requestWindowAttention } from '../../sidebar/completion-notification';
 interface HandlerDeps {
   context: vscode.ExtensionContext;
   getArchState: () => ArchState;
-  mutateArchState: (recipe: (draft: ArchState) => void) => void;
-  dispatchArch: (event: BackendEvent) => void;
+  dispatchArch: (event: Event) => void;
   runObserver: RunObserver;
   state: SessionServiceState;
   scheduleRender: () => void;
@@ -73,18 +72,7 @@ export function onError(payload: ErrorPayload, deps: HandlerDeps): void {
   deps.runObserver.onBackendError(sessionPath ?? undefined, payload.code);
   deps.dispatchArch({ kind: 'Error', sessionPath: sessionPath ?? '', error: payload.message });
   if (sessionPath) {
-    deps.mutateArchState((draft) => {
-      const list = draft.transcript.bySession[sessionPath];
-      if (!list) return;
-      const reversed = [...list].reverse();
-      const msg = reversed.find(
-        (m) => m.role === 'assistant' && (m.status === 'streaming' || m.status === 'error'),
-      ) ?? reversed.find((m) => m.role === 'assistant');
-      if (msg) {
-        msg.status = 'error';
-        msg.errorDetail = payload.message;
-      }
-    });
+    deps.dispatchArch({ kind: 'AssistantMessageErrorStamped', sessionPath, errorMessage: payload.message });
   } else {
     const auditLog = (context: vscode.ExtensionContext, category: string, event: string, data: Record<string, unknown>) => {
       // Inline auditLog to avoid circular dependency - just use console for now

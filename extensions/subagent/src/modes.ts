@@ -138,7 +138,7 @@ async function runWithModelRetry(args: RunWithModelRetryArgs): Promise<ModelRetr
 			args.thinkingLevel as ThinkingLevel | undefined,
 			args.excludeModels,
 		);
-		if (!next.modelOverride) break;
+		if (!next.modelOverride || args.excludeModels.has(next.modelOverride)) break;
 	}
 
 	return { result: result! };
@@ -432,7 +432,7 @@ export async function executeChainMode(
 
 	for (let i = 0; i < params.chain!.length; i++) {
 		const step = params.chain![i];
-		const taskWithContext = step.task.replace(/\{previous\}/g, previousOutput);
+		const taskWithContext = step.task.replace(/\{previous\}/g, () => previousOutput);
 
 		const chainUpdate = buildChainUpdateCallback(results, makeDetails, onUpdate);
 

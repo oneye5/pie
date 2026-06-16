@@ -2,6 +2,8 @@
  * Agent discovery and configuration
  */
 
+/// <reference types="node" />
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -63,6 +65,21 @@ function parseFrontmatter<T extends Record<string, string>>(content: string): { 
 const VALID_BUCKETS = new Set(["small", "medium", "frontier"]);
 const VALID_THINKING_LEVELS = new Set<ThinkingLevel>(["minimal", "low", "medium", "high", "xhigh"]);
 
+/**
+ * Parse a frontmatter `tools` value into a list of tool names. Accepts both a
+ * comma-separated string (`read, write`) and inline YAML list syntax
+ * (`[read, write]`), stripping surrounding brackets and per-item quotes.
+ */
+function parseToolsList(rawTools: string | undefined): string[] | undefined {
+	if (!rawTools) return undefined;
+	const inner = rawTools.trim().replace(/^\[|\]$/g, "");
+	const tools = inner
+		.split(",")
+		.map((t) => t.trim().replace(/^['"]|['"]$/g, "").trim())
+		.filter(Boolean);
+	return tools.length > 0 ? tools : undefined;
+}
+
 function parseBucketAndThinking(rawBucket: string | undefined, rawThinking: string | undefined): { bucket?: string; thinkingLevel?: ThinkingLevel } {
 	const bucket = rawBucket?.trim();
 	const thinking = rawThinking?.trim() as ThinkingLevel | undefined;
@@ -104,10 +121,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
-		const tools = frontmatter.tools
-			?.split(",")
-			.map((t: string) => t.trim())
-			.filter(Boolean);
+		const tools = parseToolsList(frontmatter.tools);
 
 		const { bucket, thinkingLevel } = parseBucketAndThinking(frontmatter.bucket, frontmatter.thinkingLevel);
 

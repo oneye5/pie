@@ -9,11 +9,12 @@ import {
 import { TRANSCRIPT_WINDOW_BUDGETS } from '../../shared/transcript-window';
 import type { SessionOpenedPayload } from '../../shared/protocol';
 import type { ScheduleRender, SelectionRequest } from './types';
+import type { Event } from '../core/events';
 import type { ArchState } from '../core/arch-state';
 
 const OPEN_TABS_STORAGE_KEY = 'openTabPaths';
 const ACTIVE_SESSION_STORAGE_KEY = 'activeSessionPath';
-const DEFAULT_SELECTION_REQUEST_TIMEOUT_MS = 30_000;
+const DEFAULT_SELECTION_REQUEST_TIMEOUT_MS = 60_000;
 
 export class SessionServiceState {
   private readonly busySeqMap = new Map<string, number>();
@@ -32,18 +33,18 @@ export class SessionServiceState {
   private currentSelectionToken: string | null = null;
   private onPreloadedSessionOpened?: (payload: SessionOpenedPayload) => void;
   private readonly getArchState: () => ArchState;
-  private readonly mutateArchState_: (recipe: (draft: ArchState) => void) => void;
+  private readonly dispatchArch: (event: Event) => void;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
     private readonly backend: BackendClient,
     private readonly scheduleRender: ScheduleRender,
     getArchState: () => ArchState,
-    mutateArchState: (recipe: (draft: ArchState) => void) => void,
+    dispatchArch: (event: Event) => void,
     private readonly selectionRequestTimeoutMs = DEFAULT_SELECTION_REQUEST_TIMEOUT_MS,
   ) {
     this.getArchState = getArchState;
-    this.mutateArchState_ = mutateArchState;
+    this.dispatchArch = dispatchArch;
   }
 
   setPreloadedSessionOpenedHandler(handler: (payload: SessionOpenedPayload) => void): void {
@@ -190,11 +191,9 @@ export class SessionServiceState {
       if (request.pendingPath) {
         this.clearSessionScope(request.pendingPath, true);
       } else if (!request.wasOpenTab) {
-        this.mutateArchState_((draft) => {
-          // removeOpenTab
-          draft.sessions.openTabPaths = draft.sessions.openTabPaths.filter((p) => p !== request.requestedPath);
-          draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-            .filter((p) => p !== request.requestedPath);
+        this.dispatchArch({
+          kind: 'Command',
+          cmd: { kind: 'CloseTab', corrId: `close:${Date.now()}`, sessionPath: request.requestedPath },
         });
         this.clearSessionScope(request.requestedPath, request.insertedPlaceholder);
       }
@@ -211,20 +210,22 @@ export class SessionServiceState {
           openTabPaths: archState.sessions.openTabPaths,
           currentActivePath: archState.sessions.activeSessionPath,
         });
-        this.mutateArchState_((draft) => {
-          draft.sessions.activeSessionPath = fallbackPath;
-          if (fallbackPath) {
-            draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-              .filter((p) => p !== fallbackPath);
-          }
-        });
+        if (fallbackPath) {
+          this.dispatchArch({
+            kind: 'Command',
+            cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: fallbackPath },
+          });
+        } else {
+          this.dispatchArch({
+            kind: 'Command',
+            cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: '' },
+          });
+        }
       }
       this.saveOpenTabs();
     }
 
-    this.mutateArchState_((draft) => {
-      draft.settings.notice = notice;
-    });
+    this.dispatchArch({ kind: 'NoticeShown', notice });
     this.assertSelectionInvariant('handleSelectionFailure');
     this.scheduleRender();
   }
@@ -337,24 +338,22 @@ export class SessionServiceState {
         return;
       }
 
-      this.mutateArchState_((draft) => {
-        const t = draft.transcript.bySession[sessionPath] ?? [];
-        if (t.length <= TRANSCRIPT_WINDOW_BUDGETS.inactiveTailCount) {
-          return;
-        }
-        // Trim to tail
-        draft.transcript.bySession[sessionPath] = t.slice(-TRANSCRIPT_WINDOW_BUDGETS.inactiveTailCount);
-        // Update window metadata
-        const window = draft.transcript.windowBySession[sessionPath];
-        if (window) {
-          draft.transcript.windowBySession[sessionPath] = {
-            ...window,
-            loadedStart: window.totalCount - TRANSCRIPT_WINDOW_BUDGETS.inactiveTailCount,
-            hasOlder: true,
-            hasNewer: false,
-            isPartial: true,
-          };
-        }
+      const transcriptWindow = this.getArchState().transcript.windowBySession[sessionPath];
+      if (!transcriptWindow) {
+        return;
+      }
+
+      this.dispatchArch({
+        kind: 'TranscriptTrimmed',
+        sessionPath,
+        transcript: transcript.slice(-TRANSCRIPT_WINDOW_BUDGETS.inactiveTailCount),
+        transcriptWindow: {
+          ...transcriptWindow,
+          loadedStart: transcriptWindow.totalCount - TRANSCRIPT_WINDOW_BUDGETS.inactiveTailCount,
+          hasOlder: true,
+          hasNewer: false,
+          isPartial: true,
+        },
       });
     });
   }
@@ -371,32 +370,10 @@ export class SessionServiceState {
         this.requestSessionPathById.delete(requestId);
       }
     }
-    this.mutateArchState_((draft) => {
-      // transcriptActions.clearSessionState
-      delete draft.transcript.bySession[sessionPath];
-      delete draft.transcript.systemPromptsBySession[sessionPath];
-      delete draft.transcript.windowBySession[sessionPath];
-      // settingsActions.clearAvailableModels
-      delete draft.settings.availableModelsBySession[sessionPath];
-      // settingsActions.clearContextUsage
-      delete draft.settings.contextUsageBySession[sessionPath];
-      // sessionStateActions.clearSessionState
-      delete draft.composer.pendingComposerInputsBySession[sessionPath];
-      delete draft.composer.activeRunSummaryBySession[sessionPath];
-      delete draft.sessions.analyticsFactorsBySession[sessionPath];
-      // fileChangesActions.clearFileChanges
-      delete draft.fileChanges.bySession[sessionPath];
-      // removeSession (optionally)
-      if (removeSessionSummary) {
-        draft.sessions.sessions = draft.sessions.sessions.filter((s) => s.path !== sessionPath);
-        draft.sessions.openTabPaths = draft.sessions.openTabPaths.filter((p) => p !== sessionPath);
-        draft.sessions.runningSessionPaths = draft.sessions.runningSessionPaths.filter((p) => p !== sessionPath);
-        draft.sessions.unreadFinishedSessionPaths = draft.sessions.unreadFinishedSessionPaths
-          .filter((p) => p !== sessionPath);
-        if (draft.sessions.activeSessionPath === sessionPath) {
-          draft.sessions.activeSessionPath = null;
-        }
-      }
+    this.dispatchArch({
+      kind: 'SessionScopeCleared',
+      sessionPath,
+      removeSessionSummary,
     });
   }
 

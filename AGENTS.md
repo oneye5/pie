@@ -12,7 +12,6 @@ Personal pi config stack: VS Code extension GUI ("pie"), custom pi extensions, a
 cd extension
 npm run build      # build + sync
 npm run watch      # incremental
-npm run webview:dev # browser-hosted panel UI backed by the real PI backend; no installed-extension sync
 npm run test       # unit tests
 npm run typecheck  # type-check only
 npm run package    # produce .vsix

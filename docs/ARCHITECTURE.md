@@ -53,7 +53,7 @@ See git history (commit `d581d83`, file `docs/internal/archive/ARCH-MIGRATION-PL
 | EffectRunner | `extension/src/host/core/effect-runner.ts` |
 | Projection | `extension/src/host/core/projection.ts` |
 | Snapshot transport | `extension/src/host/sidebar/sync.ts`, `extension/src/host/sidebar/provider.ts` |
-| Backend event parser | `extension/src/host/core/backend-event-parser.ts` |
+| Backend event dispatch | `extension/src/host/core/event-dispatch.ts` |
 | Message router | `extension/src/host/core/message-router.ts` |
 
 ---
@@ -163,7 +163,7 @@ Full allowlist of webview-local state: see `STATE_CONTRACT.md § Webview-Local S
 
 1. Add variant to `Event` union in `extension/src/host/core/events.ts`.
 2. Handle in reducer — return state change + effects.
-3. Wire the raw backend event → typed Event dispatch in `backend-event-parser.ts`.
+3. Wire the raw backend event → typed Event dispatch in `event-dispatch.ts`.
 4. If the event requires a side-effect (RPC, notification, file operation), add an Effect variant.
 
 ### Adding a new ViewState field

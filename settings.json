@@ -1,52 +1,29 @@
 {
-  "lastChangelogVersion": "0.78.0",
-  "defaultProvider": "ollama",
-  "defaultModel": "glm-5.1:cloud",
+  "defaultModel": "kimi-k2.7-code:cloud",
   "defaultThinkingLevel": "high",
-  "sessionDir": "data/outcomes/sessions",
-  "packages": [
-    {
-      "source": "npm:pi-web-access",
-      "skills": []
-    }
-  ],
-  "steeringMode": "one-at-a-time",
+  "defaultProvider": "ollama",
   "pruning": {
-    "mode": "auto",
-    "model": "nemotron-3-super:cloud",
+    "model": "deepseek-v4-flash:cloud",
     "provider": "ollama",
     "thinkingLevel": "low",
-    "skills": {
-      "strategy": "discretion",
-      "ceiling": 8,
-      "pinned": [
-        "systematic-debugging"
-      ]
-    },
     "tools": {
-      "strategy": "discretion",
-      "ceiling": 10,
-      "dependencies": {
-        "edit": [
-          "read"
-        ],
-        "subagent": [
-          "bash"
-        ]
-      },
       "alwaysKeep": [
         "ask_user",
         "bash",
+        "code_search",
         "edit",
+        "fetch_content",
         "find",
         "grep",
-        "read",
+        "get_search_content",
         "ls",
-        "write",
+        "read",
         "request_tool",
         "subagent",
-        "code_search"
+        "web_search",
+        "write"
       ]
     }
-  }
+  },
+  "lastChangelogVersion": "0.78.0"
 }

@@ -10,7 +10,7 @@
  * these types yet.
  */
 
-import type { ComposerInput, ComposerInputDraft, SessionSummary, UserContentPart } from '../../shared/protocol';
+import type { ComposerInput, ComposerInputDraft, SessionSummary, UserContentPart, ExtensionUIResponsePayload } from '../../shared/protocol';
 
 import type { ModelSettings, ChatPrefs } from '../../shared/protocol';
 
@@ -35,6 +35,8 @@ export interface SendCommand extends CommandBase {
   userParts?: UserContentPart[];
   /** Snapshot of the session summary before optimistic name change (null if no change). */
   previousSummary: SessionSummary | null;
+  /** Explicit timestamp for deterministic optimistic message ordering. */
+  timestamp: number;
 }
 
 /** Edit an existing message (truncates the transcript after it). */
@@ -45,6 +47,8 @@ export interface EditCommand extends CommandBase {
   text: string;
   /** Pre-generated local ID for the optimistic replacement message. */
   localId: string;
+  /** Explicit timestamp for deterministic optimistic message ordering. */
+  timestamp: number;
 }
 
 /** Interrupt the in-flight assistant turn for a session. */
@@ -96,6 +100,12 @@ export interface RemoveComposerInputCommand extends CommandBase {
   inputId: string;
 }
 
+export interface SetComposerDraftCommand extends CommandBase {
+  kind: 'SetComposerDraft';
+  sessionPath: string;
+  text: string;
+}
+
 export interface SetEditingMessageCommand extends CommandBase {
   kind: 'SetEditingMessage';
   sessionPath: string;
@@ -118,6 +128,61 @@ export interface RespondExtensionUICommand extends CommandBase {
   /** The specific request being responded to. */
   requestId: string;
   approved: boolean;
+  response: ExtensionUIResponsePayload;
+}
+
+export interface AddFilesystemPathsCommand extends CommandBase {
+  kind: 'AddFilesystemPaths';
+  sessionPath: string | undefined;
+  paths: string[];
+  source: 'picker' | 'drop';
+}
+
+export interface LoadOlderTranscriptCommand extends CommandBase {
+  kind: 'LoadOlderTranscript';
+  sessionPath: string;
+}
+
+export interface LoadNewerTranscriptCommand extends CommandBase {
+  kind: 'LoadNewerTranscript';
+  sessionPath: string;
+}
+
+export interface JumpToLatestTranscriptCommand extends CommandBase {
+  kind: 'JumpToLatestTranscript';
+  sessionPath: string;
+}
+
+export interface RecordOutcomeCommand extends CommandBase {
+  kind: 'RecordOutcome';
+  sessionPath: string;
+  outcome: import('../../shared/protocol').RunOutcome;
+}
+
+export interface StartNewTaskCommand extends CommandBase {
+  kind: 'StartNewTask';
+  sessionPath: string;
+}
+
+export interface ContinueTaskCommand extends CommandBase {
+  kind: 'ContinueTask';
+  sessionPath: string;
+}
+
+export interface OpenFileInEditorCommand extends CommandBase {
+  kind: 'OpenFileInEditor';
+  sessionPath: string;
+  filePath: string;
+}
+
+export interface OpenFileCommand extends CommandBase {
+  kind: 'OpenFile';
+  path: string;
+}
+
+export interface SetPruningSettingsCommand extends CommandBase {
+  kind: 'SetPruningSettings';
+  settings: Partial<import('../../shared/protocol').PruningSettings>;
 }
 
 export type Command =
@@ -130,6 +195,7 @@ export type Command =
   | PersistTabsCommand
   | AddComposerInputCommand
   | RemoveComposerInputCommand
+  | SetComposerDraftCommand
   | SetModelCommand
   | SetPrefsCommand
   | SelectSessionCommand
@@ -142,7 +208,19 @@ export type Command =
   | SetEditingMessageCommand
   | SetOutcomeDialogCommand
   | DismissNoticeCommand
-  | RespondExtensionUICommand;
+  | RespondExtensionUICommand
+  | AddFilesystemPathsCommand
+  | LoadOlderTranscriptCommand
+  | LoadNewerTranscriptCommand
+  | JumpToLatestTranscriptCommand
+  | RecordOutcomeCommand
+  | StartNewTaskCommand
+  | ContinueTaskCommand
+  | OpenFileInEditorCommand
+  | OpenFileCommand
+  | SetPruningSettingsCommand
+  | DuplicateSessionCommand
+  | MoveSessionTabCommand;
 export interface SetModelCommand extends CommandBase {
   kind: 'SetModel';
   sessionPath: string;
@@ -190,4 +268,16 @@ export interface ExportAnalyticsCommand extends CommandBase {
 export interface CloseSessionCommand extends CommandBase {
   kind: 'CloseSession';
   sessionPath: string;
+}
+
+export interface DuplicateSessionCommand extends CommandBase {
+  kind: 'DuplicateSession';
+  sessionPath: string;
+}
+
+export interface MoveSessionTabCommand extends CommandBase {
+  kind: 'MoveSessionTab';
+  sessionPath: string | undefined;
+  fromIndex: number;
+  toIndex: number;
 }

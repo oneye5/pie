@@ -15,12 +15,12 @@
     "analytics:serve": "npm --prefix analysis run serve --",
     "analytics:validate": "npm --prefix analysis run validate --",
     "extension:build": "npm --prefix extension run build --",
-    "extension:webview:dev": "npm --prefix extension run webview:dev --",
     "extension:test": "node ./scripts/run-tests.mjs --package extension",
     "extension:typecheck": "npm --prefix extension run typecheck --",
     "extensions:test": "node ./scripts/run-tests.mjs --package cwd-skills --package safeguard --package skill-pruner --package subagent"
   },
   "devDependencies": {
+    "@types/node": "^25.9.3",
     "tsx": "^4.22.3"
   }
 }

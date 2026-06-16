@@ -249,17 +249,15 @@ describe("ParentExtensionUIBridgeProxy", () => {
     });
   });
 
-  // ── cancelAll is NOT on the proxy ──────────────────────────────────────
+  // ── cancelAll delegates to the parent bridge ───────────────────────────
 
   describe("cancelAll", () => {
-    it("is not a method on the proxy class", () => {
-      assert.equal(typeof (proxy as any).cancelAll, "undefined");
+    it("is a method on the proxy class", () => {
+      assert.equal(typeof (proxy as any).cancelAll, "function");
     });
 
-    it("is on the parent bridge but not forwarded by proxy", () => {
-      assert.equal(typeof mock.cancelAll, "function");
-      // Verify calling cancelAll on mock works but proxy doesn't delegate it
-      mock.cancelAll();
+    it("delegates to the parent bridge's cancelAll", () => {
+      proxy.cancelAll();
       assert.equal(mock.calls.cancelAll.length, 1);
     });
   });

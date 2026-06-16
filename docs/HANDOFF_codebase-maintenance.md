@@ -28,13 +28,14 @@ The session ended mid-step-4. A new agent should:
 
 ### Data files (model profile drift)
 - `model-profiles.yaml`:
-  - **Added** profiles for `nemotron-3-ultra:cloud` and `minimax-m3:cloud` (these were already in `models.json` but had no profile entry).
-  - **Removed** 11 superseded/disabled profile entries that pointed at non-existent models in `models.json`:
-    `deepseek-v3.1:671b-cloud`, `gemma3:27b-cloud`, `gemma3:12b-cloud`, `gemma3:4b-cloud`, `rnj-1:8b-cloud`, `kimi-k2-thinking:cloud`, `kimi-k2:1t-cloud`, `glm-5:cloud`, `glm-4.6:cloud`, `minimax-m2.5:cloud`, `minimax-m2.1:cloud`, `minimax-m2:cloud`, `ministral-3:8b-cloud`, `ministral-3:3b-cloud` (14 actually, not 11).
+  - **Added** profiles for `glm-5:cloud`, `kimi-k2.7-code:cloud`, `minimax-m2.1:cloud`, `minimax-m2.5:cloud` (reinstated/readded from Ollama Cloud).
+  - **Removed** 10 profile entries for models no longer on Ollama Cloud:
+    `cogito-2.1:671b-cloud`, `deepseek-v3.2:cloud`, `devstral-2:123b-cloud`, `devstral-small-2:24b-cloud`, `ministral-3:14b-cloud`, `mistral-large-3:675b-cloud`, `nemotron-3-nano:30b-cloud`, `qwen3-next:80b-cloud`, `qwen3-vl:235b-cloud`, `qwen3-vl:235b-instruct-cloud`.
 - `models.json`:
-  - **Removed** 3 entries whose profiles were removed: `glm-5:cloud`, `minimax-m2.1:cloud`, `minimax-m2.5:cloud`.
-  - **Added** 8 Ollama Cloud model entries (public OpenRouter pricing; see "Pricing data" below):
-    `deepseek-v3.2:cloud`, `cogito-2.1:671b-cloud`, `qwen3-next:80b-cloud`, `qwen3-coder:480b-cloud`, `devstral-2:123b-cloud`, `devstral-small-2:24b-cloud`, `mistral-large-3:675b-cloud`, `ministral-3:14b-cloud`.
+  - **Removed** 10 Ollama Cloud model entries no longer on the cloud page:
+    `cogito-2.1:671b-cloud`, `deepseek-v3.2:cloud`, `devstral-2:123b-cloud`, `devstral-small-2:24b-cloud`, `ministral-3:14b-cloud`, `mistral-large-3:675b-cloud`, `nemotron-3-nano:30b-cloud`, `qwen3-next:80b-cloud`, `qwen3-vl:235b-cloud`, `qwen3-vl:235b-instruct-cloud`.
+  - **Added** 4 new Ollama Cloud model entries:
+    `glm-5:cloud`, `kimi-k2.7-code:cloud`, `minimax-m2.1:cloud`, `minimax-m2.5:cloud`.
 
 ### Test changes
 - `extensions/subagent/test/real-model-selection.test.ts`:
@@ -93,11 +94,9 @@ Scanner (`uv run skills/codebase-maintenance/find_large_files.py <dir> 500`):
 
 | File | LOC | Verdict |
 |---|---|---|
-| `extension/scripts/webview-dev.mjs` | 597 | Single concern (dev tooling), justified |
 | `extension/src/backend/server.ts` | 502 | One `BackendServer` class, 36 methods, justified |
 | `extension/src/host/core/message-router.ts` | 510 | One `MessageRouter` class, 18 methods, justified |
 | `extension/src/host/sidebar/provider.ts` | 616 | One `SidebarViewProvider` class, 11 methods, justified |
-| `extension/src/webview-dev/headless-host.ts` | 681 | Single concern (dev host), justified |
 | `extensions/skill-pruner/src/pruning.ts` | 732 → 454 | **Refactored** into 3 modules |
 | (Test files) | >500 | Excluded — test files are allowed to be large |
 
@@ -146,8 +145,7 @@ The 19 remaining functions, with current cognitive complexity, are:
 7. `extension/src/webview/panel/transcript/message-item.tsx:159 MessageItemView` [D] cognitive 103
 8. `extension/src/webview/panel/ui.tsx:80 ComposerView` [D] cognitive 77
 9. `extension/src/webview/panel/app.tsx:42 App` [D] cognitive 54
-10. `extension/src/webview/panel/dev.tsx:109 createDevHost` [D] cognitive 68
-11. `extension/src/webview/panel/transcript/use-transcript-scroll.ts:38 useTranscriptScroll` [D] cognitive 62
+10. `extension/src/webview/panel/transcript/use-transcript-scroll.ts:38 useTranscriptScroll` [D] cognitive 62
 12. `extension/src/webview/panel/transcript/virtual-list.tsx:43 TranscriptVirtualList` [D] cognitive 60
 13. `extension/src/webview/panel/hooks/use-host-sync.ts:87 useHostSync` [D] cognitive 95
 14. `extension/src/webview/panel/components/model-picker.tsx:27 ModelPicker` [D] cognitive 57
@@ -225,7 +223,6 @@ Batch 3 — large React components / hooks (more risky):
 Batch 4 — top-level / F-graded:
 - `webview/panel/app.tsx` (App, cognitive 54)
 - `webview/panel/ui.tsx` (ComposerView, cognitive 77)
-- `webview/panel/dev.tsx` (createDevHost, cognitive 68)
 - `webview/panel/session-tabs/use-drag-and-drop.ts` (useTabDragAndDrop, cognitive 107) — the worst
 - `webview/panel/transcript/message-item.tsx` (MessageItemView, cognitive 103)
 
@@ -253,18 +250,28 @@ uv run skills/codebase-maintenance/analyze_complexity.py scripts --min-grade D
 
 ### Pricing data (added to `models.json`)
 
-These are public OpenRouter / vendor-published rates. The user explicitly accepted "maintenance risk" for these. If the user later disputes any of them, here's what was researched and the sources:
+These pricing entries have been removed from `models.json` as the models are no longer available on Ollama Cloud. See `docs/internal/model-token-pricing-sources.md` for the historical pricing evidence.
+
+**Removed 2026-06-15** (no longer on Ollama Cloud):
 
 | Model ID | Input $/1M | Output $/1M | Source |
 |---|---|---|---|
 | `deepseek-v3.2:cloud` | 0.2288 | 0.3432 | OpenRouter DeepSeek V3.2 page |
 | `cogito-2.1:671b-cloud` | 0.9 | 0.9 | Deepcogito / pricepertoken.com |
 | `qwen3-next:80b-cloud` | 0.1 | 0.4 | Alibaba's Qwen3-Next-80B variant (lowest public rate found) |
-| `qwen3-coder:480b-cloud` | 0.22 | 1.8 | AWS Bedrock Qwen3 Coder 480B |
 | `devstral-2:123b-cloud` | 0.4 | 2.0 | Mistral direct API |
 | `devstral-small-2:24b-cloud` | 0.06 | 0.18 | Mistral direct API (matches Mistral Small 3.2) |
 | `mistral-large-3:675b-cloud` | 0.5 | 1.5 | Mistral direct API |
 | `ministral-3:14b-cloud` | 0.2 | 0.2 | Mistral direct API |
+
+**Added 2026-06-15** (new on Ollama Cloud, compute-based estimates):
+
+| Model ID | Input $/1M | Output $/1M | Source |
+|---|---|---|---|
+| `glm-5:cloud` | 0.0667 | 0.0667 | Compute estimate (40B/600) |
+| `kimi-k2.7-code:cloud` | 0.0533 | 0.0533 | Compute estimate (~32B/600) |
+| `minimax-m2.1:cloud` | 0.0167 | 0.0167 | Compute estimate (10B/600) |
+| `minimax-m2.5:cloud` | 0.0167 | 0.0167 | Compute estimate (10B/600) |
 
 ### Skill-pruner refactor: module split
 

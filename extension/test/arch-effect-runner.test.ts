@@ -10,7 +10,9 @@ type Call =
   | { kind: 'session'; sessionPath: string }
   | { kind: 'request'; method: string; params: unknown }
   | { kind: 'persistTabs'; openTabPaths: string[]; active: string | null }
-  | { kind: 'log'; level: string; message: string };
+  | { kind: 'log'; level: string; message: string }
+  | { kind: 'createNewSession' }
+  | { kind: 'openSession'; sessionPath: string };
 
 function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown> } = {}): {
   deps: EffectRunnerDeps;
@@ -48,6 +50,35 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown> } =
       },
     },
     postImperative: { postImperative() {} },
+    fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
+    service: {
+      async setModel() {},
+      setPrefs() {},
+      bumpSessionDataEpoch() {},
+      async addFilesystemPaths() {},
+      async loadOlderTranscript() {},
+      async loadNewerTranscript() {},
+      async jumpToLatestTranscript() {},
+      async closeSession() {},
+      async setPruningSettings() {},
+      duplicateSession() {},
+      moveSessionTab() {},
+      createNewSession() {
+        calls.push({ kind: 'createNewSession' });
+        return '/new';
+      },
+      openSession(sessionPath: string) {
+        calls.push({ kind: 'openSession', sessionPath });
+      },
+    },
+    statsService: {
+      prepareForSend() {},
+      onTruncatedAfter() {},
+      onMessageEdited() {},
+      recordOutcome() {},
+      startNewTask() {},
+      continueTask() {},
+    },
     dispatch: (e) => events.push(e),
   };
   return { deps, calls, events };
@@ -83,10 +114,8 @@ test('EffectRunner routes InterruptRpc through enqueueLifecycle → enqueueSessi
   assert.equal(events[0]?.ok, true);
 });
 
-test('EffectRunner routes lifecycle effects through enqueueLifecycle only (no inner session queue)', async () => {
-  const { deps, calls } = makeDeps({
-    requestImpl: async (method) => (method === 'session.create' ? { sessionPath: '/new' } : {}),
-  });
+test('EffectRunner delegates CreateSession to the session service (full tab setup)', async () => {
+  const { deps, calls, events } = makeDeps();
   const runner = new EffectRunner(deps);
 
   const effect: Effect = {
@@ -97,10 +126,36 @@ test('EffectRunner routes lifecycle effects through enqueueLifecycle only (no in
   runner.run(effect);
   await settle();
 
-  assert.equal(calls[0]?.kind, 'lifecycle');
-  // No inner session queue call.
-  assert.equal(calls.some((c) => c.kind === 'session'), false);
-  assert.equal(calls[1]?.kind, 'request');
+  // Delegates to service.createNewSession (which performs tab lifecycle setup
+  // and enqueues its own backend call); the runner does not call the backend
+  // directly nor double-wrap in its own lifecycle queue.
+  assert.equal(calls.some((c) => c.kind === 'createNewSession'), true);
+  assert.equal(calls.some((c) => c.kind === 'lifecycle'), false);
+  assert.equal(calls.some((c) => c.kind === 'request'), false);
+  assert.equal(events[0]?.kind, 'CreateSessionResult');
+  assert.equal(events[0]?.ok, true);
+});
+
+test('EffectRunner delegates OpenSession to the session service', async () => {
+  const { deps, calls, events } = makeDeps();
+  const runner = new EffectRunner(deps);
+
+  const effect: Effect = {
+    kind: 'OpenSession',
+    corrId: 'c3',
+    sessionPath: '/existing',
+    selectionToken: 'tok',
+  };
+  runner.run(effect);
+  await settle();
+
+  assert.deepEqual(
+    calls.find((c) => c.kind === 'openSession'),
+    { kind: 'openSession', sessionPath: '/existing' },
+  );
+  assert.equal(calls.some((c) => c.kind === 'request'), false);
+  assert.equal(events[0]?.kind, 'OpenSessionResult');
+  assert.equal(events[0]?.ok, true);
 });
 
 test('EffectRunner dispatches a failure result when an RPC rejects', async () => {
@@ -109,7 +164,7 @@ test('EffectRunner dispatches a failure result when an RPC rejects', async () =>
   });
   const runner = new EffectRunner(deps);
 
-  runner.run({ kind: 'SendRpc', corrId: 'c3', sessionPath: '/a', text: 'hi', inputs: [] });
+  runner.run({ kind: 'SendRpc', corrId: 'c3', sessionPath: '/a', text: 'hi', inputs: [], localId: 'local-1' });
   await settle();
 
   assert.equal(events.length, 1);

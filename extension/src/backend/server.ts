@@ -53,6 +53,46 @@ import type { SessionEntryLike } from './transcript';
 import { createRuntimeFactory } from './runtime-factory.js';
 import { buildSessionOpenedPayload as buildSessionOpenedPayloadHelper } from './session-opened.js';
 
+function backendTrace(scope: string, event: string, payload: Record<string, unknown> = {}): void {
+  const record = {
+    ts: new Date().toISOString(),
+    pid: process.pid,
+    scope: `backend-${scope}`,
+    event,
+    ...payload,
+  };
+  console.warn(`[pie:backend] ${JSON.stringify(record)}`);
+}
+
+/** Simple stopwatch for backend timing probes. */
+function timed<T>(label: string, op: () => T): T;
+function timed<T>(label: string, op: () => Promise<T>): Promise<T>;
+function timed<T>(label: string, op: () => T | Promise<T>): T | Promise<T> {
+  const start = Date.now();
+  const finish = (result: T | Promise<T>): T | Promise<T> => {
+    if (result instanceof Promise) {
+      return result.then(
+        (value) => {
+          backendTrace('timing', 'op.completed', { label, durationMs: Date.now() - start });
+          return value;
+        },
+        (error) => {
+          backendTrace('timing', 'op.failed', { label, durationMs: Date.now() - start, error: error instanceof Error ? error.message : String(error) });
+          throw error;
+        },
+      );
+    }
+    backendTrace('timing', 'op.completed', { label, durationMs: Date.now() - start });
+    return result;
+  };
+  try {
+    return finish(op());
+  } catch (error) {
+    backendTrace('timing', 'op.failed', { label, durationMs: Date.now() - start, error: error instanceof Error ? error.message : String(error) });
+    throw error;
+  }
+}
+
 export class BackendServer {
   private sdk!: SdkModule;
   private readonly sdkPath: string;
@@ -62,6 +102,7 @@ export class BackendServer {
   private viewedSessionPath?: string;
   private readonly sessionContexts = new Map<string, SessionContext>();
   private systemPromptModulePromise?: Promise<SdkSystemPromptModule>;
+  private detachReader?: () => void;
 
   constructor(options: { sdkPath: string; cwd: string }) {
     this.sdkPath = options.sdkPath;
@@ -69,38 +110,56 @@ export class BackendServer {
   }
 
   async start(): Promise<void> {
-    this.sdk = await loadSdk(this.sdkPath);
-    this.agentDir = this.sdk.getAgentDir();
+    await timed('start.loadSdk', async () => {
+      this.sdk = await loadSdk(this.sdkPath);
+      this.agentDir = this.sdk.getAgentDir();
+    });
 
     const authDir = process.env.PI_CODING_AGENT_AUTH_DIR?.trim();
-    let authPath: string;
+    let authPath = '';
 
-    if (authDir) {
-      // Explicit override — use as-is.
-      authPath = path.resolve(authDir, 'auth.json');
-    } else {
-      // Default: check if agentDir is inside a git tree.
-      const agentDirAuthPath = path.resolve(this.agentDir, 'auth.json');
-      if (await isInsideGitWorkTree(agentDirAuthPath)) {
-        const allowInTree = process.env.PIE_ALLOW_IN_TREE_AUTH === '1';
-        if (allowInTree) {
-          authPath = agentDirAuthPath;
-        } else {
-          // Auto-resolve to platform-standard safe location.
-          const safeDir = getDefaultAuthDir();
-          authPath = path.resolve(safeDir, 'auth.json');
-          // Migrate existing in-tree auth.json to the safe location.
-          await migrateAuthFile(agentDirAuthPath, authPath);
-        }
+    await timed('start.authSetup', async () => {
+      if (authDir) {
+        // Explicit override — use as-is.
+        authPath = path.resolve(authDir, 'auth.json');
       } else {
-        authPath = agentDirAuthPath;
+        // Default: check if agentDir is inside a git tree.
+        const agentDirAuthPath = path.resolve(this.agentDir, 'auth.json');
+        if (await isInsideGitWorkTree(agentDirAuthPath)) {
+          const allowInTree = process.env.PIE_ALLOW_IN_TREE_AUTH === '1';
+          if (allowInTree) {
+            authPath = agentDirAuthPath;
+          } else {
+            // Auto-resolve to platform-standard safe location.
+            const safeDir = getDefaultAuthDir();
+            authPath = path.resolve(safeDir, 'auth.json');
+            // Migrate existing in-tree auth.json to the safe location.
+            await migrateAuthFile(agentDirAuthPath, authPath);
+          }
+        } else {
+          authPath = agentDirAuthPath;
+        }
       }
-    }
 
-    // Ensure the auth directory exists so the SDK can write to it.
-    await ensureDir(path.dirname(authPath));
+      // Ensure the auth directory exists so the SDK can write to it.
+      await ensureDir(path.dirname(authPath));
 
-    this.authStorage = this.sdk.AuthStorage.create(authPath);
+      this.authStorage = this.sdk.AuthStorage.create(authPath);
+    });
+
+    // Attach the stdin reader BEFORE emitting backend.ready so that any
+    // request the client sends immediately after receiving ready is captured,
+    // rather than racing with reader attachment.
+    const detachReader = attachJsonlLineReader(process.stdin, (line) => {
+      void this.handleLine(line);
+    });
+
+    this.detachReader = detachReader;
+
+    process.stdin.on('end', () => {
+      detachReader();
+      void this.dispose();
+    });
 
     this.emit('backend.ready', {
       sdkPath: this.sdkPath,
@@ -108,15 +167,6 @@ export class BackendServer {
       sdkVersion: this.sdk.VERSION,
       protocolVersion: PROTOCOL_VERSION,
       authPath,
-    });
-
-    const detachReader = attachJsonlLineReader(process.stdin, (line) => {
-      void this.handleLine(line);
-    });
-
-    process.stdin.on('end', () => {
-      detachReader();
-      void this.dispose();
     });
   }
 
@@ -153,50 +203,52 @@ export class BackendServer {
     sessionManager: SdkSessionManager;
     reason: SessionContextCreationReason;
   }): Promise<SessionContext> {
-    const { sessionManager, reason } = options;
-    const previousSessionFile = this.viewedSessionPath;
-    const runtime = await this.sdk.createAgentSessionRuntime(this.createRuntimeFactory(), {
-      cwd: sessionManager.getCwd() || this.startupCwd,
-      agentDir: this.agentDir,
-      sessionManager,
-      sessionStartEvent: previousSessionFile
-        ? {
-            type: 'session_start',
-            reason,
-            previousSessionFile,
-          }
-        : undefined,
+    return await timed('buildSessionContext', async () => {
+      const { sessionManager, reason } = options;
+      const previousSessionFile = this.viewedSessionPath;
+      const runtime = await this.sdk.createAgentSessionRuntime(this.createRuntimeFactory(), {
+        cwd: sessionManager.getCwd() || this.startupCwd,
+        agentDir: this.agentDir,
+        sessionManager,
+        sessionStartEvent: previousSessionFile
+          ? {
+              type: 'session_start',
+              reason,
+              previousSessionFile,
+            }
+          : undefined,
+      });
+
+      const session = runtime.session;
+      const sessionPath = this.resolveSessionPath(session);
+      if (!sessionPath) {
+        await runtime.dispose();
+        throw new Error('The PI session did not expose a session path.');
+      }
+
+      const context: SessionContext = {
+        runtime,
+        session,
+        sessionPath,
+        unsubscribe: () => undefined,
+        busySeq: 0,
+        lastContextUsage: undefined,
+      };
+
+      // Wire the ExtensionUI bridge so extensions can ask questions through the webview.
+      const uiBridge = new ExtensionUIBridge(context.sessionPath, (event, payload) => this.emit(event, payload));
+      context.uiBridge = uiBridge;
+      const extensionRunner = (session as unknown as { extensionRunner?: { setUIContext?: (ctx: unknown) => void } }).extensionRunner;
+      if (extensionRunner?.setUIContext) {
+        extensionRunner.setUIContext(uiBridge);
+      }
+
+      context.unsubscribe = session.subscribe((event: SdkSessionEvent) => {
+        this.handleSessionEvent(context, event);
+      });
+
+      return context;
     });
-
-    const session = runtime.session;
-    const sessionPath = this.resolveSessionPath(session);
-    if (!sessionPath) {
-      await runtime.dispose();
-      throw new Error('The PI session did not expose a session path.');
-    }
-
-    const context: SessionContext = {
-      runtime,
-      session,
-      sessionPath,
-      unsubscribe: () => undefined,
-      busySeq: 0,
-      lastContextUsage: undefined,
-    };
-
-    // Wire the ExtensionUI bridge so extensions can ask questions through the webview.
-    const uiBridge = new ExtensionUIBridge(context.sessionPath, (event, payload) => this.emit(event, payload));
-    context.uiBridge = uiBridge;
-    const extensionRunner = (session as unknown as { extensionRunner?: { setUIContext?: (ctx: unknown) => void } }).extensionRunner;
-    if (extensionRunner?.setUIContext) {
-      extensionRunner.setUIContext(uiBridge);
-    }
-
-    context.unsubscribe = session.subscribe((event: SdkSessionEvent) => {
-      this.handleSessionEvent(context, event);
-    });
-
-    return context;
   }
 
   private async ensureSessionContext(sessionPath: string): Promise<SessionContext> {
@@ -399,7 +451,7 @@ export class BackendServer {
     sessionPath: string,
     selectionToken?: string,
   ): Promise<SessionOpenedPayload> {
-    return buildSessionOpenedPayloadHelper(sessionPath, {
+    return await timed('buildSessionOpenedPayload', () => buildSessionOpenedPayloadHelper(sessionPath, {
       getContextUsage: (context) => this.getContextUsage(context),
       readHarnessSystemPrompt: (context) => this.readHarnessSystemPrompt(context),
       buildSystemPrompts: (context, override) => this.buildSystemPrompts(context, override),
@@ -408,7 +460,7 @@ export class BackendServer {
       getSessionContext: (path) => this.getSessionContext(path),
       agentDir: this.agentDir,
       startupCwd: this.startupCwd,
-    }, selectionToken);
+    }, selectionToken));
   }
 
   private async emitSessionListChanged(): Promise<void> {
@@ -442,11 +494,14 @@ export class BackendServer {
       return;
     }
 
+    backendTrace('request', 'received', { id: request.id, method: request.method });
     try {
-      const result = await this.handleRequest(request);
+      const result = await timed(`request:${request.method}:${request.id}`, () => this.handleRequest(request));
+      backendTrace('request', 'handled', { id: request.id, method: request.method });
       writeStdout(responseOk(request.id, result));
     } catch (error) {
       const details = extractRequestError(error);
+      backendTrace('request', 'error', { id: request.id, method: request.method, code: details.code, message: details.message });
       writeStdout(responseError(request.id, details.code, details.message));
       this.emit('error', details);
     }

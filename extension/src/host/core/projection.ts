@@ -146,6 +146,9 @@ export function selectViewState(state: ArchState): ViewState {
   const activeRunSummary: ActiveRunSummary | null =
     activePath ? composer.activeRunSummaryBySession[activePath] ?? null : null;
 
+  const activeDraftText: string =
+    activePath ? composer.draftTextBySession[activePath] ?? '' : '';
+
   const activeAvailableModels: ModelInfo[] =
     activePath ? settings.availableModelsBySession[activePath] ?? EMPTY_AVAILABLE_MODELS : EMPTY_AVAILABLE_MODELS;
 
@@ -174,6 +177,7 @@ export function selectViewState(state: ArchState): ViewState {
     pendingComposerInputs: activePendingComposerInputs,
     activeRunSummary,
     runSummariesBySession: composer.activeRunSummaryBySession,
+    draftText: activeDraftText,
     busy,
     notice: settings.notice,
     backendReady: settings.backendReady,
@@ -188,8 +192,8 @@ export function selectViewState(state: ArchState): ViewState {
     pruningResult,
     pruningSettings: settings.pruningSettings,
     pruningCatalog,
-    editingMessageId: transcript.editingMessageId,
-    showOutcomeDialog: settings.showOutcomeDialog,
+    editingMessageId: activePath ? state.transcript.editingMessageIdBySession[activePath] ?? null : null,
+    showOutcomeDialog: activePath ? state.settings.showOutcomeDialogBySession[activePath] ?? false : false,
     pendingExtensionUIRequestsBySession: settings.pendingExtensionUIRequestsBySession,
     pendingExtensionUIRequest: activePath
       ? (() => {

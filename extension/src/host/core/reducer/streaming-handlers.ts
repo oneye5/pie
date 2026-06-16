@@ -18,7 +18,7 @@ import { resolveAlias, enforceLoadedWindowBudget } from './helpers.js';
 import type { Event } from '../events.js';
 
 export function handleMessageStarted(state: ArchState, event: Extract<Event, { kind: 'MessageStarted' }>): ReducerResult {
-  const { sessionPath, messageId, requestId, modelId, thinkingLevel } = event;
+  const { sessionPath, messageId, requestId, modelId, thinkingLevel, timestamp } = event;
   const currentTurn = state.pending.currentTurnBySession[sessionPath];
 
   // Determine if this is a continuation (alias) of an existing turn
@@ -31,6 +31,11 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
       draft.pending.messageIdAlias[messageId] = currentTurn!.firstMessageId;
     } else if (requestId) {
       draft.pending.currentTurnBySession[sessionPath] = { requestId, firstMessageId: messageId };
+      // Clean up requestIdToLocalId mapping to avoid leaks. We do NOT reconcile
+      // the optimistic message ID here because MessageStarted carries the
+      // assistant message ID, not the user message ID. Reconciliation will be
+      // handled when the backend echoes localId back in a future event.
+      delete draft.pending.requestIdToLocalId[requestId];
     }
 
     // Ensure assistant message in transcript
@@ -56,7 +61,7 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
         list.push({
           id: messageId,
           role: 'assistant',
-          createdAt: new Date().toISOString(),
+          createdAt: new Date(timestamp).toISOString(),
           markdown: '',
           modelId,
           thinkingLevel,
@@ -202,6 +207,16 @@ export function handleStreamingEvent(state: ArchState, event: Event): ReducerRes
     case 'MessageAborted':
       return handleMessageAborted(state, event);
     default:
-      return { state, effects: [] };
+      return {
+        state,
+        effects: [
+          {
+            kind: 'Log',
+            corrId: '',
+            level: 'warn',
+            message: `Unhandled streaming event: ${(event as { kind?: string }).kind}`,
+          },
+        ],
+      };
   }
 }

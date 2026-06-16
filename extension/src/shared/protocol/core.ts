@@ -1,6 +1,3 @@
-import type { ToolCall } from './messages.js';
-
-
 /**
  * Wire-protocol version. Bump when changing event/payload shapes between the
  * extension host and the backend process. The host refuses to start the backend
@@ -66,11 +63,4 @@ export function isEventEnvelope(value: unknown): value is EventEnvelope {
 export function isResponseEnvelope(value: unknown): value is ResponseEnvelope {
   return !!value && typeof value === 'object' && 'id' in value && 'ok' in value;
 }
-
-/** A targeted patch sent for high-frequency streaming updates between full state snapshots. */
-export type PatchOp =
-  | { kind: 'messageDelta'; messageId: string; delta: string }
-  | { kind: 'messageThinking'; messageId: string; thinking: string }
-  | { kind: 'toolCall'; messageId: string; toolCall: ToolCall }
-  | { kind: 'clearOverlay'; messageIds?: string[] };
 

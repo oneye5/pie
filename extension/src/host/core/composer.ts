@@ -11,8 +11,10 @@ import type {
 import type { ArchState } from './arch-state';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../../shared/image-constraints';
 
+import type { Event } from './events';
+
 export type GetArchState = () => ArchState;
-export type MutateArchState = (recipe: (draft: ArchState) => void) => void;
+export type DispatchArchEvent = (event: Event) => void;
 
 export function normalizeAttachUris(uris: vscode.Uri[]): vscode.Uri[] {
   return uris.filter((uri) => uri.scheme === 'file');
@@ -22,7 +24,7 @@ export function upsertPendingComposerInput(
   sessionPath: string,
   input: ComposerInput,
   getArchState: GetArchState,
-  mutateArchState: MutateArchState,
+  dispatchArchEvent: DispatchArchEvent,
 ): void {
   const existingInputs = getArchState().composer.pendingComposerInputsBySession[sessionPath] ?? [];
   if (input.kind === 'filesystemPathRef') {
@@ -34,9 +36,10 @@ export function upsertPendingComposerInput(
     }
   }
 
-  mutateArchState((draft) => {
-    const list = (draft.composer.pendingComposerInputsBySession[sessionPath] ??= []);
-    list.push(input);
+  dispatchArchEvent({
+    kind: 'ComposerInputsReplaced',
+    sessionPath,
+    inputs: [...existingInputs, input],
   });
 }
 
@@ -47,12 +50,12 @@ export function validateAndMaterializeComposerInput(
   scheduleRender: () => void,
   runObserver: RunObserver,
   getArchState: GetArchState,
-  mutateArchState: MutateArchState,
+  dispatchArchEvent: DispatchArchEvent,
 ): ComposerInput | null {
   if (inputDraft.kind === 'filesystemPathRef') {
     const filesystemPath = inputDraft.path.trim();
     if (!filesystemPath) {
-      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach file path: path is empty.'; });
+      dispatchArchEvent({ kind: 'NoticeShown', notice: 'Cannot attach file path: path is empty.' });
       scheduleRender();
       return null;
     }
@@ -69,24 +72,22 @@ export function validateAndMaterializeComposerInput(
   if (inputDraft.kind === 'imageBlob') {
     const mimeType = inputDraft.mimeType.trim().toLowerCase();
     if (!ALLOWED_IMAGE_MIME_TYPES.has(mimeType)) {
-      mutateArchState((draft) => { draft.settings.notice = `Cannot attach image: unsupported type ${inputDraft.mimeType}.`; });
+      dispatchArchEvent({ kind: 'NoticeShown', notice: `Cannot attach image: unsupported type ${inputDraft.mimeType}.` });
       scheduleRender();
       return null;
     }
     if (!Number.isFinite(inputDraft.sizeBytes) || inputDraft.sizeBytes <= 0) {
-      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach image: invalid size.'; });
+      dispatchArchEvent({ kind: 'NoticeShown', notice: 'Cannot attach image: invalid size.' });
       scheduleRender();
       return null;
     }
     if (inputDraft.sizeBytes > MAX_IMAGE_INPUT_BYTES) {
-      mutateArchState((draft) => {
-        draft.settings.notice = `Cannot attach image: exceeds the ${MAX_IMAGE_INPUT_BYTES} byte limit.`;
-      });
+      dispatchArchEvent({ kind: 'NoticeShown', notice: `Cannot attach image: exceeds the ${MAX_IMAGE_INPUT_BYTES} byte limit.` });
       scheduleRender();
       return null;
     }
     if (!inputDraft.dataBase64.trim()) {
-      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach image: missing image data.'; });
+      dispatchArchEvent({ kind: 'NoticeShown', notice: 'Cannot attach image: missing image data.' });
       scheduleRender();
       return null;
     }
@@ -94,7 +95,7 @@ export function validateAndMaterializeComposerInput(
       inputDraft.width !== undefined
       && (!Number.isFinite(inputDraft.width) || inputDraft.width <= 0)
     ) {
-      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach image: invalid width.'; });
+      dispatchArchEvent({ kind: 'NoticeShown', notice: 'Cannot attach image: invalid width.' });
       scheduleRender();
       return null;
     }
@@ -102,12 +103,12 @@ export function validateAndMaterializeComposerInput(
       inputDraft.height !== undefined
       && (!Number.isFinite(inputDraft.height) || inputDraft.height <= 0)
     ) {
-      mutateArchState((draft) => { draft.settings.notice = 'Cannot attach image: invalid height.'; });
+      dispatchArchEvent({ kind: 'NoticeShown', notice: 'Cannot attach image: invalid height.' });
       scheduleRender();
       return null;
     }
     if (modelSupportsInputKind(sessionPath, undefined, 'image', getArchState) === false) {
-      mutateArchState((draft) => { draft.settings.notice = 'The selected model does not support image inputs.'; });
+      dispatchArchEvent({ kind: 'NoticeShown', notice: 'The selected model does not support image inputs.' });
       scheduleRender();
       return null;
     }
@@ -126,9 +127,8 @@ export function validateAndMaterializeComposerInput(
   }
 
   runObserver.onUnsupportedInputAttempt(sessionPath);
-  mutateArchState((draft) => {
-    draft.settings.notice =
-      'Arbitrary pasted file attachments are not supported yet. Please attach a filesystem path instead.';
+  dispatchArchEvent({ kind: 'NoticeShown', notice:
+    'Arbitrary pasted file attachments are not supported yet. Please attach a filesystem path instead.',
   });
   scheduleRender();
   return null;
@@ -162,22 +162,14 @@ export function modelSupportsInputKind(
 export function clearPendingImageInputs(
   sessionPath: string,
   getArchState: GetArchState,
-  mutateArchState: MutateArchState,
+  dispatchArchEvent: DispatchArchEvent,
 ): void {
   const existingInputs = getArchState().composer.pendingComposerInputsBySession[sessionPath] ?? [];
   const remainingInputs = existingInputs.filter((input) => input.kind !== 'imageBlob');
   if (remainingInputs.length === existingInputs.length) {
     return;
   }
-  if (remainingInputs.length === 0) {
-    mutateArchState((draft) => {
-      delete draft.composer.pendingComposerInputsBySession[sessionPath];
-    });
-    return;
-  }
-  mutateArchState((draft) => {
-    draft.composer.pendingComposerInputsBySession[sessionPath] = remainingInputs;
-  });
+  dispatchArchEvent({ kind: 'ComposerInputsReplaced', sessionPath, inputs: remainingInputs.length > 0 ? remainingInputs : null });
 }
 
 export function buildPromptText(text: string, inputs: ComposerInput[]): string {

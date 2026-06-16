@@ -14,6 +14,7 @@ import type {
   SystemPromptEntry,
   ThinkingLevel,
   TranscriptWindow,
+  WebviewToHostMessage,
 } from '../../../shared/protocol';
 import { buildContextWindowBreakdown } from '../context-window/breakdown';
 import { buildContextWindowIndicatorState } from '../context-window/indicator';
@@ -142,6 +143,9 @@ export function useComposerInput({
   busy,
   onSend,
   pendingComposerInputsLength,
+  sessionPath,
+  draftText,
+  postMessage,
   draftRestore,
   focusTrigger,
   onAddInput,
@@ -150,6 +154,9 @@ export function useComposerInput({
   busy: boolean;
   onSend: (text: string) => void;
   pendingComposerInputsLength: number;
+  sessionPath: string | null;
+  draftText: string;
+  postMessage: (msg: WebviewToHostMessage) => void;
   draftRestore?: { text: string; nonce: number } | null;
   focusTrigger?: string;
   onAddInput: (input: ComposerInputDraft) => void;
@@ -158,12 +165,42 @@ export function useComposerInput({
   const [text, setText] = useState('');
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftPostTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (focusTrigger !== undefined) {
       textareaRef.current?.focus();
     }
   }, [focusTrigger]);
+
+  // Seed the composer text from the host-persisted draft when the component
+  // mounts or the active session changes. Host-backed draftText is the source
+  // of truth across reloads and session switches.
+  useEffect(() => {
+    setText(draftText);
+  }, [sessionPath]);
+
+  // Debounce-post draft text back to the host so it survives reloads and
+  // session switches. A 300 ms window coalesces rapid keystrokes.
+  useEffect(() => {
+    if (sessionPath === null) return;
+    if (text === draftText) return;
+
+    if (draftPostTimeoutRef.current) {
+      clearTimeout(draftPostTimeoutRef.current);
+    }
+    draftPostTimeoutRef.current = setTimeout(() => {
+      draftPostTimeoutRef.current = null;
+      postMessage({ type: 'setComposerDraft', sessionPath, text });
+    }, 300);
+
+    return () => {
+      if (draftPostTimeoutRef.current) {
+        clearTimeout(draftPostTimeoutRef.current);
+        draftPostTimeoutRef.current = null;
+      }
+    };
+  }, [text, sessionPath, draftText, postMessage]);
 
   useEffect(() => {
     if (!draftRestore) {

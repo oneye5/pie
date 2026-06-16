@@ -15,23 +15,18 @@ const outDir = path.join(rootDir, 'out');
 const watchMode = process.argv.includes('--watch');
 const skipTypecheck = process.argv.includes('--skip-typecheck');
 const noSync = process.argv.includes('--no-sync');
-// Legacy contract marker: webview-dev-host.js
 const webviewViewName = 'panel';
 const webviewRelativeDir = path.join('webview', webviewViewName);
 const sourceWebviewAssetFileNames = new Set([
   'index.html',
-  'dev.html',
 ]);
 const hotReloadWebviewFileNames = new Set([
-  'dev.html',
   'index.html',
-  'dev.js',
   `${webviewViewName}.css`,
   `${webviewViewName}.js`,
 ]);
 const copiedAssetRelativePaths = [
   path.join(webviewRelativeDir, 'index.html'),
-  path.join(webviewRelativeDir, 'dev.html'),
 ];
 
 let syncTimer;
@@ -71,10 +66,6 @@ function createWebviewBuildOptions() {
   return createWebviewScriptBuildOptions(`${webviewViewName}.tsx`, `${webviewViewName}.js`);
 }
 
-function createWebviewDevBuildOptions() {
-  return createWebviewScriptBuildOptions('dev.tsx', 'dev.js');
-}
-
 function createWebviewCssBuildOptions() {
   return {
     entryPoints: [path.join(srcDir, 'webview', webviewViewName, 'styles', 'index.css')],
@@ -91,7 +82,6 @@ function createBuildConfigurations() {
     createNodeBuildOptions('extension.ts', 'extension.js', { external: ['vscode'] }),
     createNodeBuildOptions(path.join('backend', 'index.ts'), 'backend.js'),
     createWebviewBuildOptions(),
-    createWebviewDevBuildOptions(),
     createWebviewCssBuildOptions(),
   ];
 }
@@ -99,6 +89,7 @@ function createBuildConfigurations() {
 const LEGACY_EXTENSION_IDS = Object.freeze([
   'pi-config.pi-assistant',
 ]);
+
 
 async function listInstalledExtensionDirs(extensionRoot) {
   try {
