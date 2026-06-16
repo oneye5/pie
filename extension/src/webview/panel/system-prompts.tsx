@@ -11,7 +11,6 @@ import {
   formatSystemPromptTokenLabel,
   getSystemPromptTokenEstimateTitle,
 } from './system-prompt-tokens';
-import { DisclosureChevron } from './transcript/tool-call-card';
 
 interface SystemPromptCardProps {
   prompt: SystemPromptEntry;
@@ -50,7 +49,6 @@ function SystemPromptCard({ prompt }: SystemPromptCardProps) {
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((value) => !value); } }}
     >
       <div class="flex items-center gap-[7px] px-2 py-[5px]">
-        <DisclosureChevron open={open} />
         <span class="transcript-header-title-mono min-w-0 flex-1 truncate">{prompt.title}</span>
         {showSummary && (
           <span class="transcript-header-summary-mono min-w-0 max-w-[var(--tool-call-summary-column-width)] flex-[0_1_auto] truncate">{summary}</span>
@@ -118,9 +116,6 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
         onClick={() => setGroupOpen((v) => !v)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setGroupOpen((v) => !v); } }}
       >
-        <svg class={cx('shrink-0 text-muted transition-transform duration-150', groupOpen && 'rotate-90')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
         <span class="transcript-header-label">{label}</span>
         {!groupOpen && collapsedSummary && (
           <span class="transcript-header-summary min-w-0 truncate">{collapsedSummary}</span>

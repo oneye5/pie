@@ -7,8 +7,15 @@ import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
 import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../utils/looks-like-path-token';
 
+import { useEffect, useRef } from 'preact/hooks';
+
 import { ClickablePathButton } from '../file-path';
 import { formatDuration } from './header';
+import {
+  formatValueAsHighlightedYaml,
+  isTextOnlyToolResult,
+  textFromToolResult,
+} from './highlight';
 import { StatusChip } from './status-chip';
 import { useDisclosureOpen } from './use-disclosure-open';
 
@@ -73,42 +80,12 @@ const SHELL_WRAPPER_TOKENS = new Set([
   'time',
 ]);
 
-function textFromToolCallResultContent(result: unknown): string | undefined {
-  if (!result || typeof result !== 'object') {
-    return undefined;
-  }
-
-  const content = (result as { content?: unknown }).content;
-  if (typeof content === 'string') {
-    return content;
-  }
-
-  if (!Array.isArray(content)) {
-    return undefined;
-  }
-
-  const text = content
-    .filter((part): part is { type?: string; text?: string } => Boolean(part) && typeof part === 'object')
-    .filter((part) => part.type === 'text' && typeof part.text === 'string')
-    .map((part) => part.text ?? '')
-    .join('\n\n');
-
-  return text || undefined;
-}
-
 export function formatToolCallResultForDisplay(toolCall: Pick<ToolCall, 'name' | 'result'>): string {
   if (toolCall.result === undefined) {
     return '';
   }
 
-  if (typeof toolCall.result === 'string') {
-    return toolCall.result;
-  }
-
-  const readableText = toolCall.name === 'subagent'
-    ? textFromToolCallResultContent(toolCall.result)
-    : undefined;
-
+  const readableText = textFromToolResult(toolCall.result);
   return readableText ?? JSON.stringify(toolCall.result, null, 2);
 }
 
@@ -296,14 +273,6 @@ function CollapsedSummary({
   );
 }
 
-export function DisclosureChevron({ open }: { open: boolean }) {
-  return (
-    <svg class={cx('shrink-0 text-muted transition-transform duration-150', open && 'rotate-90')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-      <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-    </svg>
-  );
-}
-
 export function ToolCallHeader({ open, name, nameTitle, status, summary, summaryPath, summaryModel, sizeHint, errorDetail, durationMs, onOpenFile }: ToolCallHeaderProps) {
   const statusTone =
     status === 'failed' ? 'failed'
@@ -321,7 +290,6 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
 
   return (
     <div class="flex items-center gap-[7px] rounded-md px-2 py-[5px]">
-      <DisclosureChevron open={open} />
       <div class={cx('flex min-w-0 flex-1 items-center gap-2', (showSummary || showSizeHint) && 'gap-1.5')}>
         <span class="transcript-header-title-mono min-w-0 flex-[0_1_auto] truncate" title={nameTitle}>{name}</span>
         {showSummary && collapsedSummaryModel ? (
@@ -343,6 +311,108 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
   );
 }
 
+function TerminalOutput({ text, running }: { text: string; running: boolean }) {
+  const preRef = useRef<HTMLPreElement>(null);
+  const stickToBottomRef = useRef(true);
+
+  const handleScroll = () => {
+    const el = preRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 48;
+  };
+
+  // Keep the pane pinned to the latest output as it streams in, unless the
+  // user has scrolled up to read earlier output.
+  useEffect(() => {
+    const el = preRef.current;
+    if (!el || !stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [text]);
+
+  return (
+    <pre ref={preRef} class="tool-call-terminal-pre" onScroll={handleScroll}>
+      <code>{text}</code>
+      {running && <span class="tool-call-terminal-cursor" aria-hidden="true" />}
+    </pre>
+  );
+}
+
+interface ToolCallBodyProps {
+  toolCall: ToolCall;
+}
+
+function ToolCallBody({ toolCall }: ToolCallBodyProps) {
+  const isShell = isCommandSummaryTool(toolCall.name);
+  const isRunning = toolCall.status === 'running';
+
+  if (isShell) {
+    const text = textFromToolResult(toolCall.result) ?? '';
+    const details = (toolCall.result as
+      | {
+          details?: {
+            truncation?: { truncated?: boolean; totalLines?: number; outputLines?: number };
+            fullOutputPath?: string;
+          };
+        }
+      | null
+      | undefined)?.details;
+    const truncation = details?.truncation;
+    const command =
+      toolCall.input && typeof toolCall.input === 'object' && typeof (toolCall.input as { command?: unknown }).command === 'string'
+        ? (toolCall.input as { command: string }).command
+        : undefined;
+
+    return (
+      <div class="tool-call-body tool-call-body-terminal" onClick={(e) => e.stopPropagation()}>
+        {command && (
+          <div class="tool-call-terminal-command" title={command}>
+            <span class="tool-call-terminal-prompt" aria-hidden="true">$</span>
+            <code>{command}</code>
+          </div>
+        )}
+        <div class="tool-call-terminal" data-running={isRunning ? 'true' : undefined}>
+          {text ? (
+            <TerminalOutput text={text} running={isRunning} />
+          ) : (
+            <div class="tool-call-terminal-empty">{isRunning ? 'Executing…' : '(no output)'}</div>
+          )}
+        </div>
+        {truncation?.truncated && (
+          <div class="tool-call-truncated" title={details?.fullOutputPath}>
+            Output truncated — showing {truncation.outputLines ?? '?'} of {truncation.totalLines ?? '?'} lines.{details?.fullOutputPath ? ` Full log: ${details.fullOutputPath}` : ''}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const resultText = textFromToolResult(toolCall.result);
+  const resultIsTextOnly = isTextOnlyToolResult(toolCall.result);
+
+  return (
+    <div class="tool-call-body" onClick={(e) => e.stopPropagation()}>
+      <div class="tool-call-section">
+        <div class="tool-call-section-label">Input</div>
+        <pre class="tool-call-pre tool-call-code">
+          <code class="language-yaml" dangerouslySetInnerHTML={{ __html: formatValueAsHighlightedYaml(toolCall.input) }} />
+        </pre>
+      </div>
+      {toolCall.result !== undefined && (
+        <div class="tool-call-section">
+          <div class="tool-call-section-label">Result</div>
+          {resultIsTextOnly && resultText !== undefined ? (
+            <pre class="tool-call-pre"><code>{resultText}</code></pre>
+          ) : (
+            <pre class="tool-call-pre tool-call-code">
+              <code class="language-yaml" dangerouslySetInnerHTML={{ __html: formatValueAsHighlightedYaml(toolCall.result) }} />
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function ToolCallCard({
   toolCall,
   autoExpand,
@@ -353,7 +423,14 @@ export function ToolCallCard({
 }: ToolCallCardProps) {
   const [open, setOpen] = useDisclosureOpen(`tool:${toolCall.id}`, autoExpand);
   const presentation = getToolCallPresentation(toolCall, { workingDirectory });
-  const errorDetail = toolCall.status === 'failed' ? formatToolCallResultForDisplay(toolCall) || undefined : undefined;
+  const isShell = isCommandSummaryTool(toolCall.name);
+  const isRunning = toolCall.status === 'running';
+  // Shell tools stream their output live — show the terminal pane while
+  // running even when collapsed, so users can watch execution unfold.
+  const showBody = open || (isShell && isRunning);
+  const errorDetail = toolCall.status === 'failed'
+    ? (textFromToolResult(toolCall.result) ?? formatToolCallResultForDisplay(toolCall)) || undefined
+    : undefined;
   const summaryModel = buildToolCallHeaderSummaryModel(
     toolCall.name,
     presentation.summary,
@@ -391,20 +468,7 @@ export function ToolCallCard({
         durationMs={toolCall.durationMs}
         onOpenFile={onOpenFile}
       />
-      {open && (
-        <div class="tool-call-body">
-          <div class="tool-call-section">
-            <div class="tool-call-section-label">Input</div>
-            <pre class="tool-call-pre">{JSON.stringify(toolCall.input, null, 2)}</pre>
-          </div>
-          {toolCall.result !== undefined && (
-            <div class="tool-call-section">
-              <div class="tool-call-section-label">Result</div>
-              <pre class="tool-call-pre">{formatToolCallResultForDisplay(toolCall)}</pre>
-            </div>
-          )}
-        </div>
-      )}
+      {showBody && <ToolCallBody toolCall={toolCall} />}
     </div>
   );
 }

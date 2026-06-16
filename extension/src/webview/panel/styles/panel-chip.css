@@ -275,6 +275,9 @@
 
 .pruning-raw-toggle-button {
   width: 100%;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   padding: 4px 6px;
   border: none;
   border-radius: var(--panel-radius-sm);

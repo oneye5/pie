@@ -59,24 +59,6 @@
   background: var(--panel-control-hover);
 }
 
-.file-changes-chevron {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 10px;
-  color: var(--panel-muted);
-  transition: transform var(--panel-duration-normal) var(--panel-ease-out-expo);
-  transform: rotate(0deg);
-}
-
-.file-changes-panel:not(.expanded) .file-changes-chevron {
-  color: color-mix(in srgb, var(--panel-foreground) 68%, var(--panel-muted));
-}
-
-.file-changes-chevron.open {
-  transform: rotate(90deg);
-}
-
 .file-changes-title {
   flex: 1;
   text-align: left;

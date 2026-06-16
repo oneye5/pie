@@ -313,16 +313,12 @@
   color: var(--panel-muted);
   cursor: pointer;
   flex-shrink: 0;
-  transition: transform var(--panel-duration-normal) var(--panel-ease-out-expo), color var(--panel-transition-fast);
+  transition: color var(--panel-transition-fast);
 }
 
 .toolbar-settings-ext-chevron:hover {
   color: var(--panel-foreground);
   background: var(--panel-control-hover);
-}
-
-.toolbar-settings-ext-chevron.expanded {
-  transform: rotate(90deg);
 }
 
 .toolbar-settings-ext-settings {

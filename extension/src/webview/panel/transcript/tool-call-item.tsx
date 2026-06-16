@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useContext } from 'preact/hooks';
+import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatPrefs, ToolCall } from '../../../shared/protocol';
 import { summarizeSubagentToolCallInput } from '../../../shared/tool-call-analysis';
 import { shouldOpenSubagentContextMenu } from './interactions';
@@ -20,7 +20,7 @@ import {
   normalizeTaskScoresForDisplay,
 } from './subagent-score-display';
 import { StatusChip } from './status-chip';
-import { DisclosureChevron, ToolCallCard } from './tool-call-card';
+import { ToolCallCard } from './tool-call-card';
 import { TranscriptMessageList } from './transcript-message-list';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import { getToolRenderer } from './registry';
@@ -168,6 +168,147 @@ interface SubagentSingleBlockProps {
   multipleResults: boolean;
 }
 
+interface SubagentMessagesProps {
+  singleResult: SubagentSingleResult;
+  toolCall: ToolCall;
+  index: number;
+  prefs: ChatPrefs;
+  workingDirectory: string | null;
+  onOpenFile: (path: string) => void;
+  onContextMenu: (e: MouseEvent) => void;
+  onNestedContextMenu: TranscriptContextMenuHandler;
+  renderToolCall: RenderToolCall;
+}
+
+/**
+ * Bounded, vertically-resizable scroll region for a subagent's nested
+ * transcript. Defaults to the bottom (most-recent reasoning/reply) and stays
+ * pinned there as the subagent streams, unless the user scrolls up. A drag
+ * handle on the top edge resizes the region.
+ */
+function SubagentMessages({
+  singleResult,
+  toolCall,
+  index,
+  prefs,
+  workingDirectory,
+  onOpenFile,
+  onContextMenu,
+  onNestedContextMenu,
+  renderToolCall,
+}: SubagentMessagesProps) {
+  const messages = useMemo(
+    () => subagentSingleResultToChatMessages(singleResult, `${toolCall.id}-${index}`),
+    [singleResult, toolCall.id, index],
+  );
+  const nestedDisclosureDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const [height, setHeight] = useState<number | null>(null);
+
+  const handleScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 48;
+  };
+
+  // Default to the bottom: pin to the latest reasoning/reply as it streams
+  // in, unless the user has scrolled up to read earlier messages.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !stickToBottomRef.current) return;
+    el.scrollTop = el.scrollHeight;
+  }, [messages]);
+
+  const startResize = (e: MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startY = e.clientY;
+    const startH = scrollRef.current?.clientHeight ?? 300;
+    const onMove = (ev: MouseEvent) => {
+      const next = Math.max(
+        120,
+        Math.min(Math.round(window.innerHeight * 0.8), startH + (startY - ev.clientY)),
+      );
+      stickToBottomRef.current = true;
+      setHeight(next);
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+  };
+
+  return (
+    <div
+      class="subagent-messages"
+      onClick={(e) => e.stopPropagation()}
+      onContextMenu={(e) => {
+        if (!shouldOpenSubagentContextMenu(e.target)) {
+          e.stopPropagation();
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        onContextMenu(e as unknown as MouseEvent);
+      }}
+      onKeyDown={(e) => e.stopPropagation()}
+    >
+      <div
+        class="subagent-resize-handle"
+        onMouseDown={startResize}
+        title="Drag to resize"
+        role="separator"
+        aria-orientation="horizontal"
+        tabIndex={-1}
+      />
+      <div
+        class="subagent-messages-scroll"
+        ref={scrollRef}
+        onScroll={handleScroll}
+        style={height ? { height: `${height}px` } : undefined}
+      >
+        {singleResult.selectionPool && singleResult.selectionPool.length > 0 && (
+          <div class="subagent-model-selection">
+            <span class="subagent-model-selection-title">Model selection</span>
+            <div class="subagent-model-selection-pool">
+              {singleResult.selectionPool.map((candidate, idx) => {
+                const fitScore = singleResult.selectionFitScores?.[idx];
+                const isChosen = candidate === (singleResult.selectedModel ?? singleResult.model);
+                return (
+                  <span key={idx} class={`subagent-pool-candidate${isChosen ? ' chosen' : ''}`}>
+                    <span class="subagent-pool-name">{candidate.includes('/') ? candidate.split('/').pop() : candidate}</span>
+                    {fitScore != null && <span class="subagent-pool-score">{fitScore.toFixed(1)}</span>}
+                  </span>
+                );
+              })}
+            </div>
+            {singleResult.retryCount != null && singleResult.retryCount > 0 && (
+              <span class="subagent-model-retries">Retries: {singleResult.retryCount}</span>
+            )}
+          </div>
+        )}
+        <TranscriptMessageList
+          messages={messages}
+          prefs={prefs}
+          workingDirectory={workingDirectory}
+          onOpenFile={onOpenFile}
+          onContextMenu={onNestedContextMenu}
+          renderToolCall={renderToolCall}
+          readonly
+          disclosureKey={nestedDisclosureDefaultsKey}
+        />
+      </div>
+    </div>
+  );
+}
+
 function SubagentSingleBlock({
   singleResult,
   toolCall,
@@ -187,8 +328,6 @@ function SubagentSingleBlock({
   const summary = summarizeSingleResult(singleResult);
   const status = singleResultStatus(singleResult, toolCall.status, multipleResults);
   const errorDetail = status === 'failed' ? subagentErrorDetail(singleResult) : undefined;
-  const messages = subagentSingleResultToChatMessages(singleResult, `${toolCall.id}-${index}`);
-  const nestedDisclosureDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
 
   // Check if this subagent has a pending ask_user request (for blinking indicator).
   const askUserCtx = useContext(AskUserContext);
@@ -209,7 +348,6 @@ function SubagentSingleBlock({
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
     >
       <div class="subagent-header">
-        <DisclosureChevron open={open} />
         <span class="subagent-agent-name transcript-header-title-mono">{singleResult.agent}</span>
         <PrimaryMeta result={singleResult} />
         {!open && summary && <span class="subagent-header-summary transcript-header-summary-mono">{summary}</span>}
@@ -217,51 +355,17 @@ function SubagentSingleBlock({
       </div>
       {open && (
         <SubagentCallContext.Provider value={multipleResults ? `${toolCall.id}:${index}` : toolCall.id}>
-        <div
-          class="subagent-messages"
-          onClick={(e) => e.stopPropagation()}
-          onContextMenu={(e) => {
-            if (!shouldOpenSubagentContextMenu(e.target)) {
-              e.stopPropagation();
-              return;
-            }
-            e.preventDefault();
-            e.stopPropagation();
-            onContextMenu(e as unknown as MouseEvent);
-          }}
-          onKeyDown={(e) => e.stopPropagation()}
-        >
-          {singleResult.selectionPool && singleResult.selectionPool.length > 0 && (
-            <div class="subagent-model-selection">
-              <span class="subagent-model-selection-title">Model selection</span>
-              <div class="subagent-model-selection-pool">
-                {singleResult.selectionPool.map((candidate, idx) => {
-                  const fitScore = singleResult.selectionFitScores?.[idx];
-                  const isChosen = candidate === (singleResult.selectedModel ?? singleResult.model);
-                  return (
-                    <span key={idx} class={`subagent-pool-candidate${isChosen ? ' chosen' : ''}`}>
-                      <span class="subagent-pool-name">{candidate.includes('/') ? candidate.split('/').pop() : candidate}</span>
-                      {fitScore != null && <span class="subagent-pool-score">{fitScore.toFixed(1)}</span>}
-                    </span>
-                  );
-                })}
-              </div>
-              {singleResult.retryCount != null && singleResult.retryCount > 0 && (
-                <span class="subagent-model-retries">Retries: {singleResult.retryCount}</span>
-              )}
-            </div>
-          )}
-          <TranscriptMessageList
-            messages={messages}
+          <SubagentMessages
+            singleResult={singleResult}
+            toolCall={toolCall}
+            index={index}
             prefs={prefs}
             workingDirectory={workingDirectory}
             onOpenFile={onOpenFile}
-            onContextMenu={onNestedContextMenu}
+            onContextMenu={onContextMenu}
+            onNestedContextMenu={onNestedContextMenu}
             renderToolCall={renderToolCall}
-            readonly
-            disclosureKey={nestedDisclosureDefaultsKey}
           />
-        </div>
         </SubagentCallContext.Provider>
       )}
     </div>

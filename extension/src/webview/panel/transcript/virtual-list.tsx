@@ -371,8 +371,6 @@ export function TranscriptVirtualList({
     sessionKey,
     transcriptWindow,
     transcriptLength: transcript.length,
-    busy,
-    hasStreamingContent: busy && transcript.some(m => m.status === 'streaming'),
     onLoadOlder,
     onLoadNewer,
     onJumpToLatest,

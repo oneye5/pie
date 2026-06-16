@@ -9,6 +9,7 @@ import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningSettings, PruningMode,
 import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
 import { orderModelsForPicker } from './model-list';
 import { ModelPicker } from '../components/model-picker';
+import { DisclosureChevron } from '../components/chevron';
 import { EXTENSIONS_WITH_SETTINGS, PRUNING_MODE_OPTIONS, THINKING_LEVEL_OPTIONS, filterKeepCatalog } from './settings-menu-helpers';
 
 type OnSetPrefs = (prefs: Partial<ChatPrefs>) => void;
@@ -263,9 +264,7 @@ function ExtensionItem({ ext, prefs, onSetPrefs, isExpanded, setExpandedExt, pru
             aria-expanded={isExpanded}
             onClick={() => setExpandedExt(isExpanded ? null : ext.id)}
           >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-              <polyline points="4,2 8,6 4,10" />
-            </svg>
+            <DisclosureChevron open={isExpanded} size={12} />
           </button>
         )}
       </div>

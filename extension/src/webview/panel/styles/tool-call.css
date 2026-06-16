@@ -132,21 +132,56 @@
 }
 
 /* ── Subagent message thread ─────────────────────────────────────────────── */
-/* Nested transcript rendered beneath the subagent header when expanded */
+/* Nested transcript rendered beneath the subagent header when expanded.
+   The thread is a bounded, vertically-resizable scroll region that defaults
+   to the bottom (most-recent reasoning/reply), so the subagent panel no longer
+   grows unbounded and pushes the rest of the transcript around. */
 
 .subagent-messages {
   --subagent-thread-gutter: 10px;
   --subagent-thread-inset: 18px;
+  --subagent-thread-height: 300px;
   border-top: 1px solid var(--panel-border);
   margin-inline-start: var(--subagent-thread-inset);
+  display: flex;
+  flex-direction: column;
+  cursor: default;
+  user-select: text;
+  background: var(--panel-control-surface);
+}
+
+/* Drag handle spans the full card width (not just the inset) so the resize
+   target is easy to grab. Dragging up grows the thread. */
+.subagent-resize-handle {
+  flex: 0 0 auto;
+  height: 6px;
+  margin-inline-start: calc(-1 * var(--subagent-thread-inset));
+  width: calc(100% + var(--subagent-thread-inset));
+  cursor: row-resize;
+  background: transparent;
+  border-top: 1px solid transparent;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast);
+}
+
+.subagent-resize-handle:hover,
+.subagent-resize-handle:active {
+  background: color-mix(in srgb, var(--panel-accent) 22%, transparent);
+  border-top-color: var(--panel-accent);
+}
+
+.subagent-messages-scroll {
+  height: var(--subagent-thread-height);
+  min-height: 120px;
+  max-height: 70vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 4px var(--subagent-thread-gutter) 4px 0;
   display: flex;
   flex-direction: column;
   /* Match the main transcript's inter-message gap for visual parity */
   gap: 6px;
-  cursor: default;
-  user-select: text;
-  background: var(--panel-control-surface);
 }
 
 /* ── Subagent model label ─────────────────────────────────────────────────── */
@@ -225,12 +260,173 @@
   opacity: 0.8;
 }
 
+/* ── Tool-call terminal output (bash/shell) ──────────────────────────────── */
+/* Live, streaming stdout/stderr rendered as a terminal pane. While the tool
+   is running the pane is shown even when the card is collapsed, so execution
+   is visible as it happens. */
+
+.tool-call-body-terminal {
+  padding: 0;
+}
+
+.tool-call-terminal-command {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  color: var(--panel-foreground-soft);
+  background: var(--panel-code-surface);
+  border-bottom: 1px solid var(--panel-border-subtle);
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.tool-call-terminal-command code {
+  font-family: inherit;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tool-call-terminal-prompt {
+  color: var(--panel-accent);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.tool-call-terminal {
+  background: var(--panel-code-surface);
+}
+
+.tool-call-terminal-pre {
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: transparent;
+  border-radius: 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--panel-foreground);
+}
+
+.tool-call-terminal-pre code {
+  font-family: inherit;
+  background: transparent;
+  padding: 0;
+}
+
+.tool-call-terminal-empty {
+  padding: 8px 10px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  color: var(--panel-muted);
+  font-style: italic;
+}
+
+/* Blinking block cursor while output is streaming */
+.tool-call-terminal-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--panel-accent);
+  animation: blink 1s step-end infinite;
+}
+
+.tool-call-terminal[data-running="true"] .tool-call-terminal-pre {
+  /* Subtle top accent while executing */
+  box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--panel-accent) 35%, transparent);
+}
+
+.tool-call-truncated {
+  padding: 4px 10px;
+  font-size: 10.5px;
+  color: var(--panel-muted);
+  border-top: 1px solid var(--panel-border-subtle);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Syntax highlighting for structured tool input/output ────────────────── */
+/* Bespoke hljs theme mapping token classes onto the panel palette. Applied
+   to .tool-call-code, which wraps highlighted YAML/JSON. */
+
+.tool-call-code .hljs {
+  color: var(--panel-foreground);
+}
+
+.tool-call-code .hljs-comment,
+.tool-call-code .hljs-quote {
+  color: var(--panel-muted);
+  font-style: italic;
+}
+
+.tool-call-code .hljs-keyword,
+.tool-call-code .hljs-literal,
+.tool-call-code .hljs-symbol,
+.tool-call-code .hljs-bullet {
+  color: var(--panel-accent-strong);
+}
+
+.tool-call-code .hljs-string,
+.tool-call-code .hljs-char,
+.tool-call-code .hljs-regexp {
+  color: var(--panel-success);
+}
+
+.tool-call-code .hljs-number,
+.tool-call-code .hljs-attr,
+.tool-call-code .hljs-attribute {
+  color: var(--panel-warning);
+}
+
+.tool-call-code .hljs-boolean {
+  color: var(--panel-danger);
+}
+
+.tool-call-code .hljs-built_in,
+.tool-call-code .hljs-type,
+.tool-call-code .hljs-title,
+.tool-call-code .hljs-title.function_,
+.tool-call-code .hljs-name,
+.tool-call-code .hljs-section {
+  color: #7bd8d0;
+}
+
+.tool-call-code .hljs-meta,
+.tool-call-code .hljs-punctuation,
+.tool-call-code .hljs-operator {
+  color: var(--panel-muted);
+}
+
+.tool-call-code .hljs-variable,
+.tool-call-code .hljs-template-variable {
+  color: var(--panel-foreground-soft);
+}
+
 @media (forced-colors: active) {
   .tool-call-body {
     border-top-color: ButtonText;
   }
   .subagent-messages {
     border-top-color: ButtonText;
+  }
+  .subagent-resize-handle {
+    border-top-color: ButtonText;
+  }
+  .tool-call-terminal-command,
+  .tool-call-terminal-pre {
+    border-color: ButtonText;
   }
   .subagent-model-selection {
     border-color: ButtonText;

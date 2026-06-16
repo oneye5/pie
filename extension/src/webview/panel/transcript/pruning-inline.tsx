@@ -5,6 +5,7 @@ import { useState } from 'preact/hooks';
 
 import type { PruningDetails } from '../../../shared/protocol';
 import { PruningDiagnostics } from './pruning-details';
+import { DisclosureChevron } from '../components/chevron';
 
 interface PruningInlineCardProps {
   details: PruningDetails;
@@ -65,7 +66,7 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
         >
           <span class="shrink-0 text-[10px] text-muted" aria-hidden="true">✂</span>
           <span class="transcript-header-summary min-w-0 flex-1 truncate">{summary}</span>
-          <span class="shrink-0 text-[9px] text-muted" aria-hidden="true">{expanded ? '▲' : '▼'}</span>
+          <DisclosureChevron open={expanded} size={9} />
         </button>
         {expanded && (
           <PruningDiagnostics

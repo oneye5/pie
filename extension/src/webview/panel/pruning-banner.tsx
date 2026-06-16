@@ -4,6 +4,7 @@
 import { useState } from 'preact/hooks';
 
 import type { PruningResult } from '../../shared/protocol';
+import { DisclosureChevron } from './components/chevron';
 
 interface PruningBannerProps {
   pruningResult: PruningResult;
@@ -43,9 +44,6 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
         >
           <span class="pruning-banner-icon" aria-hidden="true">⚠</span>
           <span class="pruning-banner-text">Pruning failed</span>
-          <span class="pruning-banner-chevron" aria-hidden="true">
-            {expanded ? '▲' : '▼'}
-          </span>
         </button>
         {expanded && (
           <div class="pruning-banner-detail">
@@ -80,9 +78,6 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
       >
         <span class="pruning-banner-icon" aria-hidden="true">✂</span>
         <span class="pruning-banner-text">{summaryText}</span>
-        <span class="pruning-banner-chevron" aria-hidden="true">
-          {expanded ? '▲' : '▼'}
-        </span>
       </button>
       {expanded && (
         <div class="pruning-banner-detail">
@@ -114,7 +109,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
                     aria-expanded={rawExpanded}
                     onClick={() => setRawExpanded((v) => !v)}
                   >
-                    {rawExpanded ? '▲' : '▶'} Raw LLM output
+                    <DisclosureChevron open={rawExpanded} /> Raw LLM output
                   </button>
                   {rawExpanded && (
                     <div class="pruning-banner-raw-content">

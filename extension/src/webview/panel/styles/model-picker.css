@@ -53,12 +53,6 @@
   white-space: nowrap;
 }
 
-.model-picker-trigger-caret {
-  flex-shrink: 0;
-  color: color-mix(in srgb, var(--panel-foreground) 70%, transparent);
-  font-size: 10px;
-}
-
 /* Dropdown */
 
 .model-picker-dropdown {

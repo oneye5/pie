@@ -5,6 +5,7 @@ import type { JSX } from 'preact';
 
 import type { PruningDetails } from '../../../shared/protocol';
 import { pruningTotals } from './pruning';
+import { DisclosureChevron } from '../components/chevron';
 
 interface PruningDiagnosticsProps {
   details: PruningDetails;
@@ -112,7 +113,7 @@ function PruningDiagnosticsContent({ details, rawExpanded, onRawToggle }: Omit<P
           aria-expanded={rawExpanded}
           onClick={onRawToggle}
         >
-          {rawExpanded ? '▲' : '▶'} Prepass prompts and output
+          <DisclosureChevron open={rawExpanded} /> Prepass prompts and output
         </button>
         {rawExpanded && (
           <div class="pruning-raw-content">

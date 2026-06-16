@@ -1,7 +1,12 @@
 ﻿import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
 import type { TranscriptWindow } from '../../../shared/protocol';
-import { isNearBottom, resolveAutoFollowState } from '../auto-scroll';
+import {
+  SMOOTH_SCROLL_SNAP_EPSILON_PX,
+  advanceSmoothScrollTop,
+  isNearBottom,
+  resolveAutoFollowState,
+} from '../auto-scroll';
 import {
   captureMessageScrollAnchor,
   restoreMessageScrollAnchor,
@@ -12,8 +17,6 @@ interface UseTranscriptScrollOptions {
   sessionKey: string | null;
   transcriptWindow: TranscriptWindow;
   transcriptLength: number;
-  busy: boolean;
-  hasStreamingContent: boolean;
   onLoadOlder: () => void;
   onLoadNewer: () => void;
   onJumpToLatest: () => void;
@@ -286,54 +289,60 @@ function usePaginationTrackingEffect(
   }, [scrollToBottom, transcriptLength, hasNewer, hasOlder, loadedEnd, loadedStart]);
 }
 
-function useAutoFollowLayoutEffect(
+/**
+ * Persistent rAF loop that eases the transcript toward its bottom whenever
+ * auto-follow is active, replacing the previous hard `scrollTop = scrollHeight`
+ * snaps that produced visible jumps as streaming content grew. Each frame
+ * advances scrollTop a bounded step toward the target (see
+ * `advanceSmoothScrollTop`), so following feels continuous instead of snapping.
+ * CSS `scroll-behavior` is bypassed while auto-following (each frame's set is
+ * instant) and restored when idle so manual scrolling keeps its smooth feel.
+ */
+function useSmoothAutoFollow(
   scrollRef: { current: HTMLDivElement | null },
   autoFollowRef: { current: boolean },
   lastScrollTopRef: { current: number },
   setIsAtBottom: (v: boolean) => void,
   hasNewer: boolean,
-  busy: boolean,
-  hasStreamingContent: boolean,
-  transcriptLength: number,
-) {
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el || !autoFollowRef.current || hasNewer) return;
-    el.scrollTop = el.scrollHeight;
-    lastScrollTopRef.current = el.scrollTop;
-    setIsAtBottom(true);
-  }, [busy, hasStreamingContent, transcriptLength, hasNewer]);
-}
-
-function useStreamingResizeObserver(
-  scrollRef: { current: HTMLDivElement | null },
-  hasStreamingContent: boolean,
-  autoFollowRef: { current: boolean },
-  lastScrollTopRef: { current: number },
 ) {
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || !hasStreamingContent) return;
-
-    const ro = new ResizeObserver(() => {
-      if (!autoFollowRef.current) return;
-      el.scrollTop = el.scrollHeight;
-      lastScrollTopRef.current = el.scrollTop;
-    });
-
-    const target = el.firstElementChild ?? el;
-    ro.observe(target);
-
-    return () => ro.disconnect();
-  }, [hasStreamingContent]);
+    if (!el) return;
+    let raf = 0;
+    const tick = () => {
+      raf = requestAnimationFrame(tick);
+      if (!autoFollowRef.current || hasNewer) {
+        if (el.style.scrollBehavior === 'auto') el.style.scrollBehavior = '';
+        return;
+      }
+      if (el.style.scrollBehavior !== 'auto') el.style.scrollBehavior = 'auto';
+      const target = el.scrollHeight;
+      const current = el.scrollTop;
+      const delta = target - current;
+      if (Math.abs(delta) <= SMOOTH_SCROLL_SNAP_EPSILON_PX) {
+        if (current !== target) {
+          el.scrollTop = target;
+          lastScrollTopRef.current = target;
+        }
+        return;
+      }
+      const next = advanceSmoothScrollTop(current, target);
+      el.scrollTop = next;
+      lastScrollTopRef.current = next;
+      setIsAtBottom(true);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+      cancelAnimationFrame(raf);
+      el.style.scrollBehavior = '';
+    };
+  }, [scrollRef, hasNewer, autoFollowRef, lastScrollTopRef, setIsAtBottom]);
 }
 
 export function useTranscriptScroll({
   sessionKey,
   transcriptWindow,
   transcriptLength,
-  busy,
-  hasStreamingContent,
   onLoadOlder,
   onLoadNewer,
   onJumpToLatest,
@@ -420,22 +429,12 @@ export function useTranscriptScroll({
     autoFollowRef,
   );
 
-  useAutoFollowLayoutEffect(
+  useSmoothAutoFollow(
     scrollRef,
     autoFollowRef,
     lastScrollTopRef,
     setIsAtBottom,
     transcriptWindow.hasNewer,
-    busy,
-    hasStreamingContent,
-    transcriptLength,
-  );
-
-  useStreamingResizeObserver(
-    scrollRef,
-    hasStreamingContent,
-    autoFollowRef,
-    lastScrollTopRef,
   );
 
   return {

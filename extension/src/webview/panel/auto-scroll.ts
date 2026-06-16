@@ -10,7 +10,7 @@ const SCROLL_ANCHOR_VISIBILITY_EPSILON_PX = 1;
 const SMOOTH_SCROLL_INTERPOLATION = 0.22;
 const SMOOTH_SCROLL_MIN_STEP_PX = 2;
 const SMOOTH_SCROLL_MAX_STEP_PX = 56;
-const SMOOTH_SCROLL_SNAP_EPSILON_PX = 1;
+export const SMOOTH_SCROLL_SNAP_EPSILON_PX = 1;
 
 export interface ScrollAnchorSnapshot {
   key: string;

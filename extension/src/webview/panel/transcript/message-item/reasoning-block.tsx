@@ -34,9 +34,6 @@ export function ReasoningBlock({ text, autoExpand, disclosureKey, onContextMenu 
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
     >
       <div class="flex items-center gap-1.5 px-2 py-1">
-        <svg class={cx('shrink-0 text-muted transition-transform duration-150', open && 'rotate-90')} width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-          <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
         <span class="transcript-header-label">Reasoning</span>
         {!open && (
           <span class="transcript-header-summary min-w-0 truncate">{reasoningSummary(text)}</span>

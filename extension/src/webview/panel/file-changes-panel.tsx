@@ -98,12 +98,6 @@ export function FileChangesPanel({
         onClick={toggle}
         aria-expanded={isExpanded}
       >
-        <span
-          class={`file-changes-chevron${isExpanded ? ' open' : ''}`}
-          aria-hidden="true"
-        >
-          {'\u25B8'}
-        </span>
         <span class="file-changes-title">Files Changed</span>
         <span class="file-changes-count">{fileChanges.length}</span>
         {(totalAdditions > 0 || totalDeletions > 0) && (
