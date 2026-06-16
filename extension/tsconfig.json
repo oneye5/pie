@@ -13,10 +13,10 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "sourceMap": true,
-    "types": ["node", "vscode"],
+    "types": ["node", "vscode", "vite/client"],
     "jsx": "react-jsx",
     "jsxImportSource": "preact"
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*", "test/**/*", "vite.config.ts", "scripts/**/*.mjs"],
   "exclude": ["node_modules", "out"]
 }

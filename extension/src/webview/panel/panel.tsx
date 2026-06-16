@@ -1,7 +1,10 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
+/// <reference types="vite/client" />
 
 import { options, render } from 'preact';
+
+import './styles/index.css';
 
 import type { WebviewToHostMessage } from '../../shared/protocol';
 import { App } from './app';

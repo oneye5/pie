@@ -502,7 +502,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
     const assetDir = getWebviewAssetDir(this.context.extensionPath, DEFAULT_WEBVIEW_VIEW_NAME);
     const watcher = vscode.workspace.createFileSystemWatcher(
-      new vscode.RelativePattern(vscode.Uri.file(assetDir), '*'),
+      new vscode.RelativePattern(vscode.Uri.file(assetDir), '**/*'),
     );
     const onAssetEvent = (uri: vscode.Uri) => {
       if (!isHotReloadAssetFileName(uri.fsPath, DEFAULT_WEBVIEW_VIEW_NAME)) {

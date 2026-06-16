@@ -4,11 +4,38 @@ import * as path from 'node:path';
 
 import * as vscode from 'vscode';
 
-import {
-  DEFAULT_WEBVIEW_VIEW_NAME,
-  getWebviewAssetDir,
-  readWebviewAssetVersion,
-} from './hot-reload';
+import { DEFAULT_WEBVIEW_VIEW_NAME, getWebviewAssetDir } from './hot-reload';
+
+interface ViteManifestChunk {
+  file: string;
+  src?: string;
+  isEntry?: boolean;
+  imports?: string[];
+  css?: string[];
+  assets?: string[];
+}
+
+interface ViteManifest {
+  [key: string]: ViteManifestChunk;
+}
+
+function readManifest(baseDir: string): Promise<ViteManifest> {
+  const manifestPath = path.join(baseDir, '.vite', 'manifest.json');
+  return fs.readFile(manifestPath, 'utf8').then((text) => JSON.parse(text) as ViteManifest);
+}
+
+function findEntryChunk(manifest: ViteManifest): ViteManifestChunk | null {
+  for (const chunk of Object.values(manifest)) {
+    if (chunk.isEntry) {
+      return chunk;
+    }
+  }
+  return null;
+}
+
+function assetUri(webview: vscode.Webview, baseDir: string, relativePath: string): vscode.Uri {
+  return webview.asWebviewUri(vscode.Uri.file(path.join(baseDir, relativePath)));
+}
 
 export async function renderWebviewHtml(
   context: vscode.ExtensionContext,
@@ -17,30 +44,46 @@ export async function renderWebviewHtml(
 ): Promise<string> {
   const viewName = DEFAULT_WEBVIEW_VIEW_NAME;
   const baseDir = getWebviewAssetDir(context.extensionPath, viewName);
+  const manifest = await readManifest(baseDir);
+  const entry = findEntryChunk(manifest);
+  if (!entry) {
+    throw new Error(`No Vite entry chunk found in manifest at ${path.join(baseDir, '.vite', 'manifest.json')}`);
+  }
+
+  const manifestHash = crypto.createHash('sha256').update(JSON.stringify(manifest)).digest('hex').slice(0, 16);
+  const assetVersion = assetVersionOverride ?? manifestHash;
   const nonce = crypto.randomBytes(16).toString('hex');
-  const html = await fs.readFile(path.join(baseDir, 'index.html'), 'utf8');
-  const assetVersionRaw = assetVersionOverride ?? await readWebviewAssetVersion(baseDir, viewName);
-  const assetVersion = encodeURIComponent(assetVersionRaw);
 
-  const scriptUri = webview.asWebviewUri(vscode.Uri.file(path.join(baseDir, `${viewName}.js`))).with({
-    query: `v=${assetVersion}`,
-  });
-  const styleUri = webview.asWebviewUri(vscode.Uri.file(path.join(baseDir, `${viewName}.css`))).with({
-    query: `v=${assetVersion}`,
-  });
+  const scriptUri = assetUri(webview, baseDir, entry.file).toString();
+  const styleUris = (entry.css ?? []).map((cssFile) => assetUri(webview, baseDir, cssFile).toString());
 
-  return html
-    .replaceAll('{{assetVersion}}', assetVersionRaw)
-    .replaceAll('{{cspSource}}', webview.cspSource)
-    .replaceAll('{{nonce}}', nonce)
-    .replaceAll('{{scriptUri}}', scriptUri.toString())
-    .replaceAll('{{styleUri}}', styleUri.toString());
+  const styleTags = styleUris
+    .map((uri) => `  <link href="${uri}" rel="stylesheet" nonce="${nonce}" />`)
+    .join('\n');
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${webview.cspSource} data:; style-src ${webview.cspSource} 'nonce-${nonce}'; script-src 'nonce-${nonce}';" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="pie-asset-version" content="${assetVersion}" />
+${styleTags}
+  <title>pie</title>
+</head>
+<body>
+  <div id="app"></div>
+  <script nonce="${nonce}" type="module" src="${scriptUri}"></script>
+</body>
+</html>
+`;
 }
 
 export async function getWebviewAssetVersion(context: vscode.ExtensionContext): Promise<string> {
   const viewName = DEFAULT_WEBVIEW_VIEW_NAME;
   const baseDir = getWebviewAssetDir(context.extensionPath, viewName);
-  return await readWebviewAssetVersion(baseDir, viewName);
+  const manifest = await readManifest(baseDir);
+  return crypto.createHash('sha256').update(JSON.stringify(manifest)).digest('hex').slice(0, 16);
 }
 
 export function getWebviewRoots(context: vscode.ExtensionContext): vscode.Uri[] {

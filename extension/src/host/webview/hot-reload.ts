@@ -1,4 +1,5 @@
-import { stat } from 'node:fs/promises';
+import * as crypto from 'node:crypto';
+import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 export const DEFAULT_WEBVIEW_VIEW_NAME = 'panel';
@@ -22,31 +23,26 @@ export function getHotReloadAssetFileNames(
 
 export function isHotReloadAssetFileName(
   fileName: string | null | undefined,
-  viewName = DEFAULT_WEBVIEW_VIEW_NAME,
+  _viewName = DEFAULT_WEBVIEW_VIEW_NAME,
 ): boolean {
   if (!fileName) {
     return false;
   }
 
-  const baseName = path.basename(fileName);
-  return getHotReloadAssetFileNames(viewName).includes(baseName);
+  // Any built asset or manifest change should trigger a webview reload.
+  // Ignore sourcemaps, which churn on every build but do not affect runtime.
+  return !fileName.endsWith('.map');
 }
 
 export async function readWebviewAssetVersion(
   baseDir: string,
-  viewName = DEFAULT_WEBVIEW_VIEW_NAME,
+  _viewName = DEFAULT_WEBVIEW_VIEW_NAME,
 ): Promise<string> {
-  const assetSignatures = await Promise.all(
-    getHotReloadAssetFileNames(viewName).map(async (fileName) => {
-      try {
-        const filePath = path.join(baseDir, fileName);
-        const fileStats = await stat(filePath);
-        return `${fileName}:${fileStats.mtimeMs}:${fileStats.size}`;
-      } catch {
-        return `${fileName}:missing`;
-      }
-    }),
-  );
-
-  return assetSignatures.join('|');
+  const manifestPath = path.join(baseDir, '.vite', 'manifest.json');
+  try {
+    const manifestText = await fs.readFile(manifestPath, 'utf8');
+    return crypto.createHash('sha256').update(manifestText).digest('hex').slice(0, 16);
+  } catch {
+    return 'no-manifest';
+  }
 }

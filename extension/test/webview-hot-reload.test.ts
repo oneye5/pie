@@ -10,33 +10,37 @@ import {
   readWebviewAssetVersion,
 } from '../src/host/webview/hot-reload';
 
-test('isHotReloadAssetFileName matches only the built panel assets', () => {
+test('isHotReloadAssetFileName matches built assets and ignores sourcemaps', () => {
   assert.equal(isHotReloadAssetFileName('panel.js'), true);
+  assert.equal(isHotReloadAssetFileName('panel-abc123.js'), true);
   assert.equal(isHotReloadAssetFileName('panel.css'), true);
   assert.equal(isHotReloadAssetFileName('index.html'), true);
+  assert.equal(isHotReloadAssetFileName('.vite/manifest.json'), true);
   assert.equal(isHotReloadAssetFileName('/tmp/panel.js'), true);
   assert.equal(isHotReloadAssetFileName('panel.js.map'), false);
-  assert.equal(isHotReloadAssetFileName('panel.tsx'), false);
   assert.equal(isHotReloadAssetFileName(undefined), false);
 });
 
-test('readWebviewAssetVersion changes when a built asset changes', async () => {
+test('readWebviewAssetVersion changes when the Vite manifest changes', async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), 'pie-webview-hot-reload-'));
   const assetDir = getWebviewAssetDir(rootDir);
 
   try {
-    await mkdir(assetDir, { recursive: true });
-    await Promise.all([
-      writeFile(path.join(assetDir, 'index.html'), '<div id="app"></div>'),
-      writeFile(path.join(assetDir, 'panel.css'), '.panel { color: red; }'),
-      writeFile(path.join(assetDir, 'panel.js'), 'console.log("one");'),
-    ]);
+    const manifestDir = path.join(assetDir, '.vite');
+    await mkdir(manifestDir, { recursive: true });
+    await writeFile(
+      path.join(manifestDir, 'manifest.json'),
+      JSON.stringify({ 'src/webview/panel/panel.tsx': { file: 'assets/panel-aaa.js', isEntry: true } }),
+    );
 
     const firstVersion = await readWebviewAssetVersion(assetDir);
     const unchangedVersion = await readWebviewAssetVersion(assetDir);
     assert.equal(unchangedVersion, firstVersion);
 
-    await writeFile(path.join(assetDir, 'panel.css'), '.panel { color: rebeccapurple; font-weight: 600; }');
+    await writeFile(
+      path.join(manifestDir, 'manifest.json'),
+      JSON.stringify({ 'src/webview/panel/panel.tsx': { file: 'assets/panel-bbb.js', isEntry: true } }),
+    );
     const updatedVersion = await readWebviewAssetVersion(assetDir);
 
     assert.notEqual(updatedVersion, firstVersion);
@@ -57,12 +61,11 @@ test('build script removes stale installed output before syncing rebuilt assets'
   );
 });
 
-test('build watch touches Tailwind CSS entry after webview TS source changes', async () => {
+test('build script builds the webview with Vite', async () => {
   const buildScript = await readFile(new URL('../scripts/build.mjs', import.meta.url), 'utf8');
 
-  assert.match(buildScript, /function createTailwindSourceWatcher\(\)/);
-  assert.match(buildScript, /fsWatch\(sourceDir, \{ recursive: true \}/);
-  assert.match(buildScript, /function isTailwindSourceFile\(fileName\)/);
-  assert.match(buildScript, /normalized\.endsWith\('\.ts'\) \|\| normalized\.endsWith\('\.tsx'\)/);
-  assert.match(buildScript, /await utimes\(cssEntry, now, now\);/);
+  assert.match(buildScript, /function buildWebview\(\)/);
+  assert.match(buildScript, /execSync\('npx vite build'/);
+  assert.match(buildScript, /function runViteWatch\(\)/);
+  assert.match(buildScript, /spawn\('npx vite build --watch'/);
 });

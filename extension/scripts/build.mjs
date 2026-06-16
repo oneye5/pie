@@ -1,12 +1,11 @@
 import { watch as fsWatch } from 'node:fs';
-import { cp, mkdir, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { cp, mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import esbuild from 'esbuild';
-import tailwindPlugin from 'esbuild-plugin-tailwindcss';
 
 const rootDir = path.dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const srcDir = path.join(rootDir, 'src');
@@ -17,23 +16,9 @@ const skipTypecheck = process.argv.includes('--skip-typecheck');
 const noSync = process.argv.includes('--no-sync');
 const webviewViewName = 'panel';
 const webviewRelativeDir = path.join('webview', webviewViewName);
-const sourceWebviewAssetFileNames = new Set([
-  'index.html',
-]);
-const hotReloadWebviewFileNames = new Set([
-  'index.html',
-  `${webviewViewName}.css`,
-  `${webviewViewName}.js`,
-]);
-const copiedAssetRelativePaths = [
-  path.join(webviewRelativeDir, 'index.html'),
-];
 
 let syncTimer;
 let syncQueue = Promise.resolve();
-let pendingAssetCopyTimer;
-let pendingTailwindTouchTimer;
-const pendingAssetCopies = new Set();
 
 function createNodeBuildOptions(entryPoint, outfile, extraOptions = {}) {
   return {
@@ -48,41 +33,10 @@ function createNodeBuildOptions(entryPoint, outfile, extraOptions = {}) {
   };
 }
 
-function createWebviewScriptBuildOptions(entryFileName, outFileName) {
-  return {
-    entryPoints: [path.join(srcDir, 'webview', webviewViewName, entryFileName)],
-    bundle: true,
-    platform: 'browser',
-    format: 'iife',
-    outfile: path.join(outDir, 'webview', webviewViewName, outFileName),
-    sourcemap: true,
-    target: 'es2022',
-    jsx: 'automatic',
-    jsxImportSource: 'preact',
-  };
-}
-
-function createWebviewBuildOptions() {
-  return createWebviewScriptBuildOptions(`${webviewViewName}.tsx`, `${webviewViewName}.js`);
-}
-
-function createWebviewCssBuildOptions() {
-  return {
-    entryPoints: [path.join(srcDir, 'webview', webviewViewName, 'styles', 'index.css')],
-    bundle: true,
-    outfile: path.join(outDir, 'webview', webviewViewName, `${webviewViewName}.css`),
-    sourcemap: true,
-    target: 'es2022',
-    plugins: [tailwindPlugin()],
-  };
-}
-
 function createBuildConfigurations() {
   return [
     createNodeBuildOptions('extension.ts', 'extension.js', { external: ['vscode'] }),
     createNodeBuildOptions(path.join('backend', 'index.ts'), 'backend.js'),
-    createWebviewBuildOptions(),
-    createWebviewCssBuildOptions(),
   ];
 }
 
@@ -144,7 +98,6 @@ async function chooseInstalledExtensionDir(pkg) {
   return null;
 }
 
-/** Sync runtime output and manifest files to the locally installed extension so GUI-only edits can refresh in-place. */
 async function syncToInstalledExtension() {
   if (noSync) {
     return;
@@ -168,13 +121,6 @@ async function syncToInstalledExtension() {
   console.log(`Synced → ${extDir}`);
 }
 
-async function copyAsset(relativePath) {
-  const sourcePath = path.join(srcDir, relativePath);
-  const targetPath = path.join(outDir, relativePath);
-  await mkdir(path.dirname(targetPath), { recursive: true });
-  await writeFile(targetPath, await readFile(sourcePath));
-}
-
 function scheduleSyncToInstalledExtension() {
   if (syncTimer !== undefined) {
     return;
@@ -190,103 +136,31 @@ function scheduleSyncToInstalledExtension() {
   }, 120);
 }
 
-function scheduleAssetCopy(relativePath) {
-  pendingAssetCopies.add(relativePath);
-  if (pendingAssetCopyTimer !== undefined) {
-    return;
-  }
-
-  pendingAssetCopyTimer = setTimeout(() => {
-    const assetPaths = [...pendingAssetCopies];
-    pendingAssetCopies.clear();
-    pendingAssetCopyTimer = undefined;
-
-    void Promise.all(assetPaths.map(async (assetPath) => {
-      await copyAsset(assetPath);
-      console.log(`Copied → ${assetPath}`);
-    })).catch((error) => {
-      console.error('[build] Failed to copy watched asset', error);
-    });
-  }, 40);
+async function buildWebview() {
+  console.log('[build] Building webview with Vite...');
+  execSync('npx vite build', { cwd: rootDir, stdio: 'inherit' });
 }
 
-async function touchWebviewCssEntry() {
-  const cssEntry = path.join(srcDir, 'webview', webviewViewName, 'styles', 'index.css');
-  const now = new Date();
-  await utimes(cssEntry, now, now);
-}
-
-function scheduleTailwindCssRefresh(changedFile) {
-  if (pendingTailwindTouchTimer !== undefined) {
-    clearTimeout(pendingTailwindTouchTimer);
-  }
-
-  pendingTailwindTouchTimer = setTimeout(() => {
-    pendingTailwindTouchTimer = undefined;
-    void touchWebviewCssEntry()
-      .then(() => {
-        console.log(`Touched -> ${path.join(webviewRelativeDir, 'styles', 'index.css')} (${changedFile})`);
-      })
-      .catch((error) => {
-        console.error('[build] Failed to refresh Tailwind CSS entry after source change', error);
-      });
-  }, 40);
-}
-
-function isTailwindSourceFile(fileName) {
-  if (!fileName) {
-    return false;
-  }
-
-  const normalized = fileName.split(path.sep).join('/');
-  if (normalized.includes('/node_modules/') || normalized.includes('/out/')) {
-    return false;
-  }
-
-  return normalized.endsWith('.ts') || normalized.endsWith('.tsx');
-}
-
-function createTailwindSourceWatcher() {
-  const sourceDir = path.join(srcDir, webviewRelativeDir);
-  const watcher = fsWatch(sourceDir, { recursive: true }, (_eventType, fileName) => {
-    const changedFile = typeof fileName === 'string' ? fileName : fileName?.toString();
-    if (!isTailwindSourceFile(changedFile)) {
-      return;
-    }
-
-    scheduleTailwindCssRefresh(changedFile);
+function runViteWatch() {
+  console.log('[build] Starting Vite watch for webview...');
+  const child = spawn('npx vite build --watch', {
+    cwd: rootDir,
+    stdio: 'inherit',
+    shell: true,
   });
 
-  watcher.on('error', (error) => {
-    console.error('[build] Tailwind source watcher failed', error);
+  child.on('error', (error) => {
+    console.error('[build] Vite watch process failed to start', error);
   });
 
-  return watcher;
-}
-
-function createSourceAssetWatcher() {
-  const sourceDir = path.join(srcDir, webviewRelativeDir);
-  const watcher = fsWatch(sourceDir, (_eventType, fileName) => {
-    const changedFile = typeof fileName === 'string' ? fileName : fileName?.toString();
-    if (!changedFile || !sourceWebviewAssetFileNames.has(changedFile)) {
-      return;
-    }
-
-    scheduleAssetCopy(path.join(webviewRelativeDir, changedFile));
-  });
-
-  watcher.on('error', (error) => {
-    console.error('[build] Source asset watcher failed', error);
-  });
-
-  return watcher;
+  return child;
 }
 
 function createBuiltWebviewWatcher() {
   const builtDir = path.join(outDir, webviewRelativeDir);
-  const watcher = fsWatch(builtDir, (_eventType, fileName) => {
+  const watcher = fsWatch(builtDir, { recursive: true }, (_eventType, fileName) => {
     const changedFile = typeof fileName === 'string' ? fileName : fileName?.toString();
-    if (!changedFile || !hotReloadWebviewFileNames.has(changedFile)) {
+    if (!changedFile || changedFile.endsWith('.map')) {
       return;
     }
 
@@ -298,10 +172,6 @@ function createBuiltWebviewWatcher() {
   });
 
   return watcher;
-}
-
-async function copyStaticAssets() {
-  await Promise.all(copiedAssetRelativePaths.map((relativePath) => copyAsset(relativePath)));
 }
 
 async function buildOnce() {
@@ -324,20 +194,16 @@ async function buildOnce() {
   }
 
   await Promise.all(createBuildConfigurations().map((config) => esbuild.build(config)));
-  await copyStaticAssets();
+  await buildWebview();
   await syncToInstalledExtension();
 }
 
 if (watchMode) {
   const contexts = await Promise.all(createBuildConfigurations().map((config) => esbuild.context(config)));
-
-  await mkdir(path.join(outDir, webviewRelativeDir), { recursive: true });
-  const sourceAssetWatcher = createSourceAssetWatcher();
+  const viteProcess = runViteWatch();
   const builtWebviewWatcher = createBuiltWebviewWatcher();
-  const tailwindSourceWatcher = createTailwindSourceWatcher();
 
   await Promise.all(contexts.map((context) => context.watch()));
-  await copyStaticAssets();
   await syncToInstalledExtension();
 
   const shutdown = async () => {
@@ -345,18 +211,9 @@ if (watchMode) {
       clearTimeout(syncTimer);
       syncTimer = undefined;
     }
-    if (pendingAssetCopyTimer !== undefined) {
-      clearTimeout(pendingAssetCopyTimer);
-      pendingAssetCopyTimer = undefined;
-    }
-    if (pendingTailwindTouchTimer !== undefined) {
-      clearTimeout(pendingTailwindTouchTimer);
-      pendingTailwindTouchTimer = undefined;
-    }
 
-    sourceAssetWatcher.close();
     builtWebviewWatcher.close();
-    tailwindSourceWatcher.close();
+    viteProcess.kill();
     await Promise.all(contexts.map((context) => context.dispose()));
   };
 
