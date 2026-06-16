@@ -5,7 +5,7 @@ import * as vscode from 'vscode';
 import { BackendClient } from '../backend/client';
 import { buildRestoredSessionPlan, filterRestorableStoredTabs } from '../core/restored-session-plan';
 import { createCommandExecutor } from '../../shared/exec-command';
-import { resolveChatPrefs } from '../../shared/protocol';
+
 import { resolveNodePath, resolveSdkPath } from '../../shared/runtime-resolution';
 import type { ChatPrefs, SessionSummary } from '../../shared/protocol';
 import { SessionService } from './service';
@@ -39,9 +39,10 @@ function resolveWorkspaceCwd(): string {
 function applyStoredPrefs(options: StartSessionBackendOptions): void {
   const storedPrefs = options.context.globalState.get<Partial<ChatPrefs>>(PREFS_STORAGE_KEY);
   if (storedPrefs) {
-    const merged = resolveChatPrefs({ ...options.getArchState().settings.prefs, ...storedPrefs });
+    // The SetPrefs Command reduces to a SetPrefsRpc effect; service.setPrefs
+    // (the effect handler) resolves and persists the merged prefs. No separate
+    // globalState write is needed here.
     options.dispatchArch({ kind: 'Command', cmd: { kind: 'SetPrefs', corrId: `prefs:${Date.now()}`, prefs: storedPrefs } });
-    void options.context.globalState.update(PREFS_STORAGE_KEY, merged);
   }
 }
 

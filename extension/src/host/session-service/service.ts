@@ -219,7 +219,11 @@ export class SessionService implements vscode.Disposable {
       }),
     };
     const merged = resolveChatPrefs({ ...current, ...deepMerged });
-    this.dispatchArch({ kind: 'Command', cmd: { kind: 'SetPrefs', corrId: `prefs:${Date.now()}`, prefs: deepMerged } });
+    // NOTE: This method is the *effect handler* for SetPrefsRpc. The caller
+    // (webview message router or startup restore) already dispatched a SetPrefs
+    // Command through the reducer, which updated ArchState. Do NOT dispatch
+    // another SetPrefs Command here — that would recurse through the reducer
+    // → EffectRunner → service.setPrefs → Command → ... and overflow the stack.
     if (merged.suppressCompletionNotifications) {
       this.dispatchArch({ kind: 'UnreadFinishedSessionsChanged', sessionPaths: [] });
     }
