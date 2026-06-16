@@ -11,16 +11,6 @@ export function getWebviewAssetDir(
   return path.join(extensionPath, 'out', 'webview', viewName);
 }
 
-export function getHotReloadAssetFileNames(
-  viewName = DEFAULT_WEBVIEW_VIEW_NAME,
-): readonly string[] {
-  return Object.freeze([
-    `${viewName}.js`,
-    `${viewName}.css`,
-    'index.html',
-  ]);
-}
-
 export function isHotReloadAssetFileName(
   fileName: string | null | undefined,
   _viewName = DEFAULT_WEBVIEW_VIEW_NAME,

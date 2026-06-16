@@ -15,7 +15,7 @@ export default defineConfig({
     outDir,
     emptyOutDir: true,
     manifest: true,
-    cssCodeSplit: false,
+    cssCodeSplit: true,
     modulePreload: { polyfill: false },
     rollupOptions: {
       input: path.join(srcDir, 'webview', 'panel', 'panel.tsx'),

@@ -200,6 +200,7 @@ async function buildOnce() {
 
 if (watchMode) {
   const contexts = await Promise.all(createBuildConfigurations().map((config) => esbuild.context(config)));
+  await mkdir(path.join(outDir, webviewRelativeDir), { recursive: true });
   const viteProcess = runViteWatch();
   const builtWebviewWatcher = createBuiltWebviewWatcher();
 
