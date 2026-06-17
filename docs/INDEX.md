@@ -20,6 +20,7 @@ Historical migration and planning documents were removed from the tree after com
 - `PLAN-extension-ui-questions.md` — extension UI question resolution
 - `PLAN-llm-pruner-rewrite.md` — LLM-based skill pruning implementation
 - `PLAN-skill-tool-pruning.md` — skill/tool pruning design and implementation.
+- `model-token-pricing-implementation-plan.md` — token-pricing migration; **completed**. Pricing now lives in `extensions/subagent/pricing.ts` + `extension/src/backend/pricing.ts`; authoritative price evidence in `internal/model-token-pricing-sources.md`.
 
 ## Reference / informational
 
