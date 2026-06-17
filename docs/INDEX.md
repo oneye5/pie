@@ -10,7 +10,7 @@ This folder mixes design contracts, implementation plans (some completed, some o
 
 ## Open plans (work outstanding)
 
-- **[CQRS Migration Completion](ARCHITECTURE.md §10)** — Complete the migration from dual-path (CQRS reducer + Redux store) to pure CQRS. The plan, design decisions, and implementation order are documented in §10 of ARCHITECTURE.md. This supersedes the original phased migration plan (archived in git history, commit `d581d83`).
+- **CQRS / MVI Migration Completion** — Collapse the dual-path (CQRS reducer + legacy `SessionService` orchestration) webview→host flow to a pure Command→reducer→Effect→runner spine, hard-cutting over per op (delete legacy, no flags). The active tracker is [`HANDOFF_mvi-migration.md`](HANDOFF_mvi-migration.md) — Phase 0+1 complete, Phase 2 tab-lifecycle in progress (per-op status in the handoff), Phases 3–5 pending. Supersedes the original phased plan (archived in git history, commit `d581d83`).
 
 ## Archived plans (removed — see git history)
 

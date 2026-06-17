@@ -27,6 +27,3 @@ _Avoid_: bucket leaderboard, model ranker
 
 **Complexity score** — a per-run 0–1 heuristic computed from observable signals (lines changed, files touched, tool calls, duration, etc.) used to split runs into low/medium/high bands for stratified ranking.
 _Avoid_: difficulty score, task weight
-
-**Capability aggregate** — sum of precision + creativity + thoroughness + reasoning from `model-profiles.yaml`. Used only by the temp fix (`MIN_CAPABILITY_AGGREGATE = 10`). Will be removed when v2 leaderboard replaces the fitness-based selector.
-_Avoid_: model score, profile sum

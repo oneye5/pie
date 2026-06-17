@@ -1,12 +1,15 @@
 # Model Scoring Methodology
 
-> **Status: Transitioning to historical reference.** The capability scores defined
-> here drive the current fitness-based selector (`computeFitness` / `selectModel`).
-> This will be replaced by a data-driven stratified leaderboard — see
+> **Status: Historical reference — superseded.** The fitness-based selector
+> (`computeFitness` / `selectModel` in the former `extensions/subagent/model-selection.ts`)
+> and the `precision` / `creativity` / `thoroughness` / `reasoning` capability scores
+> in `model-profiles.yaml` have been removed. Subagent model selection is now driven
+> by the data-driven stratified leaderboard — see
 > [`subagent-model-selection-v2.md`](subagent-model-selection-v2.md) for the
-> target design. Capability scores remain active until that migration is complete.
+> implemented design. This document is retained for methodology rationale only;
+> it does not describe the live system.
 
-Last updated: 2026-05-16
+Last updated: 2026-06-17
 
 ## Purpose
 

@@ -1,6 +1,6 @@
 # Subagent Model Selection v2
 
-Status: **Designed** (2026-06-13, grilling session)
+Status: **Implemented** (designed 2026-06-13; built in `extensions/subagent/bucket-selector.ts` + `bridge.ts` + `analysis/scripts/stratified-ranker.ts`, wired via `src/execute.ts`)
 
 ## Problem
 
@@ -246,15 +246,17 @@ extension.
 | `agents.ts` | Schema change — `defaultScores` field removed, `bucket` + `thinkingLevel` added to `AgentConfig`. `parseDefaultScores()` replaced with `parseBucketAndThinking()` |
 | Provider toggle logic (`PROVIDER_TOGGLES_ENV`, `parseProviderToggles`) | Unchanged |
 
-## Temp fix (in place)
+## Temp fix (removed)
 
-`model-selection.ts` currently enforces `MIN_CAPABILITY_AGGREGATE = 10` — models with
-`precision + creativity + thoroughness + reasoning < 10` are excluded from
-selection. This removes GPT-4o (7), GPT-4.1 (8), GPT-5-mini (8),
+The pre-v2 `model-selection.ts` enforced `MIN_CAPABILITY_AGGREGATE = 10` — models with
+`precision + creativity + thoroughness + reasoning < 10` were excluded from
+selection. This removed GPT-4o (7), GPT-4.1 (8), GPT-5-mini (8),
 devstral-small-2 (9), ministral-3 (9) while keeping Haiku 4.5 (10) and
 Flash (10).
 
-Remove this guard when the v2 system is operational.
+This guard and `model-selection.ts` were removed when the v2 bucket-selector
+became operational; `eligible: false` in `model-profiles.yaml` now handles
+manual disabling instead.
 
 ## Resolved decisions
 

@@ -82,7 +82,7 @@ Files: `extensions/subagent/bucket-selector.ts`, `extensions/subagent/bridge.ts`
 - **Provider toggles** — Check that `PIE_PROVIDER_TOGGLES_JSON` env var is read correctly. Verify disabled providers are excluded from the selection pool. Check that the toggle logic is consistent between the bucket selector and `model-resolution.ts`.
 - **Retry logic** — Verify `MAX_MODEL_RETRIES = 5`. Check that failed models are added to `excludeModels` and the bucket is re-queried. Check fallback to active model when bucket is exhausted.
 - **Old model-selection.ts** — Check if `extensions/subagent/model-selection.ts` still exists. If it does, verify it's fully replaced by `bucket-selector.ts` and can be deleted. Check for any remaining imports of the old selector.
-- **`MIN_CAPABILITY_AGGREGATE` temp fix** — If still present, verify it's documented as removable once v2 is operational.
+- **`MIN_CAPABILITY_AGGREGATE` temp fix** — Removed (v2 is operational). Confirm no residual references to the old guard or capability-aggregate fallback remain in the selector or `model-profiles.yaml`.
 
 ### 2.4 In-Process Session Runner
 
