@@ -7,10 +7,15 @@ import {
   LEADERBOARD_WEIGHTS,
 } from '../scripts/leaderboard-scoring.ts';
 import { meanDifferenceInterval, meanInterval, wilsonInterval } from './chart-stats.ts';
+import { renderChartEntries, type ChartContext } from './lib.ts';
+import { newCharts } from './charts/index.ts';
 
 import type {
+  BackendErrorData,
+  FileExtensionData,
   ModelQualityData,
   OverviewData,
+  PruningImpactData,
   RunSummaryData,
   PreparedRunRow,
   PreparedToolUsageRow,
@@ -30,6 +35,9 @@ interface DashboardData {
   toolUsage: ToolUsageData;
   treatmentComparison: TreatmentComparisonData;
   timeline: TimelineData;
+  pruningImpact: PruningImpactData;
+  backendErrors: BackendErrorData;
+  fileExtensions: FileExtensionData;
 }
 
 interface FilterState {
@@ -255,6 +263,7 @@ function renderCards(runs: PreparedRunRow[], overview: OverviewData, usePrecompu
     ? null
     : scored.filter((run) => run.resolution === 'resolved').length / scored.length;
   const medianBusyTime = median(completedRunsList.map((run) => run.busyDurationMs));
+  const costValues = completedRunsList.map((run) => run.estimatedCostUsd).filter((v): v is number => v !== null);
 
   const cards = usePrecomputed
     ? [
@@ -288,6 +297,11 @@ function renderCards(runs: PreparedRunRow[], overview: OverviewData, usePrecompu
           value: overview.medianBusyDurationMs === null ? '—' : `${Math.round(overview.medianBusyDurationMs / 1000)}s`,
           detail: 'busy duration',
         },
+        {
+          label: 'Cost',
+          value: overview.totalEstimatedCostUsd === null ? '—' : `$${Math.round(overview.totalEstimatedCostUsd * 100) / 100}`,
+          detail: 'estimated spend',
+        },
       ]
     : [
         {
@@ -319,6 +333,11 @@ function renderCards(runs: PreparedRunRow[], overview: OverviewData, usePrecompu
           label: 'Median time',
           value: medianBusyTime === null ? '—' : `${Math.round(medianBusyTime / 1000)}s`,
           detail: 'busy duration',
+        },
+        {
+          label: 'Cost',
+          value: costValues.length === 0 ? '—' : `$${Math.round(costValues.reduce((s, v) => s + v, 0) * 100) / 100}`,
+          detail: 'estimated spend',
         },
       ];
 
@@ -2214,7 +2233,7 @@ function frontierComparisonSpec(rows: ModelFrontierRow[]): Record<string, unknow
 async function renderCharts(
   runs: PreparedRunRow[],
   toolRows: PreparedToolUsageRow[],
-  _data: DashboardData,
+  data: DashboardData,
   _usePrecomputed: boolean,
   renderToken: number,
 ): Promise<void> {
@@ -4044,6 +4063,19 @@ async function renderCharts(
     ],
   };
   await renderSpec('chart-subagent-requirement-volume', volumeSpec, 'No scored runs with subagent calls and composite mean match the current filters.', renderToken);
+
+  // ── Registry-driven charts (cost, efficiency, pruning, errors, file-types, interruptions, inputs) ──
+  const ctx: ChartContext = {
+    runs,
+    toolRows,
+    renderToken,
+    pruning: data.pruningImpact,
+    backendErrors: data.backendErrors,
+    fileExtensions: data.fileExtensions,
+    renderSpec,
+    setNote,
+  };
+  await renderChartEntries(newCharts, ctx);
 }
 
 // ─── Filter controls ─────────────────────────────────────────────────────────
@@ -4089,6 +4121,8 @@ function emptyOverviewData(schemaVersion: number): OverviewData {
     averageContextUtilization: null,
     averageCacheHitRatio: null,
     firstAttemptSuccessRate: null,
+    totalEstimatedCostUsd: null,
+    medianEstimatedCostUsd: null,
     latestRunTimestamp: null,
   };
 }
@@ -4113,6 +4147,32 @@ function emptyTimelineData(schemaVersion: number): TimelineData {
   return { schemaVersion, rows: [] };
 }
 
+function emptyPruningImpactData(schemaVersion: number): PruningImpactData {
+  return {
+    schemaVersion,
+    rows: [],
+    summary: {
+      totalEvents: 0,
+      totalSkillTokensSaved: 0,
+      totalToolTokensSaved: 0,
+      medianLlmLatencyMs: null,
+      modeCounts: {},
+    },
+  };
+}
+
+function emptyBackendErrorsData(schemaVersion: number): BackendErrorData {
+  return {
+    schemaVersion,
+    rows: [],
+    summary: { totalErrorEvents: 0, affectedRunCount: 0, byErrorCode: [] },
+  };
+}
+
+function emptyFileExtensionsData(schemaVersion: number): FileExtensionData {
+  return { schemaVersion, rows: [], summary: [] };
+}
+
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -4121,17 +4181,20 @@ async function main(): Promise<void> {
     fetchJson<RunSummaryData>('./data/run-summary.json'),
   ]);
 
-  const [overview, modelQuality, verificationImpact, toolUsage, treatmentComparison, timeline] = await Promise.all([
+  const [overview, modelQuality, verificationImpact, toolUsage, treatmentComparison, timeline, pruningImpact, backendErrors, fileExtensions] = await Promise.all([
     fetchOptionalJson<OverviewData>('./data/overview.json'),
     fetchOptionalJson<ModelQualityData>('./data/model-quality.json'),
     fetchOptionalJson<VerificationImpactData>('./data/verification-impact.json'),
     fetchOptionalJson<ToolUsageData>('./data/tool-usage.json'),
     fetchOptionalJson<TreatmentComparisonData>('./data/treatment-comparison.json'),
     fetchOptionalJson<TimelineData>('./data/timeline.json'),
+    fetchOptionalJson<PruningImpactData>('./data/pruning-impact.json'),
+    fetchOptionalJson<BackendErrorData>('./data/backend-errors.json'),
+    fetchOptionalJson<FileExtensionData>('./data/file-types.json'),
   ]);
 
   const precomputedAvailable = Boolean(
-    overview && modelQuality && verificationImpact && toolUsage && treatmentComparison && timeline,
+    overview && modelQuality && verificationImpact && toolUsage && treatmentComparison && timeline && pruningImpact && backendErrors && fileExtensions,
   );
 
   if (!precomputedAvailable) {
@@ -4147,6 +4210,9 @@ async function main(): Promise<void> {
     toolUsage: toolUsage ?? emptyToolUsageData(manifest.schemaVersion),
     treatmentComparison: treatmentComparison ?? emptyTreatmentComparisonData(manifest.schemaVersion),
     timeline: timeline ?? emptyTimelineData(manifest.schemaVersion),
+    pruningImpact: pruningImpact ?? emptyPruningImpactData(manifest.schemaVersion),
+    backendErrors: backendErrors ?? emptyBackendErrorsData(manifest.schemaVersion),
+    fileExtensions: fileExtensions ?? emptyFileExtensionsData(manifest.schemaVersion),
   };
 
   setText('generated-at', formatDateTime(data.manifest.generatedAt));

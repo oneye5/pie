@@ -15,6 +15,7 @@ import {
   type VerificationCommandKind,
 } from './contracts.ts';
 import { existingHashPrefix, hashToPrefix } from './hash.ts';
+import { loadModelPricingMap, estimateRunCostUsd } from './pricing.ts';
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
@@ -115,7 +116,11 @@ function dedupeRunsById(runs: RunSnapshot[]): RunSnapshot[] {
   return [...deduped.values()];
 }
 
-function prepareRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>): PreparedRunRow {
+function prepareRun(
+  run: RunSnapshot,
+  outcomesByRunId: Map<string, RunOutcome>,
+  pricingMap: ReturnType<typeof loadModelPricingMap>,
+): PreparedRunRow {
   const outcome = getRunOutcome(run, outcomesByRunId);
   const verificationTotalCount = run.verification.totalCount;
   const verificationFailureCount = run.verification.failureCount;
@@ -235,6 +240,12 @@ function prepareRun(run: RunSnapshot, outcomesByRunId: Map<string, RunOutcome>):
       ? round3((run.cacheReadTokens ?? 0) / ((run.cacheReadTokens ?? 0) + (run.inputTokens ?? 0)))
       : null,
     firstAttemptSuccess: run.interruptedCount === 0 && run.messageEditCount === 0 && run.truncatedAfterCount === 0 && (outcome?.resolution === 'resolved'),
+    estimatedCostUsd: estimateRunCostUsd(run.modelId, {
+      inputTokens: run.inputTokens ?? 0,
+      outputTokens: run.outputTokens ?? 0,
+      cacheReadTokens: run.cacheReadTokens ?? 0,
+      cacheWriteTokens: run.cacheWriteTokens ?? 0,
+    }, pricingMap),
   };
 }
 
@@ -248,6 +259,8 @@ function prepareToolUsage(run: RunSnapshot, outcome: RunOutcome | null): Prepare
       const probeFailureCount = failureCountsByKind.probe_no_match ?? 0;
       const failureCount = run.toolUsage.failureCountsByName[toolName] ?? 0;
       const classifiedFailureCount = Object.values(failureCountsByKind).reduce((sum, count) => sum + count, 0);
+      const totalDurationMs = run.toolUsage.durationMsByName[toolName] ?? 0;
+      const meanDurationMs = callCount > 0 ? round3(totalDurationMs / callCount) : null;
       return {
         runId: run.runId,
         toolName,
@@ -258,6 +271,8 @@ function prepareToolUsage(run: RunSnapshot, outcome: RunOutcome | null): Prepare
           : 0,
         verificationProjectFailureCount,
         probeFailureCount,
+        totalDurationMs,
+        meanDurationMs,
         startedAt: run.startedAt,
         startedDay,
         modelId: normalizeNullableText(run.modelId),
@@ -503,7 +518,8 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
   }
 
   const dedupedRuns = dedupeRunsById([...source.completedRuns, ...source.openRuns]);
-  const runs = dedupedRuns.map((run) => prepareRun(run, outcomesByRunId));
+  const pricingMap = loadModelPricingMap();
+  const runs = dedupedRuns.map((run) => prepareRun(run, outcomesByRunId, pricingMap));
   const toolUsage: PreparedToolUsageRow[] = [];
   const toolFailures: PreparedToolFailureRow[] = [];
   const verificationUsage: PreparedVerificationUsageRow[] = [];

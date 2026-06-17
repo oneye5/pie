@@ -16,7 +16,20 @@ function clampPercent(value: number): number {
   return Math.min(100, Math.max(0, value));
 }
 
-export function deriveFallbackContextUsageFromBranch(
+/**
+ * Canonical context-window usage derivation.
+ *
+ * `tokens` is the **prompt footprint** of the most recent assistant usage —
+ * `input + cacheRead + cacheWrite` — i.e. the tokens that actually counted
+ * against the context window on the last API call. Output tokens are excluded
+ * (they don't consume the window) and no chars/4 trailing estimate is added
+ * (that estimate disagreed with the real usage reported on completion, making
+ * the indicator jump). The footprint is stable during a turn and only steps
+ * forward when a new assistant usage lands, so the indicator reflects actual
+ * window use consistently. Returns `undefined` when no assistant usage exists
+ * yet (first turn / post-compaction before a new response).
+ */
+export function deriveContextUsageFromBranch(
   entries: SessionEntryLike[] | undefined,
   contextWindow: number | undefined,
 ): ContextWindowUsage | undefined {

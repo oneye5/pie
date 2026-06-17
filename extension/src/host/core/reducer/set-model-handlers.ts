@@ -64,10 +64,12 @@ export function applySetModelOptimistic(
       };
     }
 
-    // Context usage is model-specific; the old reading is stale under the new
-    // model, so clear it (the backend re-emits ContextUsageChanged on the next
-    // turn).
-    draft.settings.contextUsageBySession[sessionPath] = null;
+    // Keep the last context-usage reading across the switch. The backend
+    // re-emits a fresh ContextUsageChanged immediately after setModel (with the
+    // new model's window and the same conversation's prompt footprint), so
+    // nulling here would only flash a chars/4 transcript estimate before the
+    // real reading lands. Holding the previous value keeps the indicator
+    // stable across the switch.
 
     // Drop pending pasted image inputs when the new model can't accept them.
     // Only happens on the modal-confirmed path (clearImages === true).

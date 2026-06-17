@@ -13,6 +13,9 @@ export const SITE_DATA_FILE_NAMES = [
   'treatment-comparison.json',
   'timeline.json',
   'model-leaderboard.json',
+  'pruning-impact.json',
+  'backend-errors.json',
+  'file-types.json',
 ] as const;
 
 export type SiteDataFileName = (typeof SITE_DATA_FILE_NAMES)[number];
@@ -111,6 +114,12 @@ export interface ToolUsageRollup {
   failureCountsByKind: Record<ToolFailureKind, number>;
   failureCountsByNameAndKind: Record<string, Record<ToolFailureKind, number>>;
   failureSamples: ToolFailureSample[];
+  /** Cumulative wall-clock execution time (ms) across all timed tool calls. */
+  totalDurationMs: number;
+  /** Number of completed/failed tool calls that reported an execution duration. */
+  timedCallCount: number;
+  /** Cumulative execution time (ms) per normalized tool name. */
+  durationMsByName: Record<string, number>;
   subagentCallCount: number;
   subagentTaskCount: number;
   subagentAgentNames: string[];
@@ -307,6 +316,8 @@ export interface PreparedRunRow {
   contextUtilization: number | null;
   cacheHitRatio: number | null;
   firstAttemptSuccess: boolean;
+  /** Estimated USD cost derived from token usage × model pricing (null when pricing is unknown for the model). */
+  estimatedCostUsd: number | null;
 }
 
 export interface PreparedToolUsageRow {
@@ -317,6 +328,10 @@ export interface PreparedToolUsageRow {
   executionFailureCount: number;
   verificationProjectFailureCount: number;
   probeFailureCount: number;
+  /** Cumulative execution duration (ms) for this tool across the run (0 when unreported). */
+  totalDurationMs: number;
+  /** Mean execution duration (ms) per call (= totalDurationMs / callCount); null when callCount is 0. */
+  meanDurationMs: number | null;
   startedAt: string;
   startedDay: string;
   modelId: string | null;
@@ -484,6 +499,8 @@ export interface OverviewData {
   averageContextUtilization: number | null;
   averageCacheHitRatio: number | null;
   firstAttemptSuccessRate: number | null;
+  totalEstimatedCostUsd: number | null;
+  medianEstimatedCostUsd: number | null;
   latestRunTimestamp: string | null;
 }
 
@@ -639,6 +656,53 @@ export interface ModelLeaderboardData {
   notes: string[];
 }
 
+export interface PruningSummary {
+  totalEvents: number;
+  totalSkillTokensSaved: number;
+  totalToolTokensSaved: number;
+  medianLlmLatencyMs: number | null;
+  modeCounts: Record<string, number>;
+}
+
+export interface PruningImpactData {
+  schemaVersion: number;
+  rows: PreparedPruningEventRow[];
+  summary: PruningSummary;
+}
+
+export interface BackendErrorByCodeRow {
+  errorCode: string;
+  count: number;
+  affectedRunCount: number;
+}
+
+export interface BackendErrorSummary {
+  totalErrorEvents: number;
+  affectedRunCount: number;
+  byErrorCode: BackendErrorByCodeRow[];
+}
+
+export interface BackendErrorData {
+  schemaVersion: number;
+  rows: PreparedBackendErrorRow[];
+  summary: BackendErrorSummary;
+}
+
+export interface FileExtensionSummaryRow {
+  extension: string;
+  readCount: number;
+  writeCount: number;
+  editCount: number;
+  totalCount: number;
+  affectedRunCount: number;
+}
+
+export interface FileExtensionData {
+  schemaVersion: number;
+  rows: PreparedFileExtensionRow[];
+  summary: FileExtensionSummaryRow[];
+}
+
 export interface SiteDataBundle {
   manifest: SiteManifest;
   overview: OverviewData;
@@ -649,4 +713,7 @@ export interface SiteDataBundle {
   treatmentComparison: TreatmentComparisonData;
   timeline: TimelineData;
   modelLeaderboard: ModelLeaderboardData;
+  pruningImpact: PruningImpactData;
+  backendErrors: BackendErrorData;
+  fileExtensions: FileExtensionData;
 }

@@ -17,7 +17,7 @@ import {
   type TranscriptPagePayload,
 } from '../shared/protocol';
 import { getDefaultAuthDir, ensureDir, isInsideGitWorkTree, migrateAuthFile } from './auth.js';
-import { deriveFallbackContextUsageFromBranch } from './context-usage';
+import { deriveContextUsageFromBranch } from './context-usage';
 import { ExtensionUIBridge } from './extension-ui-bridge';
 import { handleBackendRequest } from './request-handler';
 import { handleSdkSessionEvent } from './session-event-handler';
@@ -328,14 +328,27 @@ export class BackendServer {
   }
 
   private getContextUsage(context: SessionContext): ContextWindowUsage | undefined {
-    const directUsage = context.session.getContextUsage?.();
-    if (directUsage) {
-      return directUsage;
+    // Derive `tokens` from the most recent assistant usage's prompt footprint
+    // (input + cacheRead + cacheWrite) — the tokens that actually counted
+    // against the context window on the last API call.
+    //
+    // We deliberately do NOT use the SDK's `getContextUsage().tokens`: that
+    // value is `calculateContextTokens(lastUsage)` (= `totalTokens` = prompt
+    // footprint + output) plus a chars/4 estimate of trailing in-progress
+    // messages. Including output overstates window fill, and the trailing
+    // estimate disagrees with the real usage that lands on completion, so the
+    // indicator jumps ("doubling" / changing mid-turn and on completion).
+    //
+    // The prompt footprint is stable during a turn — it only steps forward
+    // when a new assistant usage arrives — so the indicator reflects actual
+    // window use consistently. `contextWindow` follows the active model.
+    const contextWindow = this.resolveCurrentContextWindow(context);
+    if (!contextWindow) {
+      return undefined;
     }
-
-    return deriveFallbackContextUsageFromBranch(
+    return deriveContextUsageFromBranch(
       context.session.sessionManager.getBranch(),
-      this.resolveCurrentContextWindow(context),
+      contextWindow,
     );
   }
 
@@ -527,6 +540,7 @@ export class BackendServer {
       ),
       emit: (event, payload) => this.emit(event, payload),
       emitBusyChanged: (context, busy) => this.emitBusyChanged(context, busy),
+      emitContextUsageChanged: (sessionContext) => this.emitContextUsageChanged(sessionContext),
       emitSessionListChanged: () => this.emitSessionListChanged(),
       listSessions: () => listSessionSummaries(this.sdk),
       listAvailableModels: (context) => listAvailableModels(context, this.agentDir),

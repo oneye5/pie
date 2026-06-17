@@ -6,9 +6,12 @@ import {
   DATA_MODE_LOCAL_DEFAULT,
   SITE_DATA_FILE_NAMES,
   SITE_DATA_SCHEMA_VERSION,
+  type BackendErrorData,
+  type FileExtensionData,
   type ModelQualityAggregateRow,
   type ModelQualityData,
   type OverviewData,
+  type PruningImpactData,
   type ResolutionCounts,
   type PreparedAnalyticsData,
   type PreparedRunRow,
@@ -140,6 +143,7 @@ function createOverview(prepared: PreparedAnalyticsData): OverviewData {
   const runs = prepared.runs;
   const completedRuns = runs.filter((run) => run.status !== 'open');
   const scoredRuns = completedRuns.filter((run) => run.satisfaction !== null);
+  const costValues = completedRuns.map((r) => r.estimatedCostUsd).filter((v): v is number => v !== null);
   const resolutionCounts = createEmptyResolutionCounts();
   for (const run of scoredRuns) {
     addResolutionCount(resolutionCounts, run.resolution);
@@ -172,6 +176,8 @@ function createOverview(prepared: PreparedAnalyticsData): OverviewData {
     firstAttemptSuccessRate: completedRuns.length === 0
       ? null
       : round(completedRuns.filter((r) => r.firstAttemptSuccess).length / completedRuns.length, 3),
+    totalEstimatedCostUsd: costValues.length === 0 ? null : round(costValues.reduce((sum, v) => sum + v, 0), 4),
+    medianEstimatedCostUsd: percentile(costValues, 50, 4),
     latestRunTimestamp,
   };
 }
@@ -453,6 +459,80 @@ function createTimeline(prepared: PreparedAnalyticsData): TimelineData {
   };
 }
 
+function createPruningImpact(prepared: PreparedAnalyticsData): PruningImpactData {
+  const rows = prepared.pruningEvents;
+  const totalSkillTokensSaved = rows.reduce((sum, r) => sum + r.skillTokensSaved, 0);
+  const totalToolTokensSaved = rows.reduce((sum, r) => sum + r.toolTokensSaved, 0);
+  const modeCounts: Record<string, number> = {};
+  for (const row of rows) {
+    modeCounts[row.pruningMode] = (modeCounts[row.pruningMode] ?? 0) + 1;
+  }
+  const latencies = rows.map((r) => r.llmLatencyMs).filter((v) => Number.isFinite(v));
+  return {
+    schemaVersion: SITE_DATA_SCHEMA_VERSION,
+    rows,
+    summary: {
+      totalEvents: rows.length,
+      totalSkillTokensSaved,
+      totalToolTokensSaved,
+      medianLlmLatencyMs: median(latencies),
+      modeCounts,
+    },
+  };
+}
+
+function createBackendErrors(prepared: PreparedAnalyticsData): BackendErrorData {
+  const rows = prepared.backendErrors;
+  const byCode = new Map<string, { count: number; runs: Set<string> }>();
+  for (const row of rows) {
+    const existing = byCode.get(row.errorCode) ?? { count: 0, runs: new Set<string>() };
+    existing.count += row.count;
+    existing.runs.add(row.runId);
+    byCode.set(row.errorCode, existing);
+  }
+  const byErrorCode = [...byCode.entries()]
+    .map(([errorCode, value]) => ({ errorCode, count: value.count, affectedRunCount: value.runs.size }))
+    .sort((left, right) => right.count - left.count || left.errorCode.localeCompare(right.errorCode));
+  const affectedRuns = new Set(rows.map((r) => r.runId));
+  return {
+    schemaVersion: SITE_DATA_SCHEMA_VERSION,
+    rows,
+    summary: {
+      totalErrorEvents: rows.reduce((sum, r) => sum + r.count, 0),
+      affectedRunCount: affectedRuns.size,
+      byErrorCode,
+    },
+  };
+}
+
+function createFileExtensions(prepared: PreparedAnalyticsData): FileExtensionData {
+  const rows = prepared.fileExtensions;
+  const byExtension = new Map<string, { read: number; write: number; edit: number; runs: Set<string> }>();
+  for (const row of rows) {
+    const existing = byExtension.get(row.extension) ?? { read: 0, write: 0, edit: 0, runs: new Set<string>() };
+    existing.read += row.readCount;
+    existing.write += row.writeCount;
+    existing.edit += row.editCount;
+    existing.runs.add(row.runId);
+    byExtension.set(row.extension, existing);
+  }
+  const summary = [...byExtension.entries()]
+    .map(([extension, value]) => ({
+      extension,
+      readCount: value.read,
+      writeCount: value.write,
+      editCount: value.edit,
+      totalCount: value.read + value.write + value.edit,
+      affectedRunCount: value.runs.size,
+    }))
+    .sort((left, right) => right.totalCount - left.totalCount || left.extension.localeCompare(right.extension));
+  return {
+    schemaVersion: SITE_DATA_SCHEMA_VERSION,
+    rows,
+    summary,
+  };
+}
+
 export function buildSiteDataBundle(prepared: PreparedAnalyticsData, generatedAt = new Date()): SiteDataBundle {
   return {
     manifest: createManifest(prepared, generatedAt),
@@ -467,6 +547,9 @@ export function buildSiteDataBundle(prepared: PreparedAnalyticsData, generatedAt
     treatmentComparison: createTreatmentComparison(prepared),
     timeline: createTimeline(prepared),
     modelLeaderboard: createModelLeaderboard(prepared),
+    pruningImpact: createPruningImpact(prepared),
+    backendErrors: createBackendErrors(prepared),
+    fileExtensions: createFileExtensions(prepared),
   };
 }
 
@@ -481,6 +564,9 @@ export function siteDataFileMap(bundle: SiteDataBundle): Record<SiteDataFileName
     'treatment-comparison.json': bundle.treatmentComparison,
     'timeline.json': bundle.timeline,
     'model-leaderboard.json': bundle.modelLeaderboard,
+    'pruning-impact.json': bundle.pruningImpact,
+    'backend-errors.json': bundle.backendErrors,
+    'file-types.json': bundle.fileExtensions,
   };
 }
 
@@ -647,6 +733,29 @@ function validateModelLeaderboard(leaderboard: unknown): void {
   assert(Array.isArray(leaderboard.notes), 'model-leaderboard.json is missing notes.');
 }
 
+function validatePruningImpact(data: unknown): asserts data is PruningImpactData {
+  assert(isRecord(data), 'pruning-impact.json must contain an object.');
+  assert(data.schemaVersion === SITE_DATA_SCHEMA_VERSION, 'pruning-impact.json has an unexpected schemaVersion.');
+  assert(Array.isArray(data.rows), 'pruning-impact.json is missing rows.');
+  assert(isRecord(data.summary), 'pruning-impact.json is missing summary.');
+  assert(typeof data.summary.totalEvents === 'number', 'pruning-impact.json summary is missing totalEvents.');
+}
+
+function validateBackendErrors(data: unknown): asserts data is BackendErrorData {
+  assert(isRecord(data), 'backend-errors.json must contain an object.');
+  assert(data.schemaVersion === SITE_DATA_SCHEMA_VERSION, 'backend-errors.json has an unexpected schemaVersion.');
+  assert(Array.isArray(data.rows), 'backend-errors.json is missing rows.');
+  assert(isRecord(data.summary), 'backend-errors.json is missing summary.');
+  assert(typeof data.summary.totalErrorEvents === 'number', 'backend-errors.json summary is missing totalErrorEvents.');
+}
+
+function validateFileExtensions(data: unknown): asserts data is FileExtensionData {
+  assert(isRecord(data), 'file-types.json must contain an object.');
+  assert(data.schemaVersion === SITE_DATA_SCHEMA_VERSION, 'file-types.json has an unexpected schemaVersion.');
+  assert(Array.isArray(data.rows), 'file-types.json is missing rows.');
+  assert(Array.isArray(data.summary), 'file-types.json is missing summary.');
+}
+
 export function validateSiteDataBundle(bundle: SiteDataBundle): void {
   validateManifest(bundle.manifest);
   validateOverview(bundle.overview, bundle.manifest);
@@ -657,6 +766,9 @@ export function validateSiteDataBundle(bundle: SiteDataBundle): void {
   validateComparativeRows('treatment-comparison.json', bundle.treatmentComparison.rows);
   validateTimeline(bundle.timeline);
   validateModelLeaderboard(bundle.modelLeaderboard);
+  validatePruningImpact(bundle.pruningImpact);
+  validateBackendErrors(bundle.backendErrors);
+  validateFileExtensions(bundle.fileExtensions);
 }
 
 export async function readSiteDataBundle(outputDir: string): Promise<SiteDataBundle> {
@@ -676,5 +788,8 @@ export async function readSiteDataBundle(outputDir: string): Promise<SiteDataBun
     treatmentComparison: files['treatment-comparison.json'] as SiteDataBundle['treatmentComparison'],
     timeline: files['timeline.json'] as SiteDataBundle['timeline'],
     modelLeaderboard: files['model-leaderboard.json'] as SiteDataBundle['modelLeaderboard'],
+    pruningImpact: files['pruning-impact.json'] as SiteDataBundle['pruningImpact'],
+    backendErrors: files['backend-errors.json'] as SiteDataBundle['backendErrors'],
+    fileExtensions: files['file-types.json'] as SiteDataBundle['fileExtensions'],
   };
 }

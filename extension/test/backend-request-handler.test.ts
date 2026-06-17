@@ -17,6 +17,7 @@ interface Harness {
   createCalls: Array<{ cwd: string; reason: string }>;
   openCalls: string[];
   writtenSettings: Partial<ModelSettings>[];
+  emitContextUsageChangedCalls: SessionContext[];
 }
 
 function createHarness(overrides: {
@@ -30,6 +31,7 @@ function createHarness(overrides: {
   const createCalls: Array<{ cwd: string; reason: string }> = [];
   const openCalls: string[] = [];
   const writtenSettings: Partial<ModelSettings>[] = [];
+  const emitContextUsageChangedCalls: SessionContext[] = [];
   let viewedSessionPath: string | undefined;
   const modelSettings = overrides.modelSettings ?? { defaultModel: 'model-a', defaultThinkingLevel: 'medium' };
 
@@ -111,6 +113,9 @@ function createHarness(overrides: {
     emitBusyChanged(_context, busy) {
       busyEvents.push(busy);
     },
+    emitContextUsageChanged(context) {
+      emitContextUsageChangedCalls.push(context);
+    },
     async emitSessionListChanged() {
       emitted.push({ event: 'session.list.changed' });
     },
@@ -143,6 +148,7 @@ function createHarness(overrides: {
     createCalls,
     openCalls,
     writtenSettings,
+    emitContextUsageChangedCalls,
   } as Harness;
 }
 
@@ -363,13 +369,11 @@ test('settings.set applies live model changes and rolls back persisted settings 
   assert.deepEqual(updated, { defaultModel: 'model-b', defaultThinkingLevel: 'high' });
   assert.equal((successHarness.context.session.model as { id: string }).id, 'model-b');
   assert.equal(successHarness.context.session.thinkingLevel, 'high');
-  assert.deepEqual(successHarness.emitted.at(-1), {
-    event: 'contextUsage.changed',
-    payload: {
-      sessionPath: '/repo/session.jsonl',
-      contextUsage: null,
-    },
-  });
+  // Model switch delegates a fresh context-usage re-emit to the server's
+  // emitContextUsageChanged (resolves the new model's window + last prompt
+  // footprint) instead of blanking to null.
+  assert.equal(successHarness.emitContextUsageChangedCalls.length, 1);
+  assert.equal(successHarness.emitContextUsageChangedCalls[0], successHarness.context);
 
   const failingHarness = createHarness({
     sessionOverrides: {

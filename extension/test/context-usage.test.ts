@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { deriveFallbackContextUsageFromBranch } from '../src/backend/context-usage';
+import { deriveContextUsageFromBranch } from '../src/backend/context-usage';
 import type { SessionEntryLike } from '../src/backend/transcript';
 
-test('deriveFallbackContextUsageFromBranch returns undefined without a valid context window', () => {
+test('deriveContextUsageFromBranch returns undefined without a valid context window', () => {
   const entries: SessionEntryLike[] = [
     {
       id: '1',
@@ -14,12 +14,12 @@ test('deriveFallbackContextUsageFromBranch returns undefined without a valid con
     },
   ];
 
-  assert.equal(deriveFallbackContextUsageFromBranch(entries, undefined), undefined);
-  assert.equal(deriveFallbackContextUsageFromBranch(entries, 0), undefined);
-  assert.equal(deriveFallbackContextUsageFromBranch(entries, Number.NaN), undefined);
+  assert.equal(deriveContextUsageFromBranch(entries, undefined), undefined);
+  assert.equal(deriveContextUsageFromBranch(entries, 0), undefined);
+  assert.equal(deriveContextUsageFromBranch(entries, Number.NaN), undefined);
 });
 
-test('deriveFallbackContextUsageFromBranch uses latest assistant prompt footprint', () => {
+test('deriveContextUsageFromBranch uses latest assistant prompt footprint', () => {
   const entries: SessionEntryLike[] = [
     {
       id: 'old',
@@ -38,14 +38,14 @@ test('deriveFallbackContextUsageFromBranch uses latest assistant prompt footprin
     },
   ];
 
-  assert.deepEqual(deriveFallbackContextUsageFromBranch(entries, 100), {
+  assert.deepEqual(deriveContextUsageFromBranch(entries, 100), {
     tokens: 40,
     contextWindow: 100,
     percent: 40,
   });
 });
 
-test('deriveFallbackContextUsageFromBranch falls back to total tokens and clamps percent', () => {
+test('deriveContextUsageFromBranch falls back to total tokens and clamps percent', () => {
   const entries: SessionEntryLike[] = [
     {
       id: '1',
@@ -55,14 +55,14 @@ test('deriveFallbackContextUsageFromBranch falls back to total tokens and clamps
     },
   ];
 
-  assert.deepEqual(deriveFallbackContextUsageFromBranch(entries, 100), {
+  assert.deepEqual(deriveContextUsageFromBranch(entries, 100), {
     tokens: 400,
     contextWindow: 100,
     percent: 100,
   });
 });
 
-test('deriveFallbackContextUsageFromBranch returns undefined when no assistant usage exists', () => {
+test('deriveContextUsageFromBranch returns undefined when no assistant usage exists', () => {
   const entries: SessionEntryLike[] = [
     {
       id: '1',
@@ -72,5 +72,5 @@ test('deriveFallbackContextUsageFromBranch returns undefined when no assistant u
     },
   ];
 
-  assert.equal(deriveFallbackContextUsageFromBranch(entries, 100), undefined);
+  assert.equal(deriveContextUsageFromBranch(entries, 100), undefined);
 });

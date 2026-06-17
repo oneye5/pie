@@ -145,8 +145,9 @@ test('SetModel with no pending images applies optimistically and emits SetModelR
   assert.equal(out.state.settings.modelSettings?.defaultThinkingLevel, 'high');
   assert.equal(out.state.sessions.sessions.find((s) => s.path === SESSION)?.modelId, 'image-model');
   assert.equal(out.state.sessions.sessions.find((s) => s.path === SESSION)?.thinkingLevel, 'high');
-  // Stale context usage cleared.
-  assert.equal(out.state.settings.contextUsageBySession[SESSION], null);
+  // Context usage left untouched across the switch (the backend re-emits a
+  // fresh reading immediately after setModel).
+  assert.equal(out.state.settings.contextUsageBySession[SESSION], undefined);
   // Rollback snapshot recorded.
   assert.equal(out.state.pending.setModelByCorrId['c1']?.snapshot?.previousModelSettings?.defaultModel, 'old-model');
   assert.deepEqual(out.effects, [{ kind: 'SetModelRpc', corrId: 'c1', sessionPath: SESSION, modelSettings: { defaultModel: 'image-model', defaultThinkingLevel: 'high' } }]);
@@ -191,7 +192,7 @@ test('ModelSwitchConfirmResult{confirmed} applies optimistically, clears images,
 
   assert.equal(out.state.settings.modelSettings?.defaultModel, 'text-only');
   assert.equal(out.state.sessions.sessions.find((s) => s.path === SESSION)?.modelId, 'text-only');
-  assert.equal(out.state.settings.contextUsageBySession[SESSION], null);
+  assert.equal(out.state.settings.contextUsageBySession[SESSION], undefined);
   // Pending images cleared on confirm.
   assert.equal(out.state.composer.pendingComposerInputsBySession[SESSION], undefined);
   // Snapshot now present (for rollback of the apply that just happened).
@@ -257,10 +258,10 @@ test('SetModelResult{ok:false} reverts the optimistic apply field-for-field and 
 });
 
 test('SetModelResult{ok:false} restores an absent context-usage key by deleting it', () => {
-  // No contextUsage key initially; optimistic apply sets it to null; revert
-  // deletes the key (absent again), not sets it to null.
+  // No contextUsage key initially; optimistic apply leaves it absent (it does
+  // not null it); revert deletes the (already absent) key.
   const state = reduceFrom(buildState({ pendingImages: false }), cmd('c1', 'image-model'));
-  assert.equal(state.settings.contextUsageBySession[SESSION], null); // applied -> null
+  assert.equal(state.settings.contextUsageBySession[SESSION], undefined); // applied -> absent
   const out = reducer(state, result('c1', false, 'boom'));
 
   assert.equal(SESSION in out.state.settings.contextUsageBySession, false);
@@ -306,7 +307,7 @@ test('SetModelResult{ok:false} on the no-modal path preserves pending file-ref i
 test('SessionScopeCleared drops an in-flight setModel so a late failure result does not pollute the closed session', () => {
   const applied = reduceFrom(buildState({ contextUsage: USAGE }), cmd('c1', 'image-model'));
   assert.notEqual(applied.pending.setModelByCorrId['c1'], undefined);
-  assert.equal(applied.settings.contextUsageBySession[SESSION], null); // applied -> null
+  assert.deepEqual(applied.settings.contextUsageBySession[SESSION], USAGE); // preserved across apply
 
   const cleared = reducer(applied, { kind: 'SessionScopeCleared', sessionPath: SESSION, removeSessionSummary: true });
   // Entry dropped; session-scoped state cleared.

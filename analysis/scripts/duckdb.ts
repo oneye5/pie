@@ -114,6 +114,7 @@ interface DuckDbRunRow {
   context_utilization: number | null;
   cache_hit_ratio: number | null;
   first_attempt_success: boolean;
+  estimated_cost_usd: number | null;
 }
 
 interface DuckDbToolUsageRow {
@@ -124,6 +125,8 @@ interface DuckDbToolUsageRow {
   execution_failure_count: number;
   verification_project_failure_count: number;
   probe_failure_count: number;
+  total_duration_ms: number;
+  mean_duration_ms: number | null;
   started_at: string;
   started_day: string;
   model_id: string | null;
@@ -315,6 +318,7 @@ function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
     context_utilization: row.contextUtilization,
     cache_hit_ratio: row.cacheHitRatio,
     first_attempt_success: row.firstAttemptSuccess,
+    estimated_cost_usd: row.estimatedCostUsd,
   };
 }
 
@@ -327,6 +331,8 @@ function toDuckDbToolUsageRow(row: PreparedToolUsageRow): DuckDbToolUsageRow {
     execution_failure_count: row.executionFailureCount,
     verification_project_failure_count: row.verificationProjectFailureCount,
     probe_failure_count: row.probeFailureCount,
+    total_duration_ms: row.totalDurationMs,
+    mean_duration_ms: row.meanDurationMs,
     started_at: row.startedAt,
     started_day: row.startedDay,
     model_id: row.modelId,
@@ -580,7 +586,8 @@ CREATE TABLE runs (
   token_efficiency DOUBLE,
   context_utilization DOUBLE,
   cache_hit_ratio DOUBLE,
-  first_attempt_success BOOLEAN
+  first_attempt_success BOOLEAN,
+  estimated_cost_usd DOUBLE
 );
 `.trim();
 }
@@ -595,6 +602,8 @@ CREATE TABLE tool_usage (
   execution_failure_count INTEGER,
   verification_project_failure_count INTEGER,
   probe_failure_count INTEGER,
+  total_duration_ms DOUBLE,
+  mean_duration_ms DOUBLE,
   started_at TIMESTAMP,
   started_day DATE,
   model_id VARCHAR,

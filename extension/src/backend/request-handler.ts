@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 
-import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ContextUsageChangedPayload, type ErrorPayload, type ExtensionUIResponsePayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
+import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ErrorPayload, type ExtensionUIResponsePayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
 import {
   validateLoadTranscriptPage,
   validateMessageSend,
@@ -41,6 +41,7 @@ export interface BackendRequestHandlerDeps {
   ): Promise<TranscriptPagePayload>;
   emit(event: string, payload?: unknown): void;
   emitBusyChanged(context: SessionContext, busy: boolean): void;
+  emitContextUsageChanged(context: SessionContext): void;
   emitSessionListChanged(): Promise<void>;
   listSessions(): Promise<SessionSummary[]>;
   listAvailableModels(context?: SessionContext): ModelInfo[];
@@ -422,11 +423,14 @@ async function handleSettingsSet(
         targetContext.session.setThinkingLevel?.(params.defaultThinkingLevel);
       }
 
-      targetContext.lastContextUsage = null;
-      deps.emit('contextUsage.changed', {
-        sessionPath: targetContext.sessionPath,
-        contextUsage: null,
-      } satisfies ContextUsageChangedPayload);
+      // Re-emit a fresh context-usage reading immediately so the indicator
+      // reflects the new model's context window with the same conversation,
+      // instead of blanking to null (which previously made the indicator flip
+      // to a chars/4 transcript estimate until the next turn).
+      // emitContextUsageChanged resolves the new model's window and the last
+      // assistant prompt footprint, and no-ops via change-detection when
+      // nothing differs.
+      deps.emitContextUsageChanged(targetContext);
     }
 
     return result;
