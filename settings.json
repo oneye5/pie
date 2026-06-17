@@ -1,6 +1,6 @@
 {
-  "defaultModel": "umans-glm-5.1",
-  "defaultThinkingLevel": "medium",
+  "defaultModel": "umans-glm-5.2",
+  "defaultThinkingLevel": "xhigh",
   "defaultProvider": "umans",
   "pruning": {
     "model": "deepseek-v4-flash:cloud",
