@@ -1,15 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { produce } from 'immer';
-
 import { NOOP_RUN_OBSERVER } from '../src/host/stats-service';
 import { createInitialArchState } from '../src/host/core/arch-state';
 import type { ArchState } from '../src/host/core/arch-state';
 import { SessionServiceState } from '../src/host/session-service/state';
 import { SessionTabActions } from '../src/host/session-service/tab-actions';
 import { reducer } from '../src/host/core/reducer';
-import type { Event } from '../src/host/core/events';
+import { EffectRunner, type EffectRunnerDeps } from '../src/host/core/effect-runner';
+import type { Event, EffectResultEvent } from '../src/host/core/events';
 
 function createExtensionContext() {
   return {
@@ -40,6 +39,11 @@ async function waitFor(predicate: () => boolean, attempts = 20): Promise<void> {
 }
 
 test('openSession serializes backend session.open requests through the lifecycle queue', async () => {
+  // After the MVI migration the reducer owns the optimistic tab setup and the
+  // runner owns the backend `session.open` RPC (serialized via the lifecycle
+  // queue). So the dispatch loop must run the reducer AND execute the emitted
+  // effects via the EffectRunner — mirroring extension-host. The real
+  // `state.enqueueLifecycle` is injected so the two open effects serialize.
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const sessionPaths = [`/workspace/session-a-${suffix}.jsonl`, `/workspace/session-b-${suffix}.jsonl`];
   const started: string[] = [];
@@ -58,9 +62,11 @@ test('openSession serializes backend session.open requests through the lifecycle
   const context = createExtensionContext();
   let archState = createInitialArchState();
   const getArchState = () => archState;
+  let runner: EffectRunner;
   const dispatchArch = (event: Event) => {
     const result = reducer(archState, event);
     archState = result.state;
+    for (const effect of result.effects) runner.run(effect);
   };
   // Disable the 60s selection-request timeout watchdog: this test exercises request
   // serialization, not timeout behavior. An armed-but-uncleared 60s timer keeps the Node
@@ -76,6 +82,31 @@ test('openSession serializes backend session.open requests through the lifecycle
     getArchState,
     dispatchArch,
   });
+
+  const deps: EffectRunnerDeps = {
+    backend,
+    // Inject the REAL serializing lifecycle queue so the two open effects
+    // serialize (the whole point of this test).
+    queues: {
+      enqueueLifecycle: (task) => state.enqueueLifecycle(task),
+      enqueueSessionOperation: (sessionPath, task) => state.enqueueSessionOperation(sessionPath, task),
+    },
+    tabs: { async persistTabs() {} },
+    log: { log() {} },
+    postImperative: { postImperative() {} },
+    modal: { async showWarningModal() { return undefined; } },
+    fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
+    service: {
+      async hydrateModelState() {}, setPrefs() {}, bumpSessionDataEpoch() {}, onModelConfigChanged() {},
+      suppressNextCompletionNotificationFor() {}, async addFilesystemPaths() {}, async loadOlderTranscript() {},
+      async loadNewerTranscript() {}, async jumpToLatestTranscript() {}, async closeSession() {},
+      async setPruningSettings() {}, duplicateSession() {},
+      handleSelectionFailure: (token: string, notice: string) => state.handleSelectionFailure(token, notice),
+    } as any,
+    statsService: { prepareForSend() {}, onTruncatedAfter() {}, onMessageEdited() {}, recordOutcome() {}, startNewTask() {}, continueTask() {} },
+    dispatch: (e: EffectResultEvent) => dispatchArch(e),
+  };
+  runner = new EffectRunner(deps);
 
   tabs.openSession(sessionPaths[0]);
   tabs.openSession(sessionPaths[1]);

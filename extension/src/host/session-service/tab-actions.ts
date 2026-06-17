@@ -96,6 +96,20 @@ export class SessionTabActions {
   }
 
   openSession(sessionPath: string): void {
+    // Host-side entry: generate the impure bits the reducer can't (the data
+    // epoch + Date.now placeholder modifiedAt + the selection token), then
+    // dispatch the OpenSession Command. The reducer owns the optimistic tab
+    // setup (placeholder summary, tab open, select, unread-finished clear) and
+    // emits PersistTabs + OpenSession; the runner owns the backend session.open
+    // RPC + failure recovery.
+    //
+    // beginSelectionRequest MUST run before the Command dispatch: it snapshots
+    // `previousActivePath` (the active tab before the open) so failure recovery
+    // can restore it. The reducer synchronously sets activeSessionPath =
+    // sessionPath during the dispatch, so calling beginSelectionRequest after
+    // would snapshot the opened path instead. The epoch is bumped before the
+    // token so attach.ts can detect stale session.opened payloads for this
+    // open. Mirrors createNewSession.
     const archState = this.getArchState();
     const existing = archState.sessions.sessions.find((s) => s.path === sessionPath);
     const wasOpenTab = archState.sessions.openTabPaths.includes(sessionPath);
@@ -120,8 +134,9 @@ export class SessionTabActions {
       hadExistingSummary: !!existing,
     });
 
-    if (!existing) {
-      const incoming: SessionSummary = {
+    const placeholderSummary: SessionSummary | null = existing
+      ? null
+      : {
         path: sessionPath,
         name: 'Loading...',
         isPlaceholder: true,
@@ -129,30 +144,23 @@ export class SessionTabActions {
         modifiedAt: new Date().toISOString(),
         messageCount: 0,
       };
-      this.dispatchArch({ kind: 'SessionSummaryUpserted', summary: incoming });
-    }
-    if (!wasOpenTab) {
-      this.dispatchArch({ kind: 'TabOpened', sessionPath });
-    }
-    this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath } });
+
+    this.dispatchArch({
+      kind: 'Command',
+      cmd: {
+        kind: 'OpenSession',
+        corrId: crypto.randomUUID(),
+        sessionPath,
+        placeholderSummary,
+        selectionToken,
+      },
+    });
+
+    // Host-side transcript-window LRU: touch the opened session + evict inactive
+    // windows. Stays host-side (Phase 3/4 folds these reads into the reducer).
     this.state.touchSessionTranscript(sessionPath);
     this.state.evictInactiveTranscriptWindows();
-    this.state.saveOpenTabs();
     this.scheduleRender();
-
-    void this.state.enqueueLifecycle(async () => {
-      await this.backend.request('session.open', { sessionPath, selectionToken });
-    }).catch((err) => {
-      bootLog('session-tabs', 'session.open.failed', {
-        selectionToken,
-        sessionPath,
-        message: toErrorMessage(err),
-      });
-      this.state.handleSelectionFailure(
-        selectionToken,
-        `Failed to open session: ${toErrorMessage(err)}`,
-      );
-    });
   }
 
   async closeSession(sessionPath: string): Promise<void> {

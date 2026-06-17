@@ -90,7 +90,6 @@ export interface SessionServiceLike {
    *  dispatch the reducer transitions that undo the optimistic tab setup
    *  (CloseTab / SelectSession-fallback / SessionScopeCleared / NoticeShown). */
   handleSelectionFailure(selectionToken: string, notice: string): void;
-  openSession(sessionPath: string): void;
 }
 
 export interface StatsServiceLike {
@@ -498,11 +497,18 @@ export class EffectRunner {
   private runLifecycle(effect: Extract<Effect, { kind: 'OpenSession' | 'CreateSession' }>): void {
     const { service, backend, queues, dispatch } = this.deps;
     if (effect.kind === 'OpenSession') {
-      // OpenSession is not yet migrated (next chunk): the service still owns
-      // its optimistic tab setup + backend session.open RPC.
-      void (async () => {
+      // OpenSession: the reducer already did the optimistic tab setup; the
+      // runner owns the backend session.open RPC, serialized on the lifecycle
+      // queue (shared with create/close). The selection token was minted in
+      // service.openSession() BEFORE the reducer activated the opened tab, so
+      // handleSelectionFailure can restore the previous active path on
+      // failure. On failure handleSelectionFailure dispatches the reducer
+      // transitions that undo the optimistic setup (CloseTab / SelectSession-
+      // fallback / SessionScopeCleared / NoticeShown) — so the reducer's
+      // OpenSessionResult handler stays a no-op, matching CreateSession.
+      void queues.enqueueLifecycle(async () => {
         try {
-          service.openSession(effect.sessionPath);
+          await backend.request('session.open', { sessionPath: effect.sessionPath, selectionToken: effect.selectionToken });
           dispatch({
             kind: 'OpenSessionResult',
             corrId: effect.corrId,
@@ -510,6 +516,7 @@ export class EffectRunner {
             ok: true,
           });
         } catch (err) {
+          service.handleSelectionFailure(effect.selectionToken, `Failed to open session: ${toErrorMessage(err)}`);
           dispatch({
             kind: 'OpenSessionResult',
             corrId: effect.corrId,
@@ -518,7 +525,7 @@ export class EffectRunner {
             error: toErrorMessage(err),
           });
         }
-      })();
+      });
       return;
     }
     // CreateSession: the reducer already did the optimistic tab setup; the

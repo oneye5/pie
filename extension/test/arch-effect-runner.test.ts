@@ -11,7 +11,6 @@ type Call =
   | { kind: 'request'; method: string; params: unknown }
   | { kind: 'persistTabs'; openTabPaths: string[]; active: string | null }
   | { kind: 'log'; level: string; message: string }
-  | { kind: 'openSession'; sessionPath: string }
   | { kind: 'showWarningModal'; message: string; confirmChoice: string }
   | { kind: 'bumpEpoch'; sessionPath: string }
   | { kind: 'onModelConfigChanged'; sessionPath: string; modelId: string; thinkingLevel: string }
@@ -79,9 +78,6 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
       duplicateSession() {},
       handleSelectionFailure(token: string, notice: string) {
         calls.push({ kind: 'handleSelectionFailure', token, notice });
-      },
-      openSession(sessionPath: string) {
-        calls.push({ kind: 'openSession', sessionPath });
       },
     },
     statsService: {
@@ -165,7 +161,7 @@ test('EffectRunner CreateSession calls handleSelectionFailure + dispatches Creat
   assert.equal(events[0]?.error, 'backend down');
 });
 
-test('EffectRunner delegates OpenSession to the session service', async () => {
+test('EffectRunner OpenSession issues session.open (with the pre-minted token) on the lifecycle queue and dispatches OpenSessionResult{ok:true}', async () => {
   const { deps, calls, events } = makeDeps();
   const runner = new EffectRunner(deps);
 
@@ -178,13 +174,28 @@ test('EffectRunner delegates OpenSession to the session service', async () => {
   runner.run(effect);
   await settle();
 
-  assert.deepEqual(
-    calls.find((c) => c.kind === 'openSession'),
-    { kind: 'openSession', sessionPath: '/existing' },
-  );
-  assert.equal(calls.some((c) => c.kind === 'request'), false);
+  // The reducer already did the optimistic tab setup; the service already
+  // minted the selection token (before the reducer activated the opened tab).
+  // The runner only issues the backend session.open RPC, serialized on the
+  // lifecycle queue, carrying that token — mirroring CreateSession.
+  assert.equal(calls.some((c) => c.kind === 'lifecycle'), true);
+  assert.deepEqual(calls.find((c) => c.kind === 'request'), { kind: 'request', method: 'session.open', params: { sessionPath: '/existing', selectionToken: 'tok' } });
   assert.equal(events[0]?.kind, 'OpenSessionResult');
   assert.equal(events[0]?.ok, true);
+  assert.equal(events[0]?.sessionPath, '/existing');
+});
+
+test('EffectRunner OpenSession calls handleSelectionFailure + dispatches OpenSessionResult{ok:false} when session.open rejects', async () => {
+  const { deps, calls, events } = makeDeps({ requestImpl: (method) => method === 'session.open' ? Promise.reject(new Error('backend down')) : Promise.resolve({}) });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'OpenSession', corrId: 'c3b', sessionPath: '/existing2', selectionToken: 'tok-2' });
+  await settle();
+
+  assert.deepEqual(calls.find((c) => c.kind === 'handleSelectionFailure'), { kind: 'handleSelectionFailure', token: 'tok-2', notice: 'Failed to open session: backend down' });
+  assert.equal(events[0]?.kind, 'OpenSessionResult');
+  assert.equal(events[0]?.ok, false);
+  assert.equal(events[0]?.error, 'backend down');
 });
 
 test('EffectRunner dispatches a failure result when an RPC rejects', async () => {

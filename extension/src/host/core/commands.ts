@@ -68,7 +68,15 @@ export interface TruncateAfterCommand extends CommandBase {
 export interface OpenSessionCommand extends CommandBase {
   kind: 'OpenSession';
   sessionPath: string;
-  /** Token issued by the lifecycle queue to detect stale selections. */
+  /** Pre-built placeholder summary (modifiedAt set host-side); inserted by the
+   *  reducer iff the session isn't already summarized. null when the session
+   *  already has a summary (no placeholder needed). Mirrors CreateSession's
+   *  placeholderSummary — the impure Date.now can't live in the reducer. */
+  placeholderSummary: SessionSummary | null;
+  /** Selection token minted by `beginSelectionRequest` BEFORE this Command is
+   *  dispatched — it must snapshot the previous active path before the reducer
+   *  optimistically activates the opened tab, so failure recovery can restore
+   *  it. Flowed through to the runner for the backend session.open RPC. */
   selectionToken: string;
 }
 

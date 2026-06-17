@@ -391,13 +391,17 @@ export class MessageRouter {
   }
 
   private onOpenSession(msg: Extract<WebviewToHostMessage, { type: 'openSession' }>): void {
+    // The service mints the data epoch + selection token (before the reducer
+    // activates the opened tab so failure recovery can restore the previous
+    // active path) + builds the placeholder summary, and dispatches the
+    // OpenSession Command. The reducer owns the optimistic tab setup. Mirrors
+    // onNewSession -> service.createNewSession(). The previous path dispatched
+    // the OpenSession Command directly with a fake random selectionToken that
+    // was never registered with beginSelectionRequest, so handleSelectionFailure
+    // could not restore the previous active tab on failure.
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetEditingMessage', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, messageId: null } });
     this.dispatchEvent({ kind: 'Command', cmd: { kind: 'SetOutcomeDialog', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, visible: false } });
-    const corrId = crypto.randomUUID();
-    this.dispatchEvent({
-      kind: 'Command',
-      cmd: { kind: 'OpenSession', corrId, sessionPath: msg.sessionPath, selectionToken: crypto.randomUUID() },
-    });
+    this.service.openSession(msg.sessionPath);
     this.sidebarProvider.postState();
   }
 

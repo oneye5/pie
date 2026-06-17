@@ -1,15 +1,17 @@
 /**
- * Integration test pinning the critical ordering invariant of the createSession
+ * Integration test pinning the critical ordering invariant of the openSession
  * migration: `beginSelectionRequest` must run BEFORE the reducer optimistically
- * activates the pending tab, so the selection request snapshots the *previous*
+ * activates the opened tab, so the selection request snapshots the *previous*
  * active path. `handleSelectionFailure` uses that snapshot to restore the
  * previously-active tab on failure — if `beginSelectionRequest` ran after the
- * reducer set `activeSessionPath = pending`, it would snapshot the pending path
- * and recovery would select the wrong tab.
+ * reducer set `activeSessionPath = sessionPath`, it would snapshot the opened
+ * path and recovery would select the wrong tab.
  *
- * Uses the real `SessionServiceState` + `SessionTabActions` (timeout disabled
- * to avoid a 60s timer leak); `dispatchArch` runs the real reducer so the
- * optimistic setup is applied synchronously before `createNewSession()` returns.
+ * Mirrors create-session-ordering.test.ts (the createSession equivalent) but
+ * opens a real (non-pending) path. Uses the real `SessionServiceState` +
+ * `SessionTabActions` (timeout disabled to avoid a 60s timer leak);
+ * `dispatchArch` runs the real reducer so the optimistic setup is applied
+ * synchronously before `openSession()` returns.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -31,10 +33,11 @@ function createExtensionContext(): any {
   };
 }
 
-test('createNewSession mints the selection token before the reducer activates the pending tab (previousActivePath is the old active)', () => {
+test('openSession mints the selection token before the reducer activates the opened tab (previousActivePath is the old active)', () => {
   const backend = { request: async () => ({}) } as any;
   const context = createExtensionContext();
   const OLD = '/workspace/old.jsonl';
+  const NEW = '/workspace/new.jsonl';
   const oldSummary: SessionSummary = {
     path: OLD, name: 'Old', cwd: '/w', modifiedAt: '2024-01-01T00:00:00.000Z', messageCount: 1,
   };
@@ -51,7 +54,7 @@ test('createNewSession mints the selection token before the reducer activates th
 
   let capturedToken: string | undefined;
   const dispatchArch = (event: Event) => {
-    if (event.kind === 'Command' && event.cmd.kind === 'CreateSession') {
+    if (event.kind === 'Command' && event.cmd.kind === 'OpenSession') {
       capturedToken = event.cmd.selectionToken;
     }
     archState = reducer(archState, event).state;
@@ -69,31 +72,32 @@ test('createNewSession mints the selection token before the reducer activates th
     dispatchArch,
   });
 
-  const pendingPath = tabs.createNewSession();
+  tabs.openSession(NEW);
 
-  // The reducer activated the pending tab (optimistic setup applied
+  // The reducer activated the opened tab (optimistic setup applied
   // synchronously during the Command dispatch).
-  assert.equal(archState.sessions.activeSessionPath, pendingPath);
-  assert.ok(archState.sessions.openTabPaths.includes(pendingPath));
+  assert.equal(archState.sessions.activeSessionPath, NEW);
+  assert.ok(archState.sessions.openTabPaths.includes(NEW));
 
-  // The selection request snapshotted the OLD active path — NOT the pending
+  // The selection request snapshotted the OLD active path — NOT the opened
   // path — because beginSelectionRequest ran before the Command dispatch. This
   // is what lets handleSelectionFailure restore the previous active tab on
   // failure. (If beginSelectionRequest ran after the reducer set active =
-  // pending, previousActivePath would equal pendingPath — a recovery bug.)
+  // NEW, previousActivePath would equal NEW — a recovery bug.)
   const request = state.getSelectionRequest(capturedToken);
-  assert.ok(request, 'a selection request was registered for the create');
+  assert.ok(request, 'a selection request was registered for the open');
   assert.equal(request?.previousActivePath, OLD);
-  assert.notEqual(request?.previousActivePath, pendingPath);
+  assert.notEqual(request?.previousActivePath, NEW);
 });
 
-test('createNewSession → backend session.create rejection → handleSelectionFailure restores the pre-create state (e2e through the EffectRunner)', async () => {
-  // Glues the whole riskiest chain in one test: optimistic setup (reducer) →
-  // backend RPC rejection (runner) → handleSelectionFailure (host) → reducer
+test('openSession -> backend session.open rejection -> handleSelectionFailure restores the pre-open state (e2e through the EffectRunner)', async () => {
+  // Glues the whole riskiest chain in one test: optimistic setup (reducer) ->
+  // backend RPC rejection (runner) -> handleSelectionFailure (host) -> reducer
   // transitions that undo the setup. The final ArchState must equal the
-  // pre-create state (active restored to OLD, pending tab+summary gone, no
-  // run-summary, a notice surfaced).
+  // pre-open state (active restored to OLD, opened tab + placeholder gone, a
+  // notice surfaced).
   const OLD = '/workspace/old.jsonl';
+  const NEW = '/workspace/new.jsonl';
   const oldSummary: SessionSummary = {
     path: OLD, name: 'Old', cwd: '/w', modifiedAt: '2024-01-01T00:00:00.000Z', messageCount: 1,
   };
@@ -104,10 +108,10 @@ test('createNewSession → backend session.create rejection → handleSelectionF
   const getArchState = () => archState;
   const context = createExtensionContext();
 
-  // Backend rejects session.create; everything else resolves.
+  // Backend rejects session.open; everything else resolves.
   const backend = {
     request: async (method: string): Promise<unknown> => {
-      if (method === 'session.create') throw new Error('boom');
+      if (method === 'session.open') throw new Error('boom');
       return {};
     },
   } as any;
@@ -148,21 +152,21 @@ test('createNewSession → backend session.create rejection → handleSelectionF
   };
   runner = new EffectRunner(deps);
 
-  const pendingPath = tabs.createNewSession();
+  tabs.openSession(NEW);
 
   // Optimistic setup applied synchronously.
-  assert.equal(archState.sessions.activeSessionPath, pendingPath);
-  assert.ok(archState.sessions.openTabPaths.includes(pendingPath));
+  assert.equal(archState.sessions.activeSessionPath, NEW);
+  assert.ok(archState.sessions.openTabPaths.includes(NEW));
 
-  // Drain microtasks: backend rejection → handleSelectionFailure → recovery dispatches.
+  // Drain microtasks: backend rejection -> handleSelectionFailure -> recovery dispatches.
   for (let i = 0; i < 10; i++) await new Promise<void>((r) => setImmediate(r));
 
-  // Final state equals the pre-create state: active restored to OLD, pending
-  // tab + summary gone, no pending run-summary, a notice surfaced.
+  // Final state equals the pre-open state: active restored to OLD, opened
+  // tab + placeholder gone, no pending run-summary, a notice surfaced.
   assert.equal(archState.sessions.activeSessionPath, OLD);
   assert.deepEqual(archState.sessions.openTabPaths, [OLD]);
   assert.deepEqual(archState.sessions.sessions, [oldSummary]);
-  assert.equal(archState.sessions.openTabPaths.includes(pendingPath), false);
-  assert.equal(pendingPath in archState.composer.activeRunSummaryBySession, false);
-  assert.equal(archState.settings.notice, 'Failed to create session: boom');
+  assert.equal(archState.sessions.openTabPaths.includes(NEW), false);
+  assert.equal(NEW in archState.composer.activeRunSummaryBySession, false);
+  assert.equal(archState.settings.notice, 'Failed to open session: boom');
 });

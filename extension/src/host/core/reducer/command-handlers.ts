@@ -103,14 +103,40 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'OpenSession': {
+      const { sessionPath, placeholderSummary, selectionToken } = cmd;
+      // Optimistic tab setup — was imperative dispatchArch calls in the service
+      // (SessionSummaryUpserted placeholder + TabOpened + SelectSession +
+      // saveOpenTabs). The reducer now owns these purely; the runner only does
+      // the backend session.open RPC + the host-local selection machinery.
+      // Mirrors CreateSession, but deliberately does NOT touch
+      // runningSessionPaths or the active-run summary: opening an existing tab
+      // must not stop an in-flight run or drop its summary (the opened session
+      // may be running — a brand-new session cannot, which is why CreateSession
+      // filters the pending path out of running + clears its run summary).
+      const sessions = state.sessions.sessions;
+      const alreadySummarized = sessions.some((s) => s.path === sessionPath);
+      const nextSessions = alreadySummarized || !placeholderSummary
+        ? sessions
+        : [placeholderSummary, ...sessions];
+      const nextOpenTabPaths = state.sessions.openTabPaths.includes(sessionPath)
+        ? state.sessions.openTabPaths
+        : [...state.sessions.openTabPaths, sessionPath];
+      const nextState = {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          sessions: nextSessions,
+          openTabPaths: nextOpenTabPaths,
+          activeSessionPath: sessionPath,
+          unreadFinishedSessionPaths: state.sessions.unreadFinishedSessionPaths.filter((p) => p !== sessionPath),
+        },
+      };
       return {
-        state,
-        effects: [{
-          kind: 'OpenSession',
-          corrId: cmd.corrId,
-          sessionPath: cmd.sessionPath,
-          selectionToken: cmd.selectionToken,
-        }],
+        state: nextState,
+        effects: [
+          { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: sessionPath },
+          { kind: 'OpenSession', corrId: cmd.corrId, sessionPath, selectionToken },
+        ],
       };
     }
 
