@@ -5,6 +5,13 @@ import { reducer, initialArchState, type ArchState } from '../src/host/core/redu
 import type { Event } from '../src/host/core/events';
 import type { ChatMessage, SessionSummary } from '../src/shared/protocol';
 
+// A state with backendReady=true — needed because the Send Command handler
+// queues into backendReadyQueueBySession when !backendReady (Phase 3 chunk 2).
+const readyState: ArchState = {
+  ...initialArchState,
+  settings: { ...initialArchState.settings, backendReady: true },
+};
+
 test('reducer: initial state has empty pending ops and sessions records', () => {
   assert.deepEqual(initialArchState.pending.ops, {});
   assert.deepEqual(initialArchState.sessions.sessions, []);
@@ -156,7 +163,7 @@ test('reducer: non-Interrupt Command passes through unchanged', () => {
   };
 
   // Send is now handled by the reducer (Phase 4), so it should NOT pass through unchanged.
-  const result = reducer(initialArchState, event);
+  const result = reducer(readyState, event);
   assert.ok(result.effects.length > 0, 'Send should produce effects');
 });
 
@@ -173,7 +180,7 @@ test('reducer: Send command inserts optimistic message and produces SendRpc', ()
     },
   };
 
-  const result = reducer(initialArchState, event);
+  const result = reducer(readyState, event);
 
   // Pending entry recorded.
   assert.deepEqual(result.state.pending.ops['c-send'], {
@@ -834,7 +841,7 @@ test('reducer: Send command with duplicate localId upserts existing optimistic m
   const sessionPath = '/s';
 
   // First Send command inserts the optimistic message
-  const state1 = reducer(initialArchState, {
+  const state1 = reducer(readyState, {
     kind: 'Command',
     cmd: {
       kind: 'Send',
@@ -1387,9 +1394,9 @@ test('reducer: SetComposerDraft command stores draft text for a session', () => 
 
 test('reducer: Send command clears the persisted draft for the session', () => {
   const state: ArchState = {
-    ...initialArchState,
+    ...readyState,
     composer: {
-      ...initialArchState.composer,
+      ...readyState.composer,
       draftTextBySession: { '/s': 'should clear' },
     },
   };

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { EffectRunner, type EffectRunnerDeps } from '../src/host/core/effect-runner';
 import type { Effect } from '../src/host/core/effects';
-import type { EffectResultEvent } from '../src/host/core/events';
+import type { EffectResultEvent, CommandEvent, Event } from '../src/host/core/events';
 
 type Call =
   | { kind: 'lifecycle' }
@@ -90,6 +90,7 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
     },
     dispatch: (e) => events.push(e),
     dispatchCommand: (cmd) => commands.push(cmd),
+    dispatchEvent: () => {},
   };
   return { deps, calls, events, commands };
 }
@@ -421,4 +422,71 @@ test('EffectRunner DrainPendingSendQueue with empty entries dispatches nothing',
   await settle();
 
   assert.equal(commands.length, 0);
+});
+
+// ─── DrainBackendReadyQueue + Watchdog ────────────────────────────────────────
+
+test('EffectRunner DrainBackendReadyQueue re-dispatches Send Commands for each entry + clears watchdog', async () => {
+  const { deps, commands, events } = makeDeps();
+  const runner = new EffectRunner(deps);
+
+  // First start the watchdog (so we can verify it's cleared).
+  runner.run({ kind: 'StartBackendReadyWatchdog', corrId: 'watchdog', timeoutMs: 30_000 });
+
+  runner.run({
+    kind: 'DrainBackendReadyQueue',
+    corrId: 'drain:backendReady',
+    entries: [
+      { sessionPath: '/s1', corrId: 'c1', text: 'first', inputs: [], composedText: 'first', localId: 'local:c1', previousSummary: null, timestamp: 1000 },
+      { sessionPath: '/s2', corrId: 'c2', text: 'second', inputs: [], composedText: 'second', localId: 'local:c2', previousSummary: null, timestamp: 2000 },
+    ],
+  });
+  await settle();
+
+  // Two Send Commands dispatched, each with its own sessionPath.
+  assert.equal(commands.length, 2);
+  assert.equal(commands[0]?.kind, 'Command');
+  const cmd0 = commands[0]?.cmd;
+  assert.equal(cmd0?.kind, 'Send');
+  if (cmd0?.kind === 'Send') {
+    assert.equal(cmd0.sessionPath, '/s1');
+    assert.equal(cmd0.corrId, 'c1');
+  }
+  const cmd1 = commands[1]?.cmd;
+  if (cmd1?.kind === 'Send') {
+    assert.equal(cmd1.sessionPath, '/s2');
+    assert.equal(cmd1.corrId, 'c2');
+  }
+});
+
+test('EffectRunner StartBackendReadyWatchdog starts a timer that dispatches BackendReadyWatchdogFired on fire', async () => {
+  // Use a fake timer to avoid waiting 30s.
+  const { deps, events } = makeDeps();
+  const dispatchedEvents: Event[] = [];
+  const runner = new EffectRunner({
+    ...deps,
+    dispatchEvent: (e) => dispatchedEvents.push(e),
+  });
+
+  runner.run({ kind: 'StartBackendReadyWatchdog', corrId: 'watchdog', timeoutMs: 10 });
+  // Wait for the 10ms timer to fire.
+  await new Promise<void>((r) => setTimeout(r, 50));
+
+  assert.equal(dispatchedEvents.length, 1);
+  assert.equal(dispatchedEvents[0]?.kind, 'BackendReadyWatchdogFired');
+});
+
+test('EffectRunner CancelBackendReadyWatchdog prevents the timer from firing', async () => {
+  const { deps } = makeDeps();
+  const dispatchedEvents: Event[] = [];
+  const runner = new EffectRunner({
+    ...deps,
+    dispatchEvent: (e) => dispatchedEvents.push(e),
+  });
+
+  runner.run({ kind: 'StartBackendReadyWatchdog', corrId: 'watchdog', timeoutMs: 10 });
+  runner.run({ kind: 'CancelBackendReadyWatchdog', corrId: 'watchdog' });
+  await new Promise<void>((r) => setTimeout(r, 50));
+
+  assert.equal(dispatchedEvents.length, 0);
 });

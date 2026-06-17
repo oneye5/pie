@@ -65,6 +65,7 @@ import {
 } from './reducer/misc-handlers.js';
 import {
   handleBackendReadyChanged,
+  handleBackendReadyWatchdogFired,
   handlePruningSettingsChanged,
   handleWorkspaceCwdChanged,
   handleTranscriptPageLoaded,
@@ -165,6 +166,9 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
 
     case 'BackendReadyChanged': {
       return handleBackendReadyChanged(state, event);
+    }
+    case 'BackendReadyWatchdogFired': {
+      return handleBackendReadyWatchdogFired(state, event);
     }
 
     case 'PruningSettingsChanged': {

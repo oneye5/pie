@@ -20,6 +20,7 @@
 
 import type { ComposerInput, ModelSettings, ChatPrefs } from '../../shared/protocol';
 import type { PendingSendQueueEntry } from './arch-state';
+import type { BackendReadyQueueEntry } from './arch-state';
 
 export interface EffectBase {
   corrId: string;
@@ -251,7 +252,10 @@ export type Effect =
   | SetPruningSettingsEffect
   | CloseSessionEffect
   | DuplicateSessionEffect
-  | DrainPendingSendQueueEffect;
+  | DrainPendingSendQueueEffect
+  | DrainBackendReadyQueueEffect
+  | StartBackendReadyWatchdogEffect
+  | CancelBackendReadyWatchdogEffect;
 
 /**
  * Drain queued sends when a pending session path resolves to a real path.
@@ -264,6 +268,35 @@ export interface DrainPendingSendQueueEffect extends EffectBase {
   kind: 'DrainPendingSendQueue';
   resolvedSessionPath: string;
   entries: PendingSendQueueEntry[];
+}
+
+/**
+ * Drain all queued sends when the backend becomes ready. The runner
+ * re-dispatches each entry as a `Send` Command with its own `sessionPath`.
+ * The runner also clears the backend-ready watchdog timer (the drain implies
+ * the backend is ready, so the timeout is no longer needed).
+ */
+export interface DrainBackendReadyQueueEffect extends EffectBase {
+  kind: 'DrainBackendReadyQueue';
+  entries: BackendReadyQueueEntry[];
+}
+
+/**
+ * Start the 30s backend-ready watchdog timer. The runner no-ops if the timer
+ * is already running. On fire, the runner dispatches `BackendReadyWatchdogFired`
+ * → the reducer drops the queued messages + removes optimistic entries + sets
+ * a notice.
+ */
+export interface StartBackendReadyWatchdogEffect extends EffectBase {
+  kind: 'StartBackendReadyWatchdog';
+  timeoutMs: number;
+}
+
+/**
+ * Cancel the backend-ready watchdog timer (the queue was drained or emptied).
+ */
+export interface CancelBackendReadyWatchdogEffect extends EffectBase {
+  kind: 'CancelBackendReadyWatchdog';
 }
 
 // ─── Type guards ────────────────────────────────────────────────────────────────

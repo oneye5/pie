@@ -24,9 +24,11 @@ import type {
   SessionScopeClearedEvent,
   TabOpenedEvent,
   OpenTabsChangedEvent,
+  BackendReadyWatchdogFiredEvent,
 } from '../events.js';
 import type { ReducerResult } from './helpers.js';
-import { removeFromArray } from './helpers.js';
+import type { Effect } from '../effects.js';
+import { removeFromArray, removeMessage } from './helpers.js';
 import type { SessionSummary } from '../../../shared/protocol.js';
 
 function mergeSessionSummary(
@@ -48,16 +50,63 @@ export function handleBackendReadyChanged(
   state: ArchState,
   event: BackendReadyChangedEvent,
 ): ReducerResult {
-  return {
-    state: {
-      ...state,
-      settings: {
-        ...state.settings,
-        backendReady: event.ready,
-      },
+  if (!event.ready) {
+    return {
+      state: { ...state, settings: { ...state.settings, backendReady: false } },
+      effects: [],
+    };
+  }
+
+  // Backend became ready — drain the backend-ready queue. Collect all entries
+  // across all sessions, clear the queue, and emit a DrainBackendReadyQueue
+  // effect + CancelBackendReadyWatchdog. The runner re-dispatches each entry
+  // as a Send Command (which goes through the normal path now that backendReady
+  // is true) and clears the watchdog timer.
+  const allEntries = Object.values(state.pending.backendReadyQueueBySession).flat();
+  const hasEntries = allEntries.length > 0;
+  const nextState = {
+    ...state,
+    settings: { ...state.settings, backendReady: true },
+    pending: {
+      ...state.pending,
+      backendReadyQueueBySession: {},
     },
-    effects: [],
   };
+
+  const effects: Effect[] = [];
+  if (hasEntries) {
+    effects.push({ kind: 'DrainBackendReadyQueue', corrId: 'drain:backendReady', entries: allEntries });
+    effects.push({ kind: 'CancelBackendReadyWatchdog', corrId: 'watchdog' });
+  }
+
+  return { state: nextState, effects };
+}
+
+/**
+ * The 30s backend-ready watchdog fired — the backend did not become ready in
+ * time. Drop all queued sends, remove their optimistic messages from the
+ * transcript, and set a user-visible notice. The runner has already cleared
+ * its timer reference (the setTimeout callback nulled it before dispatching).
+ */
+export function handleBackendReadyWatchdogFired(
+  state: ArchState,
+  _event: BackendReadyWatchdogFiredEvent,
+): ReducerResult {
+  const allEntries = Object.values(state.pending.backendReadyQueueBySession).flat();
+  if (allEntries.length === 0) {
+    return { state, effects: [] };
+  }
+
+  const timeoutSec = 30;
+  const nextState = produce(state, (draft) => {
+    for (const entry of allEntries) {
+      removeMessage(draft, entry.sessionPath, entry.localId);
+    }
+    draft.pending.backendReadyQueueBySession = {};
+    draft.settings.notice = `Backend did not become ready within ${timeoutSec}s. ${allEntries.length} queued message${allEntries.length === 1 ? '' : 's'} dropped — please retry.`;
+  });
+
+  return { state: nextState, effects: [] };
 }
 
 export function handlePruningSettingsChanged(
@@ -478,6 +527,11 @@ export function handleSessionScopeCleared(
   const { [sp]: _fc, ...remainingFileChanges } = state.fileChanges.bySession;
   const { [sp]: _af, ...remainingAnalytics } = state.sessions.analyticsFactorsBySession;
   const { [sp]: _psq, ...remainingPendingSendQueue } = state.pending.sendQueueBySession;
+  const { [sp]: _brq, ...remainingBackendReadyQueue } = state.pending.backendReadyQueueBySession;
+  // If the closed session had backend-ready-queued sends and no other sessions
+  // have entries, cancel the watchdog timer (the queue is now empty).
+  const hadBackendReadyEntries = !!state.pending.backendReadyQueueBySession[sp]?.length;
+  const backendReadyQueueNowEmpty = Object.keys(remainingBackendReadyQueue).length === 0;
   // Drop in-flight setModel lifecycles for the closed session (both the
   // modal-confirm phase and the RPC phase). A late ModelSwitchConfirmResult /
   // SetModelResult for these corrIds then no-ops instead of applying to — or
@@ -542,9 +596,12 @@ export function handleSessionScopeCleared(
         ...state.pending,
         setModelByCorrId: remainingSetModel,
         sendQueueBySession: remainingPendingSendQueue,
+        backendReadyQueueBySession: remainingBackendReadyQueue,
       },
     },
-    effects: [],
+    effects: (hadBackendReadyEntries && backendReadyQueueNowEmpty)
+      ? [{ kind: 'CancelBackendReadyWatchdog', corrId: 'watchdog' } as Effect]
+      : [],
   };
 }
 

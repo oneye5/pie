@@ -229,6 +229,33 @@ export interface PendingSendQueueEntry {
 }
 
 /**
+ * A send queued while the backend was not yet ready. The reducer queues the
+ * `Send` Command's payload here instead of emitting `SendRpc`; when
+ * `BackendReadyChanged{ready:true}` fires, the reducer emits a
+ * `DrainBackendReadyQueue` effect carrying all entries across all sessions,
+ * and the runner re-dispatches them as `Send` Commands. A 30s watchdog effect
+ * is started when the first send is queued; if the backend doesn't become
+ * ready in time, the runner dispatches `BackendReadyWatchdogFired` and the
+ * reducer drops the queued messages + removes the optimistic entries + sets a
+ * notice.
+ *
+ * Unlike `PendingSendQueueEntry`, this type carries `sessionPath` because the
+ * backend-ready queue spans multiple sessions (the drain re-dispatches each
+ * entry to its own session).
+ */
+export interface BackendReadyQueueEntry {
+  sessionPath: string;
+  corrId: string;
+  text: string;
+  inputs: ComposerInput[];
+  composedText: string;
+  localId: string;
+  userParts?: UserContentPart[];
+  previousSummary: SessionSummary | null;
+  timestamp: number;
+}
+
+/**
  * Optimistic operations, interrupt flags, message aliases, and turn tracking.
  * This sub-state is only touched by the reducer — never by the webview.
  */
@@ -245,6 +272,8 @@ export interface PendingState {
   requestIdToLocalId: Record<string, { sessionPath: string; localId: string }>;
   /** Sends queued while the target session was a pending tab, keyed by pending path. */
   sendQueueBySession: Record<string, PendingSendQueueEntry[]>;
+  /** Sends queued while the backend was not yet ready, keyed by session path. */
+  backendReadyQueueBySession: Record<string, BackendReadyQueueEntry[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -317,6 +346,7 @@ export function createInitialArchState(): ArchState {
       currentTurnBySession: {},
       requestIdToLocalId: {},
       sendQueueBySession: {},
+      backendReadyQueueBySession: {},
     },
   };
 }

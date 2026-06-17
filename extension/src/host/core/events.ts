@@ -407,6 +407,16 @@ export interface BackendReadyChangedEvent {
   ready: boolean;
 }
 
+/**
+ * Emitted by the runner's backend-ready watchdog timer when it fires (the
+ * backend did not become ready within the timeout). The reducer drops all
+ * queued backend-ready sends, removes their optimistic messages, and sets a
+ * user-visible notice.
+ */
+export interface BackendReadyWatchdogFiredEvent {
+  kind: 'BackendReadyWatchdogFired';
+}
+
 /** Emitted when pruning settings change. */
 export interface PruningSettingsChangedEvent {
   kind: 'PruningSettingsChanged';
@@ -572,6 +582,7 @@ export type HostEvent =
   | OptimisticMessageRemovedEvent
   | FileChangeRemovedEvent
   | BackendReadyChangedEvent
+  | BackendReadyWatchdogFiredEvent
   | PruningSettingsChangedEvent
   | WorkspaceCwdChangedEvent
   | TranscriptPageLoadedEvent

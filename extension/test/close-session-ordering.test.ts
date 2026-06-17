@@ -135,6 +135,7 @@ test('closeSession → runner host-side cleanup → CloseSessionResult{ok:true} 
     statsService: { prepareForSend() {}, onTruncatedAfter() {}, onMessageEdited() {}, recordOutcome() {}, startNewTask() {}, continueTask() {} },
     dispatch: (e: EffectResultEvent) => dispatchArch(e),
     dispatchCommand: () => {},
+    dispatchEvent: () => {},
   };
   runner = new EffectRunner(deps);
 
@@ -217,6 +218,7 @@ test('closeSession → recursive openSession(nextPath) when nextPath is NOT summ
     statsService: { prepareForSend() {}, onTruncatedAfter() {}, onMessageEdited() {}, recordOutcome() {}, startNewTask() {}, continueTask() {} },
     dispatch: (e: EffectResultEvent) => dispatchArch(e),
     dispatchCommand: () => {},
+    dispatchEvent: () => {},
   };
   runner = new EffectRunner(deps);
 

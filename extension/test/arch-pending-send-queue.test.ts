@@ -344,6 +344,7 @@ test('E2E: pending send queued → PendingPathReplaced drains → re-dispatched 
       sessions: [{ ...placeholderSummary(RESOLVED, 'Real Session'), isPlaceholder: false }],
       openTabPaths: [RESOLVED],
     },
+    settings: { ...state.settings, backendReady: true },
   };
 
   const reDispatchResult = reducer(state, reDispatched);

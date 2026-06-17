@@ -200,17 +200,14 @@ export class PieExtension implements vscode.Disposable {
       statsService: this.statsService,
       dispatch: (event) => this.dispatchArchEvent(event),
       dispatchCommand: (event) => this.dispatchArchEvent(event),
+      dispatchEvent: (event) => this.dispatchArchEvent(event),
     });
 
     // Auto-projection: schedule a render whenever archState changes.
-    let wasReady = this.archState.settings.backendReady;
-    subscribeToArchState((state) => {
+    // The backend-ready queue drain is now reducer-driven: handleBackendReadyChanged
+    // emits a DrainBackendReadyQueue effect when ready transitions to true.
+    subscribeToArchState(() => {
       this.scheduleRender();
-      const isReady = state.settings.backendReady;
-      if (isReady && !wasReady) {
-        this.messageRouter.drainBackendReadyQueue();
-      }
-      wasReady = isReady;
     });
 
     this.statusBar.command = 'pie.openChat';
@@ -471,7 +468,7 @@ export class PieExtension implements vscode.Disposable {
     this.shutdownPromise = (async () => {
       // Clear any pending timers first so they cannot fire into a torn-down
       // store / sidebar provider after dispose.
-      this.messageRouter.clearBackendReadyQueueWatchdog();
+      this.effectRunner.dispose();
       await this.statsService.shutdown();
       this.service.dispose();
       this.sidebarProvider.dispose();

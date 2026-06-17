@@ -11,7 +11,6 @@ import type { BackendLike } from './effect-runner';
 import { selectViewState } from './projection';
 import { bootLog } from '../util/audit';
 import { buildOptimisticUserParts, buildPromptText } from './composer';
-import { QueueManager, type QueueManagerDeps } from './queue-manager';
 
 /** Minimal sidebar provider surface the router needs. */
 export interface SidebarProviderLike {
@@ -51,7 +50,6 @@ export interface SessionServiceLike {
  * the render pipeline.
  */
 export class MessageRouter {
-  private readonly queueManager: QueueManager;
 
   constructor(
     private readonly dispatchEvent: (event: Event) => void,
@@ -67,13 +65,6 @@ export class MessageRouter {
     private readonly isPendingTabPathFn: (path: string) => boolean,
     private readonly context: ContextLike,
   ) {
-    const queueDeps: QueueManagerDeps = {
-      dispatchEvent: (event) => void this.dispatchEvent(event),
-      getArchState,
-      scheduleRender,
-      deriveSessionNameFromText: deriveSessionNameFromTextFn,
-    };
-    this.queueManager = new QueueManager(queueDeps, (msg) => this.handle(msg));
   }
 
   async handle(msg: WebviewToHostMessage): Promise<void> {
@@ -235,17 +226,12 @@ export class MessageRouter {
       return;
     }
 
-    // If the backend is still starting AND the session is NOT a pending tab,
-    // queue the send into the backend-ready queue. Pending-tab sends skip
-    // this check: a pending session can't resolve until the backend is ready
-    // (session.create is an RPC), so by drain time the backend IS ready.
-    // Pending-tab sends fall through to the Send Command below; the reducer
-    // queues them into ArchState.pending.sendQueueBySession.
-    if (!this.isPendingTabPathFn(sessionPath) && !this.getArchState().settings.backendReady) {
-      if (!text.trim()) return;
-      this.queueManager.enqueueBackendReadySend(sessionPath, { text, localId: webviewLocalId });
-      return;
-    }
+    // All sends — pending tab, backend-not-ready, or normal — go through the
+    // Send Command. The reducer decides: pending paths queue into
+    // sendQueueBySession (drained on PendingPathReplaced); !backendReady queues
+    // into backendReadyQueueBySession (drained on BackendReadyChanged{ready:true});
+    // otherwise the normal path (SendRpc). The optimistic message insert + draft
+    // clear + session-name derivation happen uniformly in the reducer / onSend.
 
     if (!this.getArchState().sessions.openTabPaths.includes(sessionPath)) {
       this.dispatchEvent({ kind: 'NoticeShown', notice: 'Cannot send: the selected session is no longer open.' });
@@ -619,22 +605,6 @@ export class MessageRouter {
       kind: 'Command',
       cmd: { kind: 'RespondExtensionUI', corrId, sessionPath, requestId: msg.response.id, approved: msg.response.confirmed === true, response: msg.response },
     });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Queue delegation (delegated to QueueManager)
-  // ---------------------------------------------------------------------------
-
-  drainBackendReadyQueue(): void {
-    void this.queueManager.drainBackendReadyQueue();
-  }
-
-  purgeHostStateForSession(sessionPath: string): void {
-    this.queueManager.purgeHostStateForSession(sessionPath);
-  }
-
-  clearBackendReadyQueueWatchdog(): void {
-    this.queueManager.clearWatchdog();
   }
 
   // ---------------------------------------------------------------------------

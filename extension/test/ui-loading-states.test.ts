@@ -665,6 +665,7 @@ test('SendResult failure removes optimistic message from transcript', async () =
   const state = createInitialArchState();
   state.sessions.openTabPaths = ['/test'];
   state.sessions.sessions = [{ path: '/test', name: 'Test', isPlaceholder: false, cwd: '', modifiedAt: '', messageCount: 0 }];
+  state.settings.backendReady = true;
 
   // First, send a message to create optimistic state.
   const afterSend = reducer(state, {

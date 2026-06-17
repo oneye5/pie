@@ -62,6 +62,39 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
         return { state: nextState, effects: [] };
       }
 
+      // If the backend is not yet ready, queue the send into ArchState instead
+      // of emitting `SendRpc`. The optimistic user message is inserted
+      // immediately, the draft is cleared, and a `StartBackendReadyWatchdog`
+      // effect is emitted (the runner starts a 30s timer; if the backend
+      // doesn't become ready in time, the watchdog fires and the reducer drops
+      // the queued messages). When `BackendReadyChanged{ready:true}` fires, the
+      // reducer emits a `DrainBackendReadyQueue` effect; the runner re-dispatches
+      // each entry as a `Send` Command, which goes through the normal path below.
+      if (!state.settings.backendReady) {
+        const nextState = produce(state, (draft) => {
+          appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.composedText, cmd.userParts, new Date(cmd.timestamp).toISOString());
+          draft.pending.backendReadyQueueBySession[cmd.sessionPath] = [
+            ...(draft.pending.backendReadyQueueBySession[cmd.sessionPath] ?? []),
+            {
+              sessionPath: cmd.sessionPath,
+              corrId: cmd.corrId,
+              text: cmd.text,
+              inputs: cmd.inputs,
+              composedText: cmd.composedText,
+              localId: cmd.localId,
+              userParts: cmd.userParts,
+              previousSummary: null,
+              timestamp: cmd.timestamp,
+            },
+          ];
+          delete draft.composer.draftTextBySession[cmd.sessionPath];
+        });
+        return {
+          state: nextState,
+          effects: [{ kind: 'StartBackendReadyWatchdog', corrId: 'watchdog', timeoutMs: 30_000 }],
+        };
+      }
+
       // Normal path: insert optimistic user message + mark session busy
       // immediately so the webview shows an activity indicator right away
       // (instead of waiting for the backend's agent_start event which fires

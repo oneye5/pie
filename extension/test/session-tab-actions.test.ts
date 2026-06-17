@@ -105,6 +105,7 @@ test('openSession serializes backend session.open requests through the lifecycle
     statsService: { prepareForSend() {}, onTruncatedAfter() {}, onMessageEdited() {}, recordOutcome() {}, startNewTask() {}, continueTask() {} },
     dispatch: (e: EffectResultEvent) => dispatchArch(e),
     dispatchCommand: () => {},
+    dispatchEvent: () => {},
   };
   runner = new EffectRunner(deps);
 

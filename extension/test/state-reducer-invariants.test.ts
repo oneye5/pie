@@ -17,6 +17,13 @@ import type { Event } from '../src/host/core/events';
 import type { ModelInfo } from '../src/shared/protocol';
 import { CHAT_PREF_MENU_SECTIONS } from '../src/webview/panel/chat-prefs';
 
+// A state with backendReady=true — needed because the Send Command handler
+// queues into backendReadyQueueBySession when !backendReady (Phase 3 chunk 2).
+const readyState: ArchState = {
+  ...initialArchState,
+  settings: { ...initialArchState.settings, backendReady: true },
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function archStateWithSession(path: string): ArchState {
@@ -112,7 +119,7 @@ test('arch: SessionClosed on unknown session is a no-op', () => {
 // ─── Arch reducer: cross-session isolation ────────────────────────────────────
 
 test('arch: concurrent sends across different sessions do not interfere', () => {
-  const state = reducer(initialArchState, {
+  const state = reducer(readyState, {
     kind: 'Command',
     cmd: {
       kind: 'Send',

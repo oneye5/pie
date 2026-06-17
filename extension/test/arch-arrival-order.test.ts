@@ -18,6 +18,13 @@ import assert from 'node:assert/strict';
 import { reducer, initialArchState, type ArchState } from '../src/host/core/reducer';
 import type { Event } from '../src/host/core/events';
 
+// A state with backendReady=true — needed because the Send Command handler
+// queues into backendReadyQueueBySession when !backendReady (Phase 3 chunk 2).
+const readyState: ArchState = {
+  ...initialArchState,
+  settings: { ...initialArchState.settings, backendReady: true },
+};
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function sendCommand(corrId: string, sessionPath: string): Event {
@@ -57,7 +64,7 @@ function editCommand(corrId: string, sessionPath: string): Event {
 
 test('arrival-order: send → success produces pending then clears it', () => {
   // 1. Dispatch Send command.
-  const r1 = reducer(initialArchState, sendCommand('c1', '/s'));
+  const r1 = reducer(readyState, sendCommand('c1', '/s'));
   assert.ok(r1.state.pending.ops['c1'], 'pending should exist after Send');
   // Now only SendRpc effect — optimistic message is in transcript state directly
   assert.equal(r1.effects.length, 1);
@@ -80,7 +87,7 @@ test('arrival-order: send → success produces pending then clears it', () => {
 // ─── send-then-failure (full round-trip sequence) ───────────────────────────
 
 test('arrival-order: send → failure rolls back pending and notifies', () => {
-  const r1 = reducer(initialArchState, sendCommand('c2', '/s'));
+  const r1 = reducer(readyState, sendCommand('c2', '/s'));
   assert.ok(r1.state.pending.ops['c2']);
 
   const r2 = reducer(r1.state, { kind: 'SendResult', corrId: 'c2', sessionPath: '/s', ok: false, error: 'network' });
@@ -98,7 +105,7 @@ test('arrival-order: send → failure rolls back pending and notifies', () => {
 
 test('arrival-order: send → unhandled event (simulated delta) → success — pending preserved through interleaving', () => {
   // 1. Dispatch Send command.
-  const r1 = reducer(initialArchState, sendCommand('c3', '/s'));
+  const r1 = reducer(readyState, sendCommand('c3', '/s'));
   assert.ok(r1.state.pending.ops['c3']);
 
   // 2. An unrelated InterruptResult arrives (simulates interleaved event).
@@ -122,7 +129,7 @@ test('arrival-order: send → unhandled event (simulated delta) → success — 
 });
 
 test('arrival-order: send → multiple interleaved events → success — pending still intact', () => {
-  const r1 = reducer(initialArchState, sendCommand('c4', '/s'));
+  const r1 = reducer(readyState, sendCommand('c4', '/s'));
 
   // Simulate multiple events arriving while RPC is in-flight.
   let state = r1.state;
@@ -150,7 +157,7 @@ test('arrival-order: send → multiple interleaved events → success — pendin
 
 test('arrival-order: send → success → unhandled event — clean state post-ack', () => {
   // Send + ack.
-  const r1 = reducer(initialArchState, sendCommand('c5', '/s'));
+  const r1 = reducer(readyState, sendCommand('c5', '/s'));
   const r2 = reducer(r1.state, { kind: 'SendResult', corrId: 'c5', sessionPath: '/s', ok: true });
   assert.equal(r2.state.pending.ops['c5'], undefined);
 
@@ -217,7 +224,7 @@ test('arrival-order: edit → interleaved event before ack → success — pendi
 
 test('arrival-order: two concurrent sends — results resolve independently', () => {
   // Two sends on different sessions, dispatched back-to-back.
-  const r1 = reducer(initialArchState, sendCommand('ca', '/session-a'));
+  const r1 = reducer(readyState, sendCommand('ca', '/session-a'));
   const r2 = reducer(r1.state, sendCommand('cb', '/session-b'));
 
   assert.ok(r2.state.pending.ops['ca']);

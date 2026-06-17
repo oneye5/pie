@@ -119,9 +119,17 @@ export interface EffectRunnerDeps {
    * so they land after the current synchronous dispatch cycle).
    */
   dispatchCommand: (event: CommandEvent) => void;
+  /**
+   * Dispatch a non-result, non-command Event (e.g. `BackendReadyWatchdogFired`)
+   * back into the reducer. The runner uses this for watchdog timeout events.
+   */
+  dispatchEvent: (event: import('./events').Event) => void;
 }
 
 export class EffectRunner {
+  /** The backend-ready watchdog timer. Started by `StartBackendReadyWatchdog`,
+   * cleared by `CancelBackendReadyWatchdog` / `DrainBackendReadyQueue` / fire. */
+  private backendReadyWatchdog: NodeJS.Timeout | null = null;
   constructor(private readonly deps: EffectRunnerDeps) {}
 
   /**
@@ -380,6 +388,52 @@ export class EffectRunner {
       })();
       return;
     }
+    if (effect.kind === 'DrainBackendReadyQueue') {
+      // Clear the watchdog timer — the backend is ready, so the timeout is
+      // no longer needed.
+      this.clearBackendReadyWatchdog();
+      // Re-dispatch each queued entry as a Send Command. The void async IIFE
+      // ensures the Commands land after the current synchronous dispatch cycle
+      // (the BackendReadyChanged event may be followed by other synchronous
+      // events). Each entry carries its own sessionPath.
+      const { entries } = effect;
+      void (async () => {
+        for (const entry of entries) {
+          this.deps.dispatchCommand({
+            kind: 'Command',
+            cmd: {
+              kind: 'Send',
+              corrId: entry.corrId,
+              sessionPath: entry.sessionPath,
+              text: entry.text,
+              inputs: entry.inputs,
+              composedText: entry.composedText,
+              localId: entry.localId,
+              userParts: entry.userParts,
+              previousSummary: entry.previousSummary,
+              timestamp: entry.timestamp,
+            },
+          });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'StartBackendReadyWatchdog') {
+      // Start the watchdog timer if not already running. On fire, dispatch
+      // BackendReadyWatchdogFired → the reducer drops the queued messages +
+      // removes optimistic entries + sets a notice.
+      if (!this.backendReadyWatchdog) {
+        this.backendReadyWatchdog = setTimeout(() => {
+          this.backendReadyWatchdog = null;
+          this.deps.dispatchEvent({ kind: 'BackendReadyWatchdogFired' });
+        }, effect.timeoutMs);
+      }
+      return;
+    }
+    if (effect.kind === 'CancelBackendReadyWatchdog') {
+      this.clearBackendReadyWatchdog();
+      return;
+    }
     if (effect.kind === 'HydrateModel') {
       // Fire-and-forget, like PostImperative: the service's dispatched
       // SetModel/AvailableModelsChanged events apply the results, so no
@@ -399,6 +453,19 @@ export class EffectRunner {
     const _exhaustive: never = effect;
     void _exhaustive;
     this.deps.log.log('error', `EffectRunner: unhandled effect kind (type system bypassed?): ${(effect as { kind?: string }).kind}`);
+  }
+
+  /** Clear the backend-ready watchdog timer (no-op if not running). */
+  private clearBackendReadyWatchdog(): void {
+    if (this.backendReadyWatchdog) {
+      clearTimeout(this.backendReadyWatchdog);
+      this.backendReadyWatchdog = null;
+    }
+  }
+
+  /** Dispose of the runner's resources (called on shutdown). */
+  dispose(): void {
+    this.clearBackendReadyWatchdog();
   }
 
   /**
