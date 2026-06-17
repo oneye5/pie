@@ -18,8 +18,6 @@ import type {
   TranscriptPagePayload,
 } from '../../shared/protocol';
 import {
-  clearPendingImageInputs,
-  modelSupportsInputKind,
   normalizeAttachUris,
   upsertPendingComposerInput,
   validateAndMaterializeComposerInput,
@@ -116,57 +114,6 @@ export class SessionMessageActions {
 
   async jumpToLatestTranscript(requestedSessionPath?: string): Promise<void> {
     await this.loadTranscriptPage('latest', requestedSessionPath);
-  }
-
-  async setModel(
-    requestedSessionPath: string | undefined,
-    defaultModel: string,
-    defaultThinkingLevel: ThinkingLevel,
-  ): Promise<void> {
-    const sessionPath = this.requireOpenSessionPath('set model', requestedSessionPath);
-    if (!sessionPath) {
-      return;
-    }
-
-    const pendingInputs = this.getArchState().composer.pendingComposerInputsBySession[sessionPath] ?? [];
-    const hasPendingImageInputs = pendingInputs.some((input) => input.kind === 'imageBlob');
-    const requestedModelSupportsImages = modelSupportsInputKind(sessionPath, defaultModel, 'image', this.getArchState);
-    const shouldClearPendingImages = hasPendingImageInputs && requestedModelSupportsImages === false;
-
-    if (shouldClearPendingImages) {
-      const choice = await vscode.window.showWarningMessage(
-        'Switching to this model will remove pending pasted images because it does not support image inputs.',
-        { modal: true },
-        'Switch Model',
-      );
-      if (choice !== 'Switch Model') {
-        return;
-      }
-    }
-
-    try {
-      await this.state.enqueueLifecycle(async () => {
-        await this.backend.request<ModelSettings>('settings.set', {
-          sessionPath,
-          defaultModel,
-          defaultThinkingLevel,
-        });
-        this.dispatchArch({ kind: 'ContextUsageChanged', sessionPath, contextUsage: null });
-        this.state.bumpSessionDataEpoch(sessionPath);
-
-        this.dispatchArch({ kind: 'SessionMetadataChanged', sessionPath, modelId: defaultModel, thinkingLevel: defaultThinkingLevel });
-
-        if (shouldClearPendingImages) {
-          clearPendingImageInputs(sessionPath, this.getArchState, this.dispatchArch);
-        }
-
-        this.runObserver.onModelConfigChanged(sessionPath, defaultModel, defaultThinkingLevel);
-        this.scheduleRender();
-      });
-    } catch (err) {
-      this.dispatchArch({ kind: 'Error', sessionPath, error: `Failed to set model: ${toErrorMessage(err)}` });
-      this.scheduleRender();
-    }
   }
 
   async hydrateModelState(sessionPath: string): Promise<void> {

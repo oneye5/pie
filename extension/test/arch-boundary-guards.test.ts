@@ -68,6 +68,7 @@ const PURE_SPINE_FILES = [
   'restored-session-summaries.ts',
   'session-opened-transcript.ts',
   'file-change-derivation.ts',
+  'model-capability.ts',
 ];
 
 const PURE_SPINE_REDUCER_DIR = resolve(CORE_ROOT, 'reducer');

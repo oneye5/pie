@@ -9,11 +9,17 @@ import type {
   UserContentPart,
 } from '../../shared/protocol';
 import type { ArchState } from './arch-state';
+import { modelSupportsInputKind } from './model-capability';
+import type { GetArchState } from './model-capability';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../../shared/image-constraints';
 
 import type { Event } from './events';
 
-export type GetArchState = () => ArchState;
+// Re-export for existing importers (composer attach path, tests). The pure
+// model-capability check lives in the pure-spine `model-capability` module so
+// the reducer can use it without pulling `vscode` into its module graph.
+export { modelSupportsInputKind } from './model-capability';
+export type { GetArchState } from './model-capability';
 export type DispatchArchEvent = (event: Event) => void;
 
 export function normalizeAttachUris(uris: vscode.Uri[]): vscode.Uri[] {
@@ -132,44 +138,6 @@ export function validateAndMaterializeComposerInput(
   });
   scheduleRender();
   return null;
-}
-
-export function modelSupportsInputKind(
-  sessionPath: string,
-  requestedModelId: string | undefined,
-  inputKind: 'text' | 'image',
-  getArchState: GetArchState = () => { throw new Error('getArchState not provided'); },
-): boolean {
-  const archState = getArchState();
-  const modelId = requestedModelId
-    ?? archState.sessions.sessions.find((s) => s.path === sessionPath)?.modelId
-    ?? archState.settings.modelSettings?.defaultModel;
-  if (!modelId) {
-    return inputKind === 'text';
-  }
-
-  const directModels = archState.settings.availableModelsBySession[sessionPath] ?? [];
-  const fallbackModels = Object.values(archState.settings.availableModelsBySession)
-    .flatMap((models) => models);
-  const model = [...directModels, ...fallbackModels].find((candidate) => candidate.id === modelId);
-  if (!model) {
-    return inputKind === 'text';
-  }
-
-  return model.inputKinds.includes(inputKind);
-}
-
-export function clearPendingImageInputs(
-  sessionPath: string,
-  getArchState: GetArchState,
-  dispatchArchEvent: DispatchArchEvent,
-): void {
-  const existingInputs = getArchState().composer.pendingComposerInputsBySession[sessionPath] ?? [];
-  const remainingInputs = existingInputs.filter((input) => input.kind !== 'imageBlob');
-  if (remainingInputs.length === existingInputs.length) {
-    return;
-  }
-  dispatchArchEvent({ kind: 'ComposerInputsReplaced', sessionPath, inputs: remainingInputs.length > 0 ? remainingInputs : null });
 }
 
 export function buildPromptText(text: string, inputs: ComposerInput[]): string {

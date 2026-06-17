@@ -5,6 +5,7 @@ import type { Effect } from '../effects.js';
 import type { ReducerResult } from './helpers.js';
 import { removeFromArray, removeMessage } from './helpers.js';
 import type { Event, EffectResultEvent } from '../events.js';
+import { applySetModelOptimistic, dropSetModelPending, revertSetModel } from './set-model-handlers.js';
 
 export function handleInterruptResult(state: ArchState, event: Extract<Event, { kind: 'InterruptResult' }>): ReducerResult {
   let nextState = state;
@@ -121,15 +122,48 @@ export function handleEditResult(state: ArchState, event: Extract<Event, { kind:
   return { state: nextState, effects };
 }
 
-export function handleSetModelResult(state: ArchState, _event: Extract<Event, { kind: 'SetModelResult' }>): ReducerResult {
-  return { state, effects: [] };
+export function handleSetModelResult(state: ArchState, event: Extract<Event, { kind: 'SetModelResult' }>): ReducerResult {
+  const pending = state.pending.setModelByCorrId[event.corrId];
+  if (!pending) {
+    // Stale result for an unknown/aborted setModel — nothing to reconcile.
+    return { state, effects: [] };
+  }
+  if (event.ok) {
+    // Success: the backend persisted the switch; drop the rollback snapshot.
+    return { state: dropSetModelPending(state, event.corrId), effects: [] };
+  }
+  // Failure: revert the optimistic apply field-for-field + surface a notice.
+  return { state: revertSetModel(state, event.corrId, event.error), effects: [] };
+}
+
+export function handleModelSwitchConfirmResult(
+  state: ArchState,
+  event: Extract<Event, { kind: 'ModelSwitchConfirmResult' }>,
+): ReducerResult {
+  const pending = state.pending.setModelByCorrId[event.corrId];
+  if (!pending) {
+    // Stale confirm for an unknown/aborted request — nothing to do.
+    return { state, effects: [] };
+  }
+  if (!event.confirmed) {
+    // User declined (or dismissed): drop the stashed intent, leave all state
+    // untouched. No notice — the user explicitly cancelled.
+    return { state: dropSetModelPending(state, event.corrId), effects: [] };
+  }
+  // Confirmed: apply optimistically, clearing the pending images that prompted
+  // the modal (the modal only appears when the new model lacks image support),
+  // then emit the backend write.
+  return {
+    state: applySetModelOptimistic(state, event.corrId, pending.sessionPath, pending.modelSettings, true),
+    effects: [{ kind: 'SetModelRpc', corrId: event.corrId, sessionPath: pending.sessionPath, modelSettings: pending.modelSettings }],
+  };
 }
 
 export function handleSetPrefsResult(state: ArchState, _event: Extract<Event, { kind: 'SetPrefsResult' }>): ReducerResult {
   return { state, effects: [] };
 }
 
-export function handleEffectResult(state: ArchState, event: Exclude<EffectResultEvent, { kind: 'TruncateResult' } | { kind: 'OpenSessionResult' } | { kind: 'CreateSessionResult' } | { kind: 'PersistTabsResult' }>): ReducerResult {
+export function handleEffectResult(state: ArchState, event: Exclude<EffectResultEvent, { kind: 'TruncateResult' } | { kind: 'OpenSessionResult' } | { kind: 'CreateSessionResult' } | { kind: 'PersistTabsResult' } | { kind: 'ModelSwitchConfirmResult' }>): ReducerResult {
   switch (event.kind) {
     case 'InterruptResult':
       return handleInterruptResult(state, event);

@@ -191,6 +191,13 @@ export class PieExtension implements vscode.Disposable {
       postImperative: {
         postImperative: (message) => this.sidebarProvider.postImperative(message as import('../shared/protocol').HostToWebviewMessage),
       },
+      modal: {
+        // ShowModelSwitchConfirm: a modal VS Code warning dialog. The reducer
+        // owns the question text + confirm button label; the runner is a thin
+        // executor. Resolves to the chosen label or undefined if dismissed.
+        showWarningModal: (message, confirmChoice) =>
+          vscode.window.showWarningMessage(message, { modal: true }, confirmChoice),
+      },
       fileDiffService: this.fileDiffService,
       service: this.service,
       statsService: this.statsService,

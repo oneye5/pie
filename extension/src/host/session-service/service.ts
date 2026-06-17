@@ -42,7 +42,7 @@ export class SessionService implements vscode.Disposable {
     dispatchArch: (event: Event) => void,
     getArchState: () => ArchState,
     onSessionCompleted?: OnSessionCompleted,
-    runObserver: RunObserver = NOOP_RUN_OBSERVER,
+    private readonly runObserver: RunObserver = NOOP_RUN_OBSERVER,
     onSessionPathResolved?: OnSessionPathResolved,
   ) {
     this.getArchState = getArchState;
@@ -171,12 +171,12 @@ export class SessionService implements vscode.Disposable {
     await this.messages.jumpToLatestTranscript(sessionPath);
   }
 
-  async setModel(
-    requestedSessionPath: string | undefined,
-    defaultModel: string,
-    defaultThinkingLevel: ThinkingLevel,
-  ): Promise<void> {
-    await this.messages.setModel(requestedSessionPath, defaultModel, defaultThinkingLevel);
+  /** Effect-side delegate for the run-analytics observer. The reducer owns
+   *  the ArchState model-switch transitions; the EffectRunner calls this on
+   *  `SetModelRpc` success to record the (disk-persisting) model-config
+   *  change in run analytics. */
+  onModelConfigChanged(sessionPath: string, modelId: string, thinkingLevel: ThinkingLevel): void {
+    this.runObserver.onModelConfigChanged(sessionPath, modelId, thinkingLevel);
   }
 
   async hydrateModelState(sessionPath: string): Promise<void> {

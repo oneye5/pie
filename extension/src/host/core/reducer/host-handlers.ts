@@ -1,6 +1,6 @@
 import { produce } from 'immer';
 
-import type { ArchState } from '../arch-state.js';
+import type { ArchState, SetModelPending } from '../arch-state.js';
 import type {
   BackendReadyChangedEvent,
   PruningSettingsChangedEvent,
@@ -460,6 +460,15 @@ export function handleSessionScopeCleared(
   const { [sp]: _rs, ...remainingRunSummaries } = state.composer.activeRunSummaryBySession;
   const { [sp]: _fc, ...remainingFileChanges } = state.fileChanges.bySession;
   const { [sp]: _af, ...remainingAnalytics } = state.sessions.analyticsFactorsBySession;
+  // Drop in-flight setModel lifecycles for the closed session (both the
+  // modal-confirm phase and the RPC phase). A late ModelSwitchConfirmResult /
+  // SetModelResult for these corrIds then no-ops instead of applying to — or
+  // reverting into — a closed session. Mirrors the pagingInFlight clear above
+  // (handoff pattern #8).
+  const remainingSetModel: Record<string, SetModelPending> = {};
+  for (const [corrId, entry] of Object.entries(state.pending.setModelByCorrId)) {
+    if (entry.sessionPath !== sp) remainingSetModel[corrId] = entry;
+  }
 
   let nextSessions = state.sessions.sessions;
   let nextOpenTabPaths = state.sessions.openTabPaths;
@@ -510,6 +519,10 @@ export function handleSessionScopeCleared(
       fileChanges: {
         ...state.fileChanges,
         bySession: remainingFileChanges,
+      },
+      pending: {
+        ...state.pending,
+        setModelByCorrId: remainingSetModel,
       },
     },
     effects: [],

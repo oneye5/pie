@@ -12,9 +12,12 @@ type Call =
   | { kind: 'persistTabs'; openTabPaths: string[]; active: string | null }
   | { kind: 'log'; level: string; message: string }
   | { kind: 'createNewSession' }
-  | { kind: 'openSession'; sessionPath: string };
+  | { kind: 'openSession'; sessionPath: string }
+  | { kind: 'showWarningModal'; message: string; confirmChoice: string }
+  | { kind: 'bumpEpoch'; sessionPath: string }
+  | { kind: 'onModelConfigChanged'; sessionPath: string; modelId: string; thinkingLevel: string };
 
-function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown> } = {}): {
+function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; modalChoice?: string | undefined } = {}): {
   deps: EffectRunnerDeps;
   calls: Call[];
   events: EffectResultEvent[];
@@ -50,12 +53,22 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown> } =
       },
     },
     postImperative: { postImperative() {} },
+    modal: {
+      async showWarningModal(message: string, confirmChoice: string) {
+        calls.push({ kind: 'showWarningModal', message, confirmChoice });
+        return opts.modalChoice;
+      },
+    },
     fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
     service: {
-      async setModel() {},
       async hydrateModelState() {},
       setPrefs() {},
-      bumpSessionDataEpoch() {},
+      bumpSessionDataEpoch(sessionPath: string) {
+        calls.push({ kind: 'bumpEpoch', sessionPath });
+      },
+      onModelConfigChanged(sessionPath: string, modelId: string, thinkingLevel: string) {
+        calls.push({ kind: 'onModelConfigChanged', sessionPath, modelId, thinkingLevel });
+      },
       suppressNextCompletionNotificationFor() {},
       async addFilesystemPaths() {},
       async loadOlderTranscript() {},
@@ -208,4 +221,88 @@ test('EffectRunner runs Log directly via the log sink (no dispatch event)', asyn
 
   assert.deepEqual(calls, [{ kind: 'log', level: 'warn', message: 'hello' }]);
   assert.equal(events.length, 0);
+});
+
+test('EffectRunner ShowModelSwitchConfirm dispatches ModelSwitchConfirmResult matching the user choice', async () => {
+  const { deps, calls, events } = makeDeps({ modalChoice: 'Switch Model' });
+  const runner = new EffectRunner(deps);
+
+  runner.run({
+    kind: 'ShowModelSwitchConfirm',
+    corrId: 'm1',
+    sessionPath: '/s',
+    modelSettings: { defaultModel: 'text-only', defaultThinkingLevel: 'high' },
+    message: 'remove images?',
+    confirmChoice: 'Switch Model',
+  });
+  await settle();
+
+  assert.deepEqual(calls, [{ kind: 'showWarningModal', message: 'remove images?', confirmChoice: 'Switch Model' }]);
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.kind, 'ModelSwitchConfirmResult');
+  assert.equal(events[0]?.corrId, 'm1');
+  assert.equal(events[0]?.confirmed, true);
+});
+
+test('EffectRunner ShowModelSwitchConfirm maps a dismissal (undefined choice) to confirmed:false', async () => {
+  const { deps, events } = makeDeps({ modalChoice: undefined });
+  const runner = new EffectRunner(deps);
+
+  runner.run({
+    kind: 'ShowModelSwitchConfirm',
+    corrId: 'm2',
+    sessionPath: '/s',
+    modelSettings: { defaultModel: 'text-only', defaultThinkingLevel: 'high' },
+    message: 'remove images?',
+    confirmChoice: 'Switch Model',
+  });
+  await settle();
+
+  assert.equal(events[0]?.kind, 'ModelSwitchConfirmResult');
+  assert.equal(events[0]?.confirmed, false);
+});
+
+test('EffectRunner SetModelRpc writes settings.set, bumps the epoch, notifies the observer, and dispatches SetModelResult{ok:true}', async () => {
+  const { deps, calls, events } = makeDeps();
+  const runner = new EffectRunner(deps);
+
+  runner.run({
+    kind: 'SetModelRpc',
+    corrId: 'sm1',
+    sessionPath: '/s',
+    modelSettings: { defaultModel: 'image-model', defaultThinkingLevel: 'medium' },
+  });
+  await settle();
+
+  // Serialized through the lifecycle queue (single-wrap, matching the old
+  // service path), then the backend write.
+  assert.equal(calls[0]?.kind, 'lifecycle');
+  const req = calls.find((c) => c.kind === 'request');
+  assert.deepEqual(req, { kind: 'request', method: 'settings.set', params: { sessionPath: '/s', defaultModel: 'image-model', defaultThinkingLevel: 'medium' } });
+  // Effect-side concerns (host-local epoch + disk-persisting analytics).
+  assert.deepEqual(calls.find((c) => c.kind === 'bumpEpoch'), { kind: 'bumpEpoch', sessionPath: '/s' });
+  assert.deepEqual(calls.find((c) => c.kind === 'onModelConfigChanged'), { kind: 'onModelConfigChanged', sessionPath: '/s', modelId: 'image-model', thinkingLevel: 'medium' });
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.kind, 'SetModelResult');
+  assert.equal(events[0]?.corrId, 'sm1');
+  assert.equal(events[0]?.ok, true);
+});
+
+test('EffectRunner SetModelRpc dispatches SetModelResult{ok:false} when settings.set rejects (no epoch/observer call)', async () => {
+  const { deps, calls, events } = makeDeps({ requestImpl: () => Promise.reject(new Error('backend down')) });
+  const runner = new EffectRunner(deps);
+
+  runner.run({
+    kind: 'SetModelRpc',
+    corrId: 'sm2',
+    sessionPath: '/s',
+    modelSettings: { defaultModel: 'image-model', defaultThinkingLevel: 'medium' },
+  });
+  await settle();
+
+  assert.equal(calls.some((c) => c.kind === 'bumpEpoch'), false);
+  assert.equal(calls.some((c) => c.kind === 'onModelConfigChanged'), false);
+  assert.equal(events[0]?.kind, 'SetModelResult');
+  assert.equal(events[0]?.ok, false);
+  assert.equal(events[0]?.error, 'backend down');
 });

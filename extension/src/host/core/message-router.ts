@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 
 import * as vscode from 'vscode';
 
-import type { WebviewToHostMessage, SessionSummary, ChatPrefs, PruningSettings, ThinkingLevel } from '../../shared/protocol';
+import type { WebviewToHostMessage, SessionSummary, ChatPrefs, PruningSettings } from '../../shared/protocol';
 import type { Event } from './events';
 import type { ArchState } from './reducer';
 import type { StatsService } from '../stats-service';
@@ -38,7 +38,6 @@ export interface SessionServiceLike {
   loadOlderTranscript(sessionPath?: string): Promise<void>;
   loadNewerTranscript(sessionPath?: string): Promise<void>;
   jumpToLatestTranscript(sessionPath?: string): Promise<void>;
-  setModel(requestedSessionPath: string | undefined, defaultModel: string, defaultThinkingLevel: ThinkingLevel): Promise<void>;
   setPrefs(prefs: Partial<ChatPrefs>): void;
   setPruningSettings(updates: Partial<PruningSettings>): Promise<void>;
 }

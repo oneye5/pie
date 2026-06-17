@@ -165,6 +165,37 @@ export interface PendingOp {
   previousSummary: SessionSummary | null;
 }
 
+/** Snapshot of the state an optimistic `SetModel` changed, for rollback when
+ *  the backend `settings.set` fails. Every field the reducer flipped is
+ *  captured here so revert restores exactly the pre-change state (the
+ *  optimistic apply must match the disk write field-for-field; see STATE_CONTRACT
+ *  § Optimistic Reconciliation).
+ *
+ *  `undefined` vs `null` distinguishes "key absent" (delete on revert) from
+ *  "key present with a null value" (set null on revert) for the two Record
+ *  fields (`contextUsageBySession`, `pendingComposerInputsBySession`). */
+export interface SetModelSnapshot {
+  previousModelSettings: ModelSettings | null;
+  previousSummary: SessionSummary | null;
+  previousContextUsage: ContextWindowUsage | null | undefined;
+  previousPendingInputs: ComposerInput[] | undefined;
+}
+
+/** Tracks an in-flight `SetModel` lifecycle keyed by `corrId`.
+ *
+ *  Two phases share one entry:
+ *  - `snapshot === null` — awaiting the user's modal confirmation (only when
+ *    the switch would drop pending image inputs). No state has changed yet, so
+ *    there is nothing to roll back; the entry just holds the stashed intent.
+ *  - `snapshot !== null` — the optimistic apply has happened and the backend
+ *    `SetModelRpc` is in flight; `SetModelResult{ok:false}` reverts via the
+ *    snapshot, `{ok:true}` drops the entry. */
+export interface SetModelPending {
+  sessionPath: string;
+  modelSettings: ModelSettings;
+  snapshot: SetModelSnapshot | null;
+}
+
 /** Tracks the first message of the active streaming turn per session. */
 export interface CurrentTurn {
   requestId: string;
@@ -178,6 +209,8 @@ export interface CurrentTurn {
 export interface PendingState {
   /** Optimistic pending operations keyed by `corrId`. */
   ops: Record<string, PendingOp>;
+  /** In-flight `SetModel` lifecycles keyed by `corrId` (modal-confirm + RPC). */
+  setModelByCorrId: Record<string, SetModelPending>;
   /** Maps aliased message IDs to canonical IDs (for multi-turn continuations). */
   messageIdAlias: Record<string, string>;
   /** Tracks the first message of the current streaming turn per session. */
@@ -251,6 +284,7 @@ export function createInitialArchState(): ArchState {
     },
     pending: {
       ops: {},
+      setModelByCorrId: {},
       messageIdAlias: {},
       currentTurnBySession: {},
       requestIdToLocalId: {},

@@ -62,11 +62,22 @@ export interface PostImperativeSink {
   postImperative(message: { type: string; sessionPath?: string; text?: string; localId?: string }): void;
 }
 
+/** Sink for modal user-confirmation dialogs (VS Code `showWarningMessage`).
+ *  `showWarningModal` resolves to the chosen button label, or `undefined` if
+ *  the user dismisses the dialog. Returns `PromiseLike` (VS Code's
+ *  `showWarningMessage` yields a `Thenable`, which is a `PromiseLike`); `await`
+ *  accepts it and both real Promises and Thenables satisfy the type. */
+export interface ModalSink {
+  showWarningModal(message: string, confirmChoice: string): PromiseLike<string | undefined>;
+}
+
 export interface SessionServiceLike {
-  setModel(sessionPath: string | undefined, defaultModel: string, defaultThinkingLevel: ThinkingLevel): Promise<void>;
   hydrateModelState(sessionPath: string): Promise<void>;
   setPrefs(prefs: Partial<ChatPrefs>): void;
   bumpSessionDataEpoch(sessionPath: string): void;
+  /** Notify the run-analytics observer that a session's model config changed
+   *  (disk-persisting side effect, not ArchState). Effect-side concern. */
+  onModelConfigChanged(sessionPath: string, modelId: string, thinkingLevel: ThinkingLevel): void;
   suppressNextCompletionNotificationFor(sessionPath: string): void;
   addFilesystemPaths(sessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
   loadOlderTranscript(sessionPath: string): Promise<void>;
@@ -94,6 +105,7 @@ export interface EffectRunnerDeps {
   tabs: TabPersistenceSink;
   log: LogSink;
   postImperative: PostImperativeSink;
+  modal: ModalSink;
   fileDiffService: FileDiffService;
   service: SessionServiceLike;
   statsService: StatsServiceLike;
@@ -111,15 +123,50 @@ export class EffectRunner {
    * completion; this preserves the no-re-entrant-blocking invariant.
    */
   run(effect: Effect): void {
-    if (effect.kind === 'SetModelRpc') {
+    if (effect.kind === 'ShowModelSwitchConfirm') {
+      // Intentionally NOT queued on the lifecycle queue: a modal is a user
+      // interaction, and holding the lifecycle queue (shared with create/open)
+      // behind an open modal would block session creation while the user stares
+      // at a dialog. The old service path awaited the modal *inside*
+      // enqueueLifecycle, which did exactly that. VS Code serializes modal
+      // dialogs itself, corrIds are independent, and the backend write
+      // (SetModelRpc) still goes through the lifecycle queue — so ordering is
+      // preserved where it matters. This is an improvement, not a regression.
       void (async () => {
         try {
-          await this.deps.service.setModel(effect.sessionPath, effect.modelSettings.defaultModel, effect.modelSettings.defaultThinkingLevel);
-          this.deps.dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
+          const choice = await this.deps.modal.showWarningModal(effect.message, effect.confirmChoice);
+          this.deps.dispatch({ kind: 'ModelSwitchConfirmResult', corrId: effect.corrId, confirmed: choice === effect.confirmChoice });
         } catch (err) {
-          this.deps.dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
+          // If the modal itself throws, treat as not confirmed and log; the
+          // reducer drops the stashed intent on a non-confirm.
+          this.deps.log.log('error', `ShowModelSwitchConfirm failed: ${toErrorMessage(err)}`);
+          this.deps.dispatch({ kind: 'ModelSwitchConfirmResult', corrId: effect.corrId, confirmed: false });
         }
       })();
+      return;
+    }
+    if (effect.kind === 'SetModelRpc') {
+      // The reducer owns every ArchState transition (global default, per-session
+      // model badge, context-usage clear, pending-image clear, rollback). The
+      // runner only performs the backend write + the two Effect-side concerns
+      // that are not ArchState: the host-local data epoch (transcript paging
+      // staleness) and the disk-persisting run-analytics observer. Serialized
+      // through the lifecycle queue to match the pre-migration service path.
+      const { backend, queues, dispatch, service } = this.deps;
+      void queues.enqueueLifecycle(async () => {
+        try {
+          await backend.request('settings.set', {
+            sessionPath: effect.sessionPath,
+            defaultModel: effect.modelSettings.defaultModel,
+            defaultThinkingLevel: effect.modelSettings.defaultThinkingLevel,
+          });
+          service.bumpSessionDataEpoch(effect.sessionPath);
+          service.onModelConfigChanged(effect.sessionPath, effect.modelSettings.defaultModel, effect.modelSettings.defaultThinkingLevel);
+          dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
+        } catch (err) {
+          dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
+        }
+      });
       return;
     }
     if (effect.kind === 'SetPrefsRpc') {

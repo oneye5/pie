@@ -113,6 +113,16 @@ export interface SetModelResultEvent {
   error?: string;
 }
 
+/** Result of a `ShowModelSwitchConfirm` effect: the user's choice in the modal
+ *  dialog. `confirmed: false` covers both an explicit non-confirm click and a
+ *  dismissal (undefined choice). The reducer branches on this to either apply
+ *  the optimistic model switch + emit `SetModelRpc`, or abort unchanged. */
+export interface ModelSwitchConfirmResultEvent {
+  kind: 'ModelSwitchConfirmResult';
+  corrId: string;
+  confirmed: boolean;
+}
+
 export interface SetPrefsResultEvent {
   kind: 'SetPrefsResult';
   corrId: string;
@@ -236,6 +246,7 @@ export type EffectResultEvent =
   | PersistTabsResultEvent
   | ExtensionUiResponseResultEvent
   | SetModelResultEvent
+  | ModelSwitchConfirmResultEvent
   | SetPrefsResultEvent
   | FileDiffResultEvent
   | FileRevertResultEvent

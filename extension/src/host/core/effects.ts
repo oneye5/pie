@@ -86,6 +86,19 @@ export interface SetModelRpcEffect extends EffectBase {
   modelSettings: ModelSettings;
 }
 
+/** Ask the user to confirm switching to a model that would drop pending pasted
+ *  image inputs. The reducer emits this instead of mutating state; the runner
+ *  shows a modal VS Code dialog and dispatches `ModelSwitchConfirmResult`.
+ *  Carries the question text + the confirm button label so the reducer owns the
+ *  copy and the runner stays a thin executor. */
+export interface ShowModelSwitchConfirmEffect extends EffectBase {
+  kind: 'ShowModelSwitchConfirm';
+  sessionPath: string;
+  modelSettings: ModelSettings;
+  message: string;
+  confirmChoice: string;
+}
+
 export interface SetPrefsRpcEffect extends EffectBase {
   kind: 'SetPrefsRpc';
   prefs: Partial<ChatPrefs>;
@@ -203,6 +216,7 @@ export type Effect =
   | LogEffect
   | SetModelRpcEffect
   | SetPrefsRpcEffect
+  | ShowModelSwitchConfirmEffect
   | HydrateModelEffect
   | PostImperativeEffect
   | FileDiffEffect

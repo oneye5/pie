@@ -67,12 +67,13 @@ function makeSerializingDeps(): {
     tabs: { async persistTabs() {} },
     log: { log() {} },
     postImperative: { postImperative() {} },
+    modal: { async showWarningModal() { return undefined; } },
     fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
     service: {
-      async setModel() {},
       async hydrateModelState() {},
       setPrefs() {},
       bumpSessionDataEpoch() {},
+      onModelConfigChanged() {},
       suppressNextCompletionNotificationFor(sessionPath: string) {
         suppressCalls.push(sessionPath);
       },
