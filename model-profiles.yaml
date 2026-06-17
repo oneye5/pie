@@ -287,12 +287,6 @@ profiles:
     disabled_reason: null
     cost: 10
 
-  - id: umans-glm-5.2
-    eligible: true
-    thinking: [low, medium, high, xhigh]
-    disabled_reason: null
-    cost: 10
-
   # --- GPT-OSS ---
   - id: gpt-oss:120b-cloud
     eligible: true
@@ -330,6 +324,48 @@ profiles:
     thinking: [low, medium, high, xhigh]
     disabled_reason: null
     cost: 7
+
+  # === UMANS MODELS (code by Umans provider) ===
+  # Hosted via the umans provider (api.code.umans.ai). Each entry mirrors the
+  # analogous ollama-cloud profile where one exists (same underlying model,
+  # different host). umans-coder and umans-flash have no ollama analogue and
+  # default to the full thinking range — tune if needed.
+
+  - id: umans-glm-5.1
+    eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
+    cost: 10
+
+  - id: umans-glm-5.2
+    eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
+    cost: 10
+
+  - id: umans-kimi-k2.6
+    eligible: true
+    thinking: [medium, high, xhigh]
+    disabled_reason: null
+    cost: 9
+
+  - id: umans-kimi-k2.7
+    eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
+    cost: 9
+
+  - id: umans-coder
+    eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
+    cost: 10
+
+  - id: umans-flash
+    eligible: true
+    thinking: [low, medium, high, xhigh]
+    disabled_reason: null
+    cost: 10
 
   # === OLLAMA LOCAL MODELS ===
 

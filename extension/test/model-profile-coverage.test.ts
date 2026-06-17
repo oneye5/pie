@@ -74,27 +74,45 @@ function readJson<T>(filePath: string): T {
   return JSON.parse(fs.readFileSync(filePath, 'utf8')) as T;
 }
 
+/** All model ids declared in models.json across every provider, including both
+ *  `models[].id` entries and `modelOverrides` keys. Provider-agnostic. */
+function collectAllModelIds(models: RawModelConfig): Set<string> {
+  const ids = new Set<string>();
+  for (const provider of Object.values(models.providers ?? {})) {
+    if (Array.isArray(provider.models)) {
+      for (const model of provider.models) {
+        if (typeof model.id === 'string') ids.add(model.id);
+      }
+    }
+    if (provider.modelOverrides && typeof provider.modelOverrides === 'object') {
+      for (const id of Object.keys(provider.modelOverrides)) ids.add(id);
+    }
+  }
+  return ids;
+}
+
+/** All profile ids declared in model-profiles.{yaml,json}. */
+function collectProfileIds(profiles: RawProfileConfig): Set<string> {
+  return new Set(
+    Array.isArray(profiles.profiles)
+      ? profiles.profiles
+          .map((profile) => (typeof profile.id === 'string' ? profile.id : null))
+          .filter((id): id is string => id !== null)
+      : [],
+  );
+}
+
 test('every configured model has a matching model profile entry', () => {
   const repoRoot = path.resolve(__dirname, '..', '..');
   const models = readJson<RawModelConfig>(path.join(repoRoot, 'models.json'));
   const profiles = readConfig(repoRoot);
 
-  const modelIds = Object.values(models.providers ?? {}).flatMap((provider) =>
-    Array.isArray(provider.models)
-      ? provider.models
-          .map((model) => (typeof model.id === 'string' ? model.id : null))
-          .filter((id): id is string => id !== null)
-      : [],
-  );
-  const profileIds = new Set(
-    Array.isArray(profiles.profiles)
-      ? profiles.profiles
-          .map((profile: RawProfileEntry) => (typeof profile.id === 'string' ? profile.id : null))
-          .filter((id): id is string => id !== null)
-      : [],
-  );
+  // Forward coverage: every model declared anywhere in models.json (any
+  // provider, as a `models` entry or an override) must have a profile entry.
+  const modelIds = collectAllModelIds(models);
+  const profileIds = collectProfileIds(profiles);
 
-  const missing = modelIds.filter((id) => !profileIds.has(id));
+  const missing = [...modelIds].filter((id) => !profileIds.has(id));
   assert.deepEqual(missing, [], `Missing model profiles for: ${missing.join(', ')}`);
 });
 
@@ -156,46 +174,21 @@ test('every eligible model profile has real pricing in models.json', () => {
     `Eligible models without pricing in models.json: ${missingCoverage.join(', ')}`);
 });
 
-test('every Copilot model profile id exists in models.json under github-copilot provider', () => {
+test('every model profile id exists in models.json', () => {
   const repoRoot = path.resolve(__dirname, '..', '..');
   const models = readJson<RawModelConfig>(path.join(repoRoot, 'models.json'));
   const profiles = readConfig(repoRoot);
 
-  // Build the set of all model ids under the ollama provider
-  const ollamaModelIds = new Set<string>();
-  const ollamaProvider = models.providers?.ollama;
-  if (ollamaProvider && Array.isArray(ollamaProvider.models)) {
-    for (const model of ollamaProvider.models) {
-      if (typeof model.id === 'string') ollamaModelIds.add(model.id);
-    }
-  }
+  // Reverse coverage: every profile must reference a model declared somewhere
+  // in models.json (under any provider, as a `models` entry or an override).
+  // This is the provider-agnostic dual of the forward coverage test above and
+  // catches orphan/stale profile entries regardless of provider layout.
+  const modelIds = collectAllModelIds(models);
+  const profileIds = collectProfileIds(profiles);
 
-  // Copilot profiles are those NOT in the ollama provider
-  const copilotProfileIds = new Set<string>();
-  for (const profile of (Array.isArray(profiles.profiles) ? profiles.profiles : [])) {
-    if (typeof profile.id !== 'string') continue;
-    if (!ollamaModelIds.has(profile.id)) {
-      copilotProfileIds.add(profile.id);
-    }
-  }
-
-  // All model ids under github-copilot provider
-  const copilotModelIds = new Set<string>();
-  const copilotProvider = models.providers?.['github-copilot'];
-  if (copilotProvider && Array.isArray(copilotProvider.models)) {
-    for (const model of copilotProvider.models) {
-      if (typeof model.id === 'string') copilotModelIds.add(model.id);
-    }
-  }
-  if (copilotProvider?.modelOverrides && typeof copilotProvider.modelOverrides === 'object') {
-    for (const id of Object.keys(copilotProvider.modelOverrides)) {
-      copilotModelIds.add(id);
-    }
-  }
-
-  const missing = [...copilotProfileIds].filter((id) => !copilotModelIds.has(id));
-  assert.deepEqual(missing, [],
-    `Copilot profile ids missing from models.json github-copilot block: ${missing.join(', ')}`);
+  const orphan = [...profileIds].filter((id) => !modelIds.has(id));
+  assert.deepEqual(orphan, [],
+    `Model profile ids with no matching entry in models.json: ${orphan.join(', ')}`);
 });
 
 test('no non-local cloud model has silently-zero pricing in models.json', () => {
