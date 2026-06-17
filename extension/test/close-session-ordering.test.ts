@@ -127,7 +127,7 @@ test('closeSession → runner host-side cleanup → CloseSessionResult{ok:true} 
     fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
     service: {
       async hydrateModelState() {}, setPrefs() {}, bumpSessionDataEpoch() {}, onModelConfigChanged() {},
-      suppressNextCompletionNotificationFor() {}, async addFilesystemPaths() {}, async loadOlderTranscript() {},
+      suppressNextCompletionNotificationFor() {}, async loadOlderTranscript() {},
       async loadNewerTranscript() {}, async jumpToLatestTranscript() {}, async setPruningSettings() {},
       closeSession: (sessionPath: string, nextPath: string | null) => tabs.closeSession(sessionPath, nextPath),
       handleSelectionFailure: (token: string, notice: string) => state.handleSelectionFailure(token, notice),
@@ -208,7 +208,7 @@ test('closeSession → recursive openSession(nextPath) when nextPath is NOT summ
     fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
     service: {
       async hydrateModelState() {}, setPrefs() {}, bumpSessionDataEpoch() {}, onModelConfigChanged() {},
-      suppressNextCompletionNotificationFor() {}, async addFilesystemPaths() {}, async loadOlderTranscript() {},
+      suppressNextCompletionNotificationFor() {}, async loadOlderTranscript() {},
       async loadNewerTranscript() {}, async jumpToLatestTranscript() {}, async setPruningSettings() {},
       closeSession: (sessionPath: string, nextPath: string | null) => tabs.closeSession(sessionPath, nextPath),
       handleSelectionFailure: (token: string, notice: string) => state.handleSelectionFailure(token, notice),

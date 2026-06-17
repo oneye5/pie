@@ -332,6 +332,13 @@ export class MessageRouter {
   }
 
   private async onOpenFilePicker(): Promise<void> {
+    // The service resolves the target session (possibly creating a new one via
+    // createNewSession() when no session is active) + cleans the paths, then
+    // dispatches the AddFilesystemPaths Command. The reducer owns the composer-
+    // input append. Mirrors onNewSession -> service.createNewSession(). The
+    // previous path dispatched the Command directly with sessionPath: undefined,
+    // so the runner's legacy addFilesystemPaths had to resolve the session
+    // inside the effect handler (re-entrant Command dispatch).
     const uris = await vscode.window.showOpenDialog({
       canSelectMany: true,
       canSelectFiles: true,
@@ -340,11 +347,8 @@ export class MessageRouter {
       title: 'Attach file path(s) to message',
     });
     if (!uris || uris.length === 0) return;
-    const corrId = crypto.randomUUID();
-    this.dispatchEvent({
-      kind: 'Command',
-      cmd: { kind: 'AddFilesystemPaths', corrId, sessionPath: undefined, paths: uris.map((u) => u.fsPath), source: 'picker' },
-    });
+    await this.service.addFilesystemPaths(undefined, uris.map((u) => u.fsPath), 'picker');
+    this.sidebarProvider.postState();
   }
 
   private async onAddComposerInput(msg: Extract<WebviewToHostMessage, { type: 'addComposerInput' }>): Promise<void> {

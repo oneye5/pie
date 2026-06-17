@@ -93,6 +93,8 @@ export interface ChatPrefs {
   autoExpandSubagentCalls: boolean;
   suppressCompletionNotifications: boolean;
   showPruningMessages: boolean;
+  /** When true, sub-agents always use the parent's active model (skip bucket selection). */
+  subagentAlwaysParentModel: boolean;
   completionSoundVolume: number;
   /** Per-extension enabled/disabled toggles. Keys are extension IDs. */
   extensionToggles: Record<string, boolean>;
@@ -130,6 +132,7 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   autoExpandSubagentCalls: false,
   suppressCompletionNotifications: false,
   showPruningMessages: true,
+  subagentAlwaysParentModel: false,
   completionSoundVolume: 50,
   extensionToggles: {},
   providerToggles: {},

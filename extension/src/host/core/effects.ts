@@ -147,13 +147,6 @@ export interface ExtensionUiResponseRpcEffect extends EffectBase {
   response: import('../../shared/protocol').ExtensionUIResponsePayload;
 }
 
-export interface AddFilesystemPathsEffect extends EffectBase {
-  kind: 'AddFilesystemPaths';
-  sessionPath: string | undefined;
-  paths: string[];
-  source: 'picker' | 'drop';
-}
-
 export interface LoadOlderTranscriptEffect extends EffectBase {
   kind: 'LoadOlderTranscript';
   sessionPath: string;
@@ -246,7 +239,6 @@ export type Effect =
 
 
   | ExtensionUiResponseRpcEffect
-  | AddFilesystemPathsEffect
   | LoadOlderTranscriptEffect
   | LoadNewerTranscriptEffect
   | JumpToLatestTranscriptEffect

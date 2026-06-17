@@ -69,7 +69,6 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
         calls.push({ kind: 'onModelConfigChanged', sessionPath, modelId, thinkingLevel });
       },
       suppressNextCompletionNotificationFor() {},
-      async addFilesystemPaths() {},
       async loadOlderTranscript() {},
       async loadNewerTranscript() {},
       async jumpToLatestTranscript() {},

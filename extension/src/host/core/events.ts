@@ -146,13 +146,6 @@ export interface FileRevertResultEvent {
   error?: string;
 }
 
-export interface AddFilesystemPathsResultEvent {
-  kind: 'AddFilesystemPathsResult';
-  corrId: string;
-  ok: boolean;
-  error?: string;
-}
-
 export interface LoadOlderTranscriptResultEvent {
   kind: 'LoadOlderTranscriptResult';
   corrId: string;
@@ -254,7 +247,6 @@ export type EffectResultEvent =
   | SetPrefsResultEvent
   | FileDiffResultEvent
   | FileRevertResultEvent
-  | AddFilesystemPathsResultEvent
   | LoadOlderTranscriptResultEvent
   | LoadNewerTranscriptResultEvent
   | JumpToLatestTranscriptResultEvent

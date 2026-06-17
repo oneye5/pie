@@ -137,7 +137,7 @@ test('createNewSession → backend session.create rejection → handleSelectionF
     fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
     service: {
       async hydrateModelState() {}, setPrefs() {}, bumpSessionDataEpoch() {}, onModelConfigChanged() {},
-      suppressNextCompletionNotificationFor() {}, async addFilesystemPaths() {}, async loadOlderTranscript() {},
+      suppressNextCompletionNotificationFor() {}, async loadOlderTranscript() {},
       async loadNewerTranscript() {}, async jumpToLatestTranscript() {}, async closeSession() {},
       async setPruningSettings() {},
       handleSelectionFailure: (token: string, notice: string) => state.handleSelectionFailure(token, notice),

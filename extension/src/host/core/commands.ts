@@ -150,9 +150,18 @@ export interface RespondExtensionUICommand extends CommandBase {
   response: ExtensionUIResponsePayload;
 }
 
+/** Attach filesystem path(s) as composer inputs to a session. The reducer owns
+ *  the append (creates `filesystemPathRef` inputs with IDs from `corrId`, checks
+ *  duplicates, appends to `pendingComposerInputsBySession`); the host-side entry
+ *  (`service.addFilesystemPaths`) resolves the target session (possibly creating
+ *  a new one via `createNewSession()`) + cleans the paths BEFORE dispatching this
+ *  Command. No Effect or runner side effect — there is no backend RPC for this
+ *  op (purely a composer-input mutation). */
 export interface AddFilesystemPathsCommand extends CommandBase {
   kind: 'AddFilesystemPaths';
-  sessionPath: string | undefined;
+  /** The resolved target session path (never undefined — the host-side entry
+   *  resolves it, possibly via `createNewSession()`, before dispatching). */
+  sessionPath: string;
   paths: string[];
   source: 'picker' | 'drop';
 }

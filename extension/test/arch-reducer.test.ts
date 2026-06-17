@@ -996,23 +996,32 @@ test('reducer: MoveSessionTab clamps toIndex to the last position', () => {
   }
 });
 
-test('reducer: AddFilesystemPaths command produces AddFilesystemPaths effect, state unchanged', () => {
+test('reducer: AddFilesystemPaths command appends filesystemPathRef inputs to pendingComposerInputsBySession (no effect — no backend RPC)', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: { ...initialArchState.sessions, openTabPaths: ['/s'] },
+  };
   const event: Event = {
     kind: 'Command',
-    cmd: { kind: 'AddFilesystemPaths', corrId: 'c-afp', sessionPath: '/s', paths: ['/a', '/b'], source: 'picker' },
+    cmd: { kind: 'AddFilesystemPaths', corrId: 'c-afp', sessionPath: '/s', paths: ['/a/file.ts', '/b/dir'], source: 'picker' },
   };
 
-  const result = reducer(initialArchState, event);
+  const result = reducer(state, event);
 
-  assert.deepEqual(result.state, initialArchState);
-  assert.equal(result.effects.length, 1);
-  assert.equal(result.effects[0]?.kind, 'AddFilesystemPaths');
-  if (result.effects[0]?.kind === 'AddFilesystemPaths') {
-    assert.equal(result.effects[0].corrId, 'c-afp');
-    assert.equal(result.effects[0].sessionPath, '/s');
-    assert.deepEqual(result.effects[0].paths, ['/a', '/b']);
-    assert.equal(result.effects[0].source, 'picker');
-  }
+  // No effect — purely a composer-input mutation (no backend RPC).
+  assert.deepEqual(result.effects, []);
+  // Two inputs appended with IDs from corrId + index.
+  const inputs = result.state.composer.pendingComposerInputsBySession['/s'];
+  assert.equal(inputs?.length, 2);
+  assert.equal(inputs?.[0]?.kind, 'filesystemPathRef');
+  assert.equal(inputs?.[0]?.id, 'c-afp:input:0');
+  assert.equal(inputs?.[0]?.path, '/a/file.ts');
+  assert.equal(inputs?.[0]?.name, 'file.ts');
+  assert.equal(inputs?.[0]?.source, 'picker');
+  assert.equal(inputs?.[1]?.kind, 'filesystemPathRef');
+  assert.equal(inputs?.[1]?.id, 'c-afp:input:1');
+  assert.equal(inputs?.[1]?.path, '/b/dir');
+  assert.equal(inputs?.[1]?.name, 'dir');
 });
 
 // ──────────────────────────────────────────────────────────────────────────

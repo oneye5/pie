@@ -106,7 +106,6 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
     case 'FileRevertResult':
     case 'SetModelResult':
     case 'SetPrefsResult':
-    case 'AddFilesystemPathsResult':
     case 'LoadOlderTranscriptResult':
     case 'LoadNewerTranscriptResult':
     case 'JumpToLatestTranscriptResult':

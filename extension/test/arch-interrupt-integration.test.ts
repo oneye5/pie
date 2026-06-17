@@ -77,7 +77,6 @@ function makeSerializingDeps(): {
       suppressNextCompletionNotificationFor(sessionPath: string) {
         suppressCalls.push(sessionPath);
       },
-      async addFilesystemPaths() {},
       async loadOlderTranscript() {},
       async loadNewerTranscript() {},
       async jumpToLatestTranscript() {},

@@ -1,4 +1,5 @@
 import { produce } from 'immer';
+import * as path from 'node:path';
 
 import type { ArchState } from '../arch-state.js';
 import { mergePruningSettings, type ChatPrefs, type ComposerInput, type ModelSettings } from '../../../shared/protocol.js';
@@ -535,17 +536,48 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'AddFilesystemPaths': {
+      // The reducer owns the composer-input append (pure): for each path,
+      // create a `filesystemPathRef` input (ID from corrId, name from
+      // basename), check for duplicates against existing inputs, skip
+      // duplicates + empty paths, append to pendingComposerInputsBySession.
+      // No Effect — there is no backend RPC for this op (purely a composer-
+      // input mutation). The host-side entry (service.addFilesystemPaths)
+      // resolved the target session (possibly via createNewSession()) +
+      // cleaned the paths BEFORE dispatching this Command.
+      const { sessionPath, paths, source } = cmd;
+      const existing = state.composer.pendingComposerInputsBySession[sessionPath] ?? [];
+      const nextInputs = [...existing];
+      for (let i = 0; i < paths.length; i++) {
+        const filesystemPath = paths[i].trim();
+        if (!filesystemPath) continue;
+        const duplicate = nextInputs.some(
+          (inp) => inp.kind === 'filesystemPathRef' && inp.path === filesystemPath,
+        );
+        if (duplicate) continue;
+        nextInputs.push({
+          id: `${cmd.corrId}:input:${i}`,
+          kind: 'filesystemPathRef',
+          path: filesystemPath,
+          name: path.basename(filesystemPath) || filesystemPath,
+          source,
+        });
+      }
+      // If no new inputs were added (all duplicates or empty), no state change.
+      if (nextInputs.length === existing.length) {
+        return { state, effects: [] };
+      }
       return {
-        state,
-        effects: [
-          {
-            kind: 'AddFilesystemPaths',
-            corrId: cmd.corrId,
-            sessionPath: cmd.sessionPath,
-            paths: cmd.paths,
-            source: cmd.source,
+        state: {
+          ...state,
+          composer: {
+            ...state.composer,
+            pendingComposerInputsBySession: {
+              ...state.composer.pendingComposerInputsBySession,
+              [sessionPath]: nextInputs,
+            },
           },
-        ],
+        },
+        effects: [],
       };
     }
 

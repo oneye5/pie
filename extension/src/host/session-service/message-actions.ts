@@ -1,6 +1,5 @@
-import * as path from 'node:path';
-
 import * as vscode from 'vscode';
+import * as crypto from 'node:crypto';
 
 import { BackendClient } from '../backend/client';
 import { resolveSessionOpenedTranscript } from '../core/session-opened-transcript';
@@ -19,8 +18,6 @@ import type {
 } from '../../shared/protocol';
 import {
   normalizeAttachUris,
-  upsertPendingComposerInput,
-  validateAndMaterializeComposerInput,
 } from '../core/composer';
 import { buildTranscriptPageRequest } from '../core/transcript-window';
 import { SessionServiceState } from './state';
@@ -69,6 +66,15 @@ export class SessionMessageActions {
     paths: string[],
     source: 'picker' | 'drop',
   ): Promise<void> {
+    // Thin host-side entry: resolve the target session (possibly creating a new
+    // one via createNewSession() when no session is active — the entanglement
+    // the handoff flagged), clean the paths (trim, filter empty, dedup), then
+    // dispatch the AddFilesystemPaths Command with the RESOLVED session path.
+    // The reducer owns the composer-input append (creates filesystemPathRef
+    // inputs with IDs from corrId, checks duplicates, appends to
+    // pendingComposerInputsBySession) — no Effect or runner side effect (no
+    // backend RPC). Mirrors createNewSession: the impure bits (session
+    // resolution + path cleaning) happen host-side before the Command dispatch.
     const sessionPath = this.resolveComposerTargetSessionPath(requestedSessionPath);
     const uniquePaths = [...new Set(
       paths
@@ -80,27 +86,16 @@ export class SessionMessageActions {
       return;
     }
 
-    for (const filesystemPath of uniquePaths) {
-      const input = validateAndMaterializeComposerInput(
+    this.dispatchArch({
+      kind: 'Command',
+      cmd: {
+        kind: 'AddFilesystemPaths',
+        corrId: crypto.randomUUID(),
         sessionPath,
-        {
-          kind: 'filesystemPathRef',
-          path: filesystemPath,
-          name: path.basename(filesystemPath) || filesystemPath,
-          source,
-        },
-        () => this.state.createComposerInputId(),
-        this.scheduleRender,
-        this.runObserver,
-        this.getArchState,
-        this.dispatchArch,
-      );
-      if (!input) {
-        continue;
-      }
-      upsertPendingComposerInput(sessionPath, input, this.getArchState, this.dispatchArch);
-    }
-
+        paths: uniquePaths,
+        source,
+      },
+    });
     this.scheduleRender();
   }
 

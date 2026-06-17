@@ -79,7 +79,6 @@ export interface SessionServiceLike {
    *  (disk-persisting side effect, not ArchState). Effect-side concern. */
   onModelConfigChanged(sessionPath: string, modelId: string, thinkingLevel: ThinkingLevel): void;
   suppressNextCompletionNotificationFor(sessionPath: string): void;
-  addFilesystemPaths(sessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
   loadOlderTranscript(sessionPath: string): Promise<void>;
   loadNewerTranscript(sessionPath: string): Promise<void>;
   jumpToLatestTranscript(sessionPath: string): Promise<void>;
@@ -219,17 +218,6 @@ export class EffectRunner {
           this.deps.dispatch({ kind: 'FileRevertResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
           this.deps.dispatch({ kind: 'FileRevertResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'AddFilesystemPaths') {
-      void (async () => {
-        try {
-          await this.deps.service.addFilesystemPaths(effect.sessionPath, effect.paths, effect.source);
-          this.deps.dispatch({ kind: 'AddFilesystemPathsResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'AddFilesystemPathsResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
