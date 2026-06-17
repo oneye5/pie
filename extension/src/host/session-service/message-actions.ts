@@ -3,7 +3,6 @@ import * as crypto from 'node:crypto';
 
 import { BackendClient } from '../backend/client';
 import { resolveSessionOpenedTranscript } from '../core/session-opened-transcript';
-import { type RunObserver } from '../stats-service';
 import { auditLog } from '../util/audit';
 import { toErrorMessage } from '../util/error-message';
 
@@ -29,7 +28,6 @@ interface SessionMessageActionsOptions {
   context: vscode.ExtensionContext;
   backend: BackendClient;
   scheduleRender: ScheduleRender;
-  runObserver: RunObserver;
   state: SessionServiceState;
   createNewSession: () => string;
   getArchState: () => ArchState;
@@ -40,7 +38,6 @@ export class SessionMessageActions {
   private readonly context: vscode.ExtensionContext;
   private readonly backend: BackendClient;
   private readonly scheduleRender: ScheduleRender;
-  private readonly runObserver: RunObserver;
   private readonly state: SessionServiceState;
   private readonly createNewSession: () => string;
   private readonly getArchState: () => ArchState;
@@ -50,7 +47,6 @@ export class SessionMessageActions {
     this.context = options.context;
     this.backend = options.backend;
     this.scheduleRender = options.scheduleRender;
-    this.runObserver = options.runObserver;
     this.state = options.state;
     this.createNewSession = options.createNewSession;
     this.getArchState = options.getArchState;

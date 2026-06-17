@@ -29,7 +29,6 @@ import { dispatch } from './core/dispatch';
 import { initialArchState, type ArchState } from './core/reducer';
 import type { Event } from './core/events';
 import { selectViewState } from './core/projection';
-import { subscribeToArchState } from './core/dispatch';
 import { auditLog, bootLog } from './util/audit';
 import { deriveSessionNameFromText } from '../shared/session-name';
 import { isPendingTabPath } from '../shared/tab-behavior';
@@ -203,13 +202,6 @@ export class PieExtension implements vscode.Disposable {
       dispatchEvent: (event) => this.dispatchArchEvent(event),
     });
 
-    // Auto-projection: schedule a render whenever archState changes.
-    // The backend-ready queue drain is now reducer-driven: handleBackendReadyChanged
-    // emits a DrainBackendReadyQueue effect when ready transitions to true.
-    subscribeToArchState(() => {
-      this.scheduleRender();
-    });
-
     this.statusBar.command = 'pie.openChat';
     this.statusBar.show();
   }
@@ -242,8 +234,7 @@ export class PieExtension implements vscode.Disposable {
     for (const effect of result.effects) {
       this.effectRunner.run(effect);
     }
-    // Auto-projection: scheduleRender() is called automatically by the
-    // subscribeToArchState listener. No explicit render call needed here.
+    this.scheduleRender();
   }
 
   register(): void {

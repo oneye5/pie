@@ -69,7 +69,6 @@ export class SessionService implements vscode.Disposable {
       context,
       backend,
       scheduleRender,
-      runObserver,
       state: this.state,
       createNewSession: () => this.tabs.createNewSession(),
       getArchState,

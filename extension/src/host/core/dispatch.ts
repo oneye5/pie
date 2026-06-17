@@ -1,14 +1,12 @@
 /**
  * Single entry point for dispatching events to the CQRS reducer.
- * 
- * Handles the complete dispatch cycle:
- * 1. Reduce: (ArchState, Event) → { state, effects }
- * 2. Notify: subscribers hear about state changes (auto-projection)
- * 3. Run effects: the caller must pass the effects to the EffectRunner
- * 
- * Auto-projection: any listener subscribed via `subscribeToArchState()`
- * receives the new state after every dispatch, enabling automatic render
- * scheduling without explicit `scheduleRender()` calls.
+ *
+ * `dispatch` is a pure function: `(ArchState, Event) → { state, effects }`.
+ * It has no side effects and holds no mutable state. The caller is
+ * responsible for:
+ * 1. Storing the new state (e.g. `this.archState = result.state`).
+ * 2. Executing the returned effects (via `EffectRunner.run()`).
+ * 3. Scheduling any render — there is no auto-projection here.
  */
 
 import { reducer } from './reducer';
@@ -16,33 +14,13 @@ import type { ArchState } from './arch-state';
 import type { Event } from './events';
 import type { Effect } from './effects';
 
-type StateChangeListener = (state: ArchState) => void;
-
-const listeners = new Set<StateChangeListener>();
-
-/** Subscribe to state changes. Returns an unsubscribe function. */
-export function subscribeToArchState(callback: StateChangeListener): () => void {
-  listeners.add(callback);
-  return () => { listeners.delete(callback); };
-}
-
-function notifyListeners(state: ArchState): void {
-  for (const listener of listeners) {
-    listener(state);
-  }
-}
-
 /**
  * Dispatch an event through the CQRS reducer.
- * 
- * Returns the new state and effects. The caller must:
- * - Store the new state (e.g., `this.archState = result.state`)
- * - Execute the effects (via `EffectRunner.run()`)
- * 
- * State change listeners are notified automatically, enabling auto-projection.
+ *
+ * Returns the new state and effects. Pure and deterministic: dispatching the
+ * same event against the same state always yields the same result. The caller
+ * must store the new state, run the effects, and schedule any render.
  */
 export function dispatch(state: ArchState, event: Event): { state: ArchState; effects: Effect[] } {
-  const result = reducer(state, event);
-  notifyListeners(result.state);
-  return result;
+  return reducer(state, event);
 }

@@ -28,7 +28,6 @@ export class SessionServiceState {
   private readonly requestSessionPathById = new Map<string, string>();
   private readonly transcriptTouchedAtBySession = new Map<string, number>();
   private pendingSessionCounter = 0;
-  private composerInputCounter = 0;
   private selectionRequestCounter = 0;
   private currentSelectionToken: string | null = null;
   private onPreloadedSessionOpened?: (payload: SessionOpenedPayload) => void;
@@ -71,11 +70,6 @@ export class SessionServiceState {
   createPendingSessionPath(): string {
     this.pendingSessionCounter += 1;
     return `${PENDING_SESSION_PREFIX}${Date.now()}-${this.pendingSessionCounter}-${Math.random().toString(36).slice(2, 8)}`;
-  }
-
-  createComposerInputId(): string {
-    this.composerInputCounter += 1;
-    return `input:${Date.now()}:${this.composerInputCounter}`;
   }
 
   beginSelectionRequest(

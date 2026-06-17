@@ -62,7 +62,7 @@ test('addFilesystemPaths attaches to the active session when one exists (no crea
     state, getArchState, dispatchArch,
   });
   const messages = new SessionMessageActions({
-    context, backend, scheduleRender: () => undefined, runObserver: NOOP_RUN_OBSERVER,
+    context, backend, scheduleRender: () => undefined,
     state, createNewSession: () => tabs.createNewSession(), getArchState, dispatchArch,
   });
 
@@ -111,7 +111,7 @@ test('addFilesystemPaths with no active session calls createNewSession() then at
     state, getArchState, dispatchArch,
   });
   const messages = new SessionMessageActions({
-    context, backend, scheduleRender: () => undefined, runObserver: NOOP_RUN_OBSERVER,
+    context, backend, scheduleRender: () => undefined,
     state, createNewSession: () => tabs.createNewSession(), getArchState, dispatchArch,
   });
 
@@ -173,7 +173,7 @@ test('addFilesystemPaths with no paths or invalid paths dispatches no Command', 
     state, getArchState, dispatchArch,
   });
   const messages = new SessionMessageActions({
-    context, backend, scheduleRender: () => undefined, runObserver: NOOP_RUN_OBSERVER,
+    context, backend, scheduleRender: () => undefined,
     state, createNewSession: () => tabs.createNewSession(), getArchState, dispatchArch,
   });
 
