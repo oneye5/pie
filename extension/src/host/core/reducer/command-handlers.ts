@@ -1,7 +1,7 @@
 import { produce } from 'immer';
 
 import type { ArchState } from '../arch-state.js';
-import type { ChatPrefs, ComposerInput } from '../../../shared/protocol.js';
+import { mergePruningSettings, type ChatPrefs, type ComposerInput } from '../../../shared/protocol.js';
 import type { ReducerResult } from './helpers.js';
 import { addToArray, removeFromArray, removeSessionFromState, appendLocalUserMessage } from './helpers.js';
 import { moveOpenTabPath } from '../../../shared/tab-behavior.js';
@@ -479,8 +479,19 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'SetPruningSettings': {
+      // Option B: apply optimistically for instant UI. The service keeps its
+      // catch+mirror+notice (graceful degradation when PI_CODING_AGENT_DIR is
+      // absent), so SetPruningSettingsResult is always {ok:true} and no
+      // snapshot/revert is needed. mergePruningSettings matches the disk-write
+      // merge so optimistic state == persisted state.
       return {
-        state,
+        state: {
+          ...state,
+          settings: {
+            ...state.settings,
+            pruningSettings: mergePruningSettings(state.settings.pruningSettings, cmd.settings),
+          },
+        },
         effects: [
           {
             kind: 'SetPruningSettings',

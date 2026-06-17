@@ -225,7 +225,11 @@ export class SessionService implements vscode.Disposable {
     const storage = this.createPruningSettingsStorage();
     await savePruningSettings(
       storage,
-      (settings) => this.dispatchArch({ kind: 'PruningSettingsChanged', pruningSettings: settings }),
+      // SET path: the reducer already applied the update optimistically, so do
+      // not re-dispatch PruningSettingsChanged (avoids a lost-update flicker
+      // under rapid sequential changes). Persistence still writes-or-mirrors and
+      // notifies on disk failure. The LOAD path keeps its own dispatch.
+      undefined,
       () => this.getArchState().settings.pruningSettings,
       updates,
       (message) => this.dispatchArch({ kind: 'NoticeShown', notice: message }),

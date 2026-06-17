@@ -176,6 +176,10 @@ export async function writePruningSettings(
     pruning.thinkingLevel = updates.thinkingLevel;
   }
 
+  if (updates.prepassTimeoutSec !== undefined) {
+    pruning.prepassTimeoutSec = updates.prepassTimeoutSec;
+  }
+
   existing.pruning = pruning;
   await fs.writeFile(settingsPath, JSON.stringify(existing, null, 2) + '\n', 'utf8');
   return await readPruningSettings();

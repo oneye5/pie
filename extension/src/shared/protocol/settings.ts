@@ -147,6 +147,38 @@ export const DEFAULT_PRUNING_SETTINGS: PruningSettings = {
   prepassTimeoutSec: null,
 };
 
+/**
+ * Pure merge of a partial pruning-settings update into the current settings.
+ *
+ * Top-level scalars are replaced when present in `updates`; the
+ * `skillAlwaysKeep`/`toolAlwaysKeep` arrays are replaced (and copied, so the
+ * reducer never aliases the caller's array). `prepassTimeoutSec` uses an
+ * explicit `undefined` check so a caller can set it to `null` (clearing the
+ * override) rather than omitting it. This must produce the same shape as the
+ * disk-write merge in `writePruningSettings` so the reducer's optimistic state
+ * matches the persisted state.
+ */
+export function mergePruningSettings(
+  current: PruningSettings,
+  updates: Partial<PruningSettings>,
+): PruningSettings {
+  return {
+    mode: updates.mode !== undefined ? updates.mode : current.mode,
+    skillCeiling: updates.skillCeiling !== undefined ? updates.skillCeiling : current.skillCeiling,
+    toolCeiling: updates.toolCeiling !== undefined ? updates.toolCeiling : current.toolCeiling,
+    skillAlwaysKeep:
+      updates.skillAlwaysKeep !== undefined ? [...updates.skillAlwaysKeep] : current.skillAlwaysKeep,
+    toolAlwaysKeep:
+      updates.toolAlwaysKeep !== undefined ? [...updates.toolAlwaysKeep] : current.toolAlwaysKeep,
+    model: updates.model !== undefined ? updates.model : current.model,
+    provider: updates.provider !== undefined ? updates.provider : current.provider,
+    thinkingLevel:
+      updates.thinkingLevel !== undefined ? updates.thinkingLevel : current.thinkingLevel,
+    prepassTimeoutSec:
+      updates.prepassTimeoutSec !== undefined ? updates.prepassTimeoutSec : current.prepassTimeoutSec,
+  };
+}
+
 export const EMPTY_TRANSCRIPT_WINDOW: TranscriptWindow = {
   totalCount: 0,
   loadedStart: 0,

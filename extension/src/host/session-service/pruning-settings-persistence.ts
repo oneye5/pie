@@ -56,7 +56,7 @@ export async function loadPersistedPruningSettings(
  */
 export async function savePruningSettings(
   storage: PruningSettingsStorage,
-  dispatch: (settings: PruningSettings) => void,
+  dispatch: ((settings: PruningSettings) => void) | undefined,
   getCurrent: () => PruningSettings,
   updates: Partial<PruningSettings>,
   onError?: (message: string) => void,
@@ -71,6 +71,12 @@ export async function savePruningSettings(
     onError?.(message);
   }
 
-  dispatch(result);
+  // `dispatch` is optional: the SET path (service.setPruningSettings) passes
+  // undefined because the reducer already owns the value via optimistic apply
+  // (avoids a lost-update flicker under rapid sequential changes). The LOAD
+  // path (loadPersistedPruningSettings) keeps its own dispatch.
+  if (dispatch) {
+    dispatch(result);
+  }
   await storage.update(result);
 }

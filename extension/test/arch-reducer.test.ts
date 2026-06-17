@@ -1354,3 +1354,43 @@ test('reducer: SetPrefs not touching suppressCompletionNotifications leaves unre
   assert.equal(result.effects.length, 1);
   assert.equal(result.effects[0]?.kind, 'SetPrefsRpc');
 });
+
+// ─── Phase 2: SetPruningSettings (Option B — reducer owns the optimistic apply) ──
+
+test('reducer: SetPruningSettings applies optimistically and emits the SetPruningSettings effect', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    settings: {
+      ...initialArchState.settings,
+      pruningSettings: {
+        ...initialArchState.settings.pruningSettings,
+        mode: 'shadow',
+        skillCeiling: 3,
+        skillAlwaysKeep: ['keep-me'],
+      },
+    },
+  };
+
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'SetPruningSettings', corrId: 'c-prune', settings: { mode: 'off', skillCeiling: 9 } },
+  };
+
+  const result = reducer(state, event);
+
+  // Option B: the reducer owns the merge for instant UI. The service keeps its
+  // catch+mirror+notice (graceful degradation when PI_CODING_AGENT_DIR is
+  // absent), so no snapshot/revert is needed.
+  assert.equal(result.state.settings.pruningSettings.mode, 'off');
+  assert.equal(result.state.settings.pruningSettings.skillCeiling, 9);
+  // Untouched fields are preserved.
+  assert.deepEqual(result.state.settings.pruningSettings.skillAlwaysKeep, ['keep-me']);
+  // The reducer returns a new state reference (purity).
+  assert.notEqual(result.state, state);
+  // Thin persistence effect; no snapshot, no revert.
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'SetPruningSettings');
+  if (result.effects[0]?.kind === 'SetPruningSettings') {
+    assert.deepEqual(result.effects[0].settings, { mode: 'off', skillCeiling: 9 });
+  }
+});

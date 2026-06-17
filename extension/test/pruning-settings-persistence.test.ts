@@ -177,3 +177,47 @@ test('savePruningSettings writes to settings.json and mirrors to storage when PI
     }
   }
 });
+
+test('savePruningSettings persists prepassTimeoutSec to settings.json (set then clear)', async () => {
+  const previous = process.env.PI_CODING_AGENT_DIR;
+  const tempDir = mkdtempSync(path.join(tmpdir(), 'pie-pruning-timeout-'));
+  process.env.PI_CODING_AGENT_DIR = tempDir;
+  try {
+    writeFileSync(path.join(tempDir, 'settings.json'), '{}\n', 'utf8');
+    const dispatched: PruningSettings[] = [];
+    const storage = createStorage();
+
+    // Set a timeout override.
+    await savePruningSettings(
+      storage,
+      (settings) => dispatched.push(settings),
+      () => DEFAULT_PRUNING_SETTINGS,
+      { prepassTimeoutSec: 60 },
+      () => {},
+    );
+    assert.equal(dispatched[0]?.prepassTimeoutSec, 60);
+    assert.equal(storage.get()?.prepassTimeoutSec, 60);
+    let written = JSON.parse(readFileSync(path.join(tempDir, 'settings.json'), 'utf8'));
+    assert.equal(written.pruning.prepassTimeoutSec, 60, 'timeout must be written to disk');
+
+    // Clear the override: null is a real value, distinct from omitted.
+    await savePruningSettings(
+      storage,
+      (settings) => dispatched.push(settings),
+      () => ({ ...DEFAULT_PRUNING_SETTINGS, prepassTimeoutSec: 60 }),
+      { prepassTimeoutSec: null },
+      () => {},
+    );
+    assert.equal(dispatched[1]?.prepassTimeoutSec, null, 'clearing produces null in state');
+    assert.equal(storage.get()?.prepassTimeoutSec, null);
+    written = JSON.parse(readFileSync(path.join(tempDir, 'settings.json'), 'utf8'));
+    assert.equal(written.pruning.prepassTimeoutSec, null, 'null must be written to disk (clear)');
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+    if (previous !== undefined) {
+      process.env.PI_CODING_AGENT_DIR = previous;
+    } else {
+      delete process.env.PI_CODING_AGENT_DIR;
+    }
+  }
+});
