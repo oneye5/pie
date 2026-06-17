@@ -148,9 +148,21 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
           providerToggles: { ...current.providerToggles, ...cmd.prefs.providerToggles },
         }),
       };
+      // Phase 2 cutover: the unread-finished-sessions clear moved here from
+      // service.setPrefs (the SetPrefsRpc effect handler). When the merged
+      // prefs suppress completion notifications, clear unread finished sessions
+      // in the same reducer transition. This is a pure state mutation — no
+      // event is dispatched (the previous round-trip through an
+      // UnreadFinishedSessionsChanged event is gone).
       return {
         state: {
           ...state,
+          sessions: {
+            ...state.sessions,
+            ...(deepMerged.suppressCompletionNotifications
+              ? { unreadFinishedSessionPaths: [] }
+              : {}),
+          },
           settings: {
             ...state.settings,
             prefs: deepMerged,

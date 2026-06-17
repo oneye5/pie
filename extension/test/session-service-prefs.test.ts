@@ -153,18 +153,19 @@ test('setPrefs persists prefs without dispatching a recursive SetPrefs command',
   assert.equal(persisted?.autoExpandReasoning, true);
 });
 
-test('setPrefs clears unread finished sessions when suppressCompletionNotifications becomes true', async () => {
+test('setPrefs no longer dispatches UnreadFinishedSessionsChanged (reducer owns the clear)', async () => {
   const { service, dispatched, context } = makeHarness();
 
   service.setPrefs({ suppressCompletionNotifications: true });
   await flushMicrotasks();
 
+  // Phase 2 cutover: the unread-finished-sessions clear moved from this effect
+  // handler into the reducer's SetPrefs Command handler, so service.setPrefs
+  // must NOT dispatch UnreadFinishedSessionsChanged.
   const unreadEvent = dispatched.find(
     (e) => e.kind === 'UnreadFinishedSessionsChanged',
   );
-
-  assert.ok(unreadEvent, 'expected UnreadFinishedSessionsChanged event');
-  assert.deepEqual((unreadEvent as Extract<Event, { kind: 'UnreadFinishedSessionsChanged' }>).sessionPaths, []);
+  assert.equal(unreadEvent, undefined, 'service.setPrefs must not clear unread sessions (reducer owns it now)');
 
   const persisted = context.globalState.get('chatPrefs');
   assert.equal(persisted?.suppressCompletionNotifications, true);

@@ -1197,3 +1197,56 @@ test('reducer: DuplicateSessionResult{ok:false} produces Log effect', () => {
     assert.match(result.effects[0].message, /DuplicateSessionResult failed/);
   }
 });
+
+// ─── Phase 2: SetPrefs unread-finished clear ─────────────────────────────────
+
+test('reducer: SetPrefs with suppressCompletionNotifications=true clears unreadFinishedSessionPaths and emits SetPrefsRpc', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: {
+      ...initialArchState.sessions,
+      unreadFinishedSessionPaths: ['/x', '/y'],
+    },
+  };
+
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'SetPrefs', corrId: 'c-prefs', prefs: { suppressCompletionNotifications: true } },
+  };
+
+  const result = reducer(state, event);
+
+  assert.deepEqual(result.state.sessions.unreadFinishedSessionPaths, []);
+  assert.equal(result.state.settings.prefs.suppressCompletionNotifications, true);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'SetPrefsRpc');
+  if (result.effects[0]?.kind === 'SetPrefsRpc') {
+    assert.equal(result.effects[0].corrId, 'c-prefs');
+    assert.deepEqual(result.effects[0].prefs, { suppressCompletionNotifications: true });
+  }
+});
+
+test('reducer: SetPrefs not touching suppressCompletionNotifications leaves unreadFinishedSessionPaths unchanged', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: {
+      ...initialArchState.sessions,
+      unreadFinishedSessionPaths: ['/x', '/y'],
+    },
+  };
+
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'SetPrefs', corrId: 'c-prefs2', prefs: { autoExpandToolCalls: true } },
+  };
+
+  const result = reducer(state, event);
+
+  assert.deepEqual(result.state.sessions.unreadFinishedSessionPaths, ['/x', '/y']);
+  assert.equal(result.state.settings.prefs.autoExpandToolCalls, true);
+  // suppressCompletionNotifications stays at its default (false) since the
+  // command did not touch it, so unread paths are not cleared.
+  assert.equal(result.state.settings.prefs.suppressCompletionNotifications, false);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'SetPrefsRpc');
+});
