@@ -1259,15 +1259,14 @@ test('reducer: CloseSessionResult{ok:true} returns unchanged state with no effec
   assert.deepEqual(result.effects, []);
 });
 
-test('reducer: CloseSessionResult{ok:false} produces Log effect', () => {
+test('reducer: CloseSessionResult{ok:false} is a no-op (close is purely host-side, no reducer reconciliation needed)', () => {
+  // Mirrors CreateSessionResult/DuplicateSessionResult/OpenSessionResult: the
+  // reducer already did the optimistic tab-close + select-next + map clearing.
+  // The runner's CloseSession Effect does host-side cleanup (no backend RPC),
+  // so the result event has no reducer state to reconcile.
   const result = reducer(initialArchState, { kind: 'CloseSessionResult', corrId: 'c-close', ok: false, error: 'network' });
   assert.deepEqual(result.state, initialArchState);
-  assert.equal(result.effects.length, 1);
-  assert.equal(result.effects[0]?.kind, 'Log');
-  if (result.effects[0]?.kind === 'Log') {
-    assert.equal(result.effects[0].level, 'error');
-    assert.match(result.effects[0].message, /CloseSessionResult failed/);
-  }
+  assert.deepEqual(result.effects, []);
 });
 
 // ─── Phase 4: requestIdToLocalId reconciliation ───────────────────────────────

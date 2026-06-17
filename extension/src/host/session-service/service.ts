@@ -149,8 +149,8 @@ export class SessionService implements vscode.Disposable {
     this.tabs.openSession(sessionPath);
   }
 
-  async closeSession(sessionPath: string): Promise<void> {
-    await this.tabs.closeSession(sessionPath);
+  async closeSession(sessionPath: string, nextPath: string | null): Promise<void> {
+    await this.tabs.closeSession(sessionPath, nextPath);
   }
 
   duplicateSession(sessionPath: string): void {

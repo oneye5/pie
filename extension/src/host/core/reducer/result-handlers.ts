@@ -163,7 +163,7 @@ export function handleSetPrefsResult(state: ArchState, _event: Extract<Event, { 
   return { state, effects: [] };
 }
 
-export function handleEffectResult(state: ArchState, event: Exclude<EffectResultEvent, { kind: 'TruncateResult' } | { kind: 'OpenSessionResult' } | { kind: 'CreateSessionResult' } | { kind: 'DuplicateSessionResult' } | { kind: 'PersistTabsResult' } | { kind: 'ModelSwitchConfirmResult' }>): ReducerResult {
+export function handleEffectResult(state: ArchState, event: Exclude<EffectResultEvent, { kind: 'TruncateResult' } | { kind: 'OpenSessionResult' } | { kind: 'CreateSessionResult' } | { kind: 'DuplicateSessionResult' } | { kind: 'CloseSessionResult' } | { kind: 'PersistTabsResult' } | { kind: 'ModelSwitchConfirmResult' }>): ReducerResult {
   switch (event.kind) {
     case 'InterruptResult':
       return handleInterruptResult(state, event);
@@ -221,7 +221,6 @@ export function handleEffectResult(state: ArchState, event: Exclude<EffectResult
     case 'OpenFileInEditorResult':
     case 'OpenFileResult':
     case 'SetPruningSettingsResult':
-    case 'CloseSessionResult':
     case 'ExtensionUiResponseResult': {
       if (!event.ok) {
         return {

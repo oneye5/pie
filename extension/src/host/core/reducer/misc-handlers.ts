@@ -23,6 +23,17 @@ export function handleOpenSessionResult(state: ArchState, _event: Extract<Event,
   return { state, effects: [] };
 }
 
+export function handleCloseSessionResult(state: ArchState, _event: Extract<Event, { kind: 'CloseSessionResult' }>): ReducerResult {
+  // No-op: close is purely host-side (no backend RPC), and the reducer already
+  // did the optimistic tab-close + select-next + map clearing. The runner's
+  // CloseSession Effect does host-side cleanup (clearSelectionRequests,
+  // onSessionClosed, clearSessionScope, evict) + the recursive
+  // openSession(nextPath) — none of which needs reducer reconciliation. The
+  // result event exists only to complete the Command→reducer→Effect→runner→
+  // Result spine.
+  return { state, effects: [] };
+}
+
 export function handlePersistTabsResult(state: ArchState, _event: Extract<Event, { kind: 'PersistTabsResult' }>): ReducerResult {
   return { state, effects: [] };
 }

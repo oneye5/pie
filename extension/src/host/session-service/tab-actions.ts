@@ -5,7 +5,6 @@ import * as vscode from 'vscode';
 import { type RunObserver } from '../stats-service';
 import { auditLog, bootLog } from '../util/audit';
 import {
-  getNextVisibleTabPathOnClose,
   isPendingTabPath,
 } from '../../shared/tab-behavior';
 import type { SessionSummary } from '../../shared/protocol';
@@ -158,47 +157,56 @@ export class SessionTabActions {
     this.scheduleRender();
   }
 
-  async closeSession(sessionPath: string): Promise<void> {
-    const archState = this.getArchState();
-    const nextPath = getNextVisibleTabPathOnClose({
-      closingPath: sessionPath,
-      openTabPaths: archState.sessions.openTabPaths,
-      sessions: archState.sessions.sessions,
-      workspaceCwd: archState.sessions.workspaceCwd,
-      activeSessionPath: archState.sessions.activeSessionPath,
-    });
-
+  async closeSession(sessionPath: string, nextPath: string | null): Promise<void> {
+    // Thin host-side cleanup — the reducer already did the tab-close +
+    // per-session map clearing + select-next-tab (via the CloseSession Command
+    // handler, which computed nextPath and passed it through the Effect). This
+    // method does ONLY the host-side work the reducer can't:
+    //   - clearSelectionRequestsForPath (host-local selection timer cleanup)
+    //   - onSessionClosed (disk-persisting analytics: finalize run as
+    //     'closed_unscored' + dispatch ActiveRunSummaryChanged(null) —
+    //     redundant since the reducer already cleared the run summary, but
+    //     idempotent)
+    //   - clearSessionScope (host-local runtime state: busySeqMap,
+    //     sessionOperationQueues, dataEpochs, etc. + dispatches
+    //     SessionScopeCleared{removeSessionSummary:false} — redundant since
+    //     the reducer already cleared the maps, but idempotent)
+    //   - evictInactiveTranscriptWindows (host-local LRU)
+    //   - assertSelectionInvariant (debug assertion)
+    //   - the recursive openSession(nextPath) when nextPath is not yet
+    //     summarized/pending (the edge case where a tab is open but its
+    //     session hasn't been loaded yet — e.g. startup tab restore before the
+    //     sessions list is populated). The openSession dispatches the
+    //     OpenSession Command, which inserts a placeholder + re-selects +
+    //     emits the OpenSession Effect → runner does the session.open RPC.
+    //     If the open fails, handleSelectionFailure's wasOpenTab=true branch
+    //     skips teardown (nextPath is already open) — the tab stays open but
+    //     unopened, matching the pre-migration behavior.
+    //
+    // NO backend RPC for close (unlike create/open/duplicate). NO CloseTab
+    // dispatch (the reducer already removed from openTabPaths). NO
+    // saveOpenTabs (replaced by PersistTabs Effect). NO SelectSession dispatch
+    // (the reducer already selected nextPath). NO placeholder creation (moved
+    // to openSession).
     auditLog(this.context, 'session-service', 'session.close.requested', {
       nextPath,
       sessionPath,
     });
 
     this.state.clearSelectionRequestsForPath(sessionPath);
-
     this.runObserver.onSessionClosed(sessionPath);
-    this.dispatchArch({ kind: 'Command', cmd: { kind: 'CloseTab', corrId: `close:${Date.now()}`, sessionPath } });
     this.state.clearSessionScope(sessionPath);
-    this.state.saveOpenTabs();
 
-    if (archState.sessions.activeSessionPath === sessionPath) {
-      if (nextPath) {
-        if (isPendingTabPath(nextPath) || archState.sessions.sessions.find((s) => s.path === nextPath)) {
-          this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: nextPath } });
-        } else {
-          const placeholder: SessionSummary = {
-            path: nextPath,
-            name: 'Loading...',
-            isPlaceholder: true,
-            cwd: archState.sessions.workspaceCwd ?? '',
-            modifiedAt: new Date().toISOString(),
-            messageCount: 0,
-          };
-          this.dispatchArch({ kind: 'SessionSummaryUpserted', summary: placeholder });
-          this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: placeholder.path } });
-          void this.openSession(nextPath);
-        }
-      } else {
-        this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: '' } });
+    // Recursive open: only when nextPath exists and is NOT already summarized
+    // or pending (the edge case). The reducer already set activeSessionPath =
+    // nextPath; the openSession will re-select (redundant, idempotent) +
+    // insert a placeholder + emit the backend session.open RPC.
+    if (nextPath) {
+      const archState = this.getArchState();
+      const isSummarizedOrPending =
+        isPendingTabPath(nextPath) || !!archState.sessions.sessions.find((s) => s.path === nextPath);
+      if (!isSummarizedOrPending) {
+        void this.openSession(nextPath);
       }
     }
 

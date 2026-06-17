@@ -204,6 +204,12 @@ export interface SetPruningSettingsEffect extends EffectBase {
 export interface CloseSessionEffect extends EffectBase {
   kind: 'CloseSession';
   sessionPath: string;
+  /** The next tab to activate after closing, computed by the reducer via
+   *  `getNextVisibleTabPathOnClose` (pure). null if no tabs remain. The runner
+   *  uses this to decide whether to recursively `openSession(nextPath)` —
+   *  only when nextPath is NOT already summarized/pending (the edge case where
+   *  a tab is open but its session hasn't been loaded yet). */
+  nextPath: string | null;
 }
 
 export interface DuplicateSessionEffect extends EffectBase {

@@ -226,6 +226,8 @@ export interface CloseSessionResultEvent {
   kind: 'CloseSessionResult';
   corrId: string;
   ok: boolean;
+  /** The closed session path, if ok. */
+  sessionPath?: string;
   error?: string;
 }
 

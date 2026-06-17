@@ -33,7 +33,6 @@ export interface SessionServiceLike {
   addFilesystemPaths(requestedSessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
   createNewSession(): string;
   openSession(sessionPath: string): void;
-  closeSession(sessionPath: string): Promise<void>;
   duplicateSession(sessionPath: string): void;
   loadOlderTranscript(sessionPath?: string): Promise<void>;
   loadNewerTranscript(sessionPath?: string): Promise<void>;

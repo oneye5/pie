@@ -60,6 +60,7 @@ import {
   handleCreateSessionResult,
   handleDuplicateSessionResult,
   handleOpenSessionResult,
+  handleCloseSessionResult,
   handlePersistTabsResult,
 } from './reducer/misc-handlers.js';
 import {
@@ -115,7 +116,6 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
     case 'OpenFileInEditorResult':
     case 'OpenFileResult':
     case 'SetPruningSettingsResult':
-    case 'CloseSessionResult':
     case 'ExtensionUiResponseResult': {
       return handleEffectResult(state, event);
     }
@@ -296,6 +296,10 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
 
     case 'DuplicateSessionResult': {
       return handleDuplicateSessionResult(state, event);
+    }
+
+    case 'CloseSessionResult': {
+      return handleCloseSessionResult(state, event);
     }
 
     case 'OpenSessionResult': {

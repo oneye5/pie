@@ -3,8 +3,9 @@ import { produce } from 'immer';
 import type { ArchState } from '../arch-state.js';
 import { mergePruningSettings, type ChatPrefs, type ComposerInput, type ModelSettings } from '../../../shared/protocol.js';
 import type { ReducerResult } from './helpers.js';
-import { addToArray, removeFromArray, removeSessionFromState, appendLocalUserMessage } from './helpers.js';
-import { moveOpenTabPath, isPendingTabPath } from '../../../shared/tab-behavior.js';
+import { addToArray, removeFromArray, appendLocalUserMessage } from './helpers.js';
+import { moveOpenTabPath, isPendingTabPath, getNextVisibleTabPathOnClose } from '../../../shared/tab-behavior.js';
+import { handleSessionScopeCleared } from './host-handlers.js';
 import { modelSupportsInputKind } from '../model-capability.js';
 import { applySetModelOptimistic } from './set-model-handlers.js';
 import type { Command } from '../commands.js';
@@ -372,10 +373,61 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'CloseSession': {
-      const { state: removedState } = removeSessionFromState(state, cmd.sessionPath);
+      const { sessionPath } = cmd;
+      // The reducer owns the tab-close + per-session map clearing +
+      // select-next-tab; the runner owns the host-side cleanup
+      // (clearSelectionRequestsForPath, onSessionClosed, clearSessionScope,
+      // evict) + the recursive openSession(nextPath) when nextPath is not yet
+      // summarized. Mirrors the create/open/duplicate pattern but with a key
+      // difference: there is NO backend RPC for close — the Effect is a
+      // host-side cleanup descriptor, not a backend-RPC descriptor.
+      //
+      // DIFFERENCE from the pre-migration code: the old CloseSession handler
+      // called `removeSessionFromState` (full eviction: removed the summary,
+      // runningPaths, nulled activeSessionPath) BEFORE the runner's fat
+      // `service.closeSession()` could read the original activeSessionPath,
+      // so the next-tab selection was silently skipped (latent double-
+      // execution bug). The new handler computes nextPath FIRST (from the
+      // pre-close state), does the close + select-next, and passes nextPath
+      // to the runner via the Effect.
+      //
+      // Unlike create/duplicate (which target a NEW pending path → clear
+      // runningSessionPaths + activeRunSummaryBySession for the pending path),
+      // closeSession REMOVES a tab → mirror SessionScopeCleared{removeSession-
+      // Summary:false} (clear per-session maps but keep the summary for
+      // reopening, do NOT touch runningSessionPaths — the session may still be
+      // running in the backend even if its tab is closed).
+      const nextPath = getNextVisibleTabPathOnClose({
+        closingPath: sessionPath,
+        openTabPaths: state.sessions.openTabPaths,
+        sessions: state.sessions.sessions,
+        workspaceCwd: state.sessions.workspaceCwd,
+        activeSessionPath: state.sessions.activeSessionPath,
+      });
+      // Clear per-session keyed maps (like SessionScopeCleared{false}).
+      // The summary is NOT removed — the session persists for reopening.
+      const scoped = handleSessionScopeCleared(state, { kind: 'SessionScopeCleared', sessionPath, removeSessionSummary: false });
+      // Remove from openTabPaths + unreadFinished (like CloseTab).
+      const nextOpenTabPaths = removeFromArray(scoped.state.sessions.openTabPaths, sessionPath);
+      const nextUnreadPaths = removeFromArray(scoped.state.sessions.unreadFinishedSessionPaths, sessionPath);
+      // If the closed session was active, select the next tab (or null).
+      const wasActive = state.sessions.activeSessionPath === sessionPath;
+      const nextActivePath = wasActive ? (nextPath ?? null) : scoped.state.sessions.activeSessionPath;
+      const nextState = {
+        ...scoped.state,
+        sessions: {
+          ...scoped.state.sessions,
+          openTabPaths: nextOpenTabPaths,
+          unreadFinishedSessionPaths: nextUnreadPaths,
+          activeSessionPath: nextActivePath,
+        },
+      };
       return {
-        state: removedState,
-        effects: [{ kind: 'CloseSession', corrId: cmd.corrId, sessionPath: cmd.sessionPath }],
+        state: nextState,
+        effects: [
+          { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: nextActivePath },
+          { kind: 'CloseSession', corrId: cmd.corrId, sessionPath, nextPath },
+        ],
       };
     }
 

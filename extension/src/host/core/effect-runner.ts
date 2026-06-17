@@ -83,7 +83,7 @@ export interface SessionServiceLike {
   loadOlderTranscript(sessionPath: string): Promise<void>;
   loadNewerTranscript(sessionPath: string): Promise<void>;
   jumpToLatestTranscript(sessionPath: string): Promise<void>;
-  closeSession(sessionPath: string): Promise<void>;
+  closeSession(sessionPath: string, nextPath: string | null): Promise<void>;
   setPruningSettings(updates: Partial<PruningSettings>): Promise<void>;
   /** Recover from a failed/timed-out selection: finish the request and
    *  dispatch the reducer transitions that undo the optimistic tab setup
@@ -335,12 +335,21 @@ export class EffectRunner {
       return;
     }
     if (effect.kind === 'CloseSession') {
+      // CloseSession: the reducer already did the optimistic tab-close +
+      // per-session map clearing + select-next-tab; the runner owns the
+      // host-side cleanup (clearSelectionRequests, onSessionClosed,
+      // clearSessionScope, evict) + the recursive openSession(nextPath) when
+      // nextPath is not yet summarized (the edge case where a tab is open but
+      // its session hasn't been loaded yet). There is NO backend RPC for close
+      // — the Effect is a host-side cleanup descriptor, not a backend-RPC
+      // descriptor. The service.closeSession() method is thin (just the
+      // host-side cleanup + recursive open), NOT the old fat path.
       void (async () => {
         try {
-          await this.deps.service.closeSession(effect.sessionPath);
-          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, ok: true });
+          await this.deps.service.closeSession(effect.sessionPath, effect.nextPath);
+          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
+          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
