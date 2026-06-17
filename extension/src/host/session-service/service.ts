@@ -139,6 +139,13 @@ export class SessionService implements vscode.Disposable {
     return this.tabs.createNewSession();
   }
 
+  /** Effect-side delegate: recover from a failed/timed-out selection by
+   *  finishing the request and dispatching the reducer transitions that undo
+   *  the optimistic tab setup. */
+  handleSelectionFailure(selectionToken: string, notice: string): void {
+    this.state.handleSelectionFailure(selectionToken, notice);
+  }
+
   openSession(sessionPath: string): void {
     this.tabs.openSession(sessionPath);
   }

@@ -86,7 +86,10 @@ export interface SessionServiceLike {
   closeSession(sessionPath: string): Promise<void>;
   setPruningSettings(updates: Partial<PruningSettings>): Promise<void>;
   duplicateSession(sessionPath: string): void;
-  createNewSession(): string;
+  /** Recover from a failed/timed-out selection: finish the request and
+   *  dispatch the reducer transitions that undo the optimistic tab setup
+   *  (CloseTab / SelectSession-fallback / SessionScopeCleared / NoticeShown). */
+  handleSelectionFailure(selectionToken: string, notice: string): void;
   openSession(sessionPath: string): void;
 }
 
@@ -493,10 +496,12 @@ export class EffectRunner {
    * re-entrant dispatch while the outer effects loop is still running.
    */
   private runLifecycle(effect: Extract<Effect, { kind: 'OpenSession' | 'CreateSession' }>): void {
-    const { service, dispatch } = this.deps;
-    void (async () => {
-      try {
-        if (effect.kind === 'OpenSession') {
+    const { service, backend, queues, dispatch } = this.deps;
+    if (effect.kind === 'OpenSession') {
+      // OpenSession is not yet migrated (next chunk): the service still owns
+      // its optimistic tab setup + backend session.open RPC.
+      void (async () => {
+        try {
           service.openSession(effect.sessionPath);
           dispatch({
             kind: 'OpenSessionResult',
@@ -504,17 +509,7 @@ export class EffectRunner {
             sessionPath: effect.sessionPath,
             ok: true,
           });
-        } else {
-          const sessionPath = service.createNewSession();
-          dispatch({
-            kind: 'CreateSessionResult',
-            corrId: effect.corrId,
-            sessionPath,
-            ok: true,
-          });
-        }
-      } catch (err) {
-        if (effect.kind === 'OpenSession') {
+        } catch (err) {
           dispatch({
             kind: 'OpenSessionResult',
             corrId: effect.corrId,
@@ -522,16 +517,40 @@ export class EffectRunner {
             ok: false,
             error: toErrorMessage(err),
           });
-        } else {
-          dispatch({
-            kind: 'CreateSessionResult',
-            corrId: effect.corrId,
-            ok: false,
-            error: toErrorMessage(err),
-          });
         }
+      })();
+      return;
+    }
+    // CreateSession: the reducer already did the optimistic tab setup; the
+    // runner owns the backend session.create RPC, serialized on the lifecycle
+    // queue (shared with open/close). The selection token was minted in
+    // service.createNewSession() BEFORE the reducer activated the pending tab,
+    // so handleSelectionFailure can restore the previous active path on
+    // failure. On failure handleSelectionFailure dispatches the reducer
+    // transitions that undo the optimistic setup (CloseTab / SelectSession-
+    // fallback / SessionScopeCleared / NoticeShown) — so the reducer's
+    // CreateSessionResult handler stays a no-op, matching the pre-migration
+    // recovery path.
+    void queues.enqueueLifecycle(async () => {
+      try {
+        await backend.request('session.create', { cwd: effect.cwd, selectionToken: effect.selectionToken });
+        dispatch({
+          kind: 'CreateSessionResult',
+          corrId: effect.corrId,
+          sessionPath: effect.sessionPath,
+          ok: true,
+        });
+      } catch (err) {
+        service.handleSelectionFailure(effect.selectionToken, `Failed to create session: ${toErrorMessage(err)}`);
+        dispatch({
+          kind: 'CreateSessionResult',
+          corrId: effect.corrId,
+          sessionPath: effect.sessionPath,
+          ok: false,
+          error: toErrorMessage(err),
+        });
       }
-    })();
+    });
   }
 
   private runPersistTabs(effect: Extract<Effect, { kind: 'PersistTabs' }>): void {

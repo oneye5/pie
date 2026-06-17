@@ -382,11 +382,11 @@ export class MessageRouter {
   }
 
   private onNewSession(): void {
-    const corrId = crypto.randomUUID();
-    this.dispatchEvent({
-      kind: 'Command',
-      cmd: { kind: 'CreateSession', corrId, selectionToken: crypto.randomUUID() },
-    });
+    // The service generates the impure pending path + placeholder summary,
+    // mints the selection token (before the reducer activates the pending tab
+    // so failure recovery can restore the previous active path), and dispatches
+    // the CreateSession Command. The reducer owns the optimistic tab setup.
+    this.service.createNewSession();
     this.sidebarProvider.postState();
   }
 

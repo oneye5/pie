@@ -11,11 +11,11 @@ type Call =
   | { kind: 'request'; method: string; params: unknown }
   | { kind: 'persistTabs'; openTabPaths: string[]; active: string | null }
   | { kind: 'log'; level: string; message: string }
-  | { kind: 'createNewSession' }
   | { kind: 'openSession'; sessionPath: string }
   | { kind: 'showWarningModal'; message: string; confirmChoice: string }
   | { kind: 'bumpEpoch'; sessionPath: string }
-  | { kind: 'onModelConfigChanged'; sessionPath: string; modelId: string; thinkingLevel: string };
+  | { kind: 'onModelConfigChanged'; sessionPath: string; modelId: string; thinkingLevel: string }
+  | { kind: 'handleSelectionFailure'; token: string; notice: string };
 
 function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; modalChoice?: string | undefined } = {}): {
   deps: EffectRunnerDeps;
@@ -77,9 +77,8 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
       async closeSession() {},
       async setPruningSettings() {},
       duplicateSession() {},
-      createNewSession() {
-        calls.push({ kind: 'createNewSession' });
-        return '/new';
+      handleSelectionFailure(token: string, notice: string) {
+        calls.push({ kind: 'handleSelectionFailure', token, notice });
       },
       openSession(sessionPath: string) {
         calls.push({ kind: 'openSession', sessionPath });
@@ -128,26 +127,42 @@ test('EffectRunner routes InterruptRpc through enqueueLifecycle → enqueueSessi
   assert.equal(events[0]?.ok, true);
 });
 
-test('EffectRunner delegates CreateSession to the session service (full tab setup)', async () => {
+test('EffectRunner CreateSession issues session.create (with the pre-minted token) on the lifecycle queue and dispatches CreateSessionResult{ok:true}', async () => {
   const { deps, calls, events } = makeDeps();
   const runner = new EffectRunner(deps);
 
   const effect: Effect = {
     kind: 'CreateSession',
     corrId: 'c2',
-    selectionToken: 'tok',
+    sessionPath: '/__pending__:new',
+    cwd: '/w',
+    selectionToken: 'tok-1',
   };
   runner.run(effect);
   await settle();
 
-  // Delegates to service.createNewSession (which performs tab lifecycle setup
-  // and enqueues its own backend call); the runner does not call the backend
-  // directly nor double-wrap in its own lifecycle queue.
-  assert.equal(calls.some((c) => c.kind === 'createNewSession'), true);
-  assert.equal(calls.some((c) => c.kind === 'lifecycle'), false);
-  assert.equal(calls.some((c) => c.kind === 'request'), false);
+  // The reducer already did the optimistic tab setup; the service already
+  // minted the selection token (before the reducer activated the pending tab).
+  // The runner only issues the backend session.create RPC, serialized on the
+  // lifecycle queue, carrying that token.
+  assert.equal(calls.some((c) => c.kind === 'lifecycle'), true);
+  assert.deepEqual(calls.find((c) => c.kind === 'request'), { kind: 'request', method: 'session.create', params: { cwd: '/w', selectionToken: 'tok-1' } });
   assert.equal(events[0]?.kind, 'CreateSessionResult');
   assert.equal(events[0]?.ok, true);
+  assert.equal(events[0]?.sessionPath, '/__pending__:new');
+});
+
+test('EffectRunner CreateSession calls handleSelectionFailure + dispatches CreateSessionResult{ok:false} when session.create rejects', async () => {
+  const { deps, calls, events } = makeDeps({ requestImpl: (method) => method === 'session.create' ? Promise.reject(new Error('backend down')) : Promise.resolve({}) });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'CreateSession', corrId: 'c2b', sessionPath: '/__pending__:new2', cwd: '/w', selectionToken: 'tok-2' });
+  await settle();
+
+  assert.deepEqual(calls.find((c) => c.kind === 'handleSelectionFailure'), { kind: 'handleSelectionFailure', token: 'tok-2', notice: 'Failed to create session: backend down' });
+  assert.equal(events[0]?.kind, 'CreateSessionResult');
+  assert.equal(events[0]?.ok, false);
+  assert.equal(events[0]?.error, 'backend down');
 });
 
 test('EffectRunner delegates OpenSession to the session service', async () => {

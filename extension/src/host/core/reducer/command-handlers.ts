@@ -115,13 +115,51 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'CreateSession': {
+      const { sessionPath, cwd, placeholderSummary, selectionToken } = cmd;
+      // Optimistic tab setup — was imperative dispatchArch calls in the
+      // service (SessionSummaryUpserted + TabOpened + SelectSession +
+      // RunningSessionsChanged + ActiveRunSummaryChanged(null) + saveOpenTabs).
+      // The reducer now owns these transitions purely; the runner only does the
+      // backend session.create RPC + the host-local selection machinery.
+      //
+      // Semantics mirror the event handlers: placeholder summary is unshifted
+      // (handleSessionSummaryUpserted), the tab is appended if not already open
+      // (handleTabOpened), the session is selected (SelectSession), it's ensured
+      // not running, and its active-run summary is cleared. PersistTabs replaces
+      // the old saveOpenTabs() call.
+      const sessions = state.sessions.sessions;
+      const alreadySummarized = sessions.some((s) => s.path === sessionPath);
+      const nextSessions = alreadySummarized
+        ? sessions
+        : [placeholderSummary, ...sessions];
+      const nextOpenTabPaths = state.sessions.openTabPaths.includes(sessionPath)
+        ? state.sessions.openTabPaths
+        : [...state.sessions.openTabPaths, sessionPath];
+      const nextRunningPaths = state.sessions.runningSessionPaths.filter((p) => p !== sessionPath);
+      const nextState = {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          sessions: nextSessions,
+          openTabPaths: nextOpenTabPaths,
+          activeSessionPath: sessionPath,
+          runningSessionPaths: nextRunningPaths,
+          unreadFinishedSessionPaths: state.sessions.unreadFinishedSessionPaths.filter((p) => p !== sessionPath),
+        },
+        composer: {
+          ...state.composer,
+          activeRunSummaryBySession: {
+            ...state.composer.activeRunSummaryBySession,
+            [sessionPath]: null,
+          },
+        },
+      };
       return {
-        state,
-        effects: [{
-          kind: 'CreateSession',
-          corrId: cmd.corrId,
-          selectionToken: cmd.selectionToken,
-        }],
+        state: nextState,
+        effects: [
+          { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: sessionPath },
+          { kind: 'CreateSession', corrId: cmd.corrId, sessionPath, cwd, selectionToken },
+        ],
       };
     }
 

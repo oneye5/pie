@@ -1,7 +1,7 @@
 {
-  "defaultModel": "kimi-k2.7-code:cloud",
-  "defaultThinkingLevel": "high",
-  "defaultProvider": "ollama",
+  "defaultModel": "umans-glm-5.1",
+  "defaultThinkingLevel": "medium",
+  "defaultProvider": "umans",
   "pruning": {
     "model": "deepseek-v4-flash:cloud",
     "provider": "ollama",

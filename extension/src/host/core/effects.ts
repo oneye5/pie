@@ -62,6 +62,12 @@ export interface OpenSessionEffect extends EffectBase {
 
 export interface CreateSessionEffect extends EffectBase {
   kind: 'CreateSession';
+  /** The pending session path the reducer optimistically opened. */
+  sessionPath: string;
+  /** Workspace cwd for the backend session.create RPC. */
+  cwd: string;
+  /** Selection token (minted before the Command dispatched) for the backend
+   *  session.create RPC. */
   selectionToken: string;
 }
 

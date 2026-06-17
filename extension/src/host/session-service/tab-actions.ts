@@ -1,3 +1,5 @@
+import * as crypto from 'node:crypto';
+
 import * as vscode from 'vscode';
 
 import { BackendClient } from '../backend/client';
@@ -44,17 +46,25 @@ export class SessionTabActions {
   }
 
   createNewSession(): string {
+    // Host-side entry: generate the impure bits the reducer can't (pending
+    // path counter + Date.now/Math.random, placeholder modifiedAt, and the
+    // selection token), then dispatch the CreateSession Command. The reducer
+    // owns the optimistic tab setup (placeholder summary, tab open, select,
+    // running state, active-run summary) and emits PersistTabs + CreateSession;
+    // the runner owns the backend session.create RPC + failure recovery.
+    //
+    // beginSelectionRequest MUST run before the Command dispatch: it snapshots
+    // `previousActivePath` (the active tab before the create) so failure
+    // recovery can restore it. The reducer synchronously sets activeSessionPath
+    // = pending during the dispatch, so calling beginSelectionRequest after
+    // would snapshot the pending path instead. Returns the pending path
+    // synchronously so the composer fallback caller can address the new
+    // session immediately.
     const pendingPath = this.state.createPendingSessionPath();
     const cwd = this.getArchState().sessions.workspaceCwd ?? '';
     const selectionToken = this.state.beginSelectionRequest(pendingPath, pendingPath);
 
-    auditLog(this.context, 'session-service', 'session.create.requested', {
-      cwd,
-      pendingPath,
-      selectionToken,
-    });
-
-    const incoming: SessionSummary = {
+    const placeholderSummary: SessionSummary = {
       path: pendingPath,
       name: 'New Session',
       cwd,
@@ -62,26 +72,25 @@ export class SessionTabActions {
       messageCount: 0,
       isPlaceholder: true,
     };
-    this.dispatchArch({ kind: 'SessionSummaryUpserted', summary: incoming });
-    this.dispatchArch({ kind: 'TabOpened', sessionPath: pendingPath });
-    this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: pendingPath } });
-    const runningPaths = this.getArchState().sessions.runningSessionPaths.filter((p) => p !== pendingPath);
-    this.dispatchArch({ kind: 'RunningSessionsChanged', sessionPaths: runningPaths });
-    this.dispatchArch({ kind: 'ActiveRunSummaryChanged', sessionPath: pendingPath, summary: null });
-    this.state.saveOpenTabs();
-    this.scheduleRender();
 
-    void this.state.enqueueLifecycle(async () => {
-      await this.backend.request<{ requestId?: string }>('session.create', {
-        cwd,
-        selectionToken,
-      });
-    }).catch((err) => {
-      this.state.handleSelectionFailure(
-        selectionToken,
-        `Failed to create session: ${toErrorMessage(err)}`,
-      );
+    auditLog(this.context, 'session-service', 'session.create.requested', {
+      cwd,
+      pendingPath,
+      selectionToken,
     });
+
+    this.dispatchArch({
+      kind: 'Command',
+      cmd: {
+        kind: 'CreateSession',
+        corrId: crypto.randomUUID(),
+        sessionPath: pendingPath,
+        cwd,
+        placeholderSummary,
+        selectionToken,
+      },
+    });
+    this.scheduleRender();
 
     return pendingPath;
   }

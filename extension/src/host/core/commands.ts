@@ -75,7 +75,18 @@ export interface OpenSessionCommand extends CommandBase {
 /** Create a brand-new session and open it. */
 export interface CreateSessionCommand extends CommandBase {
   kind: 'CreateSession';
-  /** Token issued by the lifecycle queue to detect stale selections. */
+  /** Host-allocated pending session path. Generated host-side (counter +
+   *  Date.now/Math.random — impure) before this Command is dispatched, since
+   *  the pending-path counter can't live in the pure reducer. */
+  sessionPath: string;
+  /** Workspace cwd for the new session (passed to the backend). */
+  cwd: string;
+  /** Pre-built placeholder summary (modifiedAt already set host-side). */
+  placeholderSummary: SessionSummary;
+  /** Selection token minted by `beginSelectionRequest` BEFORE this Command is
+   *  dispatched — it must snapshot the previous active path before the reducer
+   *  optimistically activates the pending tab, so failure recovery can restore
+   *  it. Flowed through to the runner for the backend session.create RPC. */
   selectionToken: string;
 }
 

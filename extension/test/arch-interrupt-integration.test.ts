@@ -84,7 +84,7 @@ function makeSerializingDeps(): {
       async closeSession() {},
       async setPruningSettings() {},
       duplicateSession() {},
-      createNewSession() { return '/new'; },
+      handleSelectionFailure() {},
       openSession() {},
     },
     statsService: {
