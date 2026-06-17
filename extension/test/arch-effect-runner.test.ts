@@ -20,9 +20,11 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
   deps: EffectRunnerDeps;
   calls: Call[];
   events: EffectResultEvent[];
+  commands: import('../src/host/core/events').CommandEvent[];
 } {
   const calls: Call[] = [];
   const events: EffectResultEvent[] = [];
+  const commands: import('../src/host/core/events').CommandEvent[] = [];
   const deps: EffectRunnerDeps = {
     backend: {
       async request<T = unknown>(method: string, params?: unknown): Promise<T> {
@@ -87,8 +89,9 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
       continueTask() {},
     },
     dispatch: (e) => events.push(e),
+    dispatchCommand: (cmd) => commands.push(cmd),
   };
-  return { deps, calls, events };
+  return { deps, calls, events, commands };
 }
 
 async function settle(): Promise<void> {
@@ -369,4 +372,53 @@ test('EffectRunner SetModelRpc dispatches SetModelResult{ok:false} when settings
   assert.equal(events[0]?.kind, 'SetModelResult');
   assert.equal(events[0]?.ok, false);
   assert.equal(events[0]?.error, 'backend down');
+});
+
+// ─── DrainPendingSendQueue ────────────────────────────────────────────────────
+
+test('EffectRunner DrainPendingSendQueue re-dispatches Send Commands with the resolved session path', async () => {
+  const { deps, commands } = makeDeps();
+  const runner = new EffectRunner(deps);
+
+  runner.run({
+    kind: 'DrainPendingSendQueue',
+    corrId: 'drain:p1',
+    resolvedSessionPath: '/workspace/real.jsonl',
+    entries: [
+      { corrId: 'c1', text: 'first', inputs: [], composedText: 'first', localId: 'local:c1', previousSummary: null, timestamp: 1000 },
+      { corrId: 'c2', text: 'second', inputs: [], composedText: 'second', localId: 'local:c2', previousSummary: null, timestamp: 2000 },
+    ],
+  });
+  await settle();
+
+  // Two Send Commands dispatched, each with the resolved session path.
+  assert.equal(commands.length, 2);
+  assert.equal(commands[0]?.kind, 'Command');
+  assert.equal(commands[0]?.cmd.kind, 'Send');
+  assert.equal(commands[0]?.cmd.sessionPath, '/workspace/real.jsonl');
+  assert.equal(commands[0]?.cmd.corrId, 'c1');
+  assert.equal(commands[0]?.cmd.text, 'first');
+  assert.equal(commands[0]?.cmd.localId, 'local:c1');
+  assert.equal(commands[0]?.cmd.previousSummary, null);
+
+  assert.equal(commands[1]?.kind, 'Command');
+  assert.equal(commands[1]?.cmd.kind, 'Send');
+  assert.equal(commands[1]?.cmd.sessionPath, '/workspace/real.jsonl');
+  assert.equal(commands[1]?.cmd.corrId, 'c2');
+  assert.equal(commands[1]?.cmd.text, 'second');
+});
+
+test('EffectRunner DrainPendingSendQueue with empty entries dispatches nothing', async () => {
+  const { deps, commands } = makeDeps();
+  const runner = new EffectRunner(deps);
+
+  runner.run({
+    kind: 'DrainPendingSendQueue',
+    corrId: 'drain:p2',
+    resolvedSessionPath: '/workspace/real.jsonl',
+    entries: [],
+  });
+  await settle();
+
+  assert.equal(commands.length, 0);
 });

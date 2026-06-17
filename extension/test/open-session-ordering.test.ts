@@ -148,6 +148,7 @@ test('openSession -> backend session.open rejection -> handleSelectionFailure re
     } as any,
     statsService: { prepareForSend() {}, onTruncatedAfter() {}, onMessageEdited() {}, recordOutcome() {}, startNewTask() {}, continueTask() {} },
     dispatch: (e: EffectResultEvent) => dispatchArch(e),
+    dispatchCommand: () => {},
   };
   runner = new EffectRunner(deps);
 

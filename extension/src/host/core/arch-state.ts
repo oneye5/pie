@@ -32,6 +32,7 @@ import type {
   FileChangeEntry,
   ComposerInput,
   ActiveRunSummary,
+  UserContentPart,
 } from '../../shared/protocol';
 import {
   DEFAULT_CHAT_PREFS,
@@ -203,6 +204,31 @@ export interface CurrentTurn {
 }
 
 /**
+ * A send queued while the target session was still a pending tab (backend
+ * `session.create` in flight). The reducer queues the `Send` Command's payload
+ * here instead of emitting `SendRpc`; when `PendingPathReplaced` resolves the
+ * pending path, the reducer emits a `DrainPendingSendQueue` effect carrying
+ * these entries, and the runner re-dispatches them as `Send` Commands with the
+ * resolved session path.
+ *
+ * `previousSummary` is intentionally `null` — the optimistic session-name
+ * derivation already happened via `SessionNameDerived` at enqueue time, and by
+ * drain time the session has a real summary from `session.opened`. A non-null
+ * `previousSummary` here would revert the name to the placeholder on a
+ * `SendResult{ok:false}`, clobbering the real name.
+ */
+export interface PendingSendQueueEntry {
+  corrId: string;
+  text: string;
+  inputs: ComposerInput[];
+  composedText: string;
+  localId: string;
+  userParts?: UserContentPart[];
+  previousSummary: SessionSummary | null;
+  timestamp: number;
+}
+
+/**
  * Optimistic operations, interrupt flags, message aliases, and turn tracking.
  * This sub-state is only touched by the reducer — never by the webview.
  */
@@ -217,6 +243,8 @@ export interface PendingState {
   currentTurnBySession: Record<string, CurrentTurn>;
   /** Maps backend request IDs to optimistic local message IDs for ID finalization. */
   requestIdToLocalId: Record<string, { sessionPath: string; localId: string }>;
+  /** Sends queued while the target session was a pending tab, keyed by pending path. */
+  sendQueueBySession: Record<string, PendingSendQueueEntry[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -288,6 +316,7 @@ export function createInitialArchState(): ArchState {
       messageIdAlias: {},
       currentTurnBySession: {},
       requestIdToLocalId: {},
+      sendQueueBySession: {},
     },
   };
 }

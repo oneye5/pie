@@ -288,46 +288,63 @@ export function handlePendingPathReplaced(
   state: ArchState,
   event: PendingPathReplacedEvent,
 ): ReducerResult {
-  return {
-    state: produce(state, (draft) => {
-      const { oldPendingPath, newSessionPath } = event;
+  const { oldPendingPath, newSessionPath } = event;
+  // Read the queued sends BEFORE the produce draft (we need them for the
+  // effect; the draft will clear the key).
+  const queuedSends = state.pending.sendQueueBySession[oldPendingPath] ?? [];
 
-      // Replace in openTabPaths
-      draft.sessions.openTabPaths = draft.sessions.openTabPaths.map(
+  const nextState = produce(state, (draft) => {
+    // Replace in openTabPaths
+    draft.sessions.openTabPaths = draft.sessions.openTabPaths.map(
+      (p: string) => (p === oldPendingPath ? newSessionPath : p),
+    );
+
+    // Replace in unreadFinishedSessionPaths (dedupe)
+    draft.sessions.unreadFinishedSessionPaths = [
+      ...new Set(draft.sessions.unreadFinishedSessionPaths.map(
         (p: string) => (p === oldPendingPath ? newSessionPath : p),
-      );
+      )),
+    ];
 
-      // Replace in unreadFinishedSessionPaths (dedupe)
-      draft.sessions.unreadFinishedSessionPaths = [
-        ...new Set(draft.sessions.unreadFinishedSessionPaths.map(
-          (p: string) => (p === oldPendingPath ? newSessionPath : p),
-        )),
-      ];
+    // Move composer inputs
+    const oldInputs = draft.composer.pendingComposerInputsBySession[oldPendingPath];
+    if (oldInputs) {
+      const existingInputs = draft.composer.pendingComposerInputsBySession[newSessionPath] ?? [];
+      draft.composer.pendingComposerInputsBySession[newSessionPath] = [...existingInputs, ...oldInputs];
+      delete draft.composer.pendingComposerInputsBySession[oldPendingPath];
+    }
 
-      // Move composer inputs
-      const oldInputs = draft.composer.pendingComposerInputsBySession[oldPendingPath];
-      if (oldInputs) {
-        const existingInputs = draft.composer.pendingComposerInputsBySession[newSessionPath] ?? [];
-        draft.composer.pendingComposerInputsBySession[newSessionPath] = [...existingInputs, ...oldInputs];
-        delete draft.composer.pendingComposerInputsBySession[oldPendingPath];
-      }
+    // Move activeRunSummary
+    if (Object.prototype.hasOwnProperty.call(draft.composer.activeRunSummaryBySession, oldPendingPath)) {
+      draft.composer.activeRunSummaryBySession[newSessionPath] =
+        draft.composer.activeRunSummaryBySession[oldPendingPath] ?? null;
+      delete draft.composer.activeRunSummaryBySession[oldPendingPath];
+    }
 
-      // Move activeRunSummary
-      if (Object.prototype.hasOwnProperty.call(draft.composer.activeRunSummaryBySession, oldPendingPath)) {
-        draft.composer.activeRunSummaryBySession[newSessionPath] =
-          draft.composer.activeRunSummaryBySession[oldPendingPath] ?? null;
-        delete draft.composer.activeRunSummaryBySession[oldPendingPath];
-      }
+    // Move analyticsFactors
+    if (Object.prototype.hasOwnProperty.call(draft.sessions.analyticsFactorsBySession, oldPendingPath)) {
+      draft.sessions.analyticsFactorsBySession[newSessionPath] =
+        draft.sessions.analyticsFactorsBySession[oldPendingPath] ?? null;
+      delete draft.sessions.analyticsFactorsBySession[oldPendingPath];
+    }
 
-      // Move analyticsFactors
-      if (Object.prototype.hasOwnProperty.call(draft.sessions.analyticsFactorsBySession, oldPendingPath)) {
-        draft.sessions.analyticsFactorsBySession[newSessionPath] =
-          draft.sessions.analyticsFactorsBySession[oldPendingPath] ?? null;
-        delete draft.sessions.analyticsFactorsBySession[oldPendingPath];
-      }
-    }),
-    effects: [],
-  };
+    // Clear the pending send queue for the old path — the entries are emitted
+    // as a DrainPendingSendQueue effect below; the runner re-dispatches them as
+    // Send Commands with the resolved path.
+    delete draft.pending.sendQueueBySession[oldPendingPath];
+  });
+
+  // Emit a DrainPendingSendQueue effect iff there are queued sends. The runner
+  // executes this asynchronously (via void (async () => ...)()), so the
+  // re-dispatched Send Commands land AFTER the synchronous SessionScopeCleared
+  // + SessionOpened + SelectSession events that follow PendingPathReplaced in
+  // the handlePendingPathReplacement flow — preserving the clear-then-reinsert
+  // ordering of the old drainPendingSendQueue callback.
+  const effects = queuedSends.length > 0
+    ? [{ kind: 'DrainPendingSendQueue' as const, corrId: `drain:${oldPendingPath}`, resolvedSessionPath: newSessionPath, entries: queuedSends }]
+    : [];
+
+  return { state: nextState, effects };
 }
 
 export function handleTranscriptTrimmed(
@@ -460,6 +477,7 @@ export function handleSessionScopeCleared(
   const { [sp]: _rs, ...remainingRunSummaries } = state.composer.activeRunSummaryBySession;
   const { [sp]: _fc, ...remainingFileChanges } = state.fileChanges.bySession;
   const { [sp]: _af, ...remainingAnalytics } = state.sessions.analyticsFactorsBySession;
+  const { [sp]: _psq, ...remainingPendingSendQueue } = state.pending.sendQueueBySession;
   // Drop in-flight setModel lifecycles for the closed session (both the
   // modal-confirm phase and the RPC phase). A late ModelSwitchConfirmResult /
   // SetModelResult for these corrIds then no-ops instead of applying to — or
@@ -523,6 +541,7 @@ export function handleSessionScopeCleared(
       pending: {
         ...state.pending,
         setModelByCorrId: remainingSetModel,
+        sendQueueBySession: remainingPendingSendQueue,
       },
     },
     effects: [],

@@ -144,6 +144,7 @@ test('createNewSession → backend session.create rejection → handleSelectionF
     } as any,
     statsService: { prepareForSend() {}, onTruncatedAfter() {}, onMessageEdited() {}, recordOutcome() {}, startNewTask() {}, continueTask() {} },
     dispatch: (e: EffectResultEvent) => dispatchArch(e),
+    dispatchCommand: () => {},
   };
   runner = new EffectRunner(deps);
 

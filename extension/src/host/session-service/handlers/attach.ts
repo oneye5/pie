@@ -3,7 +3,7 @@ import type { RunObserver } from '../../stats-service';
 import type { ArchState } from '../../core/arch-state';
 import type { SessionServiceState } from '../state';
 import type { Event } from '../../core/events';
-import type { OnSessionPathResolved, OnSessionCompleted } from '../types';
+import type { OnSessionCompleted } from '../types';
 import type { BusyChangedPayload, SessionOpenedPayload } from '../../../shared/protocol';
 import { resolveSessionOpenedTranscript } from '../../core/session-opened-transcript';
 import { deriveFileChangesFromTranscript } from '../../core/file-change-derivation';
@@ -17,7 +17,6 @@ interface ApplySessionOpenedDeps {
   runObserver: RunObserver;
   scheduleRender: () => void;
   context: vscode.ExtensionContext;
-  onSessionPathResolved?: OnSessionPathResolved;
   state: SessionServiceState;
 }
 
@@ -36,7 +35,7 @@ export function applySessionOpenedPayload(
 
   applyPostDispatchState(deps, payload, session.path, flags, transcriptResolution.transcript);
 
-  finalizeSessionOpening(deps, session.path, selectionToken, flags.selectionRequest);
+  finalizeSessionOpening(deps, session.path, selectionToken);
 }
 
 function computeOpeningFlags(payload: SessionOpenedPayload, deps: ApplySessionOpenedDeps) {
@@ -166,7 +165,6 @@ function finalizeSessionOpening(
   deps: ApplySessionOpenedDeps,
   sessionPath: string,
   selectionToken: SessionOpenedPayload['selectionToken'],
-  selectionRequest: ReturnType<typeof computeOpeningFlags>['selectionRequest'],
 ): void {
   deps.state.touchSessionTranscript(sessionPath);
   deps.state.evictInactiveTranscriptWindows();
@@ -174,10 +172,6 @@ function finalizeSessionOpening(
   deps.state.assertSelectionInvariant('onSessionOpened');
   deps.state.saveOpenTabs();
   deps.scheduleRender();
-
-  if (selectionRequest?.pendingPath && selectionRequest.pendingPath !== sessionPath) {
-    deps.onSessionPathResolved?.(selectionRequest.pendingPath, sessionPath);
-  }
 }
 
 export function handleBusyChangedPayload(

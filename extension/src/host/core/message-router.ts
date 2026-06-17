@@ -71,7 +71,6 @@ export class MessageRouter {
       dispatchEvent: (event) => void this.dispatchEvent(event),
       getArchState,
       scheduleRender,
-      isPendingTabPath: isPendingTabPathFn,
       deriveSessionNameFromText: deriveSessionNameFromTextFn,
     };
     this.queueManager = new QueueManager(queueDeps, (msg) => this.handle(msg));
@@ -236,14 +235,13 @@ export class MessageRouter {
       return;
     }
 
-    // If the session is still being created, queue the send and show optimistic UI.
-    if (this.isPendingTabPathFn(sessionPath)) {
-      if (!text.trim()) return;
-      this.queueManager.enqueuePendingSend(sessionPath, { text, localId: webviewLocalId });
-      return;
-    }
-    // If the backend is still starting, queue the send and show optimistic UI.
-    if (!this.getArchState().settings.backendReady) {
+    // If the backend is still starting AND the session is NOT a pending tab,
+    // queue the send into the backend-ready queue. Pending-tab sends skip
+    // this check: a pending session can't resolve until the backend is ready
+    // (session.create is an RPC), so by drain time the backend IS ready.
+    // Pending-tab sends fall through to the Send Command below; the reducer
+    // queues them into ArchState.pending.sendQueueBySession.
+    if (!this.isPendingTabPathFn(sessionPath) && !this.getArchState().settings.backendReady) {
       if (!text.trim()) return;
       this.queueManager.enqueueBackendReadySend(sessionPath, { text, localId: webviewLocalId });
       return;
@@ -626,10 +624,6 @@ export class MessageRouter {
   // ---------------------------------------------------------------------------
   // Queue delegation (delegated to QueueManager)
   // ---------------------------------------------------------------------------
-
-  drainPendingSendQueue(pendingPath: string, resolvedPath: string): void {
-    void this.queueManager.drainPendingSendQueue(pendingPath, resolvedPath);
-  }
 
   drainBackendReadyQueue(): void {
     void this.queueManager.drainBackendReadyQueue();

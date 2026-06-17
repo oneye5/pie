@@ -124,9 +124,6 @@ export class PieExtension implements vscode.Disposable {
         this.handleSessionCompleted(event);
       },
       this.statsService,
-      (pendingPath, resolvedPath) => {
-        this.messageRouter.drainPendingSendQueue(pendingPath, resolvedPath);
-      },
     );
 
     this.sidebarProvider = new SidebarViewProvider(
@@ -202,6 +199,7 @@ export class PieExtension implements vscode.Disposable {
       service: this.service,
       statsService: this.statsService,
       dispatch: (event) => this.dispatchArchEvent(event),
+      dispatchCommand: (event) => this.dispatchArchEvent(event),
     });
 
     // Auto-projection: schedule a render whenever archState changes.

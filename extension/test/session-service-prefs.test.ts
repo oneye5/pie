@@ -121,7 +121,6 @@ function makeHarness() {
     getArchState,
     undefined,
     NOOP_RUN_OBSERVER,
-    undefined,
   );
 
   return { context, backend, service, dispatched, getArchState };

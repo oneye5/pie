@@ -19,6 +19,7 @@
  */
 
 import type { ComposerInput, ModelSettings, ChatPrefs } from '../../shared/protocol';
+import type { PendingSendQueueEntry } from './arch-state';
 
 export interface EffectBase {
   corrId: string;
@@ -249,7 +250,21 @@ export type Effect =
   | OpenFileEffect
   | SetPruningSettingsEffect
   | CloseSessionEffect
-  | DuplicateSessionEffect;
+  | DuplicateSessionEffect
+  | DrainPendingSendQueueEffect;
+
+/**
+ * Drain queued sends when a pending session path resolves to a real path.
+ * The runner re-dispatches each entry as a `Send` Command with the resolved
+ * session path. This effect carries the queue entries (the reducer has already
+ * cleared them from `ArchState.pending.sendQueueBySession`); the runner never
+ * reads ArchState.
+ */
+export interface DrainPendingSendQueueEffect extends EffectBase {
+  kind: 'DrainPendingSendQueue';
+  resolvedSessionPath: string;
+  entries: PendingSendQueueEntry[];
+}
 
 // ─── Type guards ────────────────────────────────────────────────────────────────
 

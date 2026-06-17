@@ -4,7 +4,6 @@ import type { HostToWebviewMessage } from '../../shared/protocol';
 export type ScheduleRender = () => void;
 export type PostImperative = (message: HostToWebviewMessage) => void;
 export type OnSessionCompleted = (event: SessionCompletionEvent) => void;
-export type OnSessionPathResolved = (pendingPath: string, resolvedPath: string) => void;
 
 export type SelectionRequest = {
   token: string;

@@ -14,7 +14,7 @@ import { SessionMessageActions } from './message-actions';
 import { SessionServiceState } from './state';
 import { startSessionBackend } from './startup';
 import { SessionTabActions } from './tab-actions';
-import type { OnSessionCompleted, OnSessionPathResolved, PostImperative, ScheduleRender } from './types';
+import type { OnSessionCompleted, PostImperative, ScheduleRender } from './types';
 import type { Event } from '../core/events';
 import type { ArchState } from '../core/arch-state';
 
@@ -43,7 +43,6 @@ export class SessionService implements vscode.Disposable {
     getArchState: () => ArchState,
     onSessionCompleted?: OnSessionCompleted,
     private readonly runObserver: RunObserver = NOOP_RUN_OBSERVER,
-    onSessionPathResolved?: OnSessionPathResolved,
   ) {
     this.getArchState = getArchState;
     this.dispatchArch = dispatchArch;
@@ -53,7 +52,6 @@ export class SessionService implements vscode.Disposable {
       context,
       scheduleRender,
       onSessionCompleted,
-      onSessionPathResolved,
       runObserver,
       state: this.state,
       dispatchArch,

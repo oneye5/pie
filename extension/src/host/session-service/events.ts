@@ -8,7 +8,7 @@ import type {
   SessionOpenedPayload,
 } from '../../shared/protocol';
 import { dispatchSessionBackendEvent } from '../core/event-dispatch';
-import type { OnSessionCompleted, OnSessionPathResolved, ScheduleRender } from './types';
+import type { OnSessionCompleted, ScheduleRender } from './types';
 import type { Event } from '../core/events';
 import type { ArchState } from '../core/arch-state';
 import { SessionServiceState } from './state';
@@ -21,7 +21,6 @@ interface SessionServiceEventsOptions {
   context: vscode.ExtensionContext;
   scheduleRender: ScheduleRender;
   onSessionCompleted?: OnSessionCompleted;
-  onSessionPathResolved?: OnSessionPathResolved;
   runObserver: RunObserver;
   state: SessionServiceState;
   dispatchArch: (event: Event) => void;
@@ -32,7 +31,6 @@ export class SessionServiceEvents {
   private readonly context: vscode.ExtensionContext;
   private readonly scheduleRender: ScheduleRender;
   private readonly onSessionCompleted?: OnSessionCompleted;
-  private readonly onSessionPathResolved?: OnSessionPathResolved;
   private readonly runObserver: RunObserver;
   private readonly state: SessionServiceState;
   private eventDisposable?: vscode.Disposable;
@@ -44,7 +42,6 @@ export class SessionServiceEvents {
     this.context = options.context;
     this.scheduleRender = options.scheduleRender;
     this.onSessionCompleted = options.onSessionCompleted;
-    this.onSessionPathResolved = options.onSessionPathResolved;
     this.runObserver = options.runObserver;
     this.dispatchArch = options.dispatchArch;
     this.state = options.state;
@@ -89,7 +86,6 @@ export class SessionServiceEvents {
         runObserver: this.runObserver,
         scheduleRender: this.scheduleRender,
         context: this.context,
-        onSessionPathResolved: this.onSessionPathResolved,
         state: this.state,
       },
     );

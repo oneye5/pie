@@ -149,6 +149,7 @@ test('duplicateSession → backend session.duplicate rejection → handleSelecti
     } as any,
     statsService: { prepareForSend() {}, onTruncatedAfter() {}, onMessageEdited() {}, recordOutcome() {}, startNewTask() {}, continueTask() {} },
     dispatch: (e: EffectResultEvent) => dispatchArch(e),
+    dispatchCommand: () => {},
   };
   runner = new EffectRunner(deps);
 

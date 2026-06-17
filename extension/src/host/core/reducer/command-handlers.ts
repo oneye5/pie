@@ -30,9 +30,42 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'Send': {
-      // Insert optimistic user message + mark session busy immediately so the webview
-      // shows an activity indicator right away (instead of waiting for the backend's
-      // agent_start event which fires after the pruning prepass).
+      // If the target session is still a pending tab (backend `session.create`
+      // in flight), queue the send into ArchState instead of emitting `SendRpc`.
+      // The optimistic user message is still inserted immediately (the user sees
+      // their message in the transcript), the draft is cleared, and the session
+      // name is derived (via `SessionNameDerived` dispatched by `onSend` before
+      // the Command). When `PendingPathReplaced` resolves the path, the reducer
+      // emits a `DrainPendingSendQueue` effect; the runner re-dispatches each
+      // entry as a `Send` Command with the resolved path, which goes through
+      // the normal (non-pending) path below.
+      if (isPendingTabPath(cmd.sessionPath)) {
+        const nextState = produce(state, (draft) => {
+          appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.composedText, cmd.userParts, new Date(cmd.timestamp).toISOString());
+          draft.pending.sendQueueBySession[cmd.sessionPath] = [
+            ...(draft.pending.sendQueueBySession[cmd.sessionPath] ?? []),
+            {
+              corrId: cmd.corrId,
+              text: cmd.text,
+              inputs: cmd.inputs,
+              composedText: cmd.composedText,
+              localId: cmd.localId,
+              userParts: cmd.userParts,
+              // null — the name derivation already happened via SessionNameDerived;
+              // by drain time the session has a real summary from session.opened.
+              previousSummary: null,
+              timestamp: cmd.timestamp,
+            },
+          ];
+          delete draft.composer.draftTextBySession[cmd.sessionPath];
+        });
+        return { state: nextState, effects: [] };
+      }
+
+      // Normal path: insert optimistic user message + mark session busy
+      // immediately so the webview shows an activity indicator right away
+      // (instead of waiting for the backend's agent_start event which fires
+      // after the pruning prepass).
       const nextRunningPaths = addToArray(state.sessions.runningSessionPaths, cmd.sessionPath);
       const nextState = produce(state, (draft) => {
         appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.composedText, cmd.userParts, new Date(cmd.timestamp).toISOString());

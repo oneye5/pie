@@ -25,7 +25,7 @@
 import type { Effect, SendRpcEffect, EditRpcEffect, InterruptRpcEffect, TruncateRpcEffect, ExtensionUiResponseRpcEffect } from './effects';
 import { isLifecycleEffect, isRpcEffect } from './effects';
 import { toErrorMessage } from '../util/error-message';
-import type { EffectResultEvent } from './events';
+import type { EffectResultEvent, CommandEvent } from './events';
 import type { FileDiffService } from './file-diff-service';
 import type { ChatPrefs, ComposerInput, PruningSettings, RunOutcome, ThinkingLevel } from '../../shared/protocol';
 
@@ -111,6 +111,14 @@ export interface EffectRunnerDeps {
   statsService: StatsServiceLike;
   /** Called with each `*Result` event the runner produces. */
   dispatch: (event: EffectResultEvent) => void;
+  /**
+   * Re-dispatch a Command into the reducer. Used by `DrainPendingSendQueue` to
+   * re-dispatch queued `Send` Commands with a resolved session path. The runner
+   * cannot emit Effects that loop back synchronously, but it CAN feed Commands
+   * back via this callback (dispatched asynchronously inside a void async IIFE
+   * so they land after the current synchronous dispatch cycle).
+   */
+  dispatchCommand: (event: CommandEvent) => void;
 }
 
 export class EffectRunner {
@@ -338,6 +346,36 @@ export class EffectRunner {
           this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
           this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'DrainPendingSendQueue') {
+      // Re-dispatch each queued entry as a `Send` Command with the resolved
+      // session path. The entries were read from ArchState by the reducer's
+      // `handlePendingPathReplaced` and carried in this effect; the runner
+      // never reads ArchState. The void async IIFE ensures the Commands land
+      // AFTER the synchronous SessionScopeCleared + SessionOpened + SelectSession
+      // events that follow PendingPathReplaced — preserving the clear-then-
+      // reinsert ordering of the old drainPendingSendQueue callback.
+      const { resolvedSessionPath, entries } = effect;
+      void (async () => {
+        for (const entry of entries) {
+          this.deps.dispatchCommand({
+            kind: 'Command',
+            cmd: {
+              kind: 'Send',
+              corrId: entry.corrId,
+              sessionPath: resolvedSessionPath,
+              text: entry.text,
+              inputs: entry.inputs,
+              composedText: entry.composedText,
+              localId: entry.localId,
+              userParts: entry.userParts,
+              previousSummary: entry.previousSummary,
+              timestamp: entry.timestamp,
+            },
+          });
         }
       })();
       return;

@@ -93,6 +93,7 @@ function makeSerializingDeps(): {
       continueTask() {},
     },
     dispatch: (e) => events.push(e),
+    dispatchCommand: () => {},
   };
 
   return { deps, executionOrder, events, suppressCalls };
