@@ -452,6 +452,7 @@ export function handleSessionScopeCleared(
   const { [sp]: _t, ...remainingTranscripts } = state.transcript.bySession;
   const { [sp]: _sp, ...remainingSystemPrompts } = state.transcript.systemPromptsBySession;
   const { [sp]: _w, ...remainingWindows } = state.transcript.windowBySession;
+  const { [sp]: _pf, ...remainingPagingInFlight } = state.transcript.pagingInFlightBySession;
   const { [sp]: _m, ...remainingModels } = state.settings.availableModelsBySession;
   const { [sp]: _cu, ...remainingContext } = state.settings.contextUsageBySession;
   const { [sp]: _eui, ...remainingExtUI } = state.settings.pendingExtensionUIRequestsBySession;
@@ -484,6 +485,7 @@ export function handleSessionScopeCleared(
         bySession: remainingTranscripts,
         systemPromptsBySession: remainingSystemPrompts,
         windowBySession: remainingWindows,
+        pagingInFlightBySession: remainingPagingInFlight,
       },
       sessions: {
         ...state.sessions,

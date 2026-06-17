@@ -41,7 +41,6 @@ export interface SessionServiceLike {
   setModel(requestedSessionPath: string | undefined, defaultModel: string, defaultThinkingLevel: ThinkingLevel): Promise<void>;
   setPrefs(prefs: Partial<ChatPrefs>): void;
   setPruningSettings(updates: Partial<PruningSettings>): Promise<void>;
-  dropSessionLocalState(sessionPath: string): void;
 }
 
 /**
@@ -75,7 +74,6 @@ export class MessageRouter {
       getArchState,
       scheduleRender,
       isPendingTabPath: isPendingTabPathFn,
-      dropSessionLocalState: (sessionPath: string) => service.dropSessionLocalState(sessionPath),
       deriveSessionNameFromText: deriveSessionNameFromTextFn,
     };
     this.queueManager = new QueueManager(queueDeps, (msg) => this.handle(msg));

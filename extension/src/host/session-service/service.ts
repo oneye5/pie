@@ -147,11 +147,6 @@ export class SessionService implements vscode.Disposable {
     await this.tabs.closeSession(sessionPath);
   }
 
-  /** Drop per-session state held inside the service (called after closeSession). */
-  dropSessionLocalState(sessionPath: string): void {
-    this.messages.dropSessionLocalState(sessionPath);
-  }
-
   duplicateSession(sessionPath: string): void {
     this.tabs.duplicateSession(sessionPath);
   }

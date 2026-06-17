@@ -1007,7 +1007,17 @@ test('reducer: AddFilesystemPaths command produces AddFilesystemPaths effect, st
   }
 });
 
-test('reducer: LoadOlderTranscript command produces LoadOlderTranscript effect, state unchanged', () => {
+// ──────────────────────────────────────────────────────────────────────────
+// Transcript paging — in-flight guard + request-identity bookkeeping.
+//
+// Phase 2 cutover: the in-flight guard + request identity moved from the
+// host-side Map/Set on SessionMessageActions into reducer-owned state
+// (TranscriptState.pagingInFlightBySession), keyed by the Command corrId —
+// consistent with send/edit PendingOp correlation. The epoch/window/open-tabs
+// staleness re-checks + LRU eviction stay host-side for now (Phase 3/4).
+// ──────────────────────────────────────────────────────────────────────────
+
+test('reducer: LoadOlderTranscript command sets the in-flight flag (keyed by corrId) and emits the effect', () => {
   const event: Event = {
     kind: 'Command',
     cmd: { kind: 'LoadOlderTranscript', corrId: 'c-old', sessionPath: '/s' },
@@ -1015,16 +1025,16 @@ test('reducer: LoadOlderTranscript command produces LoadOlderTranscript effect, 
 
   const result = reducer(initialArchState, event);
 
-  assert.deepEqual(result.state, initialArchState);
   assert.equal(result.effects.length, 1);
   assert.equal(result.effects[0]?.kind, 'LoadOlderTranscript');
   if (result.effects[0]?.kind === 'LoadOlderTranscript') {
     assert.equal(result.effects[0].corrId, 'c-old');
     assert.equal(result.effects[0].sessionPath, '/s');
   }
+  assert.equal(result.state.transcript.pagingInFlightBySession['/s'], 'c-old');
 });
 
-test('reducer: LoadNewerTranscript command produces LoadNewerTranscript effect, state unchanged', () => {
+test('reducer: LoadNewerTranscript command sets the in-flight flag and emits the effect', () => {
   const event: Event = {
     kind: 'Command',
     cmd: { kind: 'LoadNewerTranscript', corrId: 'c-new', sessionPath: '/s' },
@@ -1032,16 +1042,12 @@ test('reducer: LoadNewerTranscript command produces LoadNewerTranscript effect, 
 
   const result = reducer(initialArchState, event);
 
-  assert.deepEqual(result.state, initialArchState);
   assert.equal(result.effects.length, 1);
   assert.equal(result.effects[0]?.kind, 'LoadNewerTranscript');
-  if (result.effects[0]?.kind === 'LoadNewerTranscript') {
-    assert.equal(result.effects[0].corrId, 'c-new');
-    assert.equal(result.effects[0].sessionPath, '/s');
-  }
+  assert.equal(result.state.transcript.pagingInFlightBySession['/s'], 'c-new');
 });
 
-test('reducer: JumpToLatestTranscript command produces JumpToLatestTranscript effect, state unchanged', () => {
+test('reducer: JumpToLatestTranscript command sets the in-flight flag and emits the effect', () => {
   const event: Event = {
     kind: 'Command',
     cmd: { kind: 'JumpToLatestTranscript', corrId: 'c-jump', sessionPath: '/s' },
@@ -1049,13 +1055,140 @@ test('reducer: JumpToLatestTranscript command produces JumpToLatestTranscript ef
 
   const result = reducer(initialArchState, event);
 
-  assert.deepEqual(result.state, initialArchState);
   assert.equal(result.effects.length, 1);
   assert.equal(result.effects[0]?.kind, 'JumpToLatestTranscript');
-  if (result.effects[0]?.kind === 'JumpToLatestTranscript') {
-    assert.equal(result.effects[0].corrId, 'c-jump');
-    assert.equal(result.effects[0].sessionPath, '/s');
-  }
+  assert.equal(result.state.transcript.pagingInFlightBySession['/s'], 'c-jump');
+});
+
+test('reducer: a second paging Command while one is in flight is dropped (in-flight guard)', () => {
+  // First request sets the in-flight flag.
+  const afterFirst = reducer(initialArchState, {
+    kind: 'Command',
+    cmd: { kind: 'LoadOlderTranscript', corrId: 'c-1', sessionPath: '/s' },
+  }).state;
+  assert.equal(afterFirst.transcript.pagingInFlightBySession['/s'], 'c-1');
+
+  // A second Command for the same session arrives while the first RPC is in flight.
+  const result = reducer(afterFirst, {
+    kind: 'Command',
+    cmd: { kind: 'LoadOlderTranscript', corrId: 'c-2', sessionPath: '/s' },
+  });
+
+  // Guard: no effect is emitted (the click is dropped) and the flag is unchanged.
+  assert.deepEqual(result.effects, []);
+  assert.equal(result.state.transcript.pagingInFlightBySession['/s'], 'c-1');
+  assert.deepEqual(result.state, afterFirst);
+});
+
+test('reducer: LoadOlderTranscriptResult clears the in-flight flag when its corrId is the current request', () => {
+  const afterCommand = reducer(initialArchState, {
+    kind: 'Command',
+    cmd: { kind: 'LoadOlderTranscript', corrId: 'c-old', sessionPath: '/s' },
+  }).state;
+  assert.equal(afterCommand.transcript.pagingInFlightBySession['/s'], 'c-old');
+
+  const result = reducer(afterCommand, {
+    kind: 'LoadOlderTranscriptResult',
+    corrId: 'c-old',
+    sessionPath: '/s',
+    ok: true,
+  });
+
+  assert.equal(result.state.transcript.pagingInFlightBySession['/s'], undefined);
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: LoadOlderTranscriptResult failure clears the in-flight flag and logs', () => {
+  const afterCommand = reducer(initialArchState, {
+    kind: 'Command',
+    cmd: { kind: 'LoadOlderTranscript', corrId: 'c-old', sessionPath: '/s' },
+  }).state;
+
+  const result = reducer(afterCommand, {
+    kind: 'LoadOlderTranscriptResult',
+    corrId: 'c-old',
+    sessionPath: '/s',
+    ok: false,
+    error: 'boom',
+  });
+
+  assert.equal(result.state.transcript.pagingInFlightBySession['/s'], undefined);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'Log');
+});
+
+test('reducer: a stale LoadOlderTranscriptResult (corrId no longer current) does not clear the in-flight flag', () => {
+  // Simulate a close+reopen race: the old request 'c-1' was superseded after
+  // SessionScopeCleared cleared the flag, then a new request 'c-2' took over.
+  const afterNew = reducer(initialArchState, {
+    kind: 'Command',
+    cmd: { kind: 'LoadOlderTranscript', corrId: 'c-2', sessionPath: '/s' },
+  }).state;
+  assert.equal(afterNew.transcript.pagingInFlightBySession['/s'], 'c-2');
+
+  // The OLD request's result arrives — its corrId no longer matches the flag.
+  const result = reducer(afterNew, {
+    kind: 'LoadOlderTranscriptResult',
+    corrId: 'c-1',
+    sessionPath: '/s',
+    ok: true,
+  });
+
+  // The new request's flag is preserved; the stale result is dropped.
+  assert.equal(result.state.transcript.pagingInFlightBySession['/s'], 'c-2');
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: a LoadOlderTranscriptResult for a session with no in-flight paging request is a safe no-op', () => {
+  // No Command has set the flag for /s, so there is nothing to clear and no
+  // spurious effect (ok:true → no Log).
+  const result = reducer(initialArchState, {
+    kind: 'LoadOlderTranscriptResult',
+    corrId: 'c-orphan',
+    sessionPath: '/s',
+    ok: true,
+  });
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: a stale LoadOlderTranscriptResult failure logs but does not clear the current request\'s in-flight flag', () => {
+  // Current request is c-2; a stale failed result arrives for the older c-1.
+  const afterNew = reducer(initialArchState, {
+    kind: 'Command',
+    cmd: { kind: 'LoadOlderTranscript', corrId: 'c-2', sessionPath: '/s' },
+  }).state;
+  assert.equal(afterNew.transcript.pagingInFlightBySession['/s'], 'c-2');
+
+  const result = reducer(afterNew, {
+    kind: 'LoadOlderTranscriptResult',
+    corrId: 'c-1',
+    sessionPath: '/s',
+    ok: false,
+    error: 'stale boom',
+  });
+
+  // The current request's flag is preserved; the stale failure is still logged.
+  assert.equal(result.state.transcript.pagingInFlightBySession['/s'], 'c-2');
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'Log');
+});
+
+test('reducer: SessionScopeCleared clears the in-flight paging flag for the session', () => {
+  const afterCommand = reducer(initialArchState, {
+    kind: 'Command',
+    cmd: { kind: 'LoadOlderTranscript', corrId: 'c-old', sessionPath: '/s' },
+  }).state;
+  assert.equal(afterCommand.transcript.pagingInFlightBySession['/s'], 'c-old');
+
+  const result = reducer(afterCommand, {
+    kind: 'SessionScopeCleared',
+    sessionPath: '/s',
+    removeSessionSummary: false,
+  });
+
+  assert.equal(result.state.transcript.pagingInFlightBySession['/s'], undefined);
 });
 
 test('reducer: RecordOutcome command produces RecordOutcome effect, state unchanged', () => {

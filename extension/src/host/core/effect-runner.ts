@@ -190,9 +190,9 @@ export class EffectRunner {
       void (async () => {
         try {
           await this.deps.service.loadOlderTranscript(effect.sessionPath);
-          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, ok: true });
+          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
+          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -201,9 +201,9 @@ export class EffectRunner {
       void (async () => {
         try {
           await this.deps.service.loadNewerTranscript(effect.sessionPath);
-          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, ok: true });
+          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
+          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;
@@ -212,9 +212,9 @@ export class EffectRunner {
       void (async () => {
         try {
           await this.deps.service.jumpToLatestTranscript(effect.sessionPath);
-          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, ok: true });
+          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
-          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
+          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;

@@ -7,7 +7,6 @@ export interface QueueManagerDeps {
   getArchState: () => ArchState;
   scheduleRender: () => void;
   isPendingTabPath: (path: string) => boolean;
-  dropSessionLocalState: (sessionPath: string) => void;
   deriveSessionNameFromText: (text: string) => { name: string; isPlaceholder: boolean };
 }
 
@@ -142,8 +141,6 @@ export class QueueManager {
     if (this.backendReadyQueue.length === 0) {
       this.clearWatchdog();
     }
-    // Clear per-session bookkeeping held by the session service
-    this.deps.dropSessionLocalState(sessionPath);
   }
 
   /**

@@ -55,6 +55,15 @@ export interface TranscriptState {
   windowBySession: Record<string, TranscriptWindow>;
   /** Per-session message ID currently being edited. */
   editingMessageIdBySession: Record<string, string | null>;
+  /**
+   * Per-session corrId of the in-flight transcript paging request
+   * (loadOlder/loadNewer/jumpToLatest), or absent when none is in flight.
+   * Reducer-owned in-flight guard (moved from the host-side Set on
+   * SessionMessageActions); keyed by corrId for request-identity, consistent
+   * with send/edit PendingOp correlation. Cleared by the matching *Result
+   * (or SessionScopeCleared on tab close).
+   */
+  pagingInFlightBySession: Record<string, string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -208,6 +217,7 @@ export function createInitialArchState(): ArchState {
       systemPromptsBySession: {},
       windowBySession: {},
       editingMessageIdBySession: {},
+      pagingInFlightBySession: {},
     },
     sessions: {
       sessions: [],

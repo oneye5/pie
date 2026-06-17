@@ -146,6 +146,8 @@ export interface AddFilesystemPathsResultEvent {
 export interface LoadOlderTranscriptResultEvent {
   kind: 'LoadOlderTranscriptResult';
   corrId: string;
+  /** Session path so the reducer can look up the in-flight paging flag. */
+  sessionPath: string;
   ok: boolean;
   error?: string;
 }
@@ -153,6 +155,8 @@ export interface LoadOlderTranscriptResultEvent {
 export interface LoadNewerTranscriptResultEvent {
   kind: 'LoadNewerTranscriptResult';
   corrId: string;
+  /** Session path so the reducer can look up the in-flight paging flag. */
+  sessionPath: string;
   ok: boolean;
   error?: string;
 }
@@ -160,6 +164,8 @@ export interface LoadNewerTranscriptResultEvent {
 export interface JumpToLatestTranscriptResultEvent {
   kind: 'JumpToLatestTranscriptResult';
   corrId: string;
+  /** Session path so the reducer can look up the in-flight paging flag. */
+  sessionPath: string;
   ok: boolean;
   error?: string;
 }

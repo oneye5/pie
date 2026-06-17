@@ -145,10 +145,42 @@ export function handleEffectResult(state: ArchState, event: Exclude<EffectResult
       return handleSetModelResult(state, event);
     case 'SetPrefsResult':
       return handleSetPrefsResult(state, event);
-    case 'AddFilesystemPathsResult':
     case 'LoadOlderTranscriptResult':
     case 'LoadNewerTranscriptResult':
-    case 'JumpToLatestTranscriptResult':
+    case 'JumpToLatestTranscriptResult': {
+      // Clear the in-flight paging flag when this result is for the current
+      // request (corrId matches). A stale result from a superseded request
+      // (the tab was closed + reopened, or SessionScopeCleared reset the flag
+      // and a new request took over) must NOT clear the current request's
+      // flag — its own completion still needs to clear it. Log failures
+      // regardless of whether the corrId is current.
+      const effects: Effect[] = [];
+      if (!event.ok) {
+        effects.push({
+          kind: 'Log',
+          corrId: event.corrId,
+          level: 'error',
+          message: `${event.kind} failed`,
+          data: { error: event.error },
+        });
+      }
+      if (state.transcript.pagingInFlightBySession[event.sessionPath] === event.corrId) {
+        const nextPagingInFlight = { ...state.transcript.pagingInFlightBySession };
+        delete nextPagingInFlight[event.sessionPath];
+        return {
+          state: {
+            ...state,
+            transcript: {
+              ...state.transcript,
+              pagingInFlightBySession: nextPagingInFlight,
+            },
+          },
+          effects,
+        };
+      }
+      return { state, effects };
+    }
+    case 'AddFilesystemPathsResult':
     case 'RecordOutcomeResult':
     case 'StartNewTaskResult':
     case 'ContinueTaskResult':

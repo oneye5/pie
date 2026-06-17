@@ -50,8 +50,6 @@ export class SessionMessageActions {
   private readonly createNewSession: () => string;
   private readonly getArchState: () => ArchState;
   private readonly dispatchArch: (event: Event) => void;
-  private readonly transcriptPageRequestSeqBySession = new Map<string, number>();
-  private readonly inFlightTranscriptPageBySession = new Set<string>();
 
   constructor(options: SessionMessageActionsOptions) {
     this.context = options.context;
@@ -215,29 +213,26 @@ export class SessionMessageActions {
       return;
     }
 
-    if (this.inFlightTranscriptPageBySession.has(sessionPath)) {
-      return;
-    }
-
-    this.inFlightTranscriptPageBySession.add(sessionPath);
-
+    // The in-flight guard + request-identity bookkeeping moved to the reducer
+    // (TranscriptState.pagingInFlightBySession, keyed by the Command corrId).
+    // The reducer blocks a second paging Command while one is in flight, so
+    // this method is invoked at most once per in-flight request and no longer
+    // needs its own in-flight Set or request-seq counter. The in-flight flag is
+    // cleared by the matching *Result (or SessionScopeCleared on tab close).
+    // The epoch/window/open-tabs staleness re-checks below stay host-side for
+    // now (Phase 3/4 will fold the reducer-state reads into the reducer).
     const requestEpoch = this.state.getSessionDataEpoch(sessionPath);
     const requestWindow = {
       totalCount: transcriptWindow.totalCount,
       loadedStart: transcriptWindow.loadedStart,
       loadedEnd: transcriptWindow.loadedEnd,
     };
-    const requestSeq = this.nextTranscriptPageRequestSeq(sessionPath);
 
     try {
       const payload = await this.backend.request<TranscriptPagePayload>('session.loadTranscriptPage', {
         sessionPath,
         ...buildTranscriptPageRequest(transcriptWindow, direction),
       });
-
-      if (!this.isCurrentTranscriptPageRequest(payload.sessionPath, requestSeq)) {
-        return;
-      }
 
       if (this.state.getSessionDataEpoch(payload.sessionPath) !== requestEpoch) {
         return;
@@ -277,28 +272,7 @@ export class SessionMessageActions {
     } catch (error) {
       this.dispatchArch({ kind: 'Error', sessionPath, error: `Failed to load transcript page: ${toErrorMessage(error)}` });
       this.scheduleRender();
-    } finally {
-      this.inFlightTranscriptPageBySession.delete(sessionPath);
     }
-  }
-
-  private nextTranscriptPageRequestSeq(sessionPath: string): number {
-    const next = (this.transcriptPageRequestSeqBySession.get(sessionPath) ?? 0) + 1;
-    this.transcriptPageRequestSeqBySession.set(sessionPath, next);
-    return next;
-  }
-
-  private isCurrentTranscriptPageRequest(sessionPath: string, requestSeq: number): boolean {
-    return (this.transcriptPageRequestSeqBySession.get(sessionPath) ?? 0) === requestSeq;
-  }
-
-  /**
-   * Drop any per-session state owned by this actions instance. Called when a
-   * session tab is closed, to keep the maps bounded and ensure sequence
-   * numbers cannot collide with a later reopen of the same path.
-   */
-  dropSessionLocalState(sessionPath: string): void {
-    this.transcriptPageRequestSeqBySession.delete(sessionPath);
   }
 
   private requireOpenSessionPath(actionName: string, sessionPath?: string): string | null {
