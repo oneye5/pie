@@ -85,7 +85,6 @@ export interface SessionServiceLike {
   jumpToLatestTranscript(sessionPath: string): Promise<void>;
   closeSession(sessionPath: string): Promise<void>;
   setPruningSettings(updates: Partial<PruningSettings>): Promise<void>;
-  duplicateSession(sessionPath: string): void;
   /** Recover from a failed/timed-out selection: finish the request and
    *  dispatch the reducer transitions that undo the optimistic tab setup
    *  (CloseTab / SelectSession-fallback / SessionScopeCleared / NoticeShown). */
@@ -346,17 +345,6 @@ export class EffectRunner {
       })();
       return;
     }
-    if (effect.kind === 'DuplicateSession') {
-      void (async () => {
-        try {
-          this.deps.service.duplicateSession(effect.sessionPath);
-          this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
     if (effect.kind === 'HydrateModel') {
       // Fire-and-forget, like PostImperative: the service's dispatched
       // SetModel/AvailableModelsChanged events apply the results, so no
@@ -494,7 +482,7 @@ export class EffectRunner {
    * a microtask (matching `CloseSession`/`DuplicateSession`) to avoid
    * re-entrant dispatch while the outer effects loop is still running.
    */
-  private runLifecycle(effect: Extract<Effect, { kind: 'OpenSession' | 'CreateSession' }>): void {
+  private runLifecycle(effect: Extract<Effect, { kind: 'OpenSession' | 'CreateSession' | 'DuplicateSession' }>): void {
     const { service, backend, queues, dispatch } = this.deps;
     if (effect.kind === 'OpenSession') {
       // OpenSession: the reducer already did the optimistic tab setup; the
@@ -524,6 +512,29 @@ export class EffectRunner {
             ok: false,
             error: toErrorMessage(err),
           });
+        }
+      });
+      return;
+    }
+    if (effect.kind === 'DuplicateSession') {
+      // DuplicateSession: the reducer already did the optimistic tab setup
+      // (placeholder copy tab inserted adjacent to the source); the runner
+      // owns the backend session.duplicate RPC, serialized on the lifecycle
+      // queue (shared with create/open). The selection token was minted in
+      // service.duplicateSession() BEFORE the reducer activated the copy tab,
+      // so handleSelectionFailure can restore the previous active path on
+      // failure. On failure handleSelectionFailure dispatches the reducer
+      // transitions that undo the optimistic setup (CloseTab /
+      // SelectSession-fallback / SessionScopeCleared / NoticeShown) — so the
+      // reducer's DuplicateSessionResult handler stays a no-op, mirroring
+      // CreateSession.
+      void queues.enqueueLifecycle(async () => {
+        try {
+          await backend.request('session.duplicate', { sessionPath: effect.sourceSessionPath, selectionToken: effect.selectionToken });
+          dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
+        } catch (err) {
+          service.handleSelectionFailure(effect.selectionToken, `Failed to duplicate session: ${toErrorMessage(err)}`);
+          dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       });
       return;

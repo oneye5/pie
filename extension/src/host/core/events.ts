@@ -233,6 +233,8 @@ export interface DuplicateSessionResultEvent {
   kind: 'DuplicateSessionResult';
   corrId: string;
   ok: boolean;
+  /** The pending session path of the copy, if ok. */
+  sessionPath?: string;
   error?: string;
 }
 

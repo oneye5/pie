@@ -208,7 +208,13 @@ export interface CloseSessionEffect extends EffectBase {
 
 export interface DuplicateSessionEffect extends EffectBase {
   kind: 'DuplicateSession';
+  /** The pending session path the reducer optimistically opened (the copy). */
   sessionPath: string;
+  /** The source session path for the backend `session.duplicate` RPC. */
+  sourceSessionPath: string;
+  /** Selection token (minted before the Command dispatched) for the backend
+   *  `session.duplicate` RPC. */
+  selectionToken: string;
 }
 
 export type Effect =
@@ -265,6 +271,6 @@ export function isRpcEffect(
 /** True for lifecycle effects routed through `enqueueLifecycle` directly. */
 export function isLifecycleEffect(
   e: Effect,
-): e is OpenSessionEffect | CreateSessionEffect {
-  return e.kind === 'OpenSession' || e.kind === 'CreateSession';
+): e is OpenSessionEffect | CreateSessionEffect | DuplicateSessionEffect {
+  return e.kind === 'OpenSession' || e.kind === 'CreateSession' || e.kind === 'DuplicateSession';
 }

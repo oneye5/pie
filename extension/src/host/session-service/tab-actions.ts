@@ -2,15 +2,13 @@ import * as crypto from 'node:crypto';
 
 import * as vscode from 'vscode';
 
-import { BackendClient } from '../backend/client';
 import { type RunObserver } from '../stats-service';
 import { auditLog, bootLog } from '../util/audit';
-import { toErrorMessage } from '../util/error-message';
 import {
   getNextVisibleTabPathOnClose,
   isPendingTabPath,
 } from '../../shared/tab-behavior';
-import type { SessionOpenedPayload, SessionSummary } from '../../shared/protocol';
+import type { SessionSummary } from '../../shared/protocol';
 import type { ScheduleRender } from './types';
 import { SessionServiceState } from './state';
 import type { Event } from '../core/events';
@@ -18,7 +16,6 @@ import type { ArchState } from '../core/arch-state';
 
 interface SessionTabActionsOptions {
   context: vscode.ExtensionContext;
-  backend: BackendClient;
   scheduleRender: ScheduleRender;
   runObserver: RunObserver;
   state: SessionServiceState;
@@ -28,7 +25,6 @@ interface SessionTabActionsOptions {
 
 export class SessionTabActions {
   private readonly context: vscode.ExtensionContext;
-  private readonly backend: BackendClient;
   private readonly scheduleRender: ScheduleRender;
   private readonly runObserver: RunObserver;
   private readonly state: SessionServiceState;
@@ -37,7 +33,6 @@ export class SessionTabActions {
 
   constructor(options: SessionTabActionsOptions) {
     this.context = options.context;
-    this.backend = options.backend;
     this.scheduleRender = options.scheduleRender;
     this.runObserver = options.runObserver;
     this.state = options.state;
@@ -213,6 +208,23 @@ export class SessionTabActions {
   }
 
   duplicateSession(sourceSessionPath: string): void {
+    // Host-side entry: generate the impure bits the reducer can't (pending
+    // path counter + Date.now placeholder modifiedAt + the selection token),
+    // then dispatch the DuplicateSession Command. The reducer owns the
+    // optimistic tab setup (placeholder copy summary, tab open adjacent to the
+    // source, select, running state, active-run summary) and emits PersistTabs
+    // + DuplicateSession; the runner owns the backend session.duplicate RPC +
+    // failure recovery. Mirrors createNewSession.
+    //
+    // beginSelectionRequest MUST run before the Command dispatch: it snapshots
+    // `previousActivePath` (the active tab before the duplicate) so failure
+    // recovery can restore it. The reducer synchronously sets activeSessionPath
+    // = pending during the dispatch, so calling beginSelectionRequest after
+    // would snapshot the pending path instead.
+    //
+    // Guards stay host-side: a missing/pending source can't build a
+    // placeholder (the source's name/cwd/messageCount are read here) and
+    // dispatches no Command, so there is no optimistic change to revert.
     const archState = this.getArchState();
     const source = archState.sessions.sessions.find((s) => s.path === sourceSessionPath);
     if (!source) {
@@ -230,13 +242,7 @@ export class SessionTabActions {
     const pendingPath = this.state.createPendingSessionPath();
     const selectionToken = this.state.beginSelectionRequest(pendingPath, pendingPath);
 
-    auditLog(this.context, 'session-service', 'session.duplicate.requested', {
-      sourceSessionPath,
-      pendingPath,
-      selectionToken,
-    });
-
-    const incoming: SessionSummary = {
+    const placeholderSummary: SessionSummary = {
       path: pendingPath,
       name: `${source.name} (copy)`,
       cwd: source.cwd,
@@ -244,26 +250,24 @@ export class SessionTabActions {
       messageCount: source.messageCount,
       isPlaceholder: true,
     };
-    this.dispatchArch({ kind: 'SessionSummaryUpserted', summary: incoming });
-    this.dispatchArch({ kind: 'TabOpened', sessionPath: pendingPath, insertAfter: sourceSessionPath });
-    this.dispatchArch({ kind: 'Command', cmd: { kind: 'SelectSession', corrId: `select:${Date.now()}`, sessionPath: pendingPath } });
-    const runningPaths = this.getArchState().sessions.runningSessionPaths.filter((p) => p !== pendingPath);
-    this.dispatchArch({ kind: 'RunningSessionsChanged', sessionPaths: runningPaths });
-    this.dispatchArch({ kind: 'ActiveRunSummaryChanged', sessionPath: pendingPath, summary: null });
 
-    this.state.saveOpenTabs();
-    this.scheduleRender();
-
-    void this.state.enqueueLifecycle(async () => {
-      await this.backend.request<SessionOpenedPayload>('session.duplicate', {
-        sessionPath: sourceSessionPath,
-        selectionToken,
-      });
-    }).catch((err) => {
-      this.state.handleSelectionFailure(
-        selectionToken,
-        `Failed to duplicate session: ${toErrorMessage(err)}`,
-      );
+    auditLog(this.context, 'session-service', 'session.duplicate.requested', {
+      sourceSessionPath,
+      pendingPath,
+      selectionToken,
     });
+
+    this.dispatchArch({
+      kind: 'Command',
+      cmd: {
+        kind: 'DuplicateSession',
+        corrId: crypto.randomUUID(),
+        sessionPath: pendingPath,
+        sourceSessionPath,
+        placeholderSummary,
+        selectionToken,
+      },
+    });
+    this.scheduleRender();
   }
 }

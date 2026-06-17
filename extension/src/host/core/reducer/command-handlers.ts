@@ -672,14 +672,66 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'DuplicateSession': {
-      return {
-        state,
-        effects: [
-          {
-            kind: 'DuplicateSession',
-            corrId: cmd.corrId,
-            sessionPath: cmd.sessionPath,
+      const { sessionPath, sourceSessionPath, placeholderSummary, selectionToken } = cmd;
+      // Optimistic tab setup — was imperative dispatchArch calls in the
+      // service (SessionSummaryUpserted + TabOpened(insertAfter=source) +
+      // SelectSession + RunningSessionsChanged + ActiveRunSummaryChanged(null)
+      // + saveOpenTabs). The reducer now owns these transitions purely; the
+      // runner only does the backend session.duplicate RPC + the host-local
+      // selection machinery.
+      //
+      // Mirrors CreateSession (a brand-new pending session cannot be running,
+      // so clear the running marker + active-run summary for the pending path —
+      // NOT OpenSession, which deliberately omits those because the opened
+      // session may be running). DIFFERENCE from CreateSession: the copy tab is
+      // inserted ADJACENT to the source (insertAfter semantics, matching
+      // handleTabOpened) rather than appended at the end, so the duplicate
+      // appears next to its source in the tab bar.
+      const sessions = state.sessions.sessions;
+      const alreadySummarized = sessions.some((s) => s.path === sessionPath);
+      const nextSessions = alreadySummarized
+        ? sessions
+        : [placeholderSummary, ...sessions];
+      // Open the tab adjacent to the source (insertAfter), mirroring
+      // handleTabOpened: if the source is open, splice right after it; else
+      // append at end.
+      const nextOpenTabPaths = state.sessions.openTabPaths.includes(sessionPath)
+        ? state.sessions.openTabPaths
+        : (() => {
+          const afterIndex = state.sessions.openTabPaths.indexOf(sourceSessionPath);
+          if (afterIndex === -1) {
+            return [...state.sessions.openTabPaths, sessionPath];
+          }
+          return [
+            ...state.sessions.openTabPaths.slice(0, afterIndex + 1),
+            sessionPath,
+            ...state.sessions.openTabPaths.slice(afterIndex + 1),
+          ];
+        })();
+      const nextRunningPaths = state.sessions.runningSessionPaths.filter((p) => p !== sessionPath);
+      const nextState = {
+        ...state,
+        sessions: {
+          ...state.sessions,
+          sessions: nextSessions,
+          openTabPaths: nextOpenTabPaths,
+          activeSessionPath: sessionPath,
+          runningSessionPaths: nextRunningPaths,
+          unreadFinishedSessionPaths: state.sessions.unreadFinishedSessionPaths.filter((p) => p !== sessionPath),
+        },
+        composer: {
+          ...state.composer,
+          activeRunSummaryBySession: {
+            ...state.composer.activeRunSummaryBySession,
+            [sessionPath]: null,
           },
+        },
+      };
+      return {
+        state: nextState,
+        effects: [
+          { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: sessionPath },
+          { kind: 'DuplicateSession', corrId: cmd.corrId, sessionPath, sourceSessionPath, selectionToken },
         ],
       };
     }

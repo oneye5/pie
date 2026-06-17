@@ -61,7 +61,6 @@ test('createNewSession mints the selection token before the reducer activates th
   const state = new SessionServiceState(context, backend, () => undefined, getArchState, dispatchArch, 0);
   const tabs = new SessionTabActions({
     context,
-    backend,
     scheduleRender: () => undefined,
     runObserver: NOOP_RUN_OBSERVER,
     state,
@@ -124,7 +123,7 @@ test('createNewSession → backend session.create rejection → handleSelectionF
 
   const state = new SessionServiceState(context, backend, () => undefined, getArchState, dispatchArch, 0);
   const tabs = new SessionTabActions({
-    context, backend, scheduleRender: () => undefined, runObserver: NOOP_RUN_OBSERVER,
+    context, scheduleRender: () => undefined, runObserver: NOOP_RUN_OBSERVER,
     state, getArchState, dispatchArch,
   });
 
@@ -140,7 +139,7 @@ test('createNewSession → backend session.create rejection → handleSelectionF
       async hydrateModelState() {}, setPrefs() {}, bumpSessionDataEpoch() {}, onModelConfigChanged() {},
       suppressNextCompletionNotificationFor() {}, async addFilesystemPaths() {}, async loadOlderTranscript() {},
       async loadNewerTranscript() {}, async jumpToLatestTranscript() {}, async closeSession() {},
-      async setPruningSettings() {}, duplicateSession() {},
+      async setPruningSettings() {},
       handleSelectionFailure: (token: string, notice: string) => state.handleSelectionFailure(token, notice),
     } as any,
     statsService: { prepareForSend() {}, onTruncatedAfter() {}, onMessageEdited() {}, recordOutcome() {}, startNewTask() {}, continueTask() {} },

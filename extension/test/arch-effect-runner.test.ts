@@ -75,7 +75,6 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
       async jumpToLatestTranscript() {},
       async closeSession() {},
       async setPruningSettings() {},
-      duplicateSession() {},
       handleSelectionFailure(token: string, notice: string) {
         calls.push({ kind: 'handleSelectionFailure', token, notice });
       },
@@ -194,6 +193,46 @@ test('EffectRunner OpenSession calls handleSelectionFailure + dispatches OpenSes
 
   assert.deepEqual(calls.find((c) => c.kind === 'handleSelectionFailure'), { kind: 'handleSelectionFailure', token: 'tok-2', notice: 'Failed to open session: backend down' });
   assert.equal(events[0]?.kind, 'OpenSessionResult');
+  assert.equal(events[0]?.ok, false);
+  assert.equal(events[0]?.error, 'backend down');
+});
+
+test('EffectRunner DuplicateSession issues session.duplicate (with the SOURCE path + pre-minted token) on the lifecycle queue and dispatches DuplicateSessionResult{ok:true}', async () => {
+  const { deps, calls, events } = makeDeps();
+  const runner = new EffectRunner(deps);
+
+  const effect: Effect = {
+    kind: 'DuplicateSession',
+    corrId: 'c4',
+    sessionPath: '/__pending__:copy',
+    sourceSessionPath: '/src',
+    selectionToken: 'tok-d',
+  };
+  runner.run(effect);
+  await settle();
+
+  // The reducer already did the optimistic tab setup (copy tab adjacent to the
+  // source); the service already minted the selection token (before the reducer
+  // activated the copy tab). The runner only issues the backend session.duplicate
+  // RPC, serialized on the lifecycle queue, carrying the SOURCE path (not the
+  // pending copy path) + the token — mirroring CreateSession/OpenSession.
+  assert.equal(calls.some((c) => c.kind === 'lifecycle'), true);
+  assert.deepEqual(calls.find((c) => c.kind === 'request'), { kind: 'request', method: 'session.duplicate', params: { sessionPath: '/src', selectionToken: 'tok-d' } });
+  assert.equal(events[0]?.kind, 'DuplicateSessionResult');
+  assert.equal(events[0]?.ok, true);
+  // The pending COPY path is echoed back on the result (not the source path).
+  assert.equal(events[0]?.sessionPath, '/__pending__:copy');
+});
+
+test('EffectRunner DuplicateSession calls handleSelectionFailure + dispatches DuplicateSessionResult{ok:false} when session.duplicate rejects', async () => {
+  const { deps, calls, events } = makeDeps({ requestImpl: (method) => method === 'session.duplicate' ? Promise.reject(new Error('backend down')) : Promise.resolve({}) });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'DuplicateSession', corrId: 'c4b', sessionPath: '/__pending__:copy2', sourceSessionPath: '/src2', selectionToken: 'tok-d2' });
+  await settle();
+
+  assert.deepEqual(calls.find((c) => c.kind === 'handleSelectionFailure'), { kind: 'handleSelectionFailure', token: 'tok-d2', notice: 'Failed to duplicate session: backend down' });
+  assert.equal(events[0]?.kind, 'DuplicateSessionResult');
   assert.equal(events[0]?.ok, false);
   assert.equal(events[0]?.error, 'backend down');
 });

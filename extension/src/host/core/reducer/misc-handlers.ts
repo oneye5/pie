@@ -10,6 +10,15 @@ export function handleCreateSessionResult(state: ArchState, _event: Extract<Even
   return { state, effects: [] };
 }
 
+export function handleDuplicateSessionResult(state: ArchState, _event: Extract<Event, { kind: 'DuplicateSessionResult' }>): ReducerResult {
+  // No-op: recovery is host-driven via `handleSelectionFailure` (which
+  // dispatches SessionScopeCleared + SelectSession-fallback + NoticeShown to
+  // undo the optimistic setup), mirroring CreateSession/OpenSession. The result
+  // event exists only to complete the Command→reducer→Effect→runner→Result
+  // spine; the reducer has no pending snapshot to reconcile.
+  return { state, effects: [] };
+}
+
 export function handleOpenSessionResult(state: ArchState, _event: Extract<Event, { kind: 'OpenSessionResult' }>): ReducerResult {
   return { state, effects: [] };
 }

@@ -411,11 +411,17 @@ export class MessageRouter {
       this.dispatchEvent({ kind: 'NoticeShown', notice: 'Protocol defect: duplicateSession arrived without a sessionPath.' });
       return;
     }
-    const corrId = crypto.randomUUID();
-    this.dispatchEvent({
-      kind: 'Command',
-      cmd: { kind: 'DuplicateSession', corrId, sessionPath },
-    });
+    // The service generates the impure pending path + placeholder summary
+    // (name "${source.name} (copy)"), mints the selection token (before the
+    // reducer activates the copy tab so failure recovery can restore the
+    // previous active path), and dispatches the DuplicateSession Command. The
+    // reducer owns the optimistic tab setup. Mirrors onNewSession ->
+    // service.createNewSession(). The previous path dispatched the
+    // DuplicateSession Command directly with only the source sessionPath (no
+    // pending path, placeholder, or registered selection token), so the runner
+    // fell back to the old fat service.duplicateSession imperative path.
+    this.service.duplicateSession(sessionPath);
+    this.sidebarProvider.postState();
   }
 
   private onCloseSession(msg: Extract<WebviewToHostMessage, { type: 'closeSession' }>): void {

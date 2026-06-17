@@ -284,9 +284,28 @@ export interface CloseSessionCommand extends CommandBase {
   sessionPath: string;
 }
 
+/** Duplicate an existing session into a new pending tab. Mirrors
+ *  `CreateSession`'s host-built placeholder + selection token, but targets a
+ *  COPY of a source session (backend `session.duplicate` RPC) and inserts the
+ *  new tab adjacent to the source (`insertAfter` semantics). */
 export interface DuplicateSessionCommand extends CommandBase {
   kind: 'DuplicateSession';
+  /** Host-allocated pending session path for the COPY (the new tab). Generated
+   *  host-side (counter + Date.now/Math.random — impure) before this Command is
+   *  dispatched, since the pending-path counter can't live in the pure reducer. */
   sessionPath: string;
+  /** The source session being duplicated (backend `session.duplicate` RPC
+   *  target). Also used by the reducer to insert the copy tab adjacent to the
+   *  source (`insertAfter`). */
+  sourceSessionPath: string;
+  /** Pre-built placeholder summary (modifiedAt set host-side;
+   *  name = "${source.name} (copy)", messageCount = source.messageCount). */
+  placeholderSummary: SessionSummary;
+  /** Selection token minted by `beginSelectionRequest` BEFORE this Command is
+   *  dispatched — it must snapshot the previous active path before the reducer
+   *  optimistically activates the copy tab, so failure recovery can restore it.
+   *  Flowed through to the runner for the backend `session.duplicate` RPC. */
+  selectionToken: string;
 }
 
 export interface MoveSessionTabCommand extends CommandBase {

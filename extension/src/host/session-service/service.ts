@@ -61,7 +61,6 @@ export class SessionService implements vscode.Disposable {
     });
     this.tabs = new SessionTabActions({
       context,
-      backend,
       scheduleRender,
       runObserver,
       state: this.state,

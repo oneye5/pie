@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { reducer, initialArchState, type ArchState } from '../src/host/core/reducer';
 import type { Event } from '../src/host/core/events';
-import type { ChatMessage } from '../src/shared/protocol';
+import type { ChatMessage, SessionSummary } from '../src/shared/protocol';
 
 test('reducer: initial state has empty pending ops and sessions records', () => {
   assert.deepEqual(initialArchState.pending.ops, {});
@@ -876,20 +876,28 @@ test('reducer: Send command with duplicate localId upserts existing optimistic m
 
 // ─── Phase 4: Additional command coverage ───────────────────────────────────
 
-test('reducer: DuplicateSession command produces DuplicateSession effect, state unchanged', () => {
+test('reducer: DuplicateSession command optimistically opens the copy tab adjacent to the source and emits PersistTabs + DuplicateSession', () => {
+  const source: SessionSummary = { path: '/src', name: 'Src', cwd: '/w', modifiedAt: '2024-01-01T00:00:00.000Z', messageCount: 3 };
+  const placeholder: SessionSummary = { path: '/__pending__:1-x', name: 'Src (copy)', cwd: '/w', modifiedAt: '2024-02-01T00:00:00.000Z', messageCount: 3, isPlaceholder: true };
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: { ...initialArchState.sessions, sessions: [source], openTabPaths: ['/src'], activeSessionPath: '/src' },
+  };
   const event: Event = {
     kind: 'Command',
-    cmd: { kind: 'DuplicateSession', corrId: 'c-dup', sessionPath: '/s' },
+    cmd: { kind: 'DuplicateSession', corrId: 'c-dup', sessionPath: '/__pending__:1-x', sourceSessionPath: '/src', placeholderSummary: placeholder, selectionToken: 'tok' },
   };
-
-  const result = reducer(initialArchState, event);
-
-  assert.deepEqual(result.state, initialArchState);
-  assert.equal(result.effects.length, 1);
-  assert.equal(result.effects[0]?.kind, 'DuplicateSession');
-  if (result.effects[0]?.kind === 'DuplicateSession') {
-    assert.equal(result.effects[0].corrId, 'c-dup');
-    assert.equal(result.effects[0].sessionPath, '/s');
+  const result = reducer(state, event);
+  // Placeholder copy summary unshifted; copy tab spliced in adjacent to the source.
+  assert.deepEqual(result.state.sessions.sessions, [placeholder, source]);
+  assert.deepEqual(result.state.sessions.openTabPaths, ['/src', '/__pending__:1-x']);
+  assert.equal(result.state.sessions.activeSessionPath, '/__pending__:1-x');
+  assert.equal(result.effects.length, 2);
+  assert.equal(result.effects[0]?.kind, 'PersistTabs');
+  assert.equal(result.effects[1]?.kind, 'DuplicateSession');
+  if (result.effects[1]?.kind === 'DuplicateSession') {
+    assert.equal(result.effects[1].sourceSessionPath, '/src');
+    assert.equal(result.effects[1].selectionToken, 'tok');
   }
 });
 
@@ -1424,15 +1432,15 @@ test('reducer: DuplicateSessionResult{ok:true} returns unchanged state with no e
   assert.deepEqual(result.effects, []);
 });
 
-test('reducer: DuplicateSessionResult{ok:false} produces Log effect', () => {
+test('reducer: DuplicateSessionResult{ok:false} is a no-op (recovery is host-driven via handleSelectionFailure)', () => {
+  // Mirrors CreateSessionResult/OpenSessionResult: the reducer has no pending
+  // snapshot to reconcile — failure recovery is host-driven by
+  // handleSelectionFailure (which dispatches SessionScopeCleared +
+  // SelectSession-fallback + NoticeShown to undo the optimistic setup), so the
+  // result event must not produce a Log or mutate state.
   const result = reducer(initialArchState, { kind: 'DuplicateSessionResult', corrId: 'c-dup', ok: false, error: 'fail' });
   assert.deepEqual(result.state, initialArchState);
-  assert.equal(result.effects.length, 1);
-  assert.equal(result.effects[0]?.kind, 'Log');
-  if (result.effects[0]?.kind === 'Log') {
-    assert.equal(result.effects[0].level, 'error');
-    assert.match(result.effects[0].message, /DuplicateSessionResult failed/);
-  }
+  assert.deepEqual(result.effects, []);
 });
 
 // ─── Phase 2: SetPrefs unread-finished clear ─────────────────────────────────
