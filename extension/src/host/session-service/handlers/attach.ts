@@ -170,7 +170,16 @@ function finalizeSessionOpening(
   deps.state.evictInactiveTranscriptWindows();
   deps.state.finishSelectionRequest(selectionToken);
   deps.state.assertSelectionInvariant('onSessionOpened');
-  deps.state.saveOpenTabs();
+  const archState = deps.getArchState();
+  deps.dispatchArch({
+    kind: 'Command',
+    cmd: {
+      kind: 'PersistTabs',
+      corrId: `persist:${Date.now()}`,
+      openTabPaths: archState.sessions.openTabPaths,
+      activeSessionPath: archState.sessions.activeSessionPath,
+    },
+  });
   deps.scheduleRender();
 }
 

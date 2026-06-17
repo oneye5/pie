@@ -216,7 +216,16 @@ export class SessionServiceState {
           });
         }
       }
-      this.saveOpenTabs();
+      const archState = this.getArchState();
+      this.dispatchArch({
+        kind: 'Command',
+        cmd: {
+          kind: 'PersistTabs',
+          corrId: `persist:${Date.now()}`,
+          openTabPaths: archState.sessions.openTabPaths,
+          activeSessionPath: archState.sessions.activeSessionPath,
+        },
+      });
     }
 
     this.dispatchArch({ kind: 'NoticeShown', notice });
@@ -389,27 +398,6 @@ export class SessionServiceState {
 
   isActiveSession(sessionPath: string): boolean {
     return this.getArchState().sessions.activeSessionPath === sessionPath;
-  }
-
-  saveOpenTabs(): void {
-    const { openTabPaths, sessions, activeSessionPath } = this.getArchState().sessions;
-
-    const tabObjects = openTabPaths
-      .filter((p) => !isPendingTabPath(p))
-      .map((p) => {
-        const session = sessions.find((s) => s.path === p);
-        return session ? { path: p, name: session.name } : { path: p };
-      });
-
-    const persistedActiveSessionPath =
-      activeSessionPath
-      && !isPendingTabPath(activeSessionPath)
-      && openTabPaths.includes(activeSessionPath)
-        ? activeSessionPath
-        : undefined;
-
-    void this.context.globalState.update(OPEN_TABS_STORAGE_KEY, tabObjects);
-    void this.context.globalState.update(ACTIVE_SESSION_STORAGE_KEY, persistedActiveSessionPath);
   }
 
   preloadSessions(sessionPaths: readonly string[]): void {
