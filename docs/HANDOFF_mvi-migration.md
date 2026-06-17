@@ -8,7 +8,7 @@
 
 ---
 
-## What's done (8 commits, all reviewer-approved; `settings.json` is unrelated working-tree dirt — never commit it)
+## What's done (9 commits, all reviewer-approved; `settings.json` is unrelated working-tree dirt — never commit it)
 
 | Commit | Scope |
 |--------|-------|
@@ -35,7 +35,7 @@
 ### The safety net (keep it green; it catches real regressions)
 - `extension/test/arch-boundary-guards.test.ts` — purity of the pure spine + import bans.
 - The `never` exhaustiveness checks in `reducer.ts`, `effect-runner.ts`, `command-handlers.ts`, `result-handlers.ts`, `streaming-handlers.ts` — adding an Event/Effect/Command variant without a handler fails `tsc`.
-- `npm run typecheck && npm run test && npm run build` after every `extension/src/` edit (per `AGENTS.md`). Suite is ~824 tests.
+- `npm run typecheck && npm run test && npm run build` after every `extension/src/` edit (per `AGENTS.md`). Suite is ~831 tests (~830 pass, 1 pre-existing skip).
 
 ---
 
@@ -43,10 +43,7 @@
 
 ### Phase 2 — method orchestration-lifts (the meat; the router layer is DONE)
 
-A foundational recon map already exists (a prior scout produced it; the key facts are below). **For every op, first re-confirm the current entry points with a quick grep** — the codebase is mid-migration and lines shift.
-
-#### Design-thorny
-- **Transcript paging (`loadOlder`/`loadNewer`/`jumpToLatest`) — DONE (`7ffec0d`).** Reducer now owns the in-flight guard + request identity (`TranscriptState.pagingInFlightBySession` keyed by `corrId`); epoch/window/open-tabs staleness + LRU eviction stay host-side (Phase 3/4 folds the reducer-state reads in). See the table row for the design calls: `corrId` replaces the per-session seq counter; synchronous `dispatchArchEvent` means the flag clears via the Result event with no timing regression vs the old `finally`; `SessionScopeCleared` adds a close-path recovery the old `finally` lacked. Reusable pattern #8 below.
+A foundational recon map already exists (a prior scout produced it; the key facts are below). **For every op, first re-confirm the current entry points with a quick grep** — the codebase is mid-migration and lines shift. (Transcript paging — the prior design-thorny item — is done: `7ffec0d`; see the table row + reusable pattern #8. The remaining items below are all high-value/high-risk.)
 
 #### High-value, high-risk (core functionality — extra care + per-op TDD)
 - **`setModel` — modal as effect.** `service.setModel` (`message-actions.ts`) does: a `vscode.window.showWarningMessage({modal:true})` to confirm clearing pending images, `enqueueLifecycle`+`backend.request('settings.get')`-style `settings.set`, `dispatchArch ContextUsageChanged(null)`, `bumpSessionDataEpoch`, `dispatchArch SessionMetadataChanged`, `clearPendingImageInputs`, `runObserver.onModelConfigChanged`, `scheduleRender`, `catch`→`Error`. **Split-brain:** the `SetModel` Command reducer already sets `settings.modelSettings` optimistically AND the service re-dispatches `SessionMetadataChanged`. Migration: (a) the modal prompt → a new `ShowModal` Effect carrying the question + a `ModalResponse` result event; the reducer branches on the response (proceed/abort). (b) `ContextUsageChanged(null)` + `SessionMetadataChanged` → `SetModelResult`-driven reducer transitions. (c) `clearPendingImageInputs` → reducer transition on the `SetModel` Command (when the new model lacks image support). (d) `bumpSessionDataEpoch` + `runObserver.onModelConfigChanged` → keep as Effect-side concerns (epoch is host-local; observer may subscribe to ArchState projections in Phase 4). This is the canonical "effects are thin, the reducer is the brain" demonstration.
@@ -58,7 +55,7 @@ A foundational recon map already exists (a prior scout produced it; the key fact
 `core/queue-manager.ts` holds `pendingSendQueue: Map` + `backendReadyQueue: array` + a 30s watchdog timer — state OUTSIDE `ArchState`. It dispatches `OptimisticMessageInserted`/`SessionNameDerived` directly and re-dispatches sends via `handleMessage` on drain. Move these queues into `ArchState` as `Record`s (Record-only rule); the watchdog timeout becomes a timer Effect → `NoticeShown`; drain-on-`BackendReadyChanged` becomes a reducer reaction. This removes the last large chunk of non-ArchState state. (Use `Record<string,T>`, not `Map`, per the contract.)
 
 ### Phase 4 — delete legacy `SessionService` orchestration
-Once every op routes through Command→reducer→effect with the reducer owning transitions, strip the orchestration from `SessionService`; it becomes a thin backend adapter + lifecycle (backend client start/stop, session boot). Shrink `SessionServiceState` (`state.ts`, ~461 lines — holds epoch counters, selection requests, transcript-page in-flight, transcript-window LRU, suppress flags, busy seq). `runObserver` calls sprinkled across `handlers/*` + `message-actions.ts` + `tab-actions.ts` — decide whether the observer subscribes to ArchState projections or stays as Effect-side calls. The module-global `subscribeToArchState` auto-projection (`dispatch.ts` + `extension-host.ts`) can become an explicit `selectViewState` call after dispatch.
+Once every op routes through Command→reducer→effect with the reducer owning transitions, strip the orchestration from `SessionService`; it becomes a thin backend adapter + lifecycle (backend client start/stop, session boot). Shrink `SessionServiceState` (`state.ts`, ~461 lines — holds epoch counters, selection requests, transcript-window LRU, suppress flags, busy seq). `runObserver` calls sprinkled across `handlers/*` + `message-actions.ts` + `tab-actions.ts` — decide whether the observer subscribes to ArchState projections or stays as Effect-side calls. The module-global `subscribeToArchState` auto-projection (`dispatch.ts` + `extension-host.ts`) can become an explicit `selectViewState` call after dispatch.
 
 ### Phase 5 — harden recovery + webview
 - **Optimistic-op TTL:** if no `*Result` arrives within N seconds, reconcile against backend (query session) or revert + notify. Today optimistic messages + `pending.ops[corrId]` live forever if a result is lost (host crash mid-send). No escape hatch.
