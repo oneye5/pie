@@ -1,6 +1,6 @@
 # Handoff: MVI Migration (robustness pass)
 
-**Status:** Phase 0 + Phase 1 complete; Phase 2 partially complete (4 chunks). Foundation + safety net are in place and proven. The remaining work is design-heavy and higher-risk (especially tab lifecycle = core session management).
+**Status:** Phase 0 + Phase 1 complete; Phase 2 partially complete (6 of its chunks done — see table). Foundation + safety net are in place and proven. The remaining Phase 2 work is design-heavy and higher-risk: transcript paging, setModel, tab lifecycle (create/open/duplicate/close, one at a time), and addFilesystemPaths — tab lifecycle is core session management.
 
 **Goal (from the originating review):** stop whack-a-mole bugs by finishing the half-done CQRS/Elm-style MVI migration — collapse to a single webview→Command→reducer→(thin)Effect→runner path, make invariants machine-checkable, and hard-cut over per operation (delete legacy, no flags). Sub-agent-driven: scout for recon, worker for tight implementation, reviewer for verification, orchestrator commits.
 
@@ -24,7 +24,7 @@
 ### Established, reusable patterns (follow these for every remaining migration)
 1. **Reducer owns the state change + emits a thin Effect; the runner executes only the side effect.** This is the send/edit model (already in place for send/edit/interrupt/moveSessionTab/setPrefs).
 2. **Hard cutover per op:** once the reducer owns it, delete the legacy Effect + Result event + reducer/result-handlers cases + service method + interface decls in the same chunk. The exhaustiveness `never` checks are the safety net — a dangling reference fails the build.
-3. **Optimistic apply + revert-on-failure** (send/edit-style) for settings that can fail: snapshot the pre-change value in `PendingState` keyed by `corrId`; on `*Result{ok:false}` revert + notice; on `{ok:true}` clear the snapshot. (Used for send/edit; attempted for setPruningSettings — see design note.)
+3. **Optimistic apply + revert-on-failure** (send/edit-style) for settings that can fail: snapshot the pre-change value in `PendingState` keyed by `corrId`; on `*Result{ok:false}` revert + notice; on `{ok:true}` clear the snapshot. (Used for send/edit.) **Not universal** — `setPruningSettings` (commit `fca20c7`) deliberately does NOT snapshot/revert: the service keeps graceful-degradation (catch+mirror+notice, no throw) so the result is always `{ok:true}`, and the reducer's optimistic apply is authoritative. Choose revert-on-failure only when the side effect can actually fail in a way the user must be shielded from (and pair it with pattern #7 — verify the disk-write covers every field).
 4. **Effects are thin descriptors**, not fat service calls. If an op needs a UI dialog (e.g. setModel's modal), model it as a dedicated `ShowModal` effect with a result event the reducer branches on — never do a modal inside an effect's service call.
 5. **Persist via `PersistTabs` Effect** (now wired) rather than imperative `saveOpenTabs()` calls — migrate each tab op to emit `PersistTabs` and drop its `saveOpenTabs()` call.
 6. **Sub-agent rhythm that works:** scout (recon, precise file:line map) → worker (TIGHT, one well-bounded change — workers time out on multi-change design tasks) → reviewer (independent verification) → orchestrator commits only the extension/ files (never `settings.json`). For design-heavy chunks, the orchestrator does the design + core implementation directly and uses workers only for mechanical sub-tasks.
@@ -68,7 +68,7 @@ Once every op routes through Command→reducer→effect with the reducer owning 
 
 ## How to continue (concrete first steps for the next session)
 1. `cd extension && npm run typecheck && npm run test && npm run build` — confirm the foundation is green (expect ~824 tests, ~823 pass, 1 pre-existing skip).
-2. Pick the next chunk from the risk-ordered list above. For the lower-risk ones, dispatch a TIGHT worker (one well-bounded change). For design-thorny/high-risk ones, the orchestrator designs + implements the core directly, uses workers for mechanical sub-tasks, and uses the reviewer gate.
+2. Pick the next chunk from the risk-ordered list above. All lower-risk chunks are done — the remaining items are design-thorny/high-risk (transcript paging, setModel, tab lifecycle), so the orchestrator designs + implements the core directly, uses workers only for mechanical sub-tasks, and runs the reviewer gate. For tab lifecycle, do one op at a time (createSession first) with full TDD + a manual smoke-test of create/open/close/duplicate.
 3. Re-confirm current entry points with a grep before each migration (lines shift mid-migration).
 4. Commit only `extension/` files; **never** `settings.json` (unrelated model-pref working-tree dirt).
 5. Every chunk: TDD (write/extend a reducer/integration test capturing behavior) → migrate → `never`-checks still compile → typecheck+test+build green → reviewer → commit.
