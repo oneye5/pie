@@ -200,7 +200,6 @@ export type Command =
   | SetPrefsCommand
   | SelectSessionCommand
   | CloseTabCommand
-  | ReorderTabsCommand
   | OpenFileDiffCommand
   | RevertFileCommand
   | CloseSessionCommand
@@ -239,11 +238,6 @@ export interface SelectSessionCommand extends CommandBase {
 export interface CloseTabCommand extends CommandBase {
   kind: 'CloseTab';
   sessionPath: string;
-}
-
-export interface ReorderTabsCommand extends CommandBase {
-  kind: 'ReorderTabs';
-  openTabPaths: string[];
 }
 
 export interface OpenFileDiffCommand extends CommandBase {

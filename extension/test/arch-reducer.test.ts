@@ -806,22 +806,81 @@ test('reducer: DuplicateSession command produces DuplicateSession effect, state 
   }
 });
 
-test('reducer: MoveSessionTab command produces MoveSessionTab effect, state unchanged', () => {
-  const event: Event = {
-    kind: 'Command',
-    cmd: { kind: 'MoveSessionTab', corrId: 'c-move', sessionPath: '/s', fromIndex: 0, toIndex: 2 },
+test('reducer: MoveSessionTab command reorders openTabPaths and emits PersistTabs effect', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: {
+      ...initialArchState.sessions,
+      openTabPaths: ['/a', '/b', '/c'],
+      activeSessionPath: '/b',
+    },
   };
 
-  const result = reducer(initialArchState, event);
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'MoveSessionTab', corrId: 'c-move', sessionPath: undefined, fromIndex: 0, toIndex: 2 },
+  };
 
-  assert.deepEqual(result.state, initialArchState);
+  const result = reducer(state, event);
+
+  assert.deepEqual(result.state.sessions.openTabPaths, ['/b', '/c', '/a']);
+  assert.equal(result.state.sessions.activeSessionPath, '/b');
   assert.equal(result.effects.length, 1);
-  assert.equal(result.effects[0]?.kind, 'MoveSessionTab');
-  if (result.effects[0]?.kind === 'MoveSessionTab') {
+  assert.equal(result.effects[0]?.kind, 'PersistTabs');
+  if (result.effects[0]?.kind === 'PersistTabs') {
     assert.equal(result.effects[0].corrId, 'c-move');
-    assert.equal(result.effects[0].sessionPath, '/s');
-    assert.equal(result.effects[0].fromIndex, 0);
-    assert.equal(result.effects[0].toIndex, 2);
+    assert.deepEqual(result.effects[0].openTabPaths, ['/b', '/c', '/a']);
+    assert.equal(result.effects[0].activeSessionPath, '/b');
+  }
+});
+
+test('reducer: MoveSessionTab with out-of-range fromIndex leaves openTabPaths unchanged', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: {
+      ...initialArchState.sessions,
+      openTabPaths: ['/a', '/b', '/c'],
+      activeSessionPath: null,
+    },
+  };
+
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'MoveSessionTab', corrId: 'c-oob', sessionPath: undefined, fromIndex: 99, toIndex: 0 },
+  };
+
+  const result = reducer(state, event);
+
+  assert.deepEqual(result.state.sessions.openTabPaths, ['/a', '/b', '/c']);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'PersistTabs');
+  if (result.effects[0]?.kind === 'PersistTabs') {
+    assert.deepEqual(result.effects[0].openTabPaths, ['/a', '/b', '/c']);
+    assert.equal(result.effects[0].activeSessionPath, null);
+  }
+});
+
+test('reducer: MoveSessionTab clamps toIndex to the last position', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: {
+      ...initialArchState.sessions,
+      openTabPaths: ['/a', '/b', '/c'],
+      activeSessionPath: '/a',
+    },
+  };
+
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'MoveSessionTab', corrId: 'c-clamp', sessionPath: undefined, fromIndex: 0, toIndex: 99 },
+  };
+
+  const result = reducer(state, event);
+
+  assert.deepEqual(result.state.sessions.openTabPaths, ['/b', '/c', '/a']);
+  if (result.effects[0]?.kind === 'PersistTabs') {
+    assert.deepEqual(result.effects[0].openTabPaths, ['/b', '/c', '/a']);
+    assert.equal(result.effects[0].activeSessionPath, '/a');
   }
 });
 
@@ -1120,7 +1179,7 @@ test('reducer: Edit command does not clear the persisted draft', () => {
   assert.equal(result.state.composer.draftTextBySession['/s'], 'keep me');
 });
 
-// ─── Phase 4: DuplicateSessionResult / MoveSessionTabResult ───────────────────
+// ─── Phase 4: DuplicateSessionResult ───────────────────
 
 test('reducer: DuplicateSessionResult{ok:true} returns unchanged state with no effects', () => {
   const result = reducer(initialArchState, { kind: 'DuplicateSessionResult', corrId: 'c-dup', ok: true });
@@ -1136,22 +1195,5 @@ test('reducer: DuplicateSessionResult{ok:false} produces Log effect', () => {
   if (result.effects[0]?.kind === 'Log') {
     assert.equal(result.effects[0].level, 'error');
     assert.match(result.effects[0].message, /DuplicateSessionResult failed/);
-  }
-});
-
-test('reducer: MoveSessionTabResult{ok:true} returns unchanged state with no effects', () => {
-  const result = reducer(initialArchState, { kind: 'MoveSessionTabResult', corrId: 'c-move', ok: true });
-  assert.deepEqual(result.state, initialArchState);
-  assert.deepEqual(result.effects, []);
-});
-
-test('reducer: MoveSessionTabResult{ok:false} produces Log effect', () => {
-  const result = reducer(initialArchState, { kind: 'MoveSessionTabResult', corrId: 'c-move', ok: false, error: 'fail' });
-  assert.deepEqual(result.state, initialArchState);
-  assert.equal(result.effects.length, 1);
-  assert.equal(result.effects[0]?.kind, 'Log');
-  if (result.effects[0]?.kind === 'Log') {
-    assert.equal(result.effects[0].level, 'error');
-    assert.match(result.effects[0].message, /MoveSessionTabResult failed/);
   }
 });

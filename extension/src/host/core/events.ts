@@ -220,13 +220,6 @@ export interface DuplicateSessionResultEvent {
   error?: string;
 }
 
-export interface MoveSessionTabResultEvent {
-  kind: 'MoveSessionTabResult';
-  corrId: string;
-  ok: boolean;
-  error?: string;
-}
-
 export type EffectResultEvent =
   | SendResultEvent
   | EditResultEvent
@@ -251,8 +244,7 @@ export type EffectResultEvent =
   | OpenFileResultEvent
   | SetPruningSettingsResultEvent
   | CloseSessionResultEvent
-  | DuplicateSessionResultEvent
-  | MoveSessionTabResultEvent;
+  | DuplicateSessionResultEvent;
 
 // ─── Backend streaming events ─────────────────────────────────────────────────
 // These wrap PI backend events so they flow through the reducer.

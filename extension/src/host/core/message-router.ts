@@ -39,7 +39,6 @@ export interface SessionServiceLike {
   openSession(sessionPath: string): void;
   closeSession(sessionPath: string): Promise<void>;
   duplicateSession(sessionPath: string): void;
-  moveSessionTab(sessionPath: string | undefined, fromIndex: number, toIndex: number): void;
   loadOlderTranscript(sessionPath?: string): Promise<void>;
   loadNewerTranscript(sessionPath?: string): Promise<void>;
   jumpToLatestTranscript(sessionPath?: string): Promise<void>;

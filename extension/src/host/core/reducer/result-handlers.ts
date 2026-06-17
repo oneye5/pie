@@ -157,7 +157,6 @@ export function handleEffectResult(state: ArchState, event: Exclude<EffectResult
     case 'SetPruningSettingsResult':
     case 'CloseSessionResult':
     case 'DuplicateSessionResult':
-    case 'MoveSessionTabResult':
     case 'ExtensionUiResponseResult': {
       if (!event.ok) {
         return {

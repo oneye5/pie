@@ -12,8 +12,8 @@ import type { ScheduleRender, SelectionRequest } from './types';
 import type { Event } from '../core/events';
 import type { ArchState } from '../core/arch-state';
 
-const OPEN_TABS_STORAGE_KEY = 'openTabPaths';
-const ACTIVE_SESSION_STORAGE_KEY = 'activeSessionPath';
+export const OPEN_TABS_STORAGE_KEY = 'openTabPaths';
+export const ACTIVE_SESSION_STORAGE_KEY = 'activeSessionPath';
 const DEFAULT_SELECTION_REQUEST_TIMEOUT_MS = 60_000;
 
 export class SessionServiceState {

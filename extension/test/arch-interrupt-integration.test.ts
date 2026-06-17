@@ -77,7 +77,6 @@ function makeSerializingDeps(): {
       async closeSession() {},
       async setPruningSettings() {},
       duplicateSession() {},
-      moveSessionTab() {},
       createNewSession() { return '/new'; },
       openSession() {},
     },

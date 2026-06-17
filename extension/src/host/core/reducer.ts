@@ -116,7 +116,6 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
     case 'SetPruningSettingsResult':
     case 'CloseSessionResult':
     case 'DuplicateSessionResult':
-    case 'MoveSessionTabResult':
     case 'ExtensionUiResponseResult': {
       return handleEffectResult(state, event);
     }

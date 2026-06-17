@@ -73,7 +73,6 @@ export interface SessionServiceLike {
   closeSession(sessionPath: string): Promise<void>;
   setPruningSettings(updates: Partial<PruningSettings>): Promise<void>;
   duplicateSession(sessionPath: string): void;
-  moveSessionTab(sessionPath: string | undefined, fromIndex: number, toIndex: number): void;
   createNewSession(): string;
   openSession(sessionPath: string): void;
 }
@@ -303,17 +302,6 @@ export class EffectRunner {
           this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: true });
         } catch (err) {
           this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'MoveSessionTab') {
-      void (async () => {
-        try {
-          this.deps.service.moveSessionTab(effect.sessionPath, effect.fromIndex, effect.toIndex);
-          this.deps.dispatch({ kind: 'MoveSessionTabResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'MoveSessionTabResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
         }
       })();
       return;

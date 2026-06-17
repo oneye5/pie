@@ -184,13 +184,6 @@ export interface DuplicateSessionEffect extends EffectBase {
   sessionPath: string;
 }
 
-export interface MoveSessionTabEffect extends EffectBase {
-  kind: 'MoveSessionTab';
-  sessionPath: string | undefined;
-  fromIndex: number;
-  toIndex: number;
-}
-
 export type Effect =
   | SendRpcEffect
   | EditRpcEffect
@@ -223,8 +216,7 @@ export type Effect =
   | OpenFileEffect
   | SetPruningSettingsEffect
   | CloseSessionEffect
-  | DuplicateSessionEffect
-  | MoveSessionTabEffect;
+  | DuplicateSessionEffect;
 
 // ─── Type guards ────────────────────────────────────────────────────────────────
 

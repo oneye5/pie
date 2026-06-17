@@ -4,6 +4,7 @@ import type { ArchState } from '../arch-state.js';
 import type { ChatPrefs, ComposerInput } from '../../../shared/protocol.js';
 import type { ReducerResult } from './helpers.js';
 import { addToArray, removeFromArray, removeSessionFromState, appendLocalUserMessage } from './helpers.js';
+import { moveOpenTabPath } from '../../../shared/tab-behavior.js';
 import type { Command } from '../commands.js';
 
 export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
@@ -188,19 +189,6 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
               state.sessions.unreadFinishedSessionPaths,
               cmd.sessionPath,
             ),
-          },
-        },
-        effects: [],
-      };
-    }
-
-    case 'ReorderTabs': {
-      return {
-        state: {
-          ...state,
-          sessions: {
-            ...state.sessions,
-            openTabPaths: cmd.openTabPaths,
           },
         },
         effects: [],
@@ -495,15 +483,30 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
     }
 
     case 'MoveSessionTab': {
+      // Phase 2 send/edit-style cutover: the reducer owns the reorder. The
+      // pure shared helper computes the new openTabPaths, state is updated, and
+      // a PersistTabs effect is emitted so the runner writes globalState. The
+      // legacy MoveSessionTab Effect / service.moveSessionTab / ReorderTabs
+      // round-trip is gone.
+      const newOrder = moveOpenTabPath(state.sessions.openTabPaths, {
+        sessionPath: cmd.sessionPath,
+        fromIndex: cmd.fromIndex,
+        toIndex: cmd.toIndex,
+      });
       return {
-        state,
+        state: {
+          ...state,
+          sessions: {
+            ...state.sessions,
+            openTabPaths: newOrder,
+          },
+        },
         effects: [
           {
-            kind: 'MoveSessionTab',
+            kind: 'PersistTabs',
             corrId: cmd.corrId,
-            sessionPath: cmd.sessionPath,
-            fromIndex: cmd.fromIndex,
-            toIndex: cmd.toIndex,
+            openTabPaths: newOrder,
+            activeSessionPath: state.sessions.activeSessionPath,
           },
         ],
       };

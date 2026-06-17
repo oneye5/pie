@@ -62,7 +62,6 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown> } =
       async closeSession() {},
       async setPruningSettings() {},
       duplicateSession() {},
-      moveSessionTab() {},
       createNewSession() {
         calls.push({ kind: 'createNewSession' });
         return '/new';

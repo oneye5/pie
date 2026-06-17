@@ -7,7 +7,6 @@ import { toErrorMessage } from '../util/error-message';
 import {
   getNextVisibleTabPathOnClose,
   isPendingTabPath,
-  moveOpenTabPath,
 } from '../../shared/tab-behavior';
 import type { SessionOpenedPayload, SessionSummary } from '../../shared/protocol';
 import type { ScheduleRender } from './types';
@@ -193,22 +192,6 @@ export class SessionTabActions {
 
     this.state.evictInactiveTranscriptWindows();
     this.state.assertSelectionInvariant('closeSession');
-    this.scheduleRender();
-  }
-
-  moveSessionTab(sessionPath: string | undefined, fromIndex: number, toIndex: number): void {
-    auditLog(this.context, 'session-service', 'session.tab.reorder.requested', {
-      sessionPath,
-      fromIndex,
-      toIndex,
-    });
-
-    this.dispatchArch({
-      kind: 'Command',
-      cmd: { kind: 'ReorderTabs', corrId: `reorder:${Date.now()}`, openTabPaths: moveOpenTabPath(this.getArchState().sessions.openTabPaths, { sessionPath, fromIndex, toIndex }) },
-    });
-    this.state.saveOpenTabs();
-    this.state.assertSelectionInvariant('moveSessionTab');
     this.scheduleRender();
   }
 

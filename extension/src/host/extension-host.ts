@@ -21,6 +21,7 @@ import {
 import { type RunAnalyticsExportPayload } from './run-analytics/query';
 import { SidebarViewProvider } from './sidebar/provider';
 import { SessionService } from './session-service';
+import { OPEN_TABS_STORAGE_KEY, ACTIVE_SESSION_STORAGE_KEY } from './session-service/state';
 import { StatsService } from './stats-service';
 import type { WebviewToHostMessage } from '../shared/protocol';
 import { EffectRunner } from './core/effect-runner';
@@ -157,8 +158,28 @@ export class PieExtension implements vscode.Disposable {
       backend: this.backend,
       queues: this.service.queues,
       tabs: {
-        async persistTabs() {
-          // PersistTabs not yet wired — Phase 4+.
+        // PersistTabs: write openTabPaths + activeSessionPath to globalState,
+        // matching SessionServiceState.saveOpenTabs() exactly (same storage
+        // keys, same JSON shape). Uses the effect's args (a snapshot of the
+        // post-reorder state) rather than re-reading the service's internal
+        // state; session names are looked up from the current archState solely
+        // to enrich the persisted { path, name } objects.
+        persistTabs: async (openTabPaths, activeSessionPath) => {
+          const sessions = this.archState.sessions.sessions;
+          const tabObjects = openTabPaths
+            .filter((p) => !isPendingTabPath(p))
+            .map((p) => {
+              const session = sessions.find((s) => s.path === p);
+              return session ? { path: p, name: session.name } : { path: p };
+            });
+          const persistedActiveSessionPath =
+            activeSessionPath
+            && !isPendingTabPath(activeSessionPath)
+            && openTabPaths.includes(activeSessionPath)
+              ? activeSessionPath
+              : undefined;
+          void context.globalState.update(OPEN_TABS_STORAGE_KEY, tabObjects);
+          void context.globalState.update(ACTIVE_SESSION_STORAGE_KEY, persistedActiveSessionPath);
         },
       },
       log: {

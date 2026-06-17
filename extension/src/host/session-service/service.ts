@@ -152,10 +152,6 @@ export class SessionService implements vscode.Disposable {
     this.messages.dropSessionLocalState(sessionPath);
   }
 
-  moveSessionTab(sessionPath: string | undefined, fromIndex: number, toIndex: number): void {
-    this.tabs.moveSessionTab(sessionPath, fromIndex, toIndex);
-  }
-
   duplicateSession(sessionPath: string): void {
     this.tabs.duplicateSession(sessionPath);
   }
