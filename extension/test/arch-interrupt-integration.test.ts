@@ -19,9 +19,11 @@ function makeSerializingDeps(): {
   deps: EffectRunnerDeps;
   executionOrder: string[];
   events: EffectResultEvent[];
+  suppressCalls: string[];
 } {
   const executionOrder: string[] = [];
   const events: EffectResultEvent[] = [];
+  const suppressCalls: string[] = [];
 
   // Mimic the real lifecycle and session-operation queues from SessionServiceState.
   let lifecycleQueue: Promise<void> = Promise.resolve();
@@ -71,6 +73,9 @@ function makeSerializingDeps(): {
       async hydrateModelState() {},
       setPrefs() {},
       bumpSessionDataEpoch() {},
+      suppressNextCompletionNotificationFor(sessionPath: string) {
+        suppressCalls.push(sessionPath);
+      },
       async addFilesystemPaths() {},
       async loadOlderTranscript() {},
       async loadNewerTranscript() {},
@@ -92,7 +97,7 @@ function makeSerializingDeps(): {
     dispatch: (e) => events.push(e),
   };
 
-  return { deps, executionOrder, events };
+  return { deps, executionOrder, events, suppressCalls };
 }
 
 async function settle(): Promise<void> {
@@ -173,4 +178,29 @@ test('end-to-end: interrupt command through reducer produces effect and result c
   assert.ok(!state.sessions.runningSessionPaths.includes('/x'), 'running should be cleared by watchdog');
   // No SyncEffects — running state is mutated directly.
   assert.equal(r2.effects.length, 0);
+});
+
+test('interrupt: InterruptRpc suppresses the next completion notification for the session (flag set in the runner)', async () => {
+  const { deps, suppressCalls } = makeSerializingDeps();
+  const runner = new EffectRunner(deps);
+
+  // The runner is the side-effect executor, so the host-local completion-
+  // suppression flag is set here (synchronously, same tick as the click),
+  // preserving the eager-set behavior the router previously performed inline.
+  // The reducer never owns this flag.
+  runner.run({ kind: 'InterruptRpc', corrId: 'c-sup', sessionPath: '/s' });
+  assert.deepEqual(suppressCalls, ['/s']);
+
+  await settle();
+  assert.deepEqual(suppressCalls, ['/s'], 'flag set exactly once, synchronously');
+});
+
+test('interrupt: non-interrupt RPCs do not set the completion-suppression flag', async () => {
+  const { deps, suppressCalls } = makeSerializingDeps();
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-send', sessionPath: '/s', text: 'hi', inputs: [], localId: 'local-3' });
+  await settle();
+
+  assert.deepEqual(suppressCalls, [], 'only InterruptRpc sets the suppress flag');
 });

@@ -67,6 +67,7 @@ export interface SessionServiceLike {
   hydrateModelState(sessionPath: string): Promise<void>;
   setPrefs(prefs: Partial<ChatPrefs>): void;
   bumpSessionDataEpoch(sessionPath: string): void;
+  suppressNextCompletionNotificationFor(sessionPath: string): void;
   addFilesystemPaths(sessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
   loadOlderTranscript(sessionPath: string): Promise<void>;
   loadNewerTranscript(sessionPath: string): Promise<void>;
@@ -341,6 +342,14 @@ export class EffectRunner {
     if (effect.kind === 'SendRpc') {
       this.runSendRpc(effect);
       return;
+    }
+    // InterruptRpc: set the host-local completion-suppression flag for this
+    // session synchronously (same tick as the click), so the busy-completed
+    // handler suppresses the "run finished" notification the interrupt causes.
+    // The runner is the side-effect executor — this host-local flag stays out
+    // of the reducer (no read-vs-clear ordering hazard).
+    if (effect.kind === 'InterruptRpc') {
+      this.deps.service.suppressNextCompletionNotificationFor(effect.sessionPath);
     }
     const { queues, backend, dispatch } = this.deps;
     void queues.enqueueLifecycle(async () => {

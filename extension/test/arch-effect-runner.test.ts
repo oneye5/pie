@@ -56,6 +56,7 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown> } =
       async hydrateModelState() {},
       setPrefs() {},
       bumpSessionDataEpoch() {},
+      suppressNextCompletionNotificationFor() {},
       async addFilesystemPaths() {},
       async loadOlderTranscript() {},
       async loadNewerTranscript() {},

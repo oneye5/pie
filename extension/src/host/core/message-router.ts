@@ -30,7 +30,6 @@ export interface ContextLike {
 /** Minimal session-service surface the router needs. */
 export interface SessionServiceLike {
   bumpSessionDataEpoch(sessionPath: string): void;
-  suppressNextCompletionNotificationFor(sessionPath: string): void;
   addFilesystemPaths(requestedSessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
   createNewSession(): string;
   openSession(sessionPath: string): void;
@@ -332,7 +331,8 @@ export class MessageRouter {
       kind: 'Command',
       cmd: { kind: 'Interrupt', corrId, sessionPath },
     });
-    this.service.suppressNextCompletionNotificationFor(sessionPath);
+    // Completion-notification suppression is now set in the EffectRunner's
+    // InterruptRpc path (the side-effect executor), not as a router side-call.
   }
 
   private async onOpenFilePicker(): Promise<void> {
