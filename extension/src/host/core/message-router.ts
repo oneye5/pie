@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 
 import * as vscode from 'vscode';
 
-import type { WebviewToHostMessage, SessionSummary, ChatPrefs, PruningSettings, ComposerInputDraft, ThinkingLevel } from '../../shared/protocol';
+import type { WebviewToHostMessage, SessionSummary, ChatPrefs, PruningSettings, ThinkingLevel } from '../../shared/protocol';
 import type { Event } from './events';
 import type { ArchState } from './reducer';
 import type { StatsService } from '../stats-service';
@@ -32,8 +32,6 @@ export interface SessionServiceLike {
   bumpSessionDataEpoch(sessionPath: string): void;
   suppressNextCompletionNotificationFor(sessionPath: string): void;
   addFilesystemPaths(requestedSessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
-  addComposerInput(requestedSessionPath: string | undefined, inputDraft: ComposerInputDraft): Promise<void>;
-  removeComposerInput(requestedSessionPath: string | undefined, inputId: string): void;
   createNewSession(): string;
   openSession(sessionPath: string): void;
   closeSession(sessionPath: string): Promise<void>;

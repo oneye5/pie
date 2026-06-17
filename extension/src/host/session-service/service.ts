@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 
 import { BackendClient } from '../backend/client';
 import { resolveChatPrefs } from '../../shared/protocol';
-import type { ChatPrefs, ComposerInputDraft, PruningSettings, ThinkingLevel } from '../../shared/protocol';
+import type { ChatPrefs, PruningSettings, ThinkingLevel } from '../../shared/protocol';
 import {
   loadPersistedPruningSettings,
   savePruningSettings,
@@ -162,17 +162,6 @@ export class SessionService implements vscode.Disposable {
     source: 'picker' | 'drop',
   ): Promise<void> {
     await this.messages.addFilesystemPaths(requestedSessionPath, paths, source);
-  }
-
-  async addComposerInput(
-    requestedSessionPath: string | undefined,
-    inputDraft: ComposerInputDraft,
-  ): Promise<void> {
-    await this.messages.addComposerInput(requestedSessionPath, inputDraft);
-  }
-
-  removeComposerInput(requestedSessionPath: string | undefined, inputId: string): void {
-    this.messages.removeComposerInput(requestedSessionPath, inputId);
   }
 
   async loadOlderTranscript(sessionPath?: string): Promise<void> {

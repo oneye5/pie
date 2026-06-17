@@ -221,6 +221,93 @@ test('reducer: SendResult{ok:true} clears pending and composer inputs directly',
   assert.equal(result.effects.length, 0);
 });
 
+// ─── Phase 2: Composer input Commands (router→reducer path) ──────────────────
+// The router dispatches AddComposerInput/RemoveComposerInput Commands straight to
+// the reducer (no Effect, no service call). These tests lock in that live path so
+// the dead SessionService.addComposerInput/removeComposerInput methods can be
+// hard-deleted without regressing behavior.
+
+test('reducer: AddComposerInput appends a composer input with a derived id and emits no effects', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: {
+      kind: 'AddComposerInput',
+      corrId: 'c-add',
+      sessionPath: '/s',
+      input: { kind: 'filesystemPathRef', path: '/f', name: 'f', source: 'picker' },
+    },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  const inputs = result.state.composer.pendingComposerInputsBySession['/s'];
+  assert.ok(inputs, 'composer inputs should exist for the session');
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0].id, 'c-add:input');
+  assert.equal(inputs[0].kind, 'filesystemPathRef');
+  // The reducer owns the change; no Effect is needed (no service call).
+  assert.equal(result.effects.length, 0);
+});
+
+test('reducer: AddComposerInput preserves existing inputs when appending', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    composer: {
+      ...initialArchState.composer,
+      pendingComposerInputsBySession: {
+        '/s': [{ id: 'in1', kind: 'filesystemPathRef', path: '/f1', name: 'f1', source: 'picker' }],
+      },
+    },
+  };
+
+  const event: Event = {
+    kind: 'Command',
+    cmd: {
+      kind: 'AddComposerInput',
+      corrId: 'c-add2',
+      sessionPath: '/s',
+      input: { kind: 'filesystemPathRef', path: '/f2', name: 'f2', source: 'drop' },
+    },
+  };
+
+  const result = reducer(state, event);
+
+  const inputs = result.state.composer.pendingComposerInputsBySession['/s'];
+  assert.ok(inputs);
+  assert.equal(inputs.length, 2);
+  assert.equal(inputs[0].id, 'in1');
+  assert.equal(inputs[1].id, 'c-add2:input');
+  assert.equal(result.effects.length, 0);
+});
+
+test('reducer: RemoveComposerInput filters out the matching input id and emits no effects', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    composer: {
+      ...initialArchState.composer,
+      pendingComposerInputsBySession: {
+        '/s': [
+          { id: 'in1', kind: 'filesystemPathRef', path: '/f1', name: 'f1', source: 'picker' },
+          { id: 'in2', kind: 'filesystemPathRef', path: '/f2', name: 'f2', source: 'drop' },
+        ],
+      },
+    },
+  };
+
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'RemoveComposerInput', corrId: 'c-rm', sessionPath: '/s', inputId: 'in1' },
+  };
+
+  const result = reducer(state, event);
+
+  const inputs = result.state.composer.pendingComposerInputsBySession['/s'];
+  assert.ok(inputs);
+  assert.equal(inputs.length, 1);
+  assert.equal(inputs[0].id, 'in2');
+  assert.equal(result.effects.length, 0);
+});
+
 test('reducer: SendResult{ok:false} clears pending, removes optimistic, restores name, notifies', () => {
   const prevSummary = { path: '/s', name: 'Old', cwd: '/', modifiedAt: '', messageCount: 0 };
   const state: ArchState = {

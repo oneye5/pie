@@ -11,7 +11,6 @@ import { toErrorMessage } from '../util/error-message';
 
 import { isPendingTabPath } from '../../shared/tab-behavior';
 import type {
-  ComposerInputDraft,
   ModelInfo,
   ModelSettings,
   ThinkingLevel,
@@ -106,47 +105,6 @@ export class SessionMessageActions {
       upsertPendingComposerInput(sessionPath, input, this.getArchState, this.dispatchArch);
     }
 
-    this.scheduleRender();
-  }
-
-  async addComposerInput(
-    requestedSessionPath: string | undefined,
-    inputDraft: ComposerInputDraft,
-  ): Promise<void> {
-    const sessionPath = this.resolveComposerTargetSessionPath(requestedSessionPath);
-    if (!sessionPath) {
-      return;
-    }
-
-    const input = validateAndMaterializeComposerInput(
-      sessionPath,
-      inputDraft,
-      () => this.state.createComposerInputId(),
-      this.scheduleRender,
-      this.runObserver,
-      this.getArchState,
-      this.dispatchArch,
-    );
-    if (!input) {
-      return;
-    }
-
-    upsertPendingComposerInput(sessionPath, input, this.getArchState, this.dispatchArch);
-    this.scheduleRender();
-  }
-
-  removeComposerInput(requestedSessionPath: string | undefined, inputId: string): void {
-    const sessionPath = this.resolveExistingComposerTargetSessionPath(requestedSessionPath);
-    if (!sessionPath || !inputId.trim()) {
-      return;
-    }
-
-    const existing = this.getArchState().composer.pendingComposerInputsBySession[sessionPath] ?? [];
-    const filtered = existing.filter((input) => input.id !== inputId);
-    if (filtered.length === existing.length) {
-      return;
-    }
-    this.dispatchArch({ kind: 'ComposerInputsReplaced', sessionPath, inputs: filtered.length > 0 ? filtered : null });
     this.scheduleRender();
   }
 
