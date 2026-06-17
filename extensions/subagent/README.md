@@ -38,7 +38,7 @@ Sequential execution with `{previous}` placeholder for prior output:
 ## Agent Discovery
 
 - **User agents** (`~/.pi/agent/agents/`) — default scope
-- **Project agents** (`.pi/agents/`) — opt-in via `agentScope: "both"` or `"project"`
+- **Project agents** (`agents/`, project root) — opt-in via `agentScope: "both"` or `"project"`
 
 Project agents require confirmation before running (security measure for untrusted repos).
 

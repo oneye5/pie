@@ -232,10 +232,10 @@ test("AgentDiscoveryResult: agents is array, projectAgentsDir is string | null",
 test("AgentDiscoveryResult: projectAgentsDir can be a non-null path", () => {
 	const result: { agents: AgentConfig[]; projectAgentsDir: string | null } = {
 		agents: [],
-		projectAgentsDir: "/some/project/.pi/agents",
+		projectAgentsDir: "/some/project/agents",
 	};
 	assert.equal(typeof result.projectAgentsDir, "string");
-	assert.match(result.projectAgentsDir, /\/\.pi\/agents$/);
+	assert.match(result.projectAgentsDir, /\/agents$/);
 });
 
 // ============================================================
@@ -256,10 +256,10 @@ test("loadAgentsFromDir: non-existent directory returns empty array", async () =
 	assert.equal(result.projectAgentsDir, null);
 });
 
-test("loadAgentsFromDir: empty .pi/agents directory returns empty array", async (t) => {
+test("loadAgentsFromDir: empty agents/ directory returns empty array", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-empty-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 	t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
@@ -271,7 +271,7 @@ test("loadAgentsFromDir: empty .pi/agents directory returns empty array", async 
 test("loadAgentsFromDir: discovers valid .md agent files", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-valid-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	const agentContent = `---
@@ -296,7 +296,7 @@ You are a test worker.
 test("loadAgentsFromDir: skips .md files without required frontmatter", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-skip-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	// Missing description
@@ -330,7 +330,7 @@ body
 test("loadAgentsFromDir: handles non-.md files being ignored", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-ext-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	fs.writeFileSync(path.join(agentsDir, "notes.txt"), "not an agent");
@@ -352,7 +352,7 @@ body
 test("loadAgentsFromDir: handles symlinks to agent files", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-symlink-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	// Write agent in a different location, then symlink into agents dir
@@ -382,7 +382,7 @@ body
 test("loadAgentsFromDir: handles unreadable files gracefully", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-unreadable-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	// Create a directory that looks like a .md file — readFileSync will fail
@@ -417,7 +417,7 @@ test("loadAgentsFromDir: readdirSync failure returns empty array", async () => {
 test("discoverAgents: 'both' scope deduplicates by name (project overrides user)", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-both-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	// We can't create user agents (SDK dep), but we can verify that project agents
@@ -443,7 +443,7 @@ body
 test("discoverAgents: 'user' scope ignores project agents entirely", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-user-scope-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	fs.writeFileSync(path.join(agentsDir, "project-only.md"), `---
@@ -462,7 +462,7 @@ body
 test("discoverAgents: 'project' scope ignores user agents entirely", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-proj-scope-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	fs.writeFileSync(path.join(agentsDir, "proj-agent.md"), `---
@@ -483,7 +483,7 @@ body
 // findNearestProjectAgentsDir — nearest-ancestor resolution
 // ============================================================
 
-test("findNearestProjectAgentsDir: returns null when no .pi/agents found", async () => {
+test("findNearestProjectAgentsDir: returns null when no agents/ found", async () => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-no-dir-${Date.now()}`);
 	fs.mkdirSync(tmpDir, { recursive: true });
@@ -493,22 +493,22 @@ test("findNearestProjectAgentsDir: returns null when no .pi/agents found", async
 	fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-test("findNearestProjectAgentsDir: finds .pi/agents in current dir", async (t) => {
+test("findNearestProjectAgentsDir: finds agents/ in current dir", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-current-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 	t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
 
 	const result = discoverAgents(tmpDir, "project");
 	assert.ok(result.projectAgentsDir);
-	assert.ok(result.projectAgentsDir!.endsWith(path.join(".pi", "agents")));
+	assert.ok(result.projectAgentsDir!.endsWith(path.join("agents")));
 });
 
-test("findNearestProjectAgentsDir: finds .pi/agents in parent dir", async (t) => {
+test("findNearestProjectAgentsDir: finds agents/ in parent dir", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-parent-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 	const childDir = path.join(tmpDir, "src", "deeply", "nested");
 	fs.mkdirSync(childDir, { recursive: true });
@@ -526,7 +526,7 @@ test("findNearestProjectAgentsDir: finds .pi/agents in parent dir", async (t) =>
 test("loadAgentsFromDir: parses bucket and thinkingLevel from frontmatter", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-bucket-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	fs.writeFileSync(path.join(agentsDir, "bucketed.md"), `---
@@ -548,7 +548,7 @@ body
 test("loadAgentsFromDir: invalid bucket is ignored", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-badbucket-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	fs.writeFileSync(path.join(agentsDir, "bad-bucket.md"), `---
@@ -582,7 +582,7 @@ test("loadAgentsFromDir: no defaultScores in repo-level agents", async () => {
 test("loadAgentsFromDir: empty tools string results in undefined tools", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-empty-tools-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	fs.writeFileSync(path.join(agentsDir, "no-tools.md"), `---
@@ -603,7 +603,7 @@ body
 test("loadAgentsFromDir: whitespace-only tools results in undefined", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
 	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-ws-tools-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, ".pi", "agents");
+	const agentsDir = path.join(tmpDir, "agents");
 	fs.mkdirSync(agentsDir, { recursive: true });
 
 	fs.writeFileSync(path.join(agentsDir, "ws-tools.md"), `---

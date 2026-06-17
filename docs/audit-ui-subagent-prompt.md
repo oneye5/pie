@@ -68,7 +68,7 @@ Files: `extensions/subagent/src/register.ts`, `extensions/subagent/src/execute.t
 
 Files: `extensions/subagent/agents.ts`
 
-- **Scope resolution** — Check that `agentScope: "user"` (default) discovers from `~/.pi/agent/agents/`. Check that `"project"` discovers from `.pi/agents/`. Check that `"both"` merges both. Verify project agents require confirmation (`confirmProjectAgents`).
+- **Scope resolution** — Check that `agentScope: "user"` (default) discovers from `~/.pi/agent/agents/`. Check that `"project"` discovers from `agents/` (project root). Check that `"both"` merges both. Verify project agents require confirmation (`confirmProjectAgents`).
 - **Agent config parsing** — Check that agent frontmatter (`bucket`, `thinkingLevel`, `model`, `tools`, `systemPrompt`) is parsed correctly. Verify the migration from `defaultScores` to `bucket` + `thinkingLevel` is complete — no remaining `defaultScores` references in agent configs or code.
 - **Agent listing in tool description** — Check that the tool description dynamically lists available agents. Verify it handles discovery failures gracefully (omits listing, doesn't crash).
 

@@ -36,7 +36,7 @@ function buildDescription(disabled = false): string {
 		"Modes: single (agent + task), parallel (tasks array), chain (sequential with {previous} placeholder).",
 		'The "agent" field must be an exact discovered agent name, not a scope keyword like "user", "project", or "both".',
 		'Default agent scope is "user" (from ~/.pi/agent/agents).',
-		'To enable project-local agents in .pi/agents, set agentScope: "both" (or "project").',
+		'To enable project-local agents in agents/ (project root), set agentScope: "both" (or "project").',
 		BUCKET_GUIDANCE,
 	];
 
