@@ -53,6 +53,7 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown> } =
     fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
     service: {
       async setModel() {},
+      async hydrateModelState() {},
       setPrefs() {},
       bumpSessionDataEpoch() {},
       async addFilesystemPaths() {},

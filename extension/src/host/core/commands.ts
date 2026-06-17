@@ -197,6 +197,7 @@ export type Command =
   | RemoveComposerInputCommand
   | SetComposerDraftCommand
   | SetModelCommand
+  | HydrateModelCommand
   | SetPrefsCommand
   | SelectSessionCommand
   | CloseTabCommand
@@ -223,6 +224,12 @@ export interface SetModelCommand extends CommandBase {
   kind: 'SetModel';
   sessionPath: string;
   modelSettings: ModelSettings;
+}
+
+/** Hydrate a session's model state from the backend (read-only refresh). */
+export interface HydrateModelCommand extends CommandBase {
+  kind: 'HydrateModel';
+  sessionPath: string;
 }
 
 export interface SetPrefsCommand extends CommandBase {

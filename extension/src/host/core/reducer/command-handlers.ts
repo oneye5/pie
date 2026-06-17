@@ -123,6 +123,16 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
       };
     }
 
+    case 'HydrateModel': {
+      // No state change: emit a fire-and-forget effect. The runner calls the
+      // service; the service's dispatched SetModel/AvailableModelsChanged
+      // events apply the results, so no *Result event is produced here.
+      return {
+        state,
+        effects: [{ kind: 'HydrateModel', corrId: cmd.corrId, sessionPath: cmd.sessionPath }],
+      };
+    }
+
     case 'SetModel': {
       return {
         state: {

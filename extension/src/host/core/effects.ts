@@ -91,6 +91,14 @@ export interface SetPrefsRpcEffect extends EffectBase {
   prefs: Partial<ChatPrefs>;
 }
 
+/** Hydrate a session's model state from the backend (fire-and-forget; the
+ *  service's dispatched SetModel/AvailableModelsChanged events apply the
+ *  results, so this effect emits no *Result event). */
+export interface HydrateModelEffect extends EffectBase {
+  kind: 'HydrateModel';
+  sessionPath: string;
+}
+
 // ─── Real side effects ────────────────────────────────────────────────────────
 
 /** Post an imperative message to the webview. */
@@ -195,6 +203,7 @@ export type Effect =
   | LogEffect
   | SetModelRpcEffect
   | SetPrefsRpcEffect
+  | HydrateModelEffect
   | PostImperativeEffect
   | FileDiffEffect
   | FileRevertEffect

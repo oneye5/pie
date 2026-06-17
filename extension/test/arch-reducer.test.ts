@@ -806,6 +806,23 @@ test('reducer: DuplicateSession command produces DuplicateSession effect, state 
   }
 });
 
+test('reducer: HydrateModel command produces HydrateModel effect, state unchanged', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: { kind: 'HydrateModel', corrId: 'c-hydrate', sessionPath: '/s' },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  assert.deepEqual(result.state, initialArchState);
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'HydrateModel');
+  if (result.effects[0]?.kind === 'HydrateModel') {
+    assert.equal(result.effects[0].corrId, 'c-hydrate');
+    assert.equal(result.effects[0].sessionPath, '/s');
+  }
+});
+
 test('reducer: MoveSessionTab command reorders openTabPaths and emits PersistTabs effect', () => {
   const state: ArchState = {
     ...initialArchState,

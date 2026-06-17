@@ -64,6 +64,7 @@ export interface PostImperativeSink {
 
 export interface SessionServiceLike {
   setModel(sessionPath: string | undefined, defaultModel: string, defaultThinkingLevel: ThinkingLevel): Promise<void>;
+  hydrateModelState(sessionPath: string): Promise<void>;
   setPrefs(prefs: Partial<ChatPrefs>): void;
   bumpSessionDataEpoch(sessionPath: string): void;
   addFilesystemPaths(sessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
@@ -302,6 +303,19 @@ export class EffectRunner {
           this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: true });
         } catch (err) {
           this.deps.dispatch({ kind: 'DuplicateSessionResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
+        }
+      })();
+      return;
+    }
+    if (effect.kind === 'HydrateModel') {
+      // Fire-and-forget, like PostImperative: the service's dispatched
+      // SetModel/AvailableModelsChanged events apply the results, so no
+      // *Result event is produced here.
+      void (async () => {
+        try {
+          await this.deps.service.hydrateModelState(effect.sessionPath);
+        } catch (err) {
+          this.deps.log.log('error', `hydrateModelState failed: ${toErrorMessage(err)}`);
         }
       })();
       return;

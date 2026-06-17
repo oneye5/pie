@@ -29,7 +29,6 @@ export interface ContextLike {
 
 /** Minimal session-service surface the router needs. */
 export interface SessionServiceLike {
-  hydrateModelState(sessionPath: string): Promise<void>;
   bumpSessionDataEpoch(sessionPath: string): void;
   suppressNextCompletionNotificationFor(sessionPath: string): void;
   addFilesystemPaths(requestedSessionPath: string | undefined, paths: string[], source: 'picker' | 'drop'): Promise<void>;
@@ -219,7 +218,14 @@ export class MessageRouter {
   private async onRefreshState(): Promise<void> {
     const activeSessionPath = this.getArchState().sessions.activeSessionPath;
     if (activeSessionPath) {
-      await this.service.hydrateModelState(activeSessionPath);
+      // Phase 2: route through the CQRS reducer + effect runner instead of
+      // calling the service directly. The HydrateModel effect is fire-and-forget;
+      // the service's dispatched SetModel/AvailableModelsChanged events apply
+      // the results.
+      this.dispatchEvent({
+        kind: 'Command',
+        cmd: { kind: 'HydrateModel', corrId: crypto.randomUUID(), sessionPath: activeSessionPath },
+      });
     }
     this.sidebarProvider.postState();
   }
