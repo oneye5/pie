@@ -110,10 +110,6 @@ export type HostToWebviewMessage =
       /** Local ID of the rejected optimistic message, so the webview can
        * remove it from its local overlay. */
       localId?: string;
-    }
-  | {
-      type: 'playCompletionSound';
-      volume: number;
     };
 
 /** Messages the webview can send back to the host. */

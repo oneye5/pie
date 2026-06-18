@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'preact/hooks';
 
-import { playCompletionSound } from '../completion-sound';
 import { validateViewState } from '../state-validator';
 import { clearDisclosureCache } from '../transcript/use-disclosure-open';
 
@@ -265,11 +264,6 @@ function handleStateMessage(msg: HostToWebviewMessage, ctx: HostMessageContext) 
   });
 }
 
-function handlePlayCompletionSound(msg: HostToWebviewMessage) {
-  const m = msg as Extract<HostToWebviewMessage, { type: 'playCompletionSound' }>;
-  playCompletionSound(m.volume);
-}
-
 function handleSendRejectedMessage(
   msg: HostToWebviewMessage,
   ctx: Pick<HostMessageContext, 'optimisticOps' | 'draftOps' | 'activeSessionPathRef'>,
@@ -292,7 +286,6 @@ type HostMessageHandler = (msg: HostToWebviewMessage, ctx: HostMessageContext) =
 
 const HOST_MESSAGE_HANDLERS: Record<string, HostMessageHandler | undefined> = {
   state: handleStateMessage,
-  playCompletionSound: (msg, _ctx) => handlePlayCompletionSound(msg),
   sendRejected: handleSendRejectedMessage,
 };
 
