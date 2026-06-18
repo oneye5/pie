@@ -1,0 +1,107 @@
+import * as path from 'node:path';
+
+import type { ArchState } from '../arch-state.js';
+import type { Command } from '../commands.js';
+import type { ReducerResult } from './helpers.js';
+
+export function handleOpenFile(state: ArchState, cmd: Extract<Command, { kind: 'OpenFile' }>): ReducerResult {
+  return {
+    state,
+    effects: [
+      {
+        kind: 'OpenFile',
+        corrId: cmd.corrId,
+        path: cmd.path,
+      },
+    ],
+  };
+}
+
+export function handleOpenFileInEditor(state: ArchState, cmd: Extract<Command, { kind: 'OpenFileInEditor' }>): ReducerResult {
+  return {
+    state,
+    effects: [
+      {
+        kind: 'OpenFileInEditor',
+        corrId: cmd.corrId,
+        sessionPath: cmd.sessionPath,
+        filePath: cmd.filePath,
+      },
+    ],
+  };
+}
+
+export function handleOpenFileDiff(state: ArchState, cmd: Extract<Command, { kind: 'OpenFileDiff' }>): ReducerResult {
+  return {
+    state,
+    effects: [
+      {
+        kind: 'FileDiff',
+        corrId: cmd.corrId,
+        sessionPath: cmd.sessionPath,
+        filePath: cmd.filePath,
+        status: cmd.status,
+      },
+    ],
+  };
+}
+
+export function handleRevertFile(state: ArchState, cmd: Extract<Command, { kind: 'RevertFile' }>): ReducerResult {
+  return {
+    state,
+    effects: [
+      {
+        kind: 'FileRevert',
+        corrId: cmd.corrId,
+        sessionPath: cmd.sessionPath,
+        filePath: cmd.filePath,
+      },
+    ],
+  };
+}
+
+export function handleAddFilesystemPaths(state: ArchState, cmd: Extract<Command, { kind: 'AddFilesystemPaths' }>): ReducerResult {
+  // The reducer owns the composer-input append (pure): for each path,
+  // create a `filesystemPathRef` input (ID from corrId, name from
+  // basename), check for duplicates against existing inputs, skip
+  // duplicates + empty paths, append to pendingComposerInputsBySession.
+  // No Effect — there is no backend RPC for this op (purely a composer-
+  // input mutation). The host-side entry (service.addFilesystemPaths)
+  // resolved the target session (possibly via createNewSession()) +
+  // cleaned the paths BEFORE dispatching this Command.
+  const { sessionPath, paths, source } = cmd;
+  const existing = state.composer.pendingComposerInputsBySession[sessionPath] ?? [];
+  const nextInputs = [...existing];
+  for (let i = 0; i < paths.length; i++) {
+    const filesystemPath = paths[i].trim();
+    if (!filesystemPath) continue;
+    const duplicate = nextInputs.some(
+      (inp) => inp.kind === 'filesystemPathRef' && inp.path === filesystemPath,
+    );
+    if (duplicate) continue;
+    nextInputs.push({
+      id: `${cmd.corrId}:input:${i}`,
+      kind: 'filesystemPathRef',
+      path: filesystemPath,
+      name: path.basename(filesystemPath) || filesystemPath,
+      source,
+    });
+  }
+  // If no new inputs were added (all duplicates or empty), no state change.
+  if (nextInputs.length === existing.length) {
+    return { state, effects: [] };
+  }
+  return {
+    state: {
+      ...state,
+      composer: {
+        ...state.composer,
+        pendingComposerInputsBySession: {
+          ...state.composer.pendingComposerInputsBySession,
+          [sessionPath]: nextInputs,
+        },
+      },
+    },
+    effects: [],
+  };
+}
