@@ -196,13 +196,26 @@ body.session-tab-dragging {
   color: var(--panel-foreground);
 }
 
-/* Attention state — active tab with a pending extension UI question */
+/* Attention state — tab with a pending extension UI question.
+   The active tab gets a strong warning pulse; non-active tabs get a calmer
+   steady warning border with a gentle breathing glow (see below) so a pending
+   question is visible even when the tab is not selected. */
 .session-tab.attention .session-tab-shell {
   animation: session-tab-attention-pulse 1.6s ease-in-out infinite;
 }
 
 .session-tab.attention .session-tab-label {
   color: var(--panel-warning);
+}
+
+/* Non-active attention — distinct from `unread-finished` (green flash):
+   a steady warning-colored inset border with a slow breathing outer glow.
+   The declared box-shadow is also the reduced-motion fallback. */
+.session-tab.attention:not(.active) .session-tab-shell {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 42%, var(--session-tab-outline)),
+    0 0 0 1px color-mix(in srgb, var(--panel-warning) 10%, transparent);
+  animation: session-tab-attention-idle 2.4s ease-in-out infinite;
 }
 
 /* Focus ring propagates from any focused child (main or close button) */
@@ -519,10 +532,29 @@ body.session-tab-dragging {
   }
 }
 
+/* Non-active attention: steady warning inset border with a slow breathing
+   outer glow. Calmer than the active pulse and distinct in color from the
+   green `unread-finished` flash. */
+@keyframes session-tab-attention-idle {
+  0%,
+  100% {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 42%, var(--session-tab-outline)),
+      0 0 0 1px color-mix(in srgb, var(--panel-warning) 10%, transparent);
+  }
+
+  50% {
+    box-shadow:
+      inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 42%, var(--session-tab-outline)),
+      0 0 0 1px color-mix(in srgb, var(--panel-warning) 22%, transparent);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .session-tab-running,
   .session-tab.unread-finished:not(.active) .session-tab-shell,
-  .session-tab.attention .session-tab-shell {
+  .session-tab.attention .session-tab-shell,
+  .session-tab.attention:not(.active) .session-tab-shell {
     animation: none;
   }
 }

@@ -8,7 +8,7 @@ import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
 import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../utils/looks-like-path-token';
 
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 
 import { ClickablePathButton } from '../file-path';
 import { formatDuration } from './header';
@@ -274,6 +274,45 @@ function CollapsedSummary({
   );
 }
 
+/** Compact status indicator shown at the right of the tool-call header: a
+ *  spinner while running, a checkmark once completed. Failed keeps the
+ *  interactive "Failed" status chip (with copy-error affordance) rendered by
+ *  the header, so it is intentionally absent here. Strengthens running vs
+ *  completed vs failed so completion is unambiguous. */
+function ToolCallStatusGlyph({ status }: { status: ToolCall['status'] }) {
+  if (status === 'running') {
+    return (
+      <span
+        class="tool-call-status-spinner"
+        role="img"
+        aria-label="Running"
+      />
+    );
+  }
+  if (status === 'completed') {
+    return (
+      <svg
+        class="tool-call-status-glyph tool-call-status-check"
+        viewBox="0 0 16 16"
+        width="13"
+        height="13"
+        role="img"
+        aria-label="Completed"
+      >
+        <path
+          d="M3.2 8.4L6.1 11.3L13 4.2"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.1"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  return null;
+}
+
 export function ToolCallHeader({ open, name, nameTitle, status, summary, summaryPath, summaryModel, sizeHint, errorDetail, durationMs, onOpenFile }: ToolCallHeaderProps) {
   const statusTone =
     status === 'failed' ? 'failed'
@@ -299,6 +338,7 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
         {showSizeHint && <span class="ml-auto block min-w-0 max-w-[var(--tool-call-size-column-width)] flex-[0_0_var(--tool-call-size-column-width)] truncate text-right font-mono text-[10px] text-muted/50">{sizeHint}</span>}
       </div>
       {durationLabel && <span class="ml-auto flex-none whitespace-nowrap font-mono text-[10px] text-muted/60 [font-variant-numeric:tabular-nums]" title="Tool execution time">{durationLabel}</span>}
+      {status !== 'failed' && <ToolCallStatusGlyph status={status} />}
       {statusTone && statusLabel && (
         <StatusChip
           tone={statusTone}
@@ -418,6 +458,17 @@ function ToolCallBody({ toolCall }: ToolCallBodyProps) {
   );
 }
 
+/** Grace period (ms) a shell tool's auto-shown body stays expanded after the
+ *  command finishes, so the user can read/skim the output even for instant
+ *  commands. Only applies to the auto-opened shell path — manual opens are
+ *  sticky and never auto-close. */
+const TOOL_CALL_CLOSE_GRACE_MS = 1000;
+/** Duration (ms) of the post-grace collapse animation. Must match the
+ *  transition on `.tool-call-body-wrap` in styles/tool-call.css. */
+const TOOL_CALL_CLOSE_TRANSITION_MS = 180;
+/** How long (ms) the completion pulse highlight remains on the card. */
+const TOOL_CALL_COMPLETION_PULSE_MS = 700;
+
 export function ToolCallCard({
   toolCall,
   autoExpand,
@@ -430,9 +481,103 @@ export function ToolCallCard({
   const presentation = getToolCallPresentation(toolCall, { workingDirectory });
   const isShell = isCommandSummaryTool(toolCall.name);
   const isRunning = toolCall.status === 'running';
+
+  // ── Post-completion grace + animated close (shell auto-show path only) ──
+  // Shell tools auto-show their body while running. When a quick command
+  // finishes in a split second the body used to snap-unmount in one frame
+  // (a flash/flicker). Instead, after running→completed/failed we keep the
+  // body expanded for a grace period so the user can read the output, then
+  // animate it closed. This only applies to the AUTO-shown path — manual
+  // opens are sticky and never auto-close.
+  const [lingering, setLingering] = useState(false);
+  const [closing, setClosing] = useState(false);
+  // Brief highlight pulse on the card when a tool call completes (all tools).
+  const [justCompleted, setJustCompleted] = useState(false);
+
+  const prevRunningRef = useRef(false);
+  const graceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const closeFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Refs mirror the latest open/lingering/closing so the status-transition
+  // effect (keyed on toolCall.status) always reads current values without
+  // re-subscribing on every toggle.
+  const openRef = useRef(open);
+  openRef.current = open;
+  const lingeringRef = useRef(lingering);
+  lingeringRef.current = lingering;
+  const closingRef = useRef(closing);
+  closingRef.current = closing;
+
   // Shell tools stream their output live — show the terminal pane while
-  // running even when collapsed, so users can watch execution unfold.
-  const showBody = open || (isShell && isRunning);
+  // running even when collapsed, so users can watch execution unfold. The
+  // `lingering` term keeps it expanded during the post-completion grace.
+  const showBody = open || (isShell && isRunning) || lingering;
+
+  // Detect running→completed/failed to (a) flash a completion pulse for all
+  // tool calls, and (b) start the grace timer for the auto-shown shell body.
+  useEffect(() => {
+    const wasRunning = prevRunningRef.current;
+    const nowRunning = toolCall.status === 'running';
+    prevRunningRef.current = nowRunning;
+
+    if (wasRunning && !nowRunning) {
+      // Completion pulse applies to every tool call (not just shell).
+      if (toolCall.status === 'completed') {
+        setJustCompleted(true);
+        if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+        pulseTimerRef.current = setTimeout(() => {
+          pulseTimerRef.current = null;
+          setJustCompleted(false);
+        }, TOOL_CALL_COMPLETION_PULSE_MS);
+      }
+
+      // Grace period only for the AUTO-shown shell body — never when the
+      // user explicitly opened it (manual opens are sticky).
+      if (isShell && !openRef.current && !lingeringRef.current && !closingRef.current) {
+        setLingering(true);
+        if (graceTimerRef.current) clearTimeout(graceTimerRef.current);
+        graceTimerRef.current = setTimeout(() => {
+          graceTimerRef.current = null;
+          setLingering(false);
+          setClosing(true);
+          // Fallback in case transitionend doesn't fire (e.g. the tab was
+          // backgrounded). The body must unmount eventually.
+          if (closeFallbackTimerRef.current) clearTimeout(closeFallbackTimerRef.current);
+          closeFallbackTimerRef.current = setTimeout(() => {
+            closeFallbackTimerRef.current = null;
+            setClosing(false);
+          }, TOOL_CALL_CLOSE_TRANSITION_MS + 60);
+        }, TOOL_CALL_CLOSE_GRACE_MS);
+      }
+    }
+
+    // If the call somehow returns to running, cancel any pending close so
+    // the streaming body re-shows cleanly.
+    if (!wasRunning && nowRunning) {
+      setLingering(false);
+      setClosing(false);
+      if (graceTimerRef.current) { clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
+      if (closeFallbackTimerRef.current) { clearTimeout(closeFallbackTimerRef.current); closeFallbackTimerRef.current = null; }
+    }
+  }, [toolCall.status, isShell]);
+
+  // Cancel any pending auto-close when the user manually opens the body, so
+  // an explicit expand is sticky.
+  const cancelAutoClose = () => {
+    if (graceTimerRef.current) { clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
+    if (closeFallbackTimerRef.current) { clearTimeout(closeFallbackTimerRef.current); closeFallbackTimerRef.current = null; }
+    setLingering(false);
+    setClosing(false);
+  };
+
+  // Clear all timers on unmount.
+  useEffect(() => () => {
+    if (graceTimerRef.current) clearTimeout(graceTimerRef.current);
+    if (closeFallbackTimerRef.current) clearTimeout(closeFallbackTimerRef.current);
+    if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+  }, []);
+
   const errorDetail = toolCall.status === 'failed'
     ? (textFromToolResult(toolCall.result) ?? formatToolCallResultForDisplay(toolCall)) || undefined
     : undefined;
@@ -443,13 +588,22 @@ export function ToolCallCard({
     toolCall,
   );
 
+  const toggleOpen = () => {
+    const opening = !openRef.current;
+    setOpen((v) => !v);
+    if (opening) cancelAutoClose();
+  };
+
+  const renderBody = showBody || closing;
+
   return (
     <div
       class={cx(
         'cursor-pointer select-none overflow-hidden rounded-xl border-l-2 border-l-transparent bg-card shadow-sm transition-all duration-150 hover:bg-control-hover hover:shadow-md',
         'forced-colors:border forced-colors:border-[ButtonText]',
         toolCall.status === 'failed' && 'border-l-danger/50',
-        toolCall.status === 'completed' && 'border-l-success/30',
+        toolCall.status === 'completed' && 'border-l-success/60',
+        justCompleted && 'tool-call-just-completed',
         presentation.variant === 'skill-load' && 'bg-accent/5 skill-load-glow',
         className,
       )}
@@ -457,9 +611,9 @@ export function ToolCallCard({
       aria-expanded={open}
       aria-label="Toggle tool call details"
       tabIndex={0}
-      onClick={() => setOpen((v) => !v)}
+      onClick={toggleOpen}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(); } }}
     >
       <ToolCallHeader
         open={open}
@@ -473,7 +627,25 @@ export function ToolCallCard({
         durationMs={toolCall.durationMs}
         onOpenFile={onOpenFile}
       />
-      {showBody && <ToolCallBody toolCall={toolCall} />}
+      {renderBody && (
+        <div
+          class="tool-call-body-wrap"
+          data-streaming={isRunning ? 'true' : undefined}
+          data-closing={!showBody && closing ? 'true' : undefined}
+          onTransitionEnd={(e) => {
+            // Only react to transitions on the wrapper itself, not children.
+            if (e.target !== e.currentTarget) return;
+            if (closing && !showBody) {
+              if (closeFallbackTimerRef.current) { clearTimeout(closeFallbackTimerRef.current); closeFallbackTimerRef.current = null; }
+              setClosing(false);
+            }
+          }}
+        >
+          <div class="tool-call-body-inner">
+            <ToolCallBody toolCall={toolCall} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }

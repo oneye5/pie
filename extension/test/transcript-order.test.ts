@@ -169,6 +169,166 @@ test('mapTranscript preserves continuation separators in assistant parts', () =>
   );
 });
 
+test('mapTranscript merges mid-turn model_change assistant segments into one bubble', () => {
+  // Real sessions emit model_change entries BETWEEN assistant segments of the
+  // same reply (e.g. user -> asst -> toolResult -> model_change -> asst ...).
+  // Resetting the assistant bubble on model_change split one reply into many
+  // panels; only the tracked model id should update, not the bubble.
+  const entries: SessionEntryLike[] = [
+    {
+      id: 'user-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      type: 'message',
+      message: {
+        role: 'user',
+        content: 'hello',
+      },
+    },
+    {
+      id: 'assistant-1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      type: 'message',
+      message: {
+        role: 'assistant',
+        timestamp: Date.parse('2026-01-01T00:00:01.000Z'),
+        content: [
+          { type: 'text', text: 'first' },
+          { type: 'toolCall', id: 'tc-1', name: 'read', arguments: { path: 'a.txt' } },
+        ],
+      },
+    },
+    {
+      id: 'tool-result-1',
+      timestamp: '2026-01-01T00:00:03.500Z',
+      type: 'message',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'tc-1',
+        details: { ok: true },
+      },
+    },
+    {
+      id: 'model-1',
+      timestamp: '2026-01-01T00:00:04.000Z',
+      type: 'model_change',
+      modelId: 'gpt-5.4',
+    },
+    {
+      id: 'assistant-2',
+      timestamp: '2026-01-01T00:00:06.000Z',
+      type: 'message',
+      message: {
+        role: 'assistant',
+        timestamp: Date.parse('2026-01-01T00:00:04.500Z'),
+        content: [
+          { type: 'text', text: 'second' },
+          { type: 'toolCall', id: 'tc-2', name: 'write', arguments: { path: 'b.txt' } },
+        ],
+      },
+    },
+    {
+      id: 'tool-result-2',
+      timestamp: '2026-01-01T00:00:06.500Z',
+      type: 'message',
+      message: {
+        role: 'toolResult',
+        toolCallId: 'tc-2',
+        details: { ok: true },
+      },
+    },
+    {
+      id: 'assistant-3',
+      timestamp: '2026-01-01T00:00:09.000Z',
+      type: 'message',
+      message: {
+        role: 'assistant',
+        timestamp: Date.parse('2026-01-01T00:00:07.000Z'),
+        content: [
+          { type: 'text', text: 'third' },
+        ],
+      },
+    },
+  ];
+
+  const transcript = mapTranscript(entries);
+  const assistants = transcript.filter((message) => message.role === 'assistant');
+
+  assert.equal(assistants.length, 1, 'mid-turn model_change must not split the reply into multiple panels');
+  const assistant = assistants[0];
+  assert.equal(assistant.id, 'assistant-1');
+  assert.equal(assistant.markdown, 'first\n\nsecond\n\nthird');
+  assert.equal(assistant.modelId, 'gpt-5.4', 'merged bubble should adopt the last segment model id');
+  assert.deepEqual(
+    assistant.toolCalls?.map((toolCall) => `${toolCall.id}:${toolCall.status}`),
+    ['tc-1:completed', 'tc-2:completed'],
+    'mid-turn toolResults following model_change must still attach to the bubble',
+  );
+  assert.deepEqual(
+    assistant.parts?.map((part) =>
+      part.kind === 'toolCall'
+        ? `${part.kind}:${part.toolCall.id}:${part.toolCall.status}`
+        : `${part.kind}:${part.text}`,
+    ),
+    [
+      'text:first',
+      'toolCall:tc-1:completed',
+      'text:second',
+      'toolCall:tc-2:completed',
+      'text:third',
+    ],
+  );
+});
+
+test('mapTranscript keeps assistant turns separated by user messages', () => {
+  const entries: SessionEntryLike[] = [
+    {
+      id: 'user-1',
+      timestamp: '2026-01-01T00:00:00.000Z',
+      type: 'message',
+      message: {
+        role: 'user',
+        content: 'hello',
+      },
+    },
+    {
+      id: 'assistant-1',
+      timestamp: '2026-01-01T00:00:03.000Z',
+      type: 'message',
+      message: {
+        role: 'assistant',
+        timestamp: Date.parse('2026-01-01T00:00:01.000Z'),
+        content: [{ type: 'text', text: 'first answer' }],
+      },
+    },
+    {
+      id: 'user-2',
+      timestamp: '2026-01-01T00:00:10.000Z',
+      type: 'message',
+      message: {
+        role: 'user',
+        content: 'again',
+      },
+    },
+    {
+      id: 'assistant-2',
+      timestamp: '2026-01-01T00:00:13.000Z',
+      type: 'message',
+      message: {
+        role: 'assistant',
+        timestamp: Date.parse('2026-01-01T00:00:11.000Z'),
+        content: [{ type: 'text', text: 'second answer' }],
+      },
+    },
+  ];
+
+  const transcript = mapTranscript(entries);
+  const assistants = transcript.filter((message) => message.role === 'assistant');
+
+  assert.equal(assistants.length, 2, 'turn separation by user messages must be preserved');
+  assert.equal(assistants[0].markdown, 'first answer');
+  assert.equal(assistants[1].markdown, 'second answer');
+});
+
 test('mapTranscript preserves subagent failure content for reopened sessions', () => {
   const entries: SessionEntryLike[] = [
     {

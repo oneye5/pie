@@ -71,7 +71,7 @@ interface SessionTabProps {
   onMarkComplete: () => void;
 }
 
-function SessionTab({
+export function SessionTab({
   tabPath,
   index,
   sessionByPath,
@@ -90,11 +90,15 @@ function SessionTab({
   const session = sessionByPath.get(tabPath);
   const label = session?.name ?? 'New Session';
   const isActive = activeSession?.path === tabPath;
-  const isAttention = isActive && !!hasPendingExtensionUIRequest;
+  const isAttention = !!hasPendingExtensionUIRequest;
   const isRunning = runningPathSet.has(tabPath);
   const isUnreadFinished = unreadFinishedPathSet.has(tabPath);
   const originalIndex = openIndexByPath.get(tabPath) ?? index;
-  const title = isUnreadFinished ? `${label} (finished, unread)` : label;
+  const title = hasPendingExtensionUIRequest
+    ? `${label} (waiting for your answer)`
+    : isUnreadFinished
+      ? `${label} (finished, unread)`
+      : label;
 
   return (
     <div

@@ -135,8 +135,10 @@ function useJumpToLatest(
 
 function useSessionResetEffect(
   sessionKey: string | null,
+  scrollRef: { current: HTMLDivElement | null },
   scrollToBottom: () => void,
   setIsInitialPositioning: (v: boolean) => void,
+  isInitialPositioningRef: { current: boolean },
   setIsLoadingOlder: (v: boolean) => void,
   setIsLoadingNewer: (v: boolean) => void,
   loadedStart: number,
@@ -163,15 +165,62 @@ function useSessionResetEffect(
     loadingNewerRef.current = false;
     setIsLoadingOlder(false);
     setIsLoadingNewer(false);
-    setIsInitialPositioning(true);
     previousLoadedStartRef.current = loadedStart;
     previousLoadedEndRef.current = loadedEnd;
+    // Keep the opacity mask (transcript-positioning) active until the
+    // virtualizer's totalSize has actually settled. The virtualizer starts from
+    // rough per-row estimates (estimateTranscriptRowSize) and keeps growing as
+    // late ResizeObserver measurements arrive; clearing the mask after a single
+    // rAF exposes a middle-then-crawl. Instead, snap to the bottom every frame
+    // and only clear once `scrollHeight` stops changing — positioned-at-bottom
+    // is trivially true immediately after a snap (the browser clamps scrollTop
+    // to scrollHeight - clientHeight), so height stability is the real settled
+    // signal. A safety timeout guarantees the mask can never hang the transcript
+    // invisible (e.g. a session streaming a token every single frame).
+    isInitialPositioningRef.current = true;
+    setIsInitialPositioning(true);
     scrollToBottom();
-    let frame: number | null = requestAnimationFrame(() => {
+
+    const startedAt = Date.now();
+    const POSITIONING_SAFETY_TIMEOUT_MS = 600;
+    const STABLE_FRAMES_REQUIRED = 2;
+    let prevScrollHeight = Number.NaN;
+    let stableFrames = 0;
+
+    let frame: number | null = requestAnimationFrame(function tick() {
       frame = null;
+      // If the user has taken manual scroll control during the positioning
+      // window (e.g. switched to a streaming session and scrolled up within
+      // the 600ms safety window), stop fighting them: clear the opacity mask at
+      // their current scroll position, cancel the per-frame snap loop, and do
+      // NOT scrollToBottom(). onScroll (useScrollEventsEffect ->
+      // resolveAutoFollowState) flips autoFollowRef.current to false when the
+      // user scrolls away from the bottom, so this reveals the transcript at
+      // their position immediately instead of snapping back for up to 600ms.
+      if (!autoFollowRef.current) {
+        isInitialPositioningRef.current = false;
+        setIsInitialPositioning(false);
+        return;
+      }
       scrollToBottom();
-      setIsInitialPositioning(false);
+      const el = scrollRef.current;
+      const scrollHeight = el ? el.scrollHeight : 0;
+      if (scrollHeight > 0 && scrollHeight === prevScrollHeight) {
+        stableFrames++;
+      } else {
+        stableFrames = 0;
+      }
+      prevScrollHeight = scrollHeight;
+      const settled = stableFrames >= STABLE_FRAMES_REQUIRED;
+      const timedOut = Date.now() - startedAt >= POSITIONING_SAFETY_TIMEOUT_MS;
+      if (settled || timedOut) {
+        isInitialPositioningRef.current = false;
+        setIsInitialPositioning(false);
+        return;
+      }
+      frame = requestAnimationFrame(tick);
     });
+
     return () => { if (frame !== null) cancelAnimationFrame(frame); };
   }, [sessionKey]);
 }
@@ -312,6 +361,7 @@ function useSmoothAutoFollow(
   lastScrollTopRef: { current: number },
   setIsAtBottom: (v: boolean) => void,
   hasNewer: boolean,
+  isInitialPositioningRef: { current: boolean },
 ) {
   useEffect(() => {
     const el = scrollRef.current;
@@ -325,6 +375,24 @@ function useSmoothAutoFollow(
       }
       if (el.style.scrollBehavior !== 'auto') el.style.scrollBehavior = 'auto';
       const target = el.scrollHeight;
+      // During the post-session-switch positioning window, snap to the bottom
+      // every frame instead of easing. The virtualizer's totalSize grows in
+      // sub-200px increments as late ResizeObserver measurements arrive, which
+      // the easing path (advanceSmoothScrollTop) chases slowly — the visible
+      // crawl. Snapping here, in tandem with useSessionResetEffect's per-frame
+      // scrollToBottom, pins the transcript to the bottom while the opacity
+      // mask hides the reflow. The snap-during-positioning is scoped to this
+      // window only; once isInitialPositioningRef clears, normal easing resumes
+      // for ongoing streaming auto-follow. hasNewer sessions return above, so
+      // this never snaps a newer-not-loaded session to its partial bottom.
+      if (isInitialPositioningRef.current) {
+        if (el.scrollTop !== target) {
+          el.scrollTop = target;
+          lastScrollTopRef.current = target;
+        }
+        setIsAtBottom(true);
+        return;
+      }
       const current = el.scrollTop;
       const delta = target - current;
       if (Math.abs(delta) <= SMOOTH_SCROLL_SNAP_EPSILON_PX) {
@@ -344,7 +412,7 @@ function useSmoothAutoFollow(
       cancelAnimationFrame(raf);
       el.style.scrollBehavior = '';
     };
-  }, [scrollRef, hasNewer, autoFollowRef, lastScrollTopRef, setIsAtBottom]);
+  }, [scrollRef, hasNewer, autoFollowRef, lastScrollTopRef, setIsAtBottom, isInitialPositioningRef]);
 }
 
 export function useTranscriptScroll({
@@ -357,6 +425,11 @@ export function useTranscriptScroll({
 }: UseTranscriptScrollOptions): UseTranscriptScrollResult {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isInitialPositioning, setIsInitialPositioning] = useState(true);
+  // Mirror of `isInitialPositioning` readable inside the persistent
+  // useSmoothAutoFollow rAF loop without restarting it on each toggle (a state
+  // dep would tear the loop down and rebuild it). Drives snap-vs-ease during the
+  // post-session-switch positioning window.
+  const isInitialPositioningRef = useRef(true);
   const previousLoadedStartRef = useRef(transcriptWindow.loadedStart);
   const previousLoadedEndRef = useRef(transcriptWindow.loadedEnd);
   const pendingJumpToLatestSnapRef = useRef(false);
@@ -386,8 +459,10 @@ export function useTranscriptScroll({
 
   useSessionResetEffect(
     sessionKey,
+    scrollRef,
     scrollToBottom,
     setIsInitialPositioning,
+    isInitialPositioningRef,
     setIsLoadingOlder,
     setIsLoadingNewer,
     transcriptWindow.loadedStart,
@@ -443,6 +518,7 @@ export function useTranscriptScroll({
     lastScrollTopRef,
     setIsAtBottom,
     transcriptWindow.hasNewer,
+    isInitialPositioningRef,
   );
 
   return {

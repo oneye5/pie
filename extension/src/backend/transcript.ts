@@ -381,11 +381,9 @@ function dispatchEntry(entry: SessionEntryLike, state: MapLoopState): MapResult 
   switch (entry.type) {
     case 'model_change':
       state.currentModelId = entry.modelId;
-      state.currentAssistant = undefined;
       return { kind: 'skip' };
     case 'thinking_level_change':
       state.currentThinkingLevel = normalizeThinkingLevel(entry.thinkingLevel);
-      state.currentAssistant = undefined;
       return { kind: 'skip' };
     case 'message':
       return entry.message ? dispatchMessageEntry(entry, entry.message, state) : { kind: 'skip' };
