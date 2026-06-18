@@ -510,7 +510,7 @@ test('reducer: MessageStarted with same requestId creates alias and updates cano
   const result = reducer(state, event);
 
   // Alias recorded
-  assert.equal(result.state.pending.messageIdAlias['msg-2'], 'msg-1');
+  assert.deepEqual(result.state.pending.messageIdAlias['msg-2'], { canonicalId: 'msg-1', sessionPath: '/s' });
   // currentTurn unchanged
   assert.deepEqual(result.state.pending.currentTurnBySession['/s'], { requestId: 'req-1', firstMessageId: 'msg-1' });
   // Canonical message updated to streaming status with continuation separator
@@ -566,7 +566,7 @@ test('reducer: MessageDelta resolves alias before appending', () => {
     ...initialArchState,
     pending: {
       ...initialArchState.pending,
-      messageIdAlias: { 'alias-1': 'canonical-1' },
+      messageIdAlias: { 'alias-1': { canonicalId: 'canonical-1', sessionPath: '/s' } },
     },
     transcript: {
       ...initialArchState.transcript,
@@ -606,7 +606,7 @@ test('reducer: MessageThinking resolves alias and appends reasoning', () => {
     ...initialArchState,
     pending: {
       ...initialArchState.pending,
-      messageIdAlias: { 'alias-t': 'canonical-t' },
+      messageIdAlias: { 'alias-t': { canonicalId: 'canonical-t', sessionPath: '/s' } },
     },
     transcript: {
       ...initialArchState.transcript,
@@ -633,7 +633,7 @@ test('reducer: ToolCall resolves alias and upserts tool call directly', () => {
     ...initialArchState,
     pending: {
       ...initialArchState.pending,
-      messageIdAlias: { 'alias-tc': 'canonical-tc' },
+      messageIdAlias: { 'alias-tc': { canonicalId: 'canonical-tc', sessionPath: '/s' } },
     },
     transcript: {
       ...initialArchState.transcript,
@@ -663,7 +663,7 @@ test('reducer: MessageFinished resolves alias and merges into canonical message'
     ...initialArchState,
     pending: {
       ...initialArchState.pending,
-      messageIdAlias: { 'alias-fin': 'canonical-fin' },
+      messageIdAlias: { 'alias-fin': { canonicalId: 'canonical-fin', sessionPath: '/s' } },
     },
     transcript: {
       ...initialArchState.transcript,
@@ -703,7 +703,7 @@ test('reducer: MessageAborted resolves alias and sets status directly in state',
     ...initialArchState,
     pending: {
       ...initialArchState.pending,
-      messageIdAlias: { 'alias-abort': 'canonical-abort' },
+      messageIdAlias: { 'alias-abort': { canonicalId: 'canonical-abort', sessionPath: '/s' } },
     },
     transcript: {
       ...initialArchState.transcript,
@@ -750,7 +750,7 @@ test('reducer: full alias lifecycle — multi-turn accumulation', () => {
     timestamp: 1,
   });
   state = r.state;
-  assert.equal(state.pending.messageIdAlias['req1:2'], 'req1:1');
+  assert.deepEqual(state.pending.messageIdAlias['req1:2'], { canonicalId: 'req1:1', sessionPath: '/s' });
 
   // Delta on aliased ID resolves to canonical and appends
   r = reducer(state, { kind: 'MessageDelta', sessionPath: '/s', messageId: 'req1:2', delta: 'world' });

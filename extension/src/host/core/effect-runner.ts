@@ -22,7 +22,7 @@
  * which precludes re-entrant blocking even if a reducer chains effects.
  */
 
-import type { Effect, SendRpcEffect, EditRpcEffect, InterruptRpcEffect, TruncateRpcEffect, ExtensionUiResponseRpcEffect } from './effects';
+import type { Effect, SendRpcEffect, EditRpcEffect, InterruptRpcEffect, TruncateRpcEffect, ExtensionUiResponseRpcEffect, PostImperativeMessage } from './effects';
 import { isLifecycleEffect, isRpcEffect } from './effects';
 import { toErrorMessage } from '../util/error-message';
 import type { EffectResultEvent, CommandEvent } from './events';
@@ -59,7 +59,7 @@ export interface LogSink {
 
 /** Callback for posting imperative messages to the webview. */
 export interface PostImperativeSink {
-  postImperative(message: { type: string; sessionPath?: string; text?: string; localId?: string }): void;
+  postImperative(message: PostImperativeMessage): void;
 }
 
 /** Sink for modal user-confirmation dialogs (VS Code `showWarningMessage`).
@@ -368,22 +368,26 @@ export class EffectRunner {
       // reinsert ordering of the old drainPendingSendQueue callback.
       const { resolvedSessionPath, entries } = effect;
       void (async () => {
-        for (const entry of entries) {
-          this.deps.dispatchCommand({
-            kind: 'Command',
-            cmd: {
-              kind: 'Send',
-              corrId: entry.corrId,
-              sessionPath: resolvedSessionPath,
-              text: entry.text,
-              inputs: entry.inputs,
-              composedText: entry.composedText,
-              localId: entry.localId,
-              userParts: entry.userParts,
-              previousSummary: entry.previousSummary,
-              timestamp: entry.timestamp,
-            },
-          });
+        try {
+          for (const entry of entries) {
+            this.deps.dispatchCommand({
+              kind: 'Command',
+              cmd: {
+                kind: 'Send',
+                corrId: entry.corrId,
+                sessionPath: resolvedSessionPath,
+                text: entry.text,
+                inputs: entry.inputs,
+                composedText: entry.composedText,
+                localId: entry.localId,
+                userParts: entry.userParts,
+                previousSummary: entry.previousSummary,
+                timestamp: entry.timestamp,
+              },
+            });
+          }
+        } catch (err) {
+          this.deps.log.log('error', `DrainPendingSendQueue failed: ${toErrorMessage(err)}`);
         }
       })();
       return;
@@ -398,22 +402,26 @@ export class EffectRunner {
       // events). Each entry carries its own sessionPath.
       const { entries } = effect;
       void (async () => {
-        for (const entry of entries) {
-          this.deps.dispatchCommand({
-            kind: 'Command',
-            cmd: {
-              kind: 'Send',
-              corrId: entry.corrId,
-              sessionPath: entry.sessionPath,
-              text: entry.text,
-              inputs: entry.inputs,
-              composedText: entry.composedText,
-              localId: entry.localId,
-              userParts: entry.userParts,
-              previousSummary: entry.previousSummary,
-              timestamp: entry.timestamp,
-            },
-          });
+        try {
+          for (const entry of entries) {
+            this.deps.dispatchCommand({
+              kind: 'Command',
+              cmd: {
+                kind: 'Send',
+                corrId: entry.corrId,
+                sessionPath: entry.sessionPath,
+                text: entry.text,
+                inputs: entry.inputs,
+                composedText: entry.composedText,
+                localId: entry.localId,
+                userParts: entry.userParts,
+                previousSummary: entry.previousSummary,
+                timestamp: entry.timestamp,
+              },
+            });
+          }
+        } catch (err) {
+          this.deps.log.log('error', `DrainBackendReadyQueue failed: ${toErrorMessage(err)}`);
         }
       })();
       return;

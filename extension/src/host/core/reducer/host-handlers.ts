@@ -559,6 +559,11 @@ export function handleSessionScopeCleared(
     if (mapping.sessionPath !== sp) remainingRequestIdToLocalId[requestId] = mapping;
   }
 
+  const remainingMessageIdAlias: Record<string, { canonicalId: string; sessionPath: string }> = {};
+  for (const [messageId, alias] of Object.entries(state.pending.messageIdAlias)) {
+    if (alias.sessionPath !== sp) remainingMessageIdAlias[messageId] = alias;
+  }
+
   let nextSessions = state.sessions.sessions;
   let nextOpenTabPaths = state.sessions.openTabPaths;
   let nextRunningPaths = state.sessions.runningSessionPaths;
@@ -616,6 +621,7 @@ export function handleSessionScopeCleared(
         ...state.pending,
         ops: remainingOps,
         requestIdToLocalId: remainingRequestIdToLocalId,
+        messageIdAlias: remainingMessageIdAlias,
         setModelByCorrId: remainingSetModel,
         sendQueueBySession: remainingPendingSendQueue,
         backendReadyQueueBySession: remainingBackendReadyQueue,

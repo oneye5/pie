@@ -18,7 +18,7 @@
  * so the reducer can reconcile optimistic state (Phase 4).
  */
 
-import type { ComposerInput, ModelSettings, ChatPrefs } from '../../shared/protocol';
+import type { ComposerInput, ModelSettings, ChatPrefs, HostToWebviewMessage } from '../../shared/protocol';
 import type { PendingSendQueueEntry } from './arch-state';
 import type { BackendReadyQueueEntry } from './arch-state';
 
@@ -122,10 +122,20 @@ export interface HydrateModelEffect extends EffectBase {
 
 // ─── Real side effects ────────────────────────────────────────────────────────
 
+/** The precise shape of an imperative message posted to the webview.
+ *
+ *  Tightened from the original `{ type: string; ... }` so a missing `text`
+ *  (the Phase 5.2 `sendRejected` bug) is a compile error rather than a runtime
+ *  defect. Only one `PostImperative` emission exists today (`sendRejected`);
+ *  if future emissions need additional imperative message types, extend this
+ *  union with the corresponding `Extract<HostToWebviewMessage, { type: '...' }>`
+ *  arm so the field shapes stay compiler-checked. */
+export type PostImperativeMessage = Extract<HostToWebviewMessage, { type: 'sendRejected' }>;
+
 /** Post an imperative message to the webview. */
 export interface PostImperativeEffect extends EffectBase {
   kind: 'PostImperative';
-  imperativeMessage: { type: string; sessionPath?: string; text?: string; localId?: string };
+  imperativeMessage: PostImperativeMessage;
 }
 
 // ─── FileOperation namespace ────────────────────────────────────────────────────

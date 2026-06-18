@@ -266,8 +266,8 @@ export interface PendingState {
   ops: Record<string, PendingOp>;
   /** In-flight `SetModel` lifecycles keyed by `corrId` (modal-confirm + RPC). */
   setModelByCorrId: Record<string, SetModelPending>;
-  /** Maps aliased message IDs to canonical IDs (for multi-turn continuations). */
-  messageIdAlias: Record<string, string>;
+  /** Maps aliased message IDs to { canonicalId, sessionPath } (for multi-turn continuations). */
+  messageIdAlias: Record<string, { canonicalId: string; sessionPath: string }>;
   /** Tracks the first message of the current streaming turn per session. */
   currentTurnBySession: Record<string, CurrentTurn>;
   /** Maps backend request IDs to optimistic local message IDs for ID finalization. */

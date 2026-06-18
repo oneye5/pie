@@ -29,7 +29,8 @@ export { initialArchState };
 
 /** Resolve a possibly-aliased message ID to its canonical form. */
 export function resolveAlias(state: ArchState, id: string): string {
-  return state.pending.messageIdAlias[id] ?? id;
+  const alias = state.pending.messageIdAlias[id];
+  return alias ? alias.canonicalId : id;
 }
 
 /** Upsert a ChatMessage in a session's transcript array. */
@@ -105,6 +106,11 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
     if (mapping.sessionPath !== sp) remainingRequestIdToLocalId[requestId] = mapping;
   }
 
+  const remainingMessageIdAlias: Record<string, { canonicalId: string; sessionPath: string }> = {};
+  for (const [messageId, alias] of Object.entries(state.pending.messageIdAlias)) {
+    if (alias.sessionPath !== sp) remainingMessageIdAlias[messageId] = alias;
+  }
+
   return {
     state: {
       ...state,
@@ -145,6 +151,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         ...state.pending,
         ops: remainingOps,
         currentTurnBySession: remainingTurns,
+        messageIdAlias: remainingMessageIdAlias,
         requestIdToLocalId: remainingRequestIdToLocalId,
         setModelByCorrId: remainingSetModel,
         sendQueueBySession: remainingPendingSendQueue,

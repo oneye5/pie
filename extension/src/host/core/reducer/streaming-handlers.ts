@@ -28,7 +28,7 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
   const nextState = produce(state, (draft) => {
     // Update alias map or currentTurnBySession
     if (isAlias) {
-      draft.pending.messageIdAlias[messageId] = currentTurn!.firstMessageId;
+      draft.pending.messageIdAlias[messageId] = { canonicalId: currentTurn!.firstMessageId, sessionPath: event.sessionPath };
     } else if (requestId) {
       draft.pending.currentTurnBySession[sessionPath] = { requestId, firstMessageId: messageId };
       // Clean up requestIdToLocalId mapping to avoid leaks. We do NOT reconcile
