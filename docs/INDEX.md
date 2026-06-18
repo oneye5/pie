@@ -8,15 +8,12 @@ This folder mixes design contracts, implementation plans (some completed, some o
 - [STATE_CONTRACT.md](STATE_CONTRACT.md) — authoritative rules for host ↔ webview state sync. Any change here requires matching tests in `extension/test/` (see `sync-contract.test.ts`).
 - [internal/ARCH-OVERVIEW.md](internal/ARCH-OVERVIEW.md) — concise developer-onboarding file map. Spine file locations, glossary table, and "where to make changes" quick-reference.
 
-## Open plans (work outstanding)
-
-- **CQRS / MVI Migration Completion** — Collapse the dual-path (CQRS reducer + legacy `SessionService` orchestration) webview→host flow to a pure Command→reducer→Effect→runner spine, hard-cutting over per op (delete legacy, no flags). The active tracker is [`HANDOFF_mvi-migration.md`](HANDOFF_mvi-migration.md) — Phase 0+1 complete, Phase 2 tab-lifecycle in progress (per-op status in the handoff), Phases 3–5 pending. Supersedes the original phased plan (archived in git history, commit `d581d83`).
-
 ## Archived plans (removed — see git history)
 
-Historical migration and planning documents were removed from the tree after completion. Check git history (commit `d581d83`) for the original content:
+Historical migration and planning documents were removed from the tree after completion. Check git history for the original content:
 
 - `ARCH-MIGRATION-PLAN.md` — multi-phase extension host + webview migration to CQRS/Elm/MVI
+- `HANDOFF_mvi-migration.md` — MVI migration tracker (Phases 0–5, 12 Phase 5 items). **Completed** — the MessageRouter is 100% Commands, `QueueManager` deleted, all per-session keyed maps cleaned on session close, optimistic-op TTL in place, all deferred items resolved. The code is now the authoritative record; see `ARCHITECTURE.md` and `STATE_CONTRACT.md` for the architecture.
 - `PLAN-extension-ui-questions.md` — extension UI question resolution
 - `PLAN-llm-pruner-rewrite.md` — LLM-based skill pruning implementation
 - `PLAN-skill-tool-pruning.md` — skill/tool pruning design and implementation.

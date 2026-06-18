@@ -4,7 +4,7 @@
 **Authoritative contract:** [`docs/STATE_CONTRACT.md`](../STATE_CONTRACT.md)
 **Migration plan:** [`docs/ARCHITECTURE.md §10`](../ARCHITECTURE.md)
 
-> **Note:** This file describes the *target* architecture. The migration from Redux to pure CQRS is in progress. See §10 of ARCHITECTURE.md for the plan and current phase. Files marked as "target" do not yet exist; their responsibilities are currently handled by the modules listed in the current column.
+> **Note:** The CQRS/Elm/MVI migration is **complete**. All webview→host flow goes through Command→reducer→Effect→runner. See [`docs/ARCHITECTURE.md`](../ARCHITECTURE.md) for the full architecture. The file map below reflects the current codebase.
 
 ---
 
@@ -113,13 +113,19 @@ All application state lives in `ArchState` — no separate Redux store.
 
 | Effect category | Queue path |
 |-----------------|----------|
-| `SessionRpc` (Send, Edit, Interrupt, Truncate) | `enqueueLifecycle → enqueueSessionOperation(sessionPath, doRpc)` |
-| `SessionLifecycle` (Open, Create) | `enqueueLifecycle(...)` only |
-| `FileOperation` (Diff, Revert, Export) | Direct execution, no queue |
-| `Notification` (Flash, Sound) | Direct execution, no queue |
+| `SessionRpc` (Send, Edit, Interrupt, Truncate, ExtensionUiResponse) | `enqueueLifecycle → enqueueSessionOperation(sessionPath, doRpc)` |
+| `SessionLifecycle` (Open, Create, Duplicate) | `enqueueLifecycle(...)` only |
+| `CloseSession` | Direct execution (host-side cleanup, no backend RPC) |
+| `FileOperation` (Diff, Revert, OpenFileInEditor) | Direct execution, no queue |
+| `PostImperative` (sendRejected) | Direct execution, fire-and-forget |
 | `Log` | Direct execution, no queue |
+| `PersistTabs` | Direct execution, no queue |
+| `HydrateModel` | Direct execution, fire-and-forget |
+| `DrainPendingSendQueue` / `DrainBackendReadyQueue` | Async IIFE, re-dispatches `Send` Commands |
+| `StartBackendReadyWatchdog` / `CancelBackendReadyWatchdog` | Timer management, no queue |
+| `ShowModelSwitchConfirm` | Modal dialog, no queue (serialized by VS Code) |
 
-> **Note:** `FileOperation` and `Notification` effect namespaces are target architecture. Currently file operations and notifications are handled imperatively in `extension-host.ts`.
+> **Note:** `FileOperation` effects are executed directly by the `EffectRunner` (no queue). `Notification` effects (`PostImperative`) are also direct. The dead `PlayCompletionSound` / `FlashWindow` effects were removed during the migration.
 
 ---
 
