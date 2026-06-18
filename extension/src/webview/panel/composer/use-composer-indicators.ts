@@ -1,6 +1,7 @@
 import { useMemo } from 'preact/hooks';
 
 import type {
+  ActiveRunSummary,
   ChatMessage,
   ContextWindowUsage,
   ModelInfo,
@@ -35,6 +36,7 @@ export function useComposerIndicators({
   pruningResult,
   busy,
   sessionPath,
+  activeRunSummary,
 }: {
   activeModelId?: string;
   activeThinkingLevel?: ThinkingLevel;
@@ -47,6 +49,7 @@ export function useComposerIndicators({
   pruningResult: PruningResult | null;
   busy: boolean;
   sessionPath: string | null;
+  activeRunSummary?: ActiveRunSummary | null;
 }) {
   const {
     selectedModel,
@@ -110,7 +113,7 @@ export function useComposerIndicators({
     [sessionTokenUsage, selectedModelInfo, transcript, pruningResult, pricingByModelId, liveCostEstimate],
   );
 
-  const tokenRateIndicator = useTokenRateIndicator({ transcript, busy, sessionPath });
+  const tokenRateIndicator = useTokenRateIndicator({ transcript, busy, sessionPath, activeRunSummary });
 
   return {
     selectedModel,

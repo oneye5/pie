@@ -126,6 +126,7 @@ function ComposerView({
     pruningResult,
     busy,
     sessionPath,
+    activeRunSummary,
   });
 
   const {

@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 
-import type { ChatMessage } from '../../../shared/protocol';
+import type { ActiveRunSummary, ChatMessage, ToolCall } from '../../../shared/protocol';
+import { isRecord } from '../../../shared/type-guards';
 import { estimateTextTokens } from '../system-prompt-tokens';
+import {
+  getRenderableSubagentResultFromToolCall,
+  type SubagentSingleResult,
+} from '../transcript/subagent';
 
 /**
  * Live "average tokens per second" indicator.
@@ -10,22 +15,23 @@ import { estimateTextTokens } from '../system-prompt-tokens';
  * explicitly allows "token-rate measurement state" as ephemeral UI telemetry,
  * so no protocol/reducer changes are needed and the reducer stays pure.
  *
- * The generation clock advances ONLY while the model is actively producing
- * output: a streaming assistant message exists, no tool call on it is
- * `running`, and content grew within a short grace window. The clock freezes
- * (pauses) during tool execution, between turns, and during output stalls — so
- * the averaged rate reflects true generation speed, never blocked time.
+ * The generation clock advances while the model (or any running subagent) is
+ * actively producing output. A rolling window of (generation-time,
+ * cumulative-output-tokens) samples over the last {@link WINDOW_MS} of
+ * *generation* time (not wall-clock) yields the displayed rate. Because the
+ * time axis is generation-time, every paused span — including time spent in
+ * tool calls and between turns — is excluded from both the numerator's token
+ * production and the denominator's elapsed time automatically.
  *
- * A rolling window of (generation-time, cumulative-output-tokens) samples over
- * the last {@link WINDOW_MS} of *generation* time (not wall-clock) yields the
- * displayed rate. Because the time axis is generation-time, every paused span
- * is excluded from both the numerator's token production and the denominator's
- * elapsed time automatically.
+ * Subagent output is included in the aggregate: the indicator reflects the
+ * sum of live output tokens across the main session and every running
+ * subagent, so four parallel subagents each averaging 60 tok/s read as
+ * ~240 tok/s.
  */
 
 const TICK_MS = 200;
 /** Rolling window length, measured in generation-time (excludes pauses). */
-export const WINDOW_MS = 10_000;
+export const WINDOW_MS = 60_000;
 /**
  * No-growth grace before the clock pauses. Catches stalls the explicit tool/
  * turn signals miss (network stalls, anything else that pauses the underlying
@@ -34,22 +40,22 @@ export const WINDOW_MS = 10_000;
 const STALL_GRACE_MS = 1_000;
 /** Minimum generation-time span before a rate is shown (avoids a noisy first reading). */
 const MIN_RATE_SPAN_MS = 300;
-/** Cap on retained samples to bound memory (~48s at 200ms ticks). */
-const MAX_SAMPLES = 240;
+/** Cap on retained samples to bound memory (~72s at 200ms ticks). */
+const MAX_SAMPLES = 360;
 
 export interface TokenRateIndicatorState {
-  /** Compact label e.g. "42 tok/s"; null hides the chip (idle). */
-  label: string | null;
+  /** Compact label e.g. "42 tok/s"; "—" hides no useful value yet. */
+  label: string;
   ariaLabel: string;
   tooltip: string;
-  /** 'idle' (chip hidden) | 'generating' | 'paused'. */
+  /** 'idle' (no session selected) | 'generating' | 'paused'. */
   state: 'idle' | 'generating' | 'paused';
   /** True while the generation clock is frozen (tool running / between turns / stall). */
   paused: boolean;
 }
 
 const IDLE_STATE: TokenRateIndicatorState = {
-  label: null,
+  label: '—',
   ariaLabel: 'Generation rate: idle.',
   tooltip: 'No active generation.',
   state: 'idle',
@@ -63,7 +69,7 @@ interface Sample {
   tokens: number;
 }
 
-interface Accumulator {
+export interface Accumulator {
   /** Generation clock — advances only while generating. */
   genMs: number;
   /** Cumulative estimated output tokens (continuous across turns within a run). */
@@ -71,12 +77,16 @@ interface Accumulator {
   samples: Sample[];
   /** Wall-time of the last tick, for computing per-tick elapsed. */
   lastWall: number;
-  /** Wall-time when output content last grew, for stall/grace detection. */
-  lastGrowthWall: number;
+  /** Wall-time when the main assistant's output last grew, for stall/grace detection. */
+  lastMainGrowthWall: number;
+  /** Wall-time when a running subagent's output last grew, for stall/grace detection. */
+  lastSubagentGrowthWall: number;
   /** Streaming message id seen at the last tick, for turn-transition handling. */
   lastStreamingId: string | null;
   /** Estimated output tokens of the current streaming message at the last tick. */
   lastContentTokens: number;
+  /** Last estimated output tokens per running subagent tool call. */
+  subagentTokens: Map<string, number>;
 }
 
 function createAccumulator(now: number): Accumulator {
@@ -87,9 +97,11 @@ function createAccumulator(now: number): Accumulator {
     lastWall: now,
     // 0 = "never grew": the clock stays paused until the first output token
     // arrives, so time-to-first-token is excluded from generation time.
-    lastGrowthWall: 0,
+    lastMainGrowthWall: 0,
+    lastSubagentGrowthWall: 0,
     lastStreamingId: null,
     lastContentTokens: 0,
+    subagentTokens: new Map(),
   };
 }
 
@@ -112,6 +124,85 @@ function hasRunningToolCall(message: ChatMessage | null): boolean {
 function estimatedOutputTokens(message: ChatMessage | null): number {
   if (!message) return 0;
   return estimateTextTokens(message.markdown ?? '') + estimateTextTokens(message.thinking ?? '');
+}
+
+function isSubagentRunning(result: SubagentSingleResult): boolean {
+  return result.exitCode === -1 || (result.runningTools?.length ?? 0) > 0;
+}
+
+function estimatedSubagentOutputTokens(result: SubagentSingleResult): number {
+  let tokens = 0;
+  if (Array.isArray(result.messages)) {
+    for (const msg of result.messages) {
+      if (msg.role !== 'assistant') continue;
+      if (typeof msg.content === 'string') {
+        tokens += estimateTextTokens(msg.content);
+      } else if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (isRecord(part)) {
+            if (part.type === 'text' && typeof part.text === 'string') {
+              tokens += estimateTextTokens(part.text);
+            } else if (part.type === 'thinking' && typeof part.thinking === 'string') {
+              tokens += estimateTextTokens(part.thinking);
+            }
+          }
+        }
+      }
+    }
+  }
+  if (typeof result.streamingText === 'string') {
+    tokens += estimateTextTokens(result.streamingText);
+  }
+  return tokens;
+}
+
+interface RunningSubagent {
+  toolCallId: string;
+  result: SubagentSingleResult;
+}
+
+function findRunningSubagents(transcript: ChatMessage[]): RunningSubagent[] {
+  const running: RunningSubagent[] = [];
+  for (const message of transcript) {
+    for (const toolCall of message.toolCalls ?? []) {
+      if (toolCall.name !== 'subagent') continue;
+      const subagentResult = getRenderableSubagentResultFromToolCall(toolCall as ToolCall);
+      if (!subagentResult) continue;
+      for (const single of subagentResult.results) {
+        if (isSubagentRunning(single)) {
+          running.push({ toolCallId: toolCall.id, result: single });
+        }
+      }
+    }
+  }
+  return running;
+}
+
+function computeSubagentDelta(
+  acc: Accumulator,
+  running: RunningSubagent[],
+): number {
+  let delta = 0;
+  const seenIds = new Set<string>();
+
+  for (const { toolCallId, result } of running) {
+    seenIds.add(toolCallId);
+    const current = estimatedSubagentOutputTokens(result);
+    const previous = acc.subagentTokens.get(toolCallId) ?? 0;
+    delta += Math.max(0, current - previous);
+    acc.subagentTokens.set(toolCallId, current);
+  }
+
+  // Drop snapshots for subagent calls that are no longer running so the map
+  // stays bounded over long sessions and a completed call doesn't anchor the
+  // snapshot if the same id were ever reused.
+  for (const id of acc.subagentTokens.keys()) {
+    if (!seenIds.has(id)) {
+      acc.subagentTokens.delete(id);
+    }
+  }
+
+  return delta;
 }
 
 function formatRate(rate: number): string {
@@ -177,6 +268,7 @@ function buildState(
         `Generation rate: ${num} tok/s`,
         `Average over the last ${windowSec}s of generation.`,
         `${acc.cumTokens} output tokens in ${genSec}s of generation time.`,
+        'Includes output from running subagents.',
         'Clock pauses during tool calls and output stalls.',
       ].join('\n'),
       state: 'generating',
@@ -202,6 +294,7 @@ function buildState(
       `Generation paused (${reason}).`,
       `Last rate: ${num} tok/s`,
       `${acc.cumTokens} output tokens in ${genSec}s of generation time.`,
+      'Includes output from running subagents.',
       'Clock resumes when the model produces output again.',
     ].join('\n'),
     state: 'paused',
@@ -224,12 +317,9 @@ export function tickTokenRate(
   const currentTokens = estimatedOutputTokens(streaming);
   const streamingId = streaming?.id ?? null;
 
+  let mainDelta = 0;
   if (streamingId === acc.lastStreamingId) {
-    const delta = currentTokens - acc.lastContentTokens;
-    if (delta > 0) {
-      acc.cumTokens += delta;
-      acc.lastGrowthWall = now;
-    }
+    mainDelta = Math.max(0, currentTokens - acc.lastContentTokens);
   } else {
     // Turn transition: a new streaming message appeared. Count its
     // already-present content as new tokens (captures deltas that arrived
@@ -239,18 +329,34 @@ export function tickTokenRate(
     // like the run's first message.
     if (streamingId !== null) {
       if (currentTokens > 0) {
-        acc.cumTokens += currentTokens;
-        acc.lastGrowthWall = now;
+        mainDelta = currentTokens;
       } else {
-        acc.lastGrowthWall = 0;
+        acc.lastMainGrowthWall = 0;
       }
     }
     acc.lastStreamingId = streamingId;
   }
   acc.lastContentTokens = currentTokens;
 
-  const withinGrace = now - acc.lastGrowthWall <= STALL_GRACE_MS;
-  const generating = streaming !== null && !toolBlocked && withinGrace;
+  const runningSubagents = findRunningSubagents(transcript);
+  const subagentDelta = computeSubagentDelta(acc, runningSubagents);
+
+  const totalDelta = mainDelta + subagentDelta;
+  if (totalDelta > 0) {
+    acc.cumTokens += totalDelta;
+  }
+  if (mainDelta > 0) {
+    acc.lastMainGrowthWall = now;
+  }
+  if (subagentDelta > 0) {
+    acc.lastSubagentGrowthWall = now;
+  }
+
+  const mainWithinGrace = now - acc.lastMainGrowthWall <= STALL_GRACE_MS;
+  const subagentWithinGrace = now - acc.lastSubagentGrowthWall <= STALL_GRACE_MS;
+  const mainActive = streaming !== null && !toolBlocked;
+  const subagentActive = runningSubagents.length > 0;
+  const generating = (mainActive && mainWithinGrace) || (subagentActive && subagentWithinGrace);
 
   const elapsed = Math.max(0, now - acc.lastWall);
   if (generating) {
@@ -268,30 +374,47 @@ export function createTokenRateAccumulator(now: number = Date.now()): Accumulato
   return createAccumulator(now);
 }
 
+function shouldResetForRun(existingRunId: string | null | undefined, runId: string | null): boolean {
+  if (existingRunId === undefined) return true;
+  if (existingRunId === null) return runId !== null;
+  return runId !== null && runId !== existingRunId;
+}
+
 export function useTokenRateIndicator({
   transcript,
   busy,
   sessionPath,
+  activeRunSummary,
 }: {
   transcript: ChatMessage[];
   busy: boolean;
   sessionPath: string | null;
+  activeRunSummary?: ActiveRunSummary | null;
 }): TokenRateIndicatorState {
   const transcriptRef = useRef(transcript);
   transcriptRef.current = transcript;
   const lastStateRef = useRef<TokenRateIndicatorState>(IDLE_STATE);
   const [display, setDisplay] = useState<TokenRateIndicatorState>(IDLE_STATE);
 
+  const accumulatorsRef = useRef<Map<string, Accumulator>>(new Map());
+  const runIdsBySessionRef = useRef<Map<string, string | null>>(new Map());
+
   useEffect(() => {
-    if (!busy) {
+    if (sessionPath === null) {
       lastStateRef.current = IDLE_STATE;
       setDisplay(IDLE_STATE);
       return;
     }
 
-    // New run (or session switch while busy): start from a fresh accumulator so
-    // the rolling window reflects only the current run's generation.
-    const acc = createAccumulator(Date.now());
+    const runId = activeRunSummary?.runId ?? null;
+    const existingRunId = runIdsBySessionRef.current.get(sessionPath);
+
+    if (shouldResetForRun(existingRunId, runId)) {
+      accumulatorsRef.current.set(sessionPath, createAccumulator(Date.now()));
+      runIdsBySessionRef.current.set(sessionPath, runId);
+    }
+
+    const acc = accumulatorsRef.current.get(sessionPath)!;
 
     const apply = (next: TokenRateIndicatorState): void => {
       const prev = lastStateRef.current;
@@ -308,11 +431,16 @@ export function useTokenRateIndicator({
     };
 
     apply(tickTokenRate(acc, transcriptRef.current));
+
+    if (!busy) {
+      return;
+    }
+
     const id = setInterval(() => {
       apply(tickTokenRate(acc, transcriptRef.current));
     }, TICK_MS);
     return () => clearInterval(id);
-  }, [busy, sessionPath]);
+  }, [busy, sessionPath, activeRunSummary?.runId]);
 
   return display;
 }

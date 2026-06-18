@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import type { ChatMessage } from '../src/shared/protocol';
+import type { ChatMessage, ToolCall } from '../src/shared/protocol';
 import {
   createTokenRateAccumulator,
   tickTokenRate,
@@ -25,6 +25,37 @@ function streamingMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
 function setContent(message: ChatMessage, chars: number): ChatMessage {
   // chars/4 token heuristic -> use repeated chars so token count is deterministic.
   return { ...message, markdown: 'a'.repeat(chars) };
+}
+
+function subagentToolCall(
+  id: string,
+  overrides: {
+    status?: ToolCall['status'];
+    exitCode?: number;
+    streamingText?: string;
+    messages?: unknown[];
+    runningTools?: string[];
+  } = {},
+): ToolCall {
+  return {
+    id,
+    name: 'subagent',
+    input: {},
+    status: overrides.status ?? 'running',
+    result: {
+      mode: 'single',
+      results: [
+        {
+          agent: 'test-agent',
+          task: 'test task',
+          exitCode: overrides.exitCode ?? -1,
+          messages: overrides.messages ?? [],
+          streamingText: overrides.streamingText ?? '',
+          ...(overrides.runningTools ? { runningTools: overrides.runningTools } : {}),
+        },
+      ],
+    },
+  };
 }
 
 /** Drive the accumulator through a series of (transcript, nowMs) ticks. */
@@ -133,12 +164,12 @@ test('output stall beyond the grace window pauses the clock (catches non-tool pa
 test('rolling window averages only the last WINDOW_MS of generation time', () => {
   const m = streamingMessage();
   const acc = createTokenRateAccumulator(BASE_NOW);
-  // Generate 40 tokens/s for 15s of generation (beyond the 10s window), so the
-  // oldest samples age out of the window. 40 tok/s = 10 chars/ms... use 4 chars
-  // (1 token) every 25ms of wall-clock -> 40 tok/s.
+  // Generate 40 tokens/s for 70s of generation (beyond the 60s window), so the
+  // oldest samples age out of the window. 40 tok/s = 1 token per 25ms -> 8
+  // tokens (32 chars) every 200ms tick.
   tickTokenRate(acc, [setContent(m, 0)], BASE_NOW);
   let chars = 0;
-  for (let ms = 200; ms <= 15_000; ms += 200) {
+  for (let ms = 200; ms <= 70_000; ms += 200) {
     chars += 4 * 200 / 25; // 200ms * (1 token / 25ms) = 8 tokens per tick
     tickTokenRate(acc, [setContent(m, Math.round(chars))], BASE_NOW + ms);
   }
@@ -172,6 +203,65 @@ test('per-turn time-to-first-token is excluded: an empty new turn pauses the clo
   assert.equal(resumed.state, 'generating');
 });
 
+test('subagent streaming output is counted while the main session is paused on a tool call', () => {
+  const m = streamingMessage();
+  const acc = createTokenRateAccumulator(BASE_NOW);
+
+  // Main generates briefly, then a subagent tool call starts running.
+  tickTokenRate(acc, [setContent(m, 0)], BASE_NOW);
+  tickTokenRate(acc, [setContent(m, 400)], BASE_NOW + 1000);
+  const blocked = setContent(
+    { ...m, toolCalls: [subagentToolCall('sub1', { streamingText: '' })] },
+    400,
+  );
+  tickTokenRate(acc, [blocked], BASE_NOW + 2000);
+
+  // Subagent streams 50 tokens/s for 2s while main is blocked.
+  const subagentText = (chars: number) => subagentToolCall('sub1', { streamingText: 'a'.repeat(chars) });
+  const transcript1: ChatMessage[] = [setContent(
+    { ...m, toolCalls: [subagentText(200)] },
+    400,
+  )];
+  tickTokenRate(acc, transcript1, BASE_NOW + 3000);
+
+  const transcript2: ChatMessage[] = [setContent(
+    { ...m, toolCalls: [subagentText(400)] },
+    400,
+  )];
+  const state = tickTokenRate(acc, transcript2, BASE_NOW + 4000);
+
+  assert.equal(state.state, 'generating');
+  // 50 new subagent tokens over 1s of generation time.
+  const rate = Number.parseFloat(state.label!.replace(/[^\d.]/g, ''));
+  assert.ok(rate >= 40 && rate <= 60, `expected ~50 tok/s from subagent, got ${rate}`);
+});
+
+test('parallel subagents aggregate their output into a single session rate', () => {
+  const m = streamingMessage();
+  const acc = createTokenRateAccumulator(BASE_NOW);
+
+  // Two parallel subagents each streaming 50 tokens/s.
+  const subAgents = (charsEach: number) => {
+    return {
+      ...m,
+      status: 'streaming' as const,
+      toolCalls: [
+        subagentToolCall('sub1', { streamingText: 'a'.repeat(charsEach) }),
+        subagentToolCall('sub2', { streamingText: 'a'.repeat(charsEach) }),
+      ],
+    };
+  };
+
+  tickTokenRate(acc, [subAgents(0)], BASE_NOW);
+  tickTokenRate(acc, [subAgents(200)], BASE_NOW + 1000); // 50 each -> 100 total
+  const state = tickTokenRate(acc, [subAgents(400)], BASE_NOW + 2000); // another 100 total
+
+  assert.equal(state.state, 'generating');
+  // 200 aggregate tokens over 1s -> ~100 tok/s, even though no main output exists.
+  const rate = Number.parseFloat(state.label!.replace(/[^\d.]/g, ''));
+  assert.ok(rate >= 85 && rate <= 115, `expected ~100 tok/s aggregate, got ${rate}`);
+});
+
 test('a fresh accumulator resets the rolling window for a new run', () => {
   const m = streamingMessage();
   const acc = createTokenRateAccumulator(BASE_NOW);
@@ -183,5 +273,6 @@ test('a fresh accumulator resets the rolling window for a new run', () => {
   assert.equal(fresh.genMs, 0);
   assert.equal(fresh.cumTokens, 0);
   assert.equal(fresh.samples.length, 0);
+  assert.equal(fresh.subagentTokens.size, 0);
   assert.equal(state.state, 'paused'); // nothing produced yet
 });
