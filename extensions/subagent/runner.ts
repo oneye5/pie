@@ -67,12 +67,29 @@ async function loadSubagentSdk(): Promise<SubagentSdk> {
 	return cachedSdkPromise;
 }
 
+/** Environment key for overriding the per-prompt subagent timeout (milliseconds). */
+const SUBAGENT_TIMEOUT_ENV = "PI_SUBAGENT_TIMEOUT_MS";
+
 /**
- * Per-prompt timeout: if the model doesn't produce a complete response within
- * this window, the prompt is aborted and the subagent reports a timeout error.
- * Prevents subagents from hanging indefinitely on unresponsive providers.
+ * Resolve the per-prompt timeout for subagent runs, in milliseconds.
+ *
+ * Reads `PI_SUBAGENT_TIMEOUT_MS` from the environment:
+ * - A positive number (milliseconds) sets an explicit timeout safety net that
+ *   wraps the *entire* multi-turn run (all turns + tool calls), not just one
+ *   model response.
+ * - Unset, `0`, or invalid → no timeout. Subagents run until they finish or
+ *   the parent aborts. This is the default: subagents should not time out
+ *   during legitimate long-running work. The parent's abort signal (Ctrl+C /
+ *   parent cancellation) always remains the real escape hatch.
+ *
+ * Returns the timeout in ms, or `0` to disable the timeout entirely.
  */
-const SUBAGENT_PROMPT_TIMEOUT_MS = 600_000; // 10 minutes
+export function resolveSubagentTimeoutMs(): number {
+	const raw = process.env[SUBAGENT_TIMEOUT_ENV];
+	if (raw === undefined || raw === "") return 0;
+	const ms = Number(raw);
+	return Number.isFinite(ms) && ms > 0 ? ms : 0;
+}
 
 /**
  * Async-local context carried through nested subagent invocations.
@@ -249,9 +266,21 @@ function handleMessageEnd(
 
 /** Build a per-call abort signal that fires on either the parent signal or the timeout. */
 function buildCombinedAbortSignal(parentSignal: AbortSignal | undefined, timeoutMs: number): {
-	timeoutSignal: AbortSignal;
+	timeoutSignal: AbortSignal | undefined;
 	onAbort: (handler: () => void) => () => void;
 } {
+	// No timeout configured (timeoutMs <= 0): only the parent signal can
+	// interrupt the run. If there is no parent signal either, the prompt runs
+	// uninterrupted until it completes naturally — subagents do not time out.
+	if (!(timeoutMs > 0)) {
+		const onAbort = (handler: () => void): (() => void) => {
+			if (!parentSignal) return () => {};
+			parentSignal.addEventListener("abort", handler, { once: true });
+			return () => parentSignal.removeEventListener("abort", handler);
+		};
+		return { timeoutSignal: undefined, onAbort };
+	}
+
 	const timeoutSignal = AbortSignal.timeout(timeoutMs);
 	const signal = parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal;
 	const onAbort = (handler: () => void): (() => void) => {
@@ -359,7 +388,7 @@ export async function runSingleAgent(
 	const emitUpdate = createUpdateEmitter(currentResult, onUpdate, makeDetails, streamingTextRef);
 
 	const sdk = _internal?.sdk ?? (await loadSubagentSdk());
-	const promptTimeoutMs = _internal?.timeoutMs ?? SUBAGENT_PROMPT_TIMEOUT_MS;
+	const promptTimeoutMs = _internal?.timeoutMs ?? resolveSubagentTimeoutMs();
 
 	// 4. Build an isolated resource loader and create the session.
 	// - appendSystemPrompt threads the agent's instructions into the system prompt
@@ -417,7 +446,8 @@ export async function runSingleAgent(
 		const removeAbortListener = onAbort(() => {
 			// If the prompt timeout has fired (even if the parent signal also fired
 			// simultaneously), flag it as a timeout so callers can distinguish the cause.
-			if (timeoutSignal.aborted) timedOut = true;
+			// When the timeout is disabled, timeoutSignal is undefined and this never fires.
+			if (timeoutSignal?.aborted) timedOut = true;
 			void session.abort();
 			// Settle any in-flight parent-bridge ask_user prompt so it can't hang.
 			proxy?.cancelAll();

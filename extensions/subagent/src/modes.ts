@@ -5,7 +5,7 @@
 import type { AgentToolResult } from "@mariozechner/pi-agent-core";
 import type { ToolContext } from "@mariozechner/pi-coding-agent";
 import type { AgentConfig } from "../agents.js";
-import { getFinalOutput } from "../formatting.js";
+import { getFinalOutput, previewText } from "../formatting.js";
 import {
 	mapWithConcurrencyLimit,
 	runSingleAgent,
@@ -17,7 +17,6 @@ import {
 	MAX_CONCURRENCY,
 	MAX_MODEL_RETRIES,
 	MAX_PARALLEL_TASKS,
-	PARALLEL_SUMMARY_PREVIEW,
 	type OnUpdateCallback,
 	type SingleResult,
 	type SubagentDetails,
@@ -67,13 +66,6 @@ function createErrorResult(agent: string, task: string, errorMessage: string, st
 		errorMessage,
 		step,
 	};
-}
-
-/** Build a short preview of `text` for parallel summary lines. */
-function previewText(text: string): string {
-	return text.length > PARALLEL_SUMMARY_PREVIEW
-		? `${text.slice(0, PARALLEL_SUMMARY_PREVIEW)}...`
-		: text;
 }
 
 /** Pick the most informative message we have for a failed result. */

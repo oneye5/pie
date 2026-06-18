@@ -221,6 +221,146 @@ test("runSingleAgent returns timeout failure and calls cancelAll", async () => {
 	assert.equal(state.disposeCalls, 1);
 });
 
+test("runSingleAgent with timeout disabled and no parent signal completes normally", async () => {
+	// Default (env unset) = no timeout. With no parent signal either, the prompt
+	// runs uninterrupted until it completes naturally — exercises the
+	// `!parentSignal && timeoutMs <= 0` branch of buildCombinedAbortSignal.
+	const prevTimeout = process.env.PI_SUBAGENT_TIMEOUT_MS;
+	delete process.env.PI_SUBAGENT_TIMEOUT_MS;
+	try {
+		const { sdk, state } = createFakeSdk({
+			onPrompt: async (emit) => {
+				emit({
+					type: "message_end",
+					message: {
+						role: "assistant",
+						content: [{ type: "text", text: "done" }],
+						usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } },
+						model: "m",
+						stopReason: "completed",
+					},
+				});
+			},
+		});
+
+		const result = await runSingleAgent(
+			process.cwd(),
+			[makeAgent()],
+			"worker",
+			"do work",
+			undefined,
+			undefined,
+			undefined, // no parent signal
+			undefined,
+			(results) => ({ mode: "single", agentScope: "user", projectAgentsDir: null, results }),
+			makeModelRegistry(),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ sdk: sdk as any }, // no timeoutMs seam → default (disabled)
+		);
+
+		assert.equal(result.exitCode, 0);
+		assert.equal(result.model, "m");
+		assert.equal(state.promptCalls, 1);
+		assert.equal(state.unsubscribeCalls, 1);
+		assert.equal(state.disposeCalls, 1);
+	} finally {
+		if (prevTimeout === undefined) delete process.env.PI_SUBAGENT_TIMEOUT_MS;
+		else process.env.PI_SUBAGENT_TIMEOUT_MS = prevTimeout;
+	}
+});
+
+test("runSingleAgent with timeout disabled: parent abort interrupts without timeout stamp", async () => {
+	// Default (env unset) = no timeout. A hanging prompt must be interruptible
+	// via the parent abort signal, and the result must NOT be stamped as a
+	// timeout — exercises the `parentSignal && timeoutMs <= 0` branch.
+	const prevTimeout = process.env.PI_SUBAGENT_TIMEOUT_MS;
+	delete process.env.PI_SUBAGENT_TIMEOUT_MS;
+	try {
+		const { sdk, state } = createFakeSdk(); // prompt hangs until abort
+		const { bridge, calls } = makeParentBridge();
+		const controller = new AbortController();
+
+		const resultPromise = runSingleAgent(
+			process.cwd(),
+			[makeAgent()],
+			"worker",
+			"do work",
+			undefined,
+			undefined,
+			controller.signal,
+			undefined,
+			(results) => ({ mode: "single", agentScope: "user", projectAgentsDir: null, results }),
+			makeModelRegistry(),
+			undefined,
+			undefined,
+			undefined,
+			"tool-no-timeout",
+			bridge,
+			{ sdk: sdk as any }, // no timeoutMs seam → default (disabled)
+		);
+
+		setTimeout(() => controller.abort(), 5);
+		const result = await resultPromise;
+
+		assert.equal(result.exitCode, 1);
+		assert.notEqual(result.stopReason, "timeout");
+		assert.doesNotMatch(result.errorMessage ?? "", /timed out/);
+		assert.ok(state.abortCalls >= 1);
+		assert.equal(calls.cancelAll, 1);
+		assert.equal(state.unsubscribeCalls, 1);
+		assert.equal(state.disposeCalls, 1);
+	} finally {
+		if (prevTimeout === undefined) delete process.env.PI_SUBAGENT_TIMEOUT_MS;
+		else process.env.PI_SUBAGENT_TIMEOUT_MS = prevTimeout;
+	}
+});
+
+test("runSingleAgent honours PI_SUBAGENT_TIMEOUT_MS env var (no seam): hanging prompt times out", async () => {
+	// End-to-end: a positive env var (with no _internal.timeoutMs seam) drives
+	// resolveSubagentTimeoutMs -> buildCombinedAbortSignal(timeoutMs > 0) ->
+	// AbortSignal.timeout fires -> session.abort -> applyTimeoutFailure.
+	const prevTimeout = process.env.PI_SUBAGENT_TIMEOUT_MS;
+	process.env.PI_SUBAGENT_TIMEOUT_MS = "20";
+	try {
+		const { sdk, state } = createFakeSdk(); // prompt hangs until abort
+		const { bridge, calls } = makeParentBridge();
+
+		const result = await runSingleAgent(
+			process.cwd(),
+			[makeAgent()],
+			"worker",
+			"do work",
+			undefined,
+			undefined,
+			undefined, // no parent signal — only the env-var timeout can interrupt
+			undefined,
+			(results) => ({ mode: "single", agentScope: "user", projectAgentsDir: null, results }),
+			makeModelRegistry(),
+			undefined,
+			undefined,
+			undefined,
+			"tool-env-timeout",
+			bridge,
+			{ sdk: sdk as any }, // no timeoutMs seam — env var is the source of truth
+		);
+
+		assert.equal(result.exitCode, 1);
+		assert.equal(result.stopReason, "timeout");
+		assert.match(result.errorMessage ?? "", /timed out after 0.02s/);
+		assert.ok(state.abortCalls >= 1);
+		assert.equal(calls.cancelAll, 1);
+		assert.equal(state.unsubscribeCalls, 1);
+		assert.equal(state.disposeCalls, 1);
+	} finally {
+		if (prevTimeout === undefined) delete process.env.PI_SUBAGENT_TIMEOUT_MS;
+		else process.env.PI_SUBAGENT_TIMEOUT_MS = prevTimeout;
+	}
+});
+
 test("validateSubagentParams enforces exactly one mode and validates agent names", () => {
 	const agents = [makeAgent({ name: "worker" })];
 

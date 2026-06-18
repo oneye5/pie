@@ -16,8 +16,8 @@ export const MAX_MODEL_RETRIES = 5;
 export const TASK_PREVIEW_SHORT = 40;
 /** Max characters shown when previewing a task description in single-mode renderCall. */
 export const TASK_PREVIEW_LONG = 60;
-/** Max characters shown for parallel result summaries. */
-export const PARALLEL_SUMMARY_PREVIEW = 100;
+/** Max characters shown for parallel result summaries (overridable via PI_SUBAGENT_PARALLEL_PREVIEW). */
+export const PARALLEL_SUMMARY_PREVIEW = 8000;
 export const AGENT_SCOPE_VALUES = new Set<AgentScope>(["user", "project", "both"]);
 
 export interface UsageStats {
