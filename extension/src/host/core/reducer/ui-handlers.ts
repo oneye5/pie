@@ -59,3 +59,17 @@ export function handleNoticeShown(state: ArchState, event: Extract<Event, { kind
     effects: [],
   };
 }
+
+export function handlePendingExtensionUIRequestsCleared(state: ArchState, event: Extract<Event, { kind: 'PendingExtensionUIRequestsCleared' }>): ReducerResult {
+  const { [event.sessionPath]: _removed, ...remaining } = state.settings.pendingExtensionUIRequestsBySession;
+  return {
+    state: {
+      ...state,
+      settings: {
+        ...state.settings,
+        pendingExtensionUIRequestsBySession: remaining,
+      },
+    },
+    effects: [],
+  };
+}

@@ -1,6 +1,8 @@
 import { produce } from 'immer';
 
 import type { ArchState } from '../arch-state.js';
+import type { Event } from '../events.js';
+import type { ReducerResult } from './helpers.js';
 import type {
   ComposerInput,
   ContextWindowUsage,
@@ -154,4 +156,23 @@ export function revertSetModel(state: ArchState, corrId: string, error: string |
     delete draft.pending.setModelByCorrId[corrId];
     draft.settings.notice = notice;
   });
+}
+
+export function handleAvailableModelsChanged(
+  state: ArchState,
+  event: Extract<Event, { kind: 'AvailableModelsChanged' }>,
+): ReducerResult {
+  return {
+    state: {
+      ...state,
+      settings: {
+        ...state.settings,
+        availableModelsBySession: {
+          ...state.settings.availableModelsBySession,
+          [event.sessionPath]: event.models,
+        },
+      },
+    },
+    effects: [],
+  };
 }

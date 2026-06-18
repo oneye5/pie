@@ -3,7 +3,7 @@ import type { Command } from '../commands.js';
 import type { ReducerResult } from './helpers.js';
 import { removeFromArray } from './helpers.js';
 import { getNextVisibleTabPathOnClose, moveOpenTabPath } from '../../../shared/tab-behavior.js';
-import { handleSessionScopeCleared } from './host-handlers.js';
+import { handleSessionScopeCleared } from './session-handlers.js';
 
 export function handleOpenSession(state: ArchState, cmd: Extract<Command, { kind: 'OpenSession' }>): ReducerResult {
   const { sessionPath, placeholderSummary, selectionToken } = cmd;

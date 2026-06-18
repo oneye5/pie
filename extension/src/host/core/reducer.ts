@@ -43,12 +43,23 @@ import {
   handleBusyChanged,
   handleBusyCompleted,
   handleContextUsageChanged,
+  handleSessionMetadataChanged,
+  handleRunningSessionsChanged,
+  handleUnreadFinishedSessionsChanged,
+  handleSessionSummaryUpserted,
+  handleSessionSummariesReplaced,
+  handleSessionScopeCleared,
+  handlePendingPathReplaced,
+  handleAnalyticsFactorsChanged,
+  handleTabOpened,
+  handleOpenTabsChanged,
 } from './reducer/session-handlers.js';
 import {
   handleCustomMessage,
   handleExtensionUIRequest,
   handleError,
   handleNoticeShown,
+  handlePendingExtensionUIRequestsCleared,
 } from './reducer/ui-handlers.js';
 import {
   handleOptimisticMessageInserted,
@@ -69,25 +80,16 @@ import {
   handlePruningSettingsChanged,
   handleWorkspaceCwdChanged,
   handleTranscriptPageLoaded,
-  handleFileChangesUpdated,
-  handleActiveRunSummaryChanged,
-  handleSessionMetadataChanged,
-  handleAvailableModelsChanged,
-  handlePendingExtensionUIRequestsCleared,
-  handleAnalyticsFactorsChanged,
+  handleTranscriptTrimmed,
   handleAvailableExtensionsChanged,
   handleAssistantMessageErrorStamped,
-  handleComposerInputsReplaced,
-  handlePendingPathReplaced,
-  handleTranscriptTrimmed,
-  handleRunningSessionsChanged,
-  handleUnreadFinishedSessionsChanged,
-  handleSessionSummaryUpserted,
-  handleSessionSummariesReplaced,
-  handleSessionScopeCleared,
-  handleTabOpened,
-  handleOpenTabsChanged,
 } from './reducer/host-handlers.js';
+import { handleAvailableModelsChanged } from './reducer/set-model-handlers.js';
+import { handleFileChangesUpdated } from './reducer/file-handlers.js';
+import {
+  handleActiveRunSummaryChanged,
+  handleComposerInputsReplaced,
+} from './reducer/composer-handlers.js';
 
 /**
  * Reducer: routes events to per-kind handlers.
