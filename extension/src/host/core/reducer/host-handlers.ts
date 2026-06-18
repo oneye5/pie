@@ -1,6 +1,6 @@
 import { produce } from 'immer';
 
-import type { ArchState, SetModelPending } from '../arch-state.js';
+import type { ArchState, PendingOp, SetModelPending } from '../arch-state.js';
 import type {
   BackendReadyChangedEvent,
   PruningSettingsChangedEvent,
@@ -542,6 +542,19 @@ export function handleSessionScopeCleared(
     if (entry.sessionPath !== sp) remainingSetModel[corrId] = entry;
   }
 
+  // Drop in-flight send/edit ops for the closed session. Without this,
+  // a pending.ops entry is orphaned if the SendResult/EditResult never
+  // arrives (backend crash, dropped event). Mirrors removeSessionFromState.
+  const remainingOps: Record<string, PendingOp> = {};
+  for (const [corrId, op] of Object.entries(state.pending.ops)) {
+    if (op.sessionPath !== sp) remainingOps[corrId] = op;
+  }
+
+  const remainingRequestIdToLocalId: Record<string, { sessionPath: string; localId: string }> = {};
+  for (const [requestId, mapping] of Object.entries(state.pending.requestIdToLocalId)) {
+    if (mapping.sessionPath !== sp) remainingRequestIdToLocalId[requestId] = mapping;
+  }
+
   let nextSessions = state.sessions.sessions;
   let nextOpenTabPaths = state.sessions.openTabPaths;
   let nextRunningPaths = state.sessions.runningSessionPaths;
@@ -594,6 +607,8 @@ export function handleSessionScopeCleared(
       },
       pending: {
         ...state.pending,
+        ops: remainingOps,
+        requestIdToLocalId: remainingRequestIdToLocalId,
         setModelByCorrId: remainingSetModel,
         sendQueueBySession: remainingPendingSendQueue,
         backendReadyQueueBySession: remainingBackendReadyQueue,

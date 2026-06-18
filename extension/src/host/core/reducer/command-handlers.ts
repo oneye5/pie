@@ -597,7 +597,6 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
         }),
         effects: [
           { kind: 'ExtensionUiResponseRpc', corrId: cmd.corrId, sessionPath: cmd.sessionPath, response: cmd.response },
-          ...(cmd.approved ? [{ kind: 'PostImperative' as const, corrId: cmd.corrId, imperativeMessage: { type: 'extensionUiApproved', sessionPath: cmd.sessionPath } }] : []),
         ],
       };
     }
