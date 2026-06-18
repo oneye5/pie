@@ -215,6 +215,43 @@ test('App renders loading state when backend not ready', () => {
   assert.ok(html.includes('Starting pie'), 'Should show loading state');
 });
 
+test('App suppresses the session-tab connecting wheel while the transcript surface is already loading (no double wheel)', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = {
+    ...EMPTY_VIEW_STATE,
+    backendReady: false,
+    sessions: [{
+      path: '/session/a',
+      name: 'Session A',
+      cwd: '/workspace',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+      messageCount: 0,
+    }],
+    openTabPaths: ['/session/a'],
+    activeSession: {
+      path: '/session/a',
+      name: 'Session A',
+      cwd: '/workspace',
+      modifiedAt: '2026-01-01T00:00:00.000Z',
+      messageCount: 0,
+    },
+    transcript: [],
+    transcriptLoaded: false,
+    systemPrompts: [],
+  };
+
+  act(() => {
+    render(h(App, { adapter }), container);
+  });
+
+  const html = container.innerHTML;
+  // The main transcript area shows the loading wheel + status indicator.
+  assert.ok(html.includes('transcript-loading'), 'main transcript area should show a loading wheel');
+  assert.ok(html.includes('loading-ellipsis'), 'a status indicator should accompany the wheel');
+  // The session-tab connecting wheel is suppressed to avoid two wheels at once.
+  assert.ok(!html.includes('session-tabs-connecting'), 'tabs should not show a competing connecting wheel while the main area is loading');
+});
+
 test('App renders empty state when no tabs open', () => {
   const adapter = makeAdapter();
   adapter.initialState = { ...EMPTY_VIEW_STATE, backendReady: true };

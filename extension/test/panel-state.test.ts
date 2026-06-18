@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { isPanelBooting, resolvePanelSurface } from '../src/webview/panel/panel-state';
+import { isPanelBooting, resolvePanelSurface, resolveLoadingStatus } from '../src/webview/panel/panel-state';
 
 test('isPanelBooting treats backend startup without a notice as loading', () => {
   assert.equal(isPanelBooting({ backendReady: false, notice: null }), true);
@@ -34,4 +34,64 @@ test('resolvePanelSurface shows the session surface once tabs are available', ()
     notice: null,
     openTabPaths: ['/workspace/session-a.jsonl'],
   }), 'session');
+});
+
+test('resolveLoadingStatus says "Starting pie" on a tab-less cold boot', () => {
+  assert.equal(
+    resolveLoadingStatus({
+      backendReady: false,
+      hasOpenTabs: false,
+      transcriptHydrating: true,
+      needsSessionRecovery: false,
+    }),
+    'Starting pie',
+  );
+});
+
+test('resolveLoadingStatus says "Restoring sessions" while booting with tabs open', () => {
+  assert.equal(
+    resolveLoadingStatus({
+      backendReady: false,
+      hasOpenTabs: true,
+      transcriptHydrating: true,
+      needsSessionRecovery: false,
+    }),
+    'Restoring sessions',
+  );
+});
+
+test('resolveLoadingStatus prioritises session recovery over backend boot', () => {
+  assert.equal(
+    resolveLoadingStatus({
+      backendReady: false,
+      hasOpenTabs: true,
+      transcriptHydrating: true,
+      needsSessionRecovery: true,
+    }),
+    'Restoring session',
+  );
+});
+
+test('resolveLoadingStatus says "Loading conversation" once the backend is up but the transcript is still hydrating', () => {
+  assert.equal(
+    resolveLoadingStatus({
+      backendReady: true,
+      hasOpenTabs: true,
+      transcriptHydrating: true,
+      needsSessionRecovery: false,
+    }),
+    'Loading conversation',
+  );
+});
+
+test('resolveLoadingStatus falls back to a generic "Loading" label when no specific phase applies', () => {
+  assert.equal(
+    resolveLoadingStatus({
+      backendReady: true,
+      hasOpenTabs: true,
+      transcriptHydrating: false,
+      needsSessionRecovery: false,
+    }),
+    'Loading',
+  );
 });

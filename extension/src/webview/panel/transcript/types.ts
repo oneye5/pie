@@ -32,6 +32,7 @@ export interface TranscriptCommonProps {
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
   transcriptLoaded: boolean;
+  loadingStatus?: string;
   busy: boolean;
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;

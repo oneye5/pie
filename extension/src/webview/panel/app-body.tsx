@@ -12,9 +12,11 @@ import type {
 import { warmupCompletionSoundContext } from './completion-sound';
 import { FileChangesPanel } from './file-changes-panel';
 import { ExtensionUIPrompt } from './extension-ui-prompt';
-import { resolvePanelSurface, type PanelSurface } from './panel-state';
+import { resolvePanelSurface, resolveLoadingStatus, type PanelSurface } from './panel-state';
 import { TranscriptHost } from './transcript/transcript-host';
+import { isTranscriptHydrating } from './transcript/state';
 import { ContextMenu, type ContextMenuState } from './components/context-menu';
+import { LoadingIndicator } from './components/loading-indicator';
 import { resolveComposerModelState } from './composer/model-state';
 import { SessionTabs, Composer } from './ui';
 import { RunOutcomeDialog } from './run-outcome-dialog';
@@ -50,6 +52,8 @@ function useAppBodyDerivedState(
     pendingExtensionUIRequestsBySession,
     pendingExtensionUIRequest,
     transcript,
+    systemPrompts,
+    transcriptLoaded,
   } = viewState;
 
   const panelSurface = resolvePanelSurface({ backendReady, notice, openTabPaths });
@@ -58,6 +62,13 @@ function useAppBodyDerivedState(
   const activeSessionPath = activeSession?.path ?? null;
   const recoverySessionPath = openTabPaths.find((p) => !isPendingTabPath(p)) ?? sessions[0]?.path ?? null;
   const needsSessionRecovery = hasActiveTabs && activeSession === null && recoverySessionPath !== null;
+  const transcriptHydrating = isTranscriptHydrating({ transcript, systemPrompts, transcriptLoaded });
+  const loadingStatus = resolveLoadingStatus({
+    backendReady,
+    hasOpenTabs: hasActiveTabs,
+    transcriptHydrating,
+    needsSessionRecovery,
+  });
 
   // Extract primitive values for memo deps to avoid re-computing on every host update
   // when objects like availableModels[] and modelSettings{} get new references.
@@ -109,6 +120,8 @@ function useAppBodyDerivedState(
     pendingAssistantThinkingLevel,
     isAskUserHandledInline,
     askUserContextValue,
+    transcriptHydrating,
+    loadingStatus,
   };
 }
 
@@ -119,6 +132,7 @@ interface PanelMainProps {
   hasActiveTabs: boolean;
   showSessionChrome: boolean;
   needsSessionRecovery: boolean;
+  loadingStatus: string;
   activeSessionPath: string | null;
   activeSession: ViewState['activeSession'];
   fileChanges: ViewState['fileChanges'];
@@ -144,6 +158,7 @@ function PanelMain({
   hasActiveTabs,
   showSessionChrome,
   needsSessionRecovery,
+  loadingStatus,
   activeSessionPath,
   activeSession,
   fileChanges,
@@ -174,10 +189,8 @@ function PanelMain({
         />
       )}
       {panelSurface === 'loading' ? (
-        <div class="empty-state">
-          <div class="loading-wheel" aria-hidden="true" />
-          <div class="empty-state-title">Starting pie</div>
-          <div class="empty-state-sub">Restoring sessions and starting the backend.</div>
+        <div class="empty-state empty-state--loading">
+          <LoadingIndicator status={loadingStatus} />
         </div>
       ) : !hasActiveTabs ? (
         <div class="empty-state">
@@ -188,15 +201,14 @@ function PanelMain({
           <button class="btn" onClick={handlers.handleNewSession}>New Session</button>
         </div>
       ) : needsSessionRecovery ? (
-        <div class="empty-state">
-          <div class="loading-wheel" aria-hidden="true" />
-          <div class="empty-state-title">Restoring session</div>
-          <div class="empty-state-sub">Reopening your active tab.</div>
+        <div class="empty-state empty-state--loading">
+          <LoadingIndicator status={loadingStatus} />
         </div>
       ) : (
         <TranscriptHost
           openTabPaths={openTabPaths}
           activeSessionPath={activeSessionPath}
+          loadingStatus={loadingStatus}
           transcript={mergedTranscript}
           transcriptWindow={transcriptWindow}
           transcriptLoaded={transcriptLoaded}
@@ -384,6 +396,7 @@ export function AppBody({ adapter }: AppBodyProps) {
           activeSession={viewState.activeSession}
           activeRunSummary={viewState.activeRunSummary}
           backendReady={viewState.backendReady}
+          hideConnectingWheel={derived.transcriptHydrating || derived.needsSessionRecovery}
           pendingExtensionUIRequestsBySession={viewState.pendingExtensionUIRequestsBySession}
           runSummariesBySession={viewState.runSummariesBySession}
           onSelect={handlers.handleSelectTab}
@@ -401,6 +414,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         hasActiveTabs={derived.hasActiveTabs}
         showSessionChrome={derived.showSessionChrome}
         needsSessionRecovery={derived.needsSessionRecovery}
+        loadingStatus={derived.loadingStatus}
         activeSessionPath={derived.activeSessionPath}
         activeSession={viewState.activeSession}
         fileChanges={viewState.fileChanges}

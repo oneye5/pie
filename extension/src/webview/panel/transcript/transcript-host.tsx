@@ -31,6 +31,7 @@ function TranscriptSurface({
   transcript,
   transcriptWindow,
   transcriptLoaded,
+  loadingStatus,
   busy,
   prefs,
   pruningSettings,
@@ -65,6 +66,7 @@ function TranscriptSurface({
         transcript={transcript}
         transcriptWindow={transcriptWindow}
         transcriptLoaded={transcriptLoaded}
+        loadingStatus={loadingStatus}
         busy={busy}
         prefs={prefs}
         pruningSettings={pruningSettings}
@@ -95,6 +97,7 @@ export interface TranscriptHostProps {
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
   transcriptLoaded: boolean;
+  loadingStatus?: string;
   busy: boolean;
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;
@@ -118,6 +121,7 @@ export function TranscriptHost({
   transcript,
   transcriptWindow,
   transcriptLoaded,
+  loadingStatus,
   busy,
   prefs,
   pruningSettings,
@@ -143,6 +147,7 @@ export function TranscriptHost({
           transcript={transcript}
           transcriptWindow={transcriptWindow}
           transcriptLoaded={transcriptLoaded}
+          loadingStatus={loadingStatus}
           busy={busy}
           prefs={prefs}
           pruningSettings={pruningSettings}

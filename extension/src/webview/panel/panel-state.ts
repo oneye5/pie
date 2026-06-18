@@ -24,3 +24,29 @@ export function resolvePanelSurface(state: PanelSurfaceState): PanelSurface {
 
   return 'empty';
 }
+
+export interface LoadingStatusState {
+  backendReady: boolean;
+  hasOpenTabs: boolean;
+  transcriptHydrating: boolean;
+  needsSessionRecovery: boolean;
+}
+
+/**
+ * Resolves the short, subtle status line shown beneath a loading wheel.
+ * Reflects the most specific current phase so the surface reads as progressing
+ * ("Starting pi" → "Restoring sessions" → "Loading conversation") rather than
+ * frozen on a single static label.
+ */
+export function resolveLoadingStatus(state: LoadingStatusState): string {
+  if (state.needsSessionRecovery) {
+    return 'Restoring session';
+  }
+  if (!state.backendReady) {
+    return state.hasOpenTabs ? 'Restoring sessions' : 'Starting pie';
+  }
+  if (state.transcriptHydrating) {
+    return 'Loading conversation';
+  }
+  return 'Loading';
+}

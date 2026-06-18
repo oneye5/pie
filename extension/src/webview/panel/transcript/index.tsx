@@ -6,6 +6,7 @@ import './register-builtins';
 
 import { isTranscriptHydrating } from './state';
 
+import { LoadingIndicator } from '../components/loading-indicator';
 import { MessageItem, ReasoningBlock } from './message-item';
 export {
   formatToolCallResultForDisplay,
@@ -40,6 +41,7 @@ export function TranscriptView({
   transcript,
   transcriptWindow,
   transcriptLoaded,
+  loadingStatus,
   busy,
   prefs,
   pruningSettings,
@@ -63,8 +65,8 @@ export function TranscriptView({
   if (transcriptHydrating) {
     return (
       <div class="transcript">
-        <div class="transcript-loading" role="status" aria-label="Loading conversation">
-          <div class="loading-wheel" aria-hidden="true" />
+        <div class="transcript-loading">
+          <LoadingIndicator status={loadingStatus} />
         </div>
       </div>
     );

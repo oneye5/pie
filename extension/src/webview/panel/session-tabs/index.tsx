@@ -18,6 +18,7 @@ interface SessionTabsProps {
   activeSession: SessionSummary | null;
   activeRunSummary: ActiveRunSummary | null;
   backendReady?: boolean;
+  hideConnectingWheel?: boolean;
   pendingExtensionUIRequestsBySession: Record<string, Record<string, import('../../../shared/protocol').ExtensionUIRequestPayload>>;
   runSummariesBySession: Record<string, ActiveRunSummary | null>;
   onSelect: (path: string) => void;
@@ -271,6 +272,7 @@ export function SessionTabs({
   activeSession,
   activeRunSummary,
   backendReady,
+  hideConnectingWheel,
   pendingExtensionUIRequestsBySession,
   runSummariesBySession,
   onSelect,
@@ -350,7 +352,7 @@ export function SessionTabs({
         >
           +
         </button>
-        {!backendReady && (
+        {!backendReady && !hideConnectingWheel && (
           <span class="session-tabs-connecting" title="Connecting to backend…" aria-label="Connecting">
             <span class="loading-wheel loading-wheel-sm" aria-hidden="true" />
           </span>
