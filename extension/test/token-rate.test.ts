@@ -276,3 +276,71 @@ test('a fresh accumulator resets the rolling window for a new run', () => {
   assert.equal(fresh.subagentTokens.size, 0);
   assert.equal(state.state, 'paused'); // nothing produced yet
 });
+
+test('continuation (alias) flow does not re-count the whole message each tool call', () => {
+  // Regression: pi reuses one canonical assistant message id across the tool
+  // calls of a turn (the alias/continuation path). Each tool call flips the
+  // message status to a non-streaming state, so findStreamingMessage returns
+  // null while the tool runs; when the model continues, the SAME id re-streams
+  // with additional text. A single lastContentTokens value would reset to 0
+  // during the tool gap and re-count the ENTIRE accumulated message on every
+  // continuation, exploding cumTokens (observed: ~10M tokens over a 337s run).
+  const m = streamingMessage({ id: 'm1' });
+  const acc = createTokenRateAccumulator(BASE_NOW);
+  let peakRate = 0;
+  const peak = (st: ReturnType<typeof tickTokenRate>) => {
+    const r = st.label === '—' ? 0 : Number.parseFloat(st.label.replace(/[^\d.]/g, ''));
+    if (r > peakRate) peakRate = r;
+  };
+
+  // Initial stream: 100 tokens (400 chars) at ~100 tok/s.
+  peak(tickTokenRate(acc, [setContent(m, 0)], BASE_NOW));
+  peak(tickTokenRate(acc, [setContent({ ...m, status: 'streaming' }, 400)], BASE_NOW + 1000));
+
+  // 12 continuation cycles: a tool runs (message briefly not streaming), then
+  // the same id re-streams with +40 chars (+10 tokens) of new output.
+  let chars = 400;
+  let now = BASE_NOW + 1000;
+  for (let c = 0; c < 12; c += 1) {
+    chars += 40;
+    now += 1000; // 1s tool call (clock must pause)
+    peak(tickTokenRate(acc, [setContent({ ...m, status: 'completed' }, chars)], now));
+    now += 200; // continuation streams +10 tokens over 200ms
+    peak(tickTokenRate(acc, [setContent({ ...m, status: 'streaming' }, chars)], now));
+  }
+
+  // Real output = 100 (initial) + 12 * 10 (continuations) = 220 tokens.
+  // Pre-fix this was ~100 + 110 + 120 + ... + 220 ≈ 1990 (9x inflation); over a
+  // long session it reached hundreds of x. Post-fix it must match reality.
+  assert.ok(
+    acc.cumTokens >= 200 && acc.cumTokens <= 260,
+    `continuation re-counted: expected ~220 cumulative tokens, got ${acc.cumTokens}`,
+  );
+  assert.ok(peakRate < 400, `peak rate spiked to ${peakRate} tok/s during continuations`);
+});
+
+test('text produced while a tool call is running is counted as generation, not banked', () => {
+  // Regression: tokens that arrive on a streaming message holding a 'running'
+  // tool call used to advance cumTokens without advancing genMs (banking), then
+  // spike the rate when generation resumed. Output IS generation — the clock
+  // must advance whenever tokens are produced.
+  const m = streamingMessage({ id: 'm1' });
+  const acc = createTokenRateAccumulator(BASE_NOW);
+  let peakRate = 0;
+  const peak = (st: ReturnType<typeof tickTokenRate>) => {
+    const r = st.label === '—' ? 0 : Number.parseFloat(st.label.replace(/[^\d.]/g, ''));
+    if (r > peakRate) peakRate = r;
+  };
+  // 100 tok/s for 1s, then the model keeps streaming text while a bash tool is
+  // 'running' on the same message for ~11s, then the tool completes.
+  peak(tickTokenRate(acc, [setContent(m, 0)], BASE_NOW));
+  peak(tickTokenRate(acc, [setContent({ ...m, status: 'streaming' }, 400)], BASE_NOW + 1000));
+  for (let i = 2; i <= 12; i += 1) {
+    peak(tickTokenRate(acc, [setContent({ ...m, toolCalls: [{ id: 't1', name: 'bash', input: {}, status: 'running' }] }, 400 + (i - 1) * 80)], BASE_NOW + i * 1000));
+  }
+  peak(tickTokenRate(acc, [setContent({ ...m, toolCalls: [{ id: 't1', name: 'bash', input: {}, status: 'completed' }] }, 400 + 12 * 80)], BASE_NOW + 13_000));
+  // ~100 tok/s throughout — no banking spike. genMs must have advanced across the
+  // tool-running span (tokens were produced), so the rate stays bounded.
+  assert.ok(peakRate < 400, `peak rate spiked to ${peakRate} tok/s during tool-running text`);
+  assert.ok(acc.genMs >= 10_000, `generation clock should have advanced during text production, got ${acc.genMs}ms`);
+});

@@ -81,10 +81,16 @@ export interface Accumulator {
   lastMainGrowthWall: number;
   /** Wall-time when a running subagent's output last grew, for stall/grace detection. */
   lastSubagentGrowthWall: number;
-  /** Streaming message id seen at the last tick, for turn-transition handling. */
-  lastStreamingId: string | null;
-  /** Estimated output tokens of the current streaming message at the last tick. */
-  lastContentTokens: number;
+  /**
+   * Last estimated output tokens per streaming assistant message id. Per-id (not a
+   * single value) so a continuation — the same canonical message id re-streaming
+   * after a tool call — only counts its NEW output, not the whole accumulated
+   * message again. Mirrors the per-toolCallId `subagentTokens` map. A single
+   * value would reset to 0 while the message is briefly not streaming and
+   * re-count the entire message on every continuation, exploding `cumTokens`
+   * across a tool-heavy turn.
+   */
+  lastContentTokensById: Map<string, number>;
   /** Last estimated output tokens per running subagent tool call. */
   subagentTokens: Map<string, number>;
 }
@@ -99,10 +105,24 @@ function createAccumulator(now: number): Accumulator {
     // arrives, so time-to-first-token is excluded from generation time.
     lastMainGrowthWall: 0,
     lastSubagentGrowthWall: 0,
-    lastStreamingId: null,
-    lastContentTokens: 0,
+    lastContentTokensById: new Map(),
     subagentTokens: new Map(),
   };
+}
+
+/** Bound on retained per-id content-token snapshots (defensive; a run rarely has more than a few dozen distinct streaming message ids). */
+const MAX_CONTENT_TOKEN_ENTRIES = 64;
+
+function pruneContentTokenMap(acc: Accumulator, keepId: string): void {
+  if (acc.lastContentTokensById.size <= MAX_CONTENT_TOKEN_ENTRIES) {
+    return;
+  }
+  // Keep only the live streaming id; finished turns' ids never re-stream.
+  for (const id of acc.lastContentTokensById.keys()) {
+    if (id !== keepId) {
+      acc.lastContentTokensById.delete(id);
+    }
+  }
 }
 
 function findStreamingMessage(transcript: ChatMessage[]): ChatMessage | null {
@@ -318,25 +338,25 @@ export function tickTokenRate(
   const streamingId = streaming?.id ?? null;
 
   let mainDelta = 0;
-  if (streamingId === acc.lastStreamingId) {
-    mainDelta = Math.max(0, currentTokens - acc.lastContentTokens);
-  } else {
-    // Turn transition: a new streaming message appeared. Count its
-    // already-present content as new tokens (captures deltas that arrived
-    // between ticks). We deliberately do NOT prime the growth grace for an
-    // empty message — resetting lastGrowthWall keeps the clock paused until
-    // output actually flows, so per-turn time-to-first-token is excluded just
-    // like the run's first message.
-    if (streamingId !== null) {
-      if (currentTokens > 0) {
-        mainDelta = currentTokens;
-      } else {
-        acc.lastMainGrowthWall = 0;
-      }
+  if (streamingId !== null) {
+    // Per-id delta: a continuation (the same canonical message id re-streaming
+    // after a tool call) only counts the output added since this id was last
+    // seen, not the whole accumulated message. We deliberately leave the map
+    // untouched while no message is streaming (between turns / during a tool),
+    // so a continuation resumes from its last-known count instead of re-counting
+    // its full content.
+    const previous = acc.lastContentTokensById.get(streamingId) ?? 0;
+    mainDelta = Math.max(0, currentTokens - previous);
+    acc.lastContentTokensById.set(streamingId, currentTokens);
+    pruneContentTokenMap(acc, streamingId);
+    // Time-to-first-token exclusion: a streaming message that has produced no
+    // output yet (and never has) keeps the clock paused until output flows, so
+    // per-turn TTFT is excluded just like the run's first message. A
+    // continuation that re-appears with content counts immediately.
+    if (currentTokens === 0 && previous === 0) {
+      acc.lastMainGrowthWall = 0;
     }
-    acc.lastStreamingId = streamingId;
   }
-  acc.lastContentTokens = currentTokens;
 
   const runningSubagents = findRunningSubagents(transcript);
   const subagentDelta = computeSubagentDelta(acc, runningSubagents);
@@ -356,7 +376,14 @@ export function tickTokenRate(
   const subagentWithinGrace = now - acc.lastSubagentGrowthWall <= STALL_GRACE_MS;
   const mainActive = streaming !== null && !toolBlocked;
   const subagentActive = runningSubagents.length > 0;
-  const generating = (mainActive && mainWithinGrace) || (subagentActive && subagentWithinGrace);
+  // Any output this tick IS generation — the clock must advance and a sample must
+  // be pushed so tokens are always accompanied by generation time. Without this,
+  // tokens that arrive while the streaming message holds a running tool call
+  // (or during any other non-generating tick) would be banked into `cumTokens`
+  // without `genMs` advancing, then attributed to a later tick's tiny elapsed and
+  // spike the rate. The grace/subagent terms keep the clock alive across brief
+  // stalls and parallel subagent streams.
+  const generating = totalDelta > 0 || (mainActive && mainWithinGrace) || (subagentActive && subagentWithinGrace);
 
   const elapsed = Math.max(0, now - acc.lastWall);
   if (generating) {
