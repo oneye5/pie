@@ -27,6 +27,8 @@ import { validateWebviewToHostMessage } from '../../shared/protocol-validation';
 
 /** Debounce window for batching rapid store changes into a single snapshot post. */
 const SCHEDULE_DEBOUNCE_MS = 50;
+/** Debounce window while sessions are actively streaming. */
+const STREAMING_SCHEDULE_DEBOUNCE_MS = 150;
 /** Debounce window for coalescing multiple asset writes into one webview reload. */
 const HOT_RELOAD_DEBOUNCE_MS = 120;
 /** Max wait for the webview to acknowledge a posted state revision. */
@@ -73,6 +75,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     private readonly context: vscode.ExtensionContext,
     private readonly getViewState: () => ViewState,
     private readonly onMessage: (msg: WebviewToHostMessage) => void,
+    private readonly getRunningSessionCount: () => number = () => 0,
   ) {
     this.hostInstanceId = crypto.randomUUID();
     this.syncState = createSidebarSyncState(this.hostInstanceId);
@@ -322,10 +325,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       return;
     }
 
+    const debounceMs = this.getRunningSessionCount() > 0
+      ? STREAMING_SCHEDULE_DEBOUNCE_MS
+      : SCHEDULE_DEBOUNCE_MS;
+
     this.scheduleTimer = setTimeout(() => {
       this.scheduleTimer = undefined;
       this.postState();
-    }, SCHEDULE_DEBOUNCE_MS);
+    }, debounceMs);
   }
 
   /** Drop sync bookkeeping for a session that was closed or invalidated. */
@@ -496,6 +503,23 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       });
       this.syncState = { ...this.syncState, globalDirty: true };
       this.flushDirtyState();
+      return;
+    }
+
+    // Never force-reload the webview while any session is actively running.
+    // Mid-stream reloads discard transient streaming state and frequently
+    // leave the UI frozen or split, especially during slow tool calls like
+    // ask_user. The first-timeout resnapshot above gives the webview another
+    // chance once the current burst of events subsides.
+    const runningCount = this.getRunningSessionCount();
+    if (runningCount > 0) {
+      bootLog('sidebar-provider', 'stateApplied.timeout.streaming.suppressed', {
+        hostInstanceId: this.hostInstanceId,
+        pendingRevision: revision,
+        runningCount,
+        visible: this.view.visible,
+        webviewReady: this.webviewReady,
+      });
       return;
     }
 

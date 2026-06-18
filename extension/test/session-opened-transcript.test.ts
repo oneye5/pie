@@ -203,7 +203,8 @@ test('busy session.opened dedupes equivalent assistant messages with different i
   // `session.opened` arriving mid-stream can therefore carry the persisted
   // form of a message that the local is still streaming. Both rows refer
   // to the SAME logical assistant message; merging must not produce a
-  // duplicate transcript row.
+  // duplicate transcript row. It must also report the alias so the reducer
+  // can map later SDK-id events to the local streaming row we kept.
   const localAssistant: ChatMessage = {
     id: 'req-abc:1',
     role: 'assistant',
@@ -255,6 +256,8 @@ test('busy session.opened dedupes equivalent assistant messages with different i
   // The local streaming row (with live tool-call running state) wins.
   assert.equal(assistantMessages[0]?.id, 'req-abc:1');
   assert.equal(assistantMessages[0]?.status, 'streaming');
+  // The merge must expose the id alias for the reducer.
+  assert.deepEqual(result.aliases, [{ aliasId: 'session-msg-uuid-zzz', canonicalId: 'req-abc:1' }]);
 });
 
 test('busy session.opened preserves messages with running tool calls', () => {

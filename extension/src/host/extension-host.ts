@@ -131,6 +131,7 @@ export class PieExtension implements vscode.Disposable {
       (message) => {
         void this.handleWebviewMessage(message);
       },
+      () => this.archState.sessions.runningSessionPaths.length,
     );
 
     this.fileDiffService = new FileDiffService(() => this.archState);

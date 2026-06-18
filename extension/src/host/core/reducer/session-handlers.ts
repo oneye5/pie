@@ -72,18 +72,29 @@ export function handleSessionOpened(state: ArchState, event: Extract<Event, { ki
   let next: ArchState = state;
 
   const localTranscript = state.transcript.bySession[sessionPath] ?? [];
-  const { transcript: resolvedTranscript, transcriptWindow: resolvedWindow } =
-    resolveSessionOpenedTranscript({
-      busy: payload.busy,
-      incomingTranscript: payload.transcript,
-      incomingTranscriptWindow: payload.transcriptWindow,
-      localTranscript,
-    });
+  const {
+    transcript: resolvedTranscript,
+    transcriptWindow: resolvedWindow,
+    aliases: resolvedAliases,
+  } = resolveSessionOpenedTranscript({
+    busy: payload.busy,
+    incomingTranscript: payload.transcript,
+    incomingTranscriptWindow: payload.transcriptWindow,
+    localTranscript,
+  });
 
   // Sessions: running state, backend ready, upsert summary
   const nextRunningSessionPaths = payload.busy
     ? addToArray(state.sessions.runningSessionPaths, sessionPath)
     : state.sessions.runningSessionPaths;
+
+  // Any aliases discovered while merging must be stored so that later
+  // backend events carrying the SDK-assigned message id resolve to the
+  // streaming row the host kept.
+  const nextMessageIdAlias = { ...state.pending.messageIdAlias };
+  for (const { aliasId, canonicalId } of resolvedAliases) {
+    nextMessageIdAlias[aliasId] = { canonicalId, sessionPath };
+  }
 
   next = {
     ...next,
@@ -133,6 +144,10 @@ export function handleSessionOpened(state: ArchState, event: Extract<Event, { ki
           [sessionPath]: payload.systemPrompts,
         },
       }),
+    },
+    pending: {
+      ...next.pending,
+      messageIdAlias: nextMessageIdAlias,
     },
   };
 

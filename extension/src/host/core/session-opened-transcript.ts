@@ -5,6 +5,14 @@ export interface SessionOpenedTranscriptResolution {
   preserveLocal: boolean;
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
+  /**
+   * Aliases discovered while merging the local transcript into the incoming
+   * snapshot. Each entry means "incoming message id aliasId refers to the same
+   * logical message as local canonicalId". The reducer should store these in
+   * `state.pending.messageIdAlias` so later backend events carrying the SDK ids
+   * resolve to the streaming rows the host kept.
+   */
+  aliases: Array<{ aliasId: string; canonicalId: string }>;
 }
 
 function isEphemeralMessage(message: ChatMessage): boolean {
@@ -118,13 +126,14 @@ function hasEquivalentIncomingAssistantByToolCallIds(options: {
 function mergeIncomingWithEphemeralLocal(
   incomingTranscript: ChatMessage[],
   localTranscript: ChatMessage[],
-): { transcript: ChatMessage[]; appendedCount: number } {
+): { transcript: ChatMessage[]; appendedCount: number; aliases: Array<{ aliasId: string; canonicalId: string }> } {
   const merged = [...incomingTranscript];
   const indexById = new Map<string, number>();
   for (let index = 0; index < merged.length; index += 1) {
     indexById.set(merged[index].id, index);
   }
 
+  const aliases: Array<{ aliasId: string; canonicalId: string }> = [];
   let appendedCount = 0;
   for (let localIndex = 0; localIndex < localTranscript.length; localIndex += 1) {
     const localMessage = localTranscript[localIndex];
@@ -134,7 +143,9 @@ function mergeIncomingWithEphemeralLocal(
 
     const existingIndex = indexById.get(localMessage.id);
     if (existingIndex !== undefined) {
-      // Keep richer local streaming/optimistic state until authoritative data lands.
+      // Same id already exists in the incoming snapshot. Keep the richer local
+      // streaming/optimistic state until authoritative data lands. The ids are
+      // identical, so no alias is needed.
       merged[existingIndex] = localMessage;
       continue;
     }
@@ -173,7 +184,13 @@ function mergeIncomingWithEphemeralLocal(
       });
       if (equivalent.equivalent) {
         // Same assistant message under a different id — keep the local
-        // (which has live streaming state) at the incoming's position.
+        // (which has live streaming state) at the incoming's position. Record
+        // the alias so later backend events carrying the incoming SDK id
+        // resolve to the local canonical id we kept.
+        const incomingId = incomingTranscript[equivalent.incomingIndex]?.id;
+        if (incomingId && incomingId !== localMessage.id) {
+          aliases.push({ aliasId: incomingId, canonicalId: localMessage.id });
+        }
         merged[equivalent.incomingIndex] = localMessage;
         indexById.set(localMessage.id, equivalent.incomingIndex);
         continue;
@@ -185,7 +202,7 @@ function mergeIncomingWithEphemeralLocal(
     appendedCount += 1;
   }
 
-  return { transcript: merged, appendedCount };
+  return { transcript: merged, appendedCount, aliases };
 }
 
 /**
@@ -233,6 +250,7 @@ export function resolveSessionOpenedTranscript({
       preserveLocal,
       transcript: incomingTranscript,
       transcriptWindow: normalizeTranscriptWindow(incomingTranscript, incomingTranscriptWindow),
+      aliases: [],
     };
   }
 
@@ -257,5 +275,6 @@ export function resolveSessionOpenedTranscript({
     preserveLocal,
     transcript: merged.transcript,
     transcriptWindow: normalizeTranscriptWindow(merged.transcript, mergedWindow),
+    aliases: merged.aliases,
   };
 }
