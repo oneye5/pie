@@ -1,6 +1,15 @@
 import type { ComponentChildren } from 'preact';
 
-import type { ToolCall } from '../../../shared/protocol';
+import type {
+  ChatMessage,
+  ChatPrefs,
+  PruningResult,
+  PruningSettings,
+  SystemPromptEntry,
+  ThinkingLevel,
+  ToolCall,
+  TranscriptWindow,
+} from '../../../shared/protocol';
 import type { TranscriptContextMenuType } from '../chat-prefs';
 
 export type TranscriptContextMenuHandler = (
@@ -13,3 +22,31 @@ export type RenderToolCall = (
   toolCall: ToolCall,
   onContextMenu: TranscriptContextMenuHandler,
 ) => ComponentChildren;
+
+/**
+ * Props shared by {@link TranscriptView} and {@link TranscriptSurface} (and
+ * forwarded between them). Each component adds its own session-identity prop
+ * (`sessionKey` / `sessionPath`) and `TranscriptSurface` adds `isActive`.
+ */
+export interface TranscriptCommonProps {
+  transcript: ChatMessage[];
+  transcriptWindow: TranscriptWindow;
+  transcriptLoaded: boolean;
+  busy: boolean;
+  prefs: ChatPrefs;
+  pruningSettings: PruningSettings;
+  systemPrompts: SystemPromptEntry[];
+  pruningResult: PruningResult | null;
+  pendingAssistantModelId?: string;
+  pendingAssistantThinkingLevel?: ThinkingLevel;
+  workingDirectory: string | null;
+  editingId: string | null;
+  onEditRequest: (messageId: string) => void;
+  onEditConfirm: (messageId: string, text: string) => void;
+  onEditCancel: () => void;
+  onOpenFile: (path: string) => void;
+  onContextMenu: TranscriptContextMenuHandler;
+  onLoadOlder: () => void;
+  onLoadNewer: () => void;
+  onJumpToLatest: () => void;
+}

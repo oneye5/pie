@@ -11,7 +11,6 @@ import { isPendingTabPath } from '../../shared/tab-behavior';
 import type {
   ModelInfo,
   ModelSettings,
-  ThinkingLevel,
   TranscriptPageDirection,
   TranscriptPagePayload,
 } from '../../shared/protocol';

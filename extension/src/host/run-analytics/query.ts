@@ -10,6 +10,7 @@ import {
   type RunCheckpoint,
   type RunSnapshot,
 } from './index';
+import { resolveCheckpointSlot } from '../shared/checkpoint-slots';
 
 export interface RunAnalyticsQueryResult {
   completedRuns: RunSnapshot[];
@@ -126,19 +127,7 @@ async function readCheckpoint(storageDir: string): Promise<RunCheckpoint | null>
 
   const checkpointA = slotA ? parseCheckpoint(slotA) : null;
   const checkpointB = slotB ? parseCheckpoint(slotB) : null;
-  const trimmedGen = genValue?.trim();
-
-  if (trimmedGen === 'a' || trimmedGen === 'b') {
-    const preferredCheckpoint = trimmedGen === 'a' ? checkpointA : checkpointB;
-    const fallbackCheckpoint = trimmedGen === 'a' ? checkpointB : checkpointA;
-    return preferredCheckpoint ?? fallbackCheckpoint;
-  }
-
-  if (checkpointA && checkpointB) {
-    return checkpointA.seq >= checkpointB.seq ? checkpointA : checkpointB;
-  }
-
-  return checkpointA ?? checkpointB ?? null;
+  return resolveCheckpointSlot(genValue, checkpointA, checkpointB).checkpoint;
 }
 
 export async function queryRunAnalyticsStore(storageDir: string): Promise<RunAnalyticsQueryResult> {

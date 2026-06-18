@@ -17,32 +17,12 @@ import type {
   TranscriptWindow,
   ChatMessage,
 } from '../../../shared/protocol';
-import type { TranscriptContextMenuHandler } from './types';
+import type { TranscriptCommonProps, TranscriptContextMenuHandler } from './types';
 import { TranscriptView } from '.';
 
-interface TranscriptSurfaceProps {
+interface TranscriptSurfaceProps extends TranscriptCommonProps {
   sessionPath: string;
   isActive: boolean;
-  transcript: ChatMessage[];
-  transcriptWindow: TranscriptWindow;
-  transcriptLoaded: boolean;
-  busy: boolean;
-  prefs: ChatPrefs;
-  pruningSettings: PruningSettings;
-  systemPrompts: SystemPromptEntry[];
-  pruningResult: PruningResult | null;
-  pendingAssistantModelId?: string;
-  pendingAssistantThinkingLevel?: ThinkingLevel;
-  workingDirectory: string | null;
-  editingId: string | null;
-  onEditRequest: (messageId: string) => void;
-  onEditConfirm: (messageId: string, text: string) => void;
-  onEditCancel: () => void;
-  onOpenFile: (path: string) => void;
-  onContextMenu: TranscriptContextMenuHandler;
-  onLoadOlder: () => void;
-  onLoadNewer: () => void;
-  onJumpToLatest: () => void;
 }
 
 function TranscriptSurface({

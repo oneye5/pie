@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import type { RunCheckpoint } from '../run-analytics';
+import { resolveCheckpointSlot } from '../shared/checkpoint-slots';
 
 export type CheckpointSlot = 'a' | 'b';
 
@@ -37,34 +38,7 @@ export async function readCheckpointFromDisk(
 
   const checkpointA = slotA ? parseCheckpoint(slotA) : null;
   const checkpointB = slotB ? parseCheckpoint(slotB) : null;
-  const trimmedGen = genValue?.trim();
-
-  if (trimmedGen === 'a' || trimmedGen === 'b') {
-    const preferredCheckpoint = trimmedGen === 'a' ? checkpointA : checkpointB;
-    const fallbackCheckpoint = trimmedGen === 'a' ? checkpointB : checkpointA;
-    if (preferredCheckpoint) {
-      return { checkpoint: preferredCheckpoint, activeSlot: trimmedGen };
-    }
-    if (fallbackCheckpoint) {
-      return { checkpoint: fallbackCheckpoint, activeSlot: trimmedGen === 'a' ? 'b' : 'a' };
-    }
-  }
-
-  if (checkpointA && checkpointB) {
-    return checkpointA.seq >= checkpointB.seq
-      ? { checkpoint: checkpointA, activeSlot: 'a' }
-      : { checkpoint: checkpointB, activeSlot: 'b' };
-  }
-
-  if (checkpointA) {
-    return { checkpoint: checkpointA, activeSlot: 'a' };
-  }
-
-  if (checkpointB) {
-    return { checkpoint: checkpointB, activeSlot: 'b' };
-  }
-
-  return { checkpoint: null, activeSlot: 'a' };
+  return resolveCheckpointSlot(genValue, checkpointA, checkpointB);
 }
 
 export async function writeCheckpointToDisk(

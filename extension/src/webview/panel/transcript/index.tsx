@@ -4,15 +4,6 @@
 // Side-effect: register all built-in row and tool renderers
 import './register-builtins';
 
-import type {
-  ChatMessage,
-  ChatPrefs,
-  PruningResult,
-  PruningSettings,
-  SystemPromptEntry,
-  ThinkingLevel,
-  TranscriptWindow,
-} from '../../../shared/protocol';
 import { isTranscriptHydrating } from './state';
 
 import { MessageItem, ReasoningBlock } from './message-item';
@@ -35,33 +26,13 @@ export type {
   SubagentResult,
   SubagentSingleResult,
 } from './subagent';
-import type { TranscriptContextMenuHandler } from './types';
+import type { TranscriptCommonProps } from './types';
 import { TranscriptVirtualList } from './virtual-list';
 
 export { MessageItem, ReasoningBlock };
 
-interface TranscriptViewProps {
+interface TranscriptViewProps extends TranscriptCommonProps {
   sessionKey: string | null;
-  transcript: ChatMessage[];
-  transcriptWindow: TranscriptWindow;
-  transcriptLoaded: boolean;
-  busy: boolean;
-  prefs: ChatPrefs;
-  pruningSettings: PruningSettings;
-  systemPrompts: SystemPromptEntry[];
-  pruningResult: PruningResult | null;
-  pendingAssistantModelId?: string;
-  pendingAssistantThinkingLevel?: ThinkingLevel;
-  workingDirectory: string | null;
-  editingId: string | null;
-  onEditRequest: (messageId: string) => void;
-  onEditConfirm: (messageId: string, text: string) => void;
-  onEditCancel: () => void;
-  onOpenFile: (path: string) => void;
-  onContextMenu: TranscriptContextMenuHandler;
-  onLoadOlder: () => void;
-  onLoadNewer: () => void;
-  onJumpToLatest: () => void;
 }
 
 export function TranscriptView({

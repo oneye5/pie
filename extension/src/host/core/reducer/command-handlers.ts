@@ -2,7 +2,7 @@ import { produce } from 'immer';
 import * as path from 'node:path';
 
 import type { ArchState } from '../arch-state.js';
-import { mergePruningSettings, type ChatPrefs, type ComposerInput, type ModelSettings } from '../../../shared/protocol.js';
+import { mergePruningSettings, type ChatPrefs, type ComposerInput } from '../../../shared/protocol.js';
 import type { ReducerResult } from './helpers.js';
 import { addToArray, removeFromArray, appendLocalUserMessage } from './helpers.js';
 import { moveOpenTabPath, isPendingTabPath, getNextVisibleTabPathOnClose } from '../../../shared/tab-behavior.js';

@@ -8,7 +8,6 @@ import type {
   ComposerInputDraft,
   UserContentPart,
 } from '../../shared/protocol';
-import type { ArchState } from './arch-state';
 import { modelSupportsInputKind } from './model-capability';
 import type { GetArchState } from './model-capability';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../../shared/image-constraints';
