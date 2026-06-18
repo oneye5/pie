@@ -61,6 +61,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
   const modelEntries = useMemo(() => orderModelsForPicker(availableModels), [availableModels]);
   const [expandedExt, setExpandedExt] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (!open) {
@@ -73,9 +74,23 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
       }
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpen(false);
+      if (event.key !== 'Escape') return;
+      // If a nested overlay (e.g. the ModelPicker dropdown rendered inside this
+      // menu) owns focus, defer to its own Escape handler so only the picker
+      // closes and focus returns to the picker trigger. This menu's keydown
+      // listener is registered first (parent mounts first) and therefore fires
+      // first, so we skip here rather than rely on the child stopping
+      // propagation (stopImmediatePropagation would have no effect).
+      const active = document.activeElement as HTMLElement | null;
+      if (
+        active &&
+        menuRef.current?.contains(active) &&
+        active.closest('.model-picker-dropdown')
+      ) {
+        return;
       }
+      setOpen(false);
+      triggerRef.current?.focus();
     };
 
     document.addEventListener('mousedown', handlePointerDown);
@@ -94,6 +109,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
   return (
     <div ref={menuRef} class="toolbar-settings">
       <button
+        ref={triggerRef}
         class={`toolbar-settings-trigger${open ? ' open' : ''}`}
         type="button"
         aria-label="Chat settings"

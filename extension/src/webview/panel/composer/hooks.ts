@@ -53,6 +53,12 @@ export function useComposerInput({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftPostTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Latch that suppresses a second submit between the moment we post a send
+  // and when the host round-trip flips `busy` to true (or clears pending
+  // inputs). `busy` is the durable latch but lags a round-trip; this ref closes
+  // the window where `pendingComposerInputs.length > 0` would otherwise let
+  // Enter re-fire sendCurrentText with empty text.
+  const submitting = useRef(false);
 
   useEffect(() => {
     if (focusTrigger !== undefined) {
@@ -65,6 +71,16 @@ export function useComposerInput({
   // of truth across reloads and session switches.
   useEffect(() => {
     setText(draftText);
+    submitting.current = false;
+    const textarea = textareaRef.current;
+    if (textarea) {
+      // Seed the DOM value directly so resizeComposerTextarea reads the new
+      // content synchronously (the setText re-render has not committed yet).
+      // Mirrors the draftRestore effect below; otherwise switching to a
+      // session with a multi-line draft shows a 1-row textarea with scroll.
+      textarea.value = draftText;
+      resizeComposerTextarea(textarea);
+    }
   }, [sessionPath]);
 
   // Debounce-post draft text back to the host so it survives reloads and
@@ -103,6 +119,21 @@ export function useComposerInput({
     }
   }, [draftRestore?.nonce]);
 
+  // Clear the submit latch once the host acknowledges the send: either by
+  // flipping `busy` to true (the durable latch takes over) or by clearing the
+  // pending attachments that were keeping canSend true.
+  useEffect(() => {
+    if (busy) {
+      submitting.current = false;
+    }
+  }, [busy]);
+
+  useEffect(() => {
+    if (pendingComposerInputsLength === 0) {
+      submitting.current = false;
+    }
+  }, [pendingComposerInputsLength]);
+
   const resetComposer = useCallback(() => {
     setText('');
     setAttachmentError(null);
@@ -114,7 +145,9 @@ export function useComposerInput({
 
   const sendCurrentText = useCallback(() => {
     const trimmed = text.trim();
+    if (submitting.current) return;
     if ((trimmed.length === 0 && pendingComposerInputsLength === 0) || busy) return;
+    submitting.current = true;
     onSend(trimmed);
     resetComposer();
   }, [busy, onSend, pendingComposerInputsLength, resetComposer, text]);
@@ -182,6 +215,7 @@ export function useComposerInput({
     handleInput,
     handlePaste,
     applyComposerTransfer,
+    submitting,
   };
 }
 

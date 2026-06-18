@@ -135,7 +135,15 @@ export function useMessageItemDerived({
   const replyMeta = assistantReplyMeta(message);
   const assistantMetaTooltip = formatAssistantMetaTooltip(message);
 
-  const html = useMemo(() => renderMarkdown(combinedMarkdown), [combinedMarkdown]);
+  const html = useMemo(() => {
+    // Assistant messages with structured parts render through BufferedTextPart /
+    // AssistantParts, which parse markdown per-part. Parsing the combined text
+    // here too would duplicate marked+DOMPurify work on every streaming delta
+    // for a result that is never consumed (MessageContent routes to
+    // AssistantParts when combinedParts exists). Skip the parse in that case.
+    if (message.role === 'assistant' && combinedParts) return '';
+    return renderMarkdown(combinedMarkdown);
+  }, [message.role, combinedParts, combinedMarkdown]);
   const getMessageRaw = useCallback(
     () => buildMessageRaw(message, combinedMarkdown, combinedThinking, combinedToolCalls, combinedParts as ReturnType<typeof assistantPartsFromMessage>),
     [

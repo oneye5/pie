@@ -5,6 +5,7 @@ import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatPrefs, ToolCall } from '../../../shared/protocol';
 import { summarizeSubagentToolCallInput } from '../../../shared/tool-call-analysis';
 import { shouldOpenSubagentContextMenu } from './interactions';
+import { handleTranscriptClick } from './transcript-click-handler';
 import { getToolCallContextType } from '../chat-prefs';
 import { AskUserContext } from '../hooks/ask-user-context';
 
@@ -248,7 +249,13 @@ function SubagentMessages({
   return (
     <div
       class="subagent-messages"
-      onClick={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        // Run the delegated code-block copy/toggle handler (buttons are rendered
+        // via dangerouslySetInnerHTML), then stop propagation so the click
+        // doesn't bubble to the subagent card's toggle / outer transcript.
+        handleTranscriptClick(e);
+        e.stopPropagation();
+      }}
       onContextMenu={(e) => {
         if (!shouldOpenSubagentContextMenu(e.target)) {
           e.stopPropagation();

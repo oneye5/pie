@@ -10,6 +10,7 @@ import type {
 import { createLocalMessageId } from '../../shared/local-message-id';
 import type { TranscriptContextMenuType } from './chat-prefs';
 import type { ContextMenuState } from './components/context-menu';
+import type { SessionTabRunAction } from './session-tabs/run-state';
 
 export interface AppHandlers {
   handleSend: (text: string) => void;
@@ -30,6 +31,7 @@ export interface AppHandlers {
   handleSelectTab: (path: string) => void;
   handleMoveTab: (sessionPath: string | undefined, fromIndex: number, toIndex: number) => void;
   handleRecordOutcome: (outcome: RunOutcome) => void;
+  handleTabRunAction: (action: SessionTabRunAction, tabPath: string) => void;
   handleModelChange: (model: string, thinkingLevel: ThinkingLevel) => void;
   handleEditSend: (messageId: string, text: string) => void;
   handleOpenFileDiff: (filePath: string) => void;
@@ -115,8 +117,27 @@ export function useAppHandlers(
     const sessionPath = activeSessionPathRef.current;
     if (!sessionPath) return;
     postMessage({ type: 'recordOutcome', sessionPath, outcome });
-    postMessage({ type: 'closeSession', sessionPath });
+    // Close the outcome dialog before closing the session: closeSession may
+    // null/swap the active session and unmount the dialog before
+    // closeOutcomeDialog is applied, which can briefly re-render the dialog
+    // against a different session.
     postMessage({ type: 'closeOutcomeDialog', sessionPath });
+    postMessage({ type: 'closeSession', sessionPath });
+  }, [postMessage, activeSessionPathRef]);
+
+  // Tab context-menu task actions. The outcome dialog renders against the
+  // active session, so selecting the tab first ensures the dialog (and any
+  // follow-up) targets the session the user right-clicked.
+  const handleTabRunAction = useCallback((action: SessionTabRunAction, tabPath: string) => {
+    activeSessionPathRef.current = tabPath;
+    postMessage({ type: 'openSession', sessionPath: tabPath });
+    if (action === 'recordOutcome') {
+      postMessage({ type: 'openOutcomeDialog', sessionPath: tabPath });
+    } else if (action === 'startNewTask') {
+      postMessage({ type: 'startNewTask', sessionPath: tabPath });
+    } else if (action === 'continueTask') {
+      postMessage({ type: 'continueTask', sessionPath: tabPath });
+    }
   }, [postMessage, activeSessionPathRef]);
 
   const handleModelChange = useCallback((model: string, thinkingLevel: ThinkingLevel) => {
@@ -173,6 +194,7 @@ export function useAppHandlers(
     handleSelectTab,
     handleMoveTab,
     handleRecordOutcome,
+    handleTabRunAction,
     handleModelChange,
     handleEditSend,
     handleOpenFileDiff,

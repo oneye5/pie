@@ -38,6 +38,38 @@ export interface StatusChipProps {
   title?: string;
 }
 
+/**
+ * Copy text to the clipboard, falling back to a hidden textarea + execCommand
+ * when the async Clipboard API is unavailable or rejected (e.g. older webview,
+ * non-secure context). Returns whether the copy succeeded.
+ */
+async function copyToClipboard(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    /* fall through to the legacy synchronous path */
+  }
+  try {
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.setAttribute('readonly', '');
+    textarea.style.position = 'fixed';
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(textarea);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
 export function StatusChip({ tone, label, className, copyText, copyAriaLabel, title }: StatusChipProps) {
   const classes = `status-chip status-chip-${tone}${copyText ? ' has-error-detail' : ''}${className ? ` ${className}` : ''}`;
 
@@ -49,8 +81,9 @@ export function StatusChip({ tone, label, className, copyText, copyAriaLabel, ti
     );
   }
 
-  const copy = (target: HTMLElement) => {
-    navigator.clipboard.writeText(copyText);
+  const copy = async (target: HTMLElement) => {
+    const ok = await copyToClipboard(copyText);
+    if (!ok) return;
     target.dataset.copied = '';
     setTimeout(() => {
       delete target.dataset.copied;

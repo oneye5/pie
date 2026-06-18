@@ -137,6 +137,7 @@ function ComposerView({
     handleInput,
     handlePaste,
     applyComposerTransfer,
+    submitting,
   } = useComposerInput({
     busy,
     onSend,
@@ -165,7 +166,7 @@ function ComposerView({
   const hasUserMessages = transcriptWindow.hasUserMessages;
   const completionAction = runControls.action;
 
-  const canSend = text.trim().length > 0 || pendingComposerInputs.length > 0;
+  const canSend = (text.trim().length > 0 || pendingComposerInputs.length > 0) && !submitting.current;
   const attachmentSummary = useMemo(
     () => describeComposerInputSummary(pendingComposerInputs),
     [pendingComposerInputs],

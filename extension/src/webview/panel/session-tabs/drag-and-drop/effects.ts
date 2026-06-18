@@ -39,11 +39,17 @@ export function useDragEffects({
   }, [dragState?.pointerId, syncDragFromPointer, dragStateRef, pointerPositionRef]);
 
   useEffect(() => {
-    if (!dragStateRef.current || !pointerPositionRef.current) {
+    const current = dragStateRef.current;
+    if (!current || !pointerPositionRef.current) {
       return;
     }
 
-    if (dragStateRef.current.sourceIndex >= openTabPaths.length) {
+    // Reset if the source tab is no longer present (closed/replaced mid-drag),
+    // whether by index-out-of-range or by path no longer being in the list.
+    if (
+      current.sourceIndex >= openTabPaths.length ||
+      openTabPaths.indexOf(current.sourcePath) === -1
+    ) {
       resetDrag(false);
       return;
     }

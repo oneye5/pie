@@ -45,10 +45,17 @@ export function runAutoScrollTick(
     strip.scrollLeft += nextDelta;
     if (strip.scrollLeft !== previousScrollLeft) {
       syncDragFromPointer(pointer.x, pointer.y);
+      autoScrollFrameRef.current = window.requestAnimationFrame(autoScrollRunner);
+    } else {
+      // At the scroll limit (or no overflow): stop until the pointer moves
+      // again and runPointerMove re-arms the loop.
+      autoScrollFrameRef.current = null;
     }
+  } else {
+    // Pointer not in an edge zone: stop the loop. runPointerMove re-arms it
+    // when the pointer re-enters an edge zone.
+    autoScrollFrameRef.current = null;
   }
-
-  autoScrollFrameRef.current = window.requestAnimationFrame(autoScrollRunner);
 }
 
 export function runStopAutoScrollLoop(

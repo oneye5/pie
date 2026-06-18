@@ -5,9 +5,10 @@ import { useRef } from 'preact/hooks';
 
 import type { ActiveRunSummary, ExtensionUIRequestPayload, SessionSummary } from '../../../shared/protocol';
 import { isPendingTabPath } from '../../../shared/tab-behavior';
-import { getSessionTabRunBadge } from './run-state';
+import { getSessionTabRunBadge, getSessionTabRunMenuItems } from './run-state';
+import type { SessionTabRunAction } from './run-state';
 import { useTabDragAndDrop } from './use-drag-and-drop.js';
-import type { SessionTabDragState } from './types';
+import type { SessionTabContextAction, SessionTabDragState } from './types';
 
 interface SessionTabsProps {
   sessions: SessionSummary[];
@@ -18,12 +19,14 @@ interface SessionTabsProps {
   activeRunSummary: ActiveRunSummary | null;
   backendReady?: boolean;
   pendingExtensionUIRequestsBySession: Record<string, Record<string, import('../../../shared/protocol').ExtensionUIRequestPayload>>;
+  runSummariesBySession: Record<string, ActiveRunSummary | null>;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
   onMove: (sessionPath: string | undefined, fromIndex: number, toIndex: number) => void;
   onNew: () => void;
   onMarkComplete: () => void;
   onDuplicate: (path: string) => void;
+  onRunAction: (action: SessionTabRunAction, tabPath: string) => void;
 }
 
 interface DropGapProps {
@@ -190,12 +193,14 @@ function FloatingSessionTab({
 interface SessionTabContextMenuProps {
   tabContextMenu: { x: number; y: number; tabPath: string };
   sessionByPath: Map<string, SessionSummary>;
-  onContextAction: (action: 'duplicate' | 'close', tabPath: string) => void;
+  runSummary: ActiveRunSummary | null;
+  onContextAction: (action: SessionTabContextAction, tabPath: string) => void;
 }
 
 function SessionTabContextMenu({
   tabContextMenu,
   sessionByPath,
+  runSummary,
   onContextAction,
 }: SessionTabContextMenuProps) {
   const ctxSession = sessionByPath.get(tabContextMenu.tabPath);
@@ -203,6 +208,7 @@ function SessionTabContextMenu({
   const isPending = isPendingTabPath(tabContextMenu.tabPath);
   const menuTop = Math.min(tabContextMenu.y, window.innerHeight - 100);
   const menuLeft = Math.min(tabContextMenu.x, window.innerWidth - 210);
+  const runItems = getSessionTabRunMenuItems(runSummary);
 
   return (
     <div
@@ -211,6 +217,18 @@ function SessionTabContextMenu({
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div class="session-tab-context-title" title={ctxLabel}>{ctxLabel}</div>
+      {runItems.map((item) => (
+        <button
+          key={item.action}
+          class="context-menu-item"
+          type="button"
+          onClick={() => onContextAction(item.action, tabContextMenu.tabPath)}
+        >
+          <svg class="context-menu-check" width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" style="opacity:0" />
+          {item.label}
+        </button>
+      ))}
+      {runItems.length > 0 && <div class="context-menu-separator" />}
       <button
         class="context-menu-item"
         type="button"
@@ -254,12 +272,14 @@ export function SessionTabs({
   activeRunSummary,
   backendReady,
   pendingExtensionUIRequestsBySession,
+  runSummariesBySession,
   onSelect,
   onClose,
   onMove,
   onNew,
   onMarkComplete,
   onDuplicate,
+  onRunAction,
 }: SessionTabsProps) {
   const stripRef = useRef<HTMLDivElement>(null);
 
@@ -276,6 +296,7 @@ export function SessionTabs({
     onSelect,
     onClose,
     onDuplicate,
+    onRunAction,
     stripRef,
   });
 
@@ -284,8 +305,11 @@ export function SessionTabs({
   const runningPathSet = new Set(runningSessionPaths);
   const unreadFinishedPathSet = new Set(unreadFinishedSessionPaths);
 
-  const draggedSourceIndex = dragState ? Math.min(dragState.sourceIndex, openTabPaths.length - 1) : -1;
-  const draggedPath = draggedSourceIndex >= 0 ? (openTabPaths[draggedSourceIndex] ?? dragState?.sourcePath ?? null) : null;
+  // Re-resolve the dragged index from the source path each render so a tab
+  // closing or being inserted elsewhere mid-drag doesn't float the wrong tab.
+  const draggedSourcePath = dragState?.sourcePath ?? null;
+  const draggedSourceIndex = draggedSourcePath !== null ? openTabPaths.indexOf(draggedSourcePath) : -1;
+  const draggedPath = draggedSourceIndex >= 0 ? draggedSourcePath : null;
   const renderedTabPaths = draggedSourceIndex >= 0
     ? openTabPaths.filter((_, index) => index !== draggedSourceIndex)
     : openTabPaths;
@@ -345,6 +369,7 @@ export function SessionTabs({
         <SessionTabContextMenu
           tabContextMenu={tabContextMenu}
           sessionByPath={sessionByPath}
+          runSummary={runSummariesBySession[tabContextMenu.tabPath] ?? null}
           onContextAction={onContextAction}
         />
       )}

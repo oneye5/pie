@@ -67,8 +67,11 @@ export function ComposerToolbar({
   runStatus,
   onModelChange,
 }: ComposerToolbarProps) {
-  const filteredModels = availableModels.filter(
-    (m) => prefs.providerToggles[m.provider] !== false || m.id === selectedModel,
+  const filteredModels = useMemo(
+    () => availableModels.filter(
+      (m) => prefs.providerToggles[m.provider] !== false || m.id === selectedModel,
+    ),
+    [availableModels, prefs.providerToggles, selectedModel],
   );
   const modelEntries = useMemo(() => orderModelsForPicker(filteredModels), [filteredModels]);
   const selectedModelEntry = modelEntries.find((entry) => entry.model.id === selectedModel) ?? null;

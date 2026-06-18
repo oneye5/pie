@@ -82,6 +82,10 @@ export function runPointerMove(
   }
 
   syncDragFromPointer(event.clientX, event.clientY);
+  // Re-arm the auto-scroll loop in case the pointer has (re)entered an edge
+  // zone; the tick stops itself when nothing is scrolling, so this is cheap
+  // and avoids a continuous rAF for the whole drag.
+  ensureAutoScrollLoop();
   event.preventDefault();
 }
 

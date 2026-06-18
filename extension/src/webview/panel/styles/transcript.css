@@ -7,7 +7,11 @@
   overflow-y: auto;
   overflow-x: hidden;
   overflow-anchor: none;
-  scroll-behavior: smooth;
+  /* No CSS smooth-scroll: the auto-follow rAF loop (use-transcript-scroll) owns
+     smoothness — easing small streaming deltas and snapping large ones — and
+     explicit jumps (scrollToBottom, anchor restore) must be instant. A CSS
+     `scroll-behavior: smooth` here starts a slow animation on jumps that the
+     JS loop then interrupts and replaces with frame-by-frame easing. */
   overscroll-behavior: contain;
   padding: var(--panel-gap-md) var(--panel-gap-lg) 10px;
   display: flex;

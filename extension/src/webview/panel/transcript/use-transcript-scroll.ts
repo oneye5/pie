@@ -43,7 +43,15 @@ function useScrollState(scrollRef: { current: HTMLDivElement | null }) {
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
+    // Jumps must be instant: force non-smooth behavior around the snap so an
+    // in-flight CSS smooth-scroll (or any `scroll-behavior: smooth` rule) can't
+    // turn this into a slow ease that the auto-follow loop would then interrupt
+    // and replace with frame-by-frame easing. Restored afterwards so the loop
+    // continues to own smoothness while streaming.
+    const prior = el.style.scrollBehavior;
+    el.style.scrollBehavior = 'auto';
     el.scrollTop = el.scrollHeight;
+    el.style.scrollBehavior = prior;
     lastScrollTopRef.current = el.scrollTop;
     setIsAtBottom(true);
   }, [scrollRef]);

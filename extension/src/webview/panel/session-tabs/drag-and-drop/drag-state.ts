@@ -99,6 +99,7 @@ export function runCommitDrag(
   dragStateRef: { current: SessionTabDragState | null },
   openTabPathsRef: { current: string[] },
   onMove: (movedPath: string, sourceIndex: number, dropIndex: number) => void,
+  onSelect: (path: string) => void,
   resetDrag: (suppressClick: boolean) => void,
 ): void {
   const current = dragStateRef.current;
@@ -108,13 +109,23 @@ export function runCommitDrag(
   }
 
   const currentPaths = openTabPathsRef.current;
-  const sourceIndex = Math.min(current.sourceIndex, currentPaths.length - 1);
-  const movedPath = currentPaths[sourceIndex] ?? current.sourcePath;
   const dropIndex = current.dropIndex;
-  const shouldMove = sourceIndex >= 0 && dropIndex !== null && dropIndex !== sourceIndex;
+  // Resolve the source by path (not the stale sourceIndex) so a tab
+  // closing/inserting elsewhere mid-drag doesn't move the wrong tab. The host
+  // re-resolves the from-index from the sessionPath.
+  const sourceIndex = currentPaths.indexOf(current.sourcePath);
+  const sourceStillPresent = sourceIndex !== -1;
+  const shouldMove = sourceStillPresent && dropIndex !== null && dropIndex !== sourceIndex;
 
   if (shouldMove) {
-    onMove(movedPath, sourceIndex, dropIndex);
+    onMove(current.sourcePath, sourceIndex, dropIndex);
+  } else if (dropIndex !== null && sourceStillPresent) {
+    // Released over the strip on the same slot (e.g. a click that jittered past
+    // the drag threshold): the compatibility `click` was suppressed by
+    // `preventDefault` on the drag pointermove, so switch the tab explicitly
+    // instead of relying on `click` firing. Releasing outside the strip
+    // (dropIndex === null) is treated as a cancel.
+    onSelect(current.sourcePath);
   }
 
   resetDrag(true);

@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useState, useEffect, useMemo } from 'preact/hooks';
+import { useState, useEffect, useMemo, useCallback } from 'preact/hooks';
 import type {
   ViewState,
   WebviewToHostMessage,
@@ -48,6 +48,7 @@ function useAppBodyDerivedState(
     modelSettings,
     availableModels,
     pendingExtensionUIRequestsBySession,
+    pendingExtensionUIRequest,
     transcript,
   } = viewState;
 
@@ -76,11 +77,13 @@ function useAppBodyDerivedState(
     availableModels,
   }), [activeModelId, activeThinkingLevel, settingsDefaultModel, settingsDefaultThinkingLevel, modelCount]);
 
+  // Only suppress the bottom-bar prompt when the request that would be shown
+  // there is itself a `select` that is rendered inline in the transcript. The
+  // previous check ("any select exists") hid confirm/input prompts too, leaving
+  // them shown nowhere and blocking the extension.
   const isAskUserHandledInline =
     !!activeSessionPath &&
-    Object.values(pendingExtensionUIRequestsBySession[activeSessionPath] ?? {}).some(
-      (req) => req.method === 'select',
-    ) &&
+    pendingExtensionUIRequest?.method === 'select' &&
     transcript.some((msg) =>
       msg.parts?.some((p): p is ChatMessageToolCallPart =>
         p.kind === 'toolCall' && p.toolCall.name === 'ask_user' && p.toolCall.status === 'running'
@@ -324,6 +327,7 @@ export function AppBody({ adapter }: AppBodyProps) {
     useHostSync(postMessage, adapter.initialState);
 
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
+  const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
   const handlers = useAppHandlers(
     postMessage,
@@ -364,7 +368,7 @@ export function AppBody({ adapter }: AppBodyProps) {
           menu={contextMenu}
           prefs={viewState.prefs}
           onSetPrefs={handlers.handleSetPrefs}
-          onClose={() => setContextMenu(null)}
+          onClose={closeContextMenu}
         />
       )}
       {viewState.notice && (
@@ -381,12 +385,14 @@ export function AppBody({ adapter }: AppBodyProps) {
           activeRunSummary={viewState.activeRunSummary}
           backendReady={viewState.backendReady}
           pendingExtensionUIRequestsBySession={viewState.pendingExtensionUIRequestsBySession}
+          runSummariesBySession={viewState.runSummariesBySession}
           onSelect={handlers.handleSelectTab}
           onClose={handlers.handleCloseTab}
           onMove={handlers.handleMoveTab}
           onNew={handlers.handleNewSession}
           onMarkComplete={handlers.handleMarkComplete}
           onDuplicate={handlers.handleDuplicateTab}
+          onRunAction={handlers.handleTabRunAction}
         />
       )}
 

@@ -8,6 +8,7 @@ import { type ChatMessage, type ChatPrefs, type PruningResult, type PruningSetti
 import { deriveTurnActivityState } from './activity';
 import { ToolCallItem } from './tool-call-item';
 import { useTranscriptScroll } from './use-transcript-scroll';
+import { handleTranscriptClick } from './transcript-click-handler';
 import { cx } from '../utils/cx';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import { TranscriptVirtualRow } from './virtual-list-row';
@@ -189,46 +190,6 @@ function useTranscriptRenderToolCall({
   return renderToolCall;
 }
 
-function useTranscriptClickHandler() {
-  const handlers: Record<string, (target: HTMLElement, btn: Element) => void> = {
-    '.code-block-copy': (_target, btn) => {
-      const code = btn.closest('.code-block')?.querySelector('code');
-      const text = code?.textContent ?? '';
-      if (text) {
-        void navigator.clipboard?.writeText(text);
-        btn.classList.add('copied');
-        window.setTimeout(() => btn.classList.remove('copied'), 1200);
-      }
-    },
-    '.code-block-toggle': (_target, btn) => {
-      const block = btn.closest('.code-block');
-      if (!block) return;
-      // Preserve the original "Show all N lines" label for re-collapse.
-      if (!btn.getAttribute('data-collapsed-label')) {
-        btn.setAttribute('data-collapsed-label', btn.textContent ?? 'Show all');
-      }
-      const collapsed = block.classList.toggle('code-block-collapsed');
-      btn.setAttribute('aria-expanded', String(!collapsed));
-      btn.textContent = collapsed
-        ? btn.getAttribute('data-collapsed-label') ?? 'Show all'
-        : 'Show less';
-    },
-  };
-
-  return useCallback((event: MouseEvent) => {
-    const target = event.target as HTMLElement | null;
-    if (!target) return;
-
-    for (const [selector, handler] of Object.entries(handlers)) {
-      const btn = target.closest(selector);
-      if (btn) {
-        handler(target, btn);
-        return;
-      }
-    }
-  }, []);
-}
-
 interface VirtualRowProps {
   virtualRow: VirtualItem;
   rows: readonly TranscriptRow[];
@@ -384,20 +345,17 @@ export function TranscriptVirtualList({
     onOpenFile,
   });
 
-  // Re-affirm the row element with the virtualizer on every render. A stable
-  // useCallback ref only fires on mount/unmount, so subsequent renders never
-  // re-measure — but the row's content can change height after mount (e.g.,
-  // markdown tables, streaming text, images). Using an unstable ref forces
-  // Preact to invoke it each render, which (a) re-binds tanstack's
-  // ResizeObserver to the node and (b) synchronously re-measures, preventing
-  // stale `virtualRow.start` values from causing visual row overlap.
-  const measureRowElement = (element: HTMLDivElement | null) => {
+  // Stable ref: tanstack's `measureElement` measures synchronously on mount and
+  // registers a ResizeObserver (batched with rAF via
+  // `useAnimationFrameWithResizeObserver`) that re-measures on subsequent height
+  // changes (streaming markdown, late tables/images). A stable callback avoids
+  // re-binding the observer and re-running getBoundingClientRect on every
+  // visible row every render.
+  const measureRowElement = useCallback((element: HTMLDivElement | null) => {
     if (element) {
       virtualizer.measureElement(element);
     }
-  };
-
-  const handleTranscriptClick = useTranscriptClickHandler();
+  }, [virtualizer]);
 
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();

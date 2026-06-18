@@ -39,6 +39,7 @@ export function useTabDragAndDrop({
   onSelect,
   onClose,
   onDuplicate,
+  onRunAction,
   stripRef,
 }: UseTabDragAndDropOptions): UseTabDragAndDropResult {
   const openTabPathsRef = useRef(openTabPaths);
@@ -106,8 +107,8 @@ export function useTabDragAndDrop({
   }, [endTracking]);
 
   const commitDrag = useCallback(() => {
-    runCommitDrag(dragStateRef, openTabPathsRef, onMove, resetDrag);
-  }, [onMove, resetDrag]);
+    runCommitDrag(dragStateRef, openTabPathsRef, onMove, onSelect, resetDrag);
+  }, [onMove, onSelect, resetDrag]);
 
   autoScrollTickRef.current = () => {
     runAutoScrollTick(
@@ -166,6 +167,7 @@ export function useTabDragAndDrop({
   const { tabContextMenu, setTabContextMenu, onContextMenu, onContextAction } = useTabContextMenu({
     onDuplicate,
     onClose,
+    onRunAction,
   });
 
   const onPointerDown = useCallback((event: PointerEvent, sourceIndex: number, sourcePath: string) => {

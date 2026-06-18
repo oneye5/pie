@@ -39,6 +39,12 @@
   color: var(--panel-accent);
 }
 
+.context-menu-separator {
+  height: 1px;
+  margin: 4px 8px;
+  background: var(--panel-border-subtle);
+}
+
 /* ── Composer attachments ────────────────────────────────────────────────── */
 
 .composer-attachments {

@@ -37,16 +37,18 @@ export function ContextMenu({
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
-    const scroll = () => onClose();
+    // Don't close on scroll: the menu is position:fixed so it stays correctly
+    // placed, and a capture-phase window scroll listener would dismiss the menu
+    // whenever the transcript auto-scrolls during a run. Close on resize since
+    // viewport changes can leave the fixed menu misplaced.
+    const resize = () => onClose();
     document.addEventListener('mousedown', down);
     document.addEventListener('keydown', key);
-    window.addEventListener('scroll', scroll, { capture: true });
-    window.addEventListener('resize', scroll);
+    window.addEventListener('resize', resize);
     return () => {
       document.removeEventListener('mousedown', down);
       document.removeEventListener('keydown', key);
-      window.removeEventListener('scroll', scroll, { capture: true });
-      window.removeEventListener('resize', scroll);
+      window.removeEventListener('resize', resize);
     };
   }, [onClose]);
 

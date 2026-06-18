@@ -11,6 +11,15 @@ const SMOOTH_SCROLL_INTERPOLATION = 0.22;
 const SMOOTH_SCROLL_MIN_STEP_PX = 2;
 const SMOOTH_SCROLL_MAX_STEP_PX = 56;
 export const SMOOTH_SCROLL_SNAP_EPSILON_PX = 1;
+/**
+ * When the gap between the current and target scroll position exceeds this many
+ * pixels, snap directly to the target instead of easing toward it. This keeps
+ * the latest content in view during bursty growth (large code blocks, tables,
+ * rapid streaming deltas) and makes explicit jumps instant rather than
+ * crawling toward the bottom at the per-frame max-step rate. Easing is
+ * reserved for small streaming increments so the follow still feels smooth.
+ */
+const SMOOTH_SCROLL_LARGE_DELTA_SNAP_PX = 200;
 
 export interface ScrollAnchorSnapshot {
   key: string;
@@ -102,9 +111,16 @@ export function advanceSmoothScrollTop(
   minStepPx = SMOOTH_SCROLL_MIN_STEP_PX,
   maxStepPx = SMOOTH_SCROLL_MAX_STEP_PX,
   snapEpsilonPx = SMOOTH_SCROLL_SNAP_EPSILON_PX,
+  largeDeltaSnapPx = SMOOTH_SCROLL_LARGE_DELTA_SNAP_PX,
 ): number {
   const delta = targetScrollTop - currentScrollTop;
   if (Math.abs(delta) <= snapEpsilonPx) {
+    return targetScrollTop;
+  }
+
+  // Large deltas (bursty growth / explicit jumps) snap to the target so the
+  // latest content is always in view instead of easing over many frames.
+  if (Math.abs(delta) > largeDeltaSnapPx) {
     return targetScrollTop;
   }
 

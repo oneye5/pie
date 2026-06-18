@@ -1,11 +1,15 @@
 import { useState, useCallback, useEffect } from 'preact/hooks';
+import type { SessionTabRunAction } from '../run-state';
+import type { SessionTabContextAction } from '../types';
 
 export function useTabContextMenu({
   onDuplicate,
   onClose,
+  onRunAction,
 }: {
   onDuplicate: (tabPath: string) => void;
   onClose: (tabPath: string) => void;
+  onRunAction: (action: SessionTabRunAction, tabPath: string) => void;
 }) {
   const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; tabPath: string } | null>(null);
 
@@ -14,14 +18,16 @@ export function useTabContextMenu({
     setTabContextMenu({ x: event.clientX, y: event.clientY, tabPath });
   }, []);
 
-  const onContextAction = useCallback((action: 'duplicate' | 'close', tabPath: string) => {
+  const onContextAction = useCallback((action: SessionTabContextAction, tabPath: string) => {
     setTabContextMenu(null);
     if (action === 'duplicate') {
       onDuplicate(tabPath);
     } else if (action === 'close') {
       onClose(tabPath);
+    } else {
+      onRunAction(action, tabPath);
     }
-  }, [onDuplicate, onClose]);
+  }, [onDuplicate, onClose, onRunAction]);
 
   useEffect(() => {
     if (!tabContextMenu) return;

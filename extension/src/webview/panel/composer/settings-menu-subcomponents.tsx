@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useMemo } from 'preact/hooks';
+import { useEffect, useMemo, useState } from 'preact/hooks';
 
 import { playCompletionSound, warmupCompletionSoundContext } from '../completion-sound';
 
@@ -71,7 +71,7 @@ function SoundSection({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnS
               max="100"
               step="5"
               value={prefs.completionSoundVolume}
-              onChange={(e) => onSetPrefs({ completionSoundVolume: Number((e.target as HTMLInputElement).value) })}
+              onInput={(e) => onSetPrefs({ completionSoundVolume: Number((e.target as HTMLInputElement).value) })}
               aria-label="Completion sound volume"
             />
             <button
@@ -404,10 +404,33 @@ interface AlwaysKeepPickerProps {
 export function AlwaysKeepPicker({ label, selected, catalog, category, onChange }: AlwaysKeepPickerProps) {
   const availableOptions = useMemo(() => filterKeepCatalog(catalog, selected), [catalog, selected]);
 
+  // Optimistic names just added but not yet reflected in the host-persisted
+  // `selected` prop. `selected` only updates after a host round-trip, so
+  // without this gate the user can re-select an item (the <select> resets to
+  // "" while availableOptions still lists it) before the host state arrives,
+  // firing a duplicate setPruningSettings.
+  const [pending, setPending] = useState<string[]>([]);
+
+  // Release optimistic entries once the host-persisted `selected` catches up.
+  useEffect(() => {
+    if (pending.length === 0) return;
+    const remaining = pending.filter((name) => !selected.includes(name));
+    if (remaining.length !== pending.length) {
+      setPending(remaining);
+    }
+  }, [selected, pending]);
+
   const addName = (rawName: string) => {
     const name = rawName.trim();
-    if (!name || selected.includes(name)) return;
+    if (!name) return;
+    if (selected.includes(name) || pending.includes(name)) return;
+    setPending((current) => [...current, name]);
     onChange([...selected, name]);
+    // Safety net: if the host round-trip never arrives, release the lock so
+    // the item becomes selectable again.
+    window.setTimeout(() => {
+      setPending((current) => current.filter((entry) => entry !== name));
+    }, 2000);
   };
 
   const removeName = (name: string) => {

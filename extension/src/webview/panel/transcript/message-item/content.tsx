@@ -62,7 +62,11 @@ function AssistantParts({
             messageId={messageId}
             index={index}
             text={part.text}
-            streaming={isCurrentlyStreaming}
+            // Only the last part is actively streaming (new text is appended
+            // there); earlier text parts are complete. Passing streaming=true
+            // to every part would spin up a never-stopping rAF loop per part
+            // for the whole streaming duration (see use-buffered-text).
+            streaming={isCurrentlyStreaming && index === parts.length - 1}
             onContextMenu={(e) => {
               onContextMenu('message', getMessageRaw(), e as unknown as MouseEvent);
             }}

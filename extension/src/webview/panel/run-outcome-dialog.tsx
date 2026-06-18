@@ -35,8 +35,25 @@ export function RunOutcomeDialog({ sessionLabel, onCancel, onSubmit }: RunOutcom
   const dialogRef = useRef<HTMLDivElement>(null);
   const title = `Mark "${sessionLabel}" done`;
 
+  // Focus trap: keep focus inside the dialog while it's open so the user can't
+  // Tab out to the session tabs (which would mutate activeSession and cause the
+  // outcome to be recorded for the wrong session) and restore focus to whatever
+  // had it before the dialog opened.
   useEffect(() => {
-    dialogRef.current?.focus();
+    const node = dialogRef.current;
+    if (!node) return;
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    node.focus();
+    const handleFocusOut = () => {
+      if (!node.contains(document.activeElement)) {
+        node.focus();
+      }
+    };
+    node.addEventListener('focusout', handleFocusOut);
+    return () => {
+      node.removeEventListener('focusout', handleFocusOut);
+      previouslyFocused?.focus?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -47,7 +64,32 @@ export function RunOutcomeDialog({ sessionLabel, onCancel, onSubmit }: RunOutcom
         return;
       }
 
+      if (event.key === 'Tab') {
+        const node = dialogRef.current;
+        if (!node) return;
+        const focusable = Array.from(
+          node.querySelectorAll<HTMLElement>('button:not([disabled])'),
+        );
+        if (focusable.length === 0) return;
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        const active = document.activeElement;
+        if (event.shiftKey && active === first) {
+          event.preventDefault();
+          last.focus();
+        } else if (!event.shiftKey && active === last) {
+          event.preventDefault();
+          first.focus();
+        }
+        return;
+      }
+
       if (event.key === 'Enter' && !event.shiftKey && satisfaction !== null) {
+        // Let focused buttons handle Enter via their native click (so Enter on
+        // Cancel actually cancels instead of submitting). Only submit when
+        // focus is not on the Cancel button.
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('[data-cancel-button]')) return;
         event.preventDefault();
         onSubmit({ resolution, satisfaction });
       }
@@ -122,7 +164,7 @@ export function RunOutcomeDialog({ sessionLabel, onCancel, onSubmit }: RunOutcom
         </div>
 
         <div class="run-outcome-actions">
-          <button class="action-btn secondary" type="button" onClick={onCancel}>Cancel</button>
+          <button class="action-btn secondary" type="button" data-cancel-button onClick={onCancel}>Cancel</button>
           <button
             class="action-btn primary"
             type="button"

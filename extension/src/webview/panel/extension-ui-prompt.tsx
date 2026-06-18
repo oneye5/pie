@@ -76,13 +76,26 @@ function ConfirmPrompt({ id, title, message, timeout, extensionId, onRespond }: 
     }
   }, [remaining, id, onRespond]);
 
+  // Scope the keydown handler to the prompt container (focused on mount) instead
+  // of `document`, so pressing Enter to send a message in the composer (or to
+  // confirm an inline edit) no longer also confirms/denies this prompt.
   useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Enter') { e.preventDefault(); onRespond({ id, confirmed: true }); }
+      if (e.key === 'Enter') {
+        // Let focused buttons handle Enter via their native click (so Enter on
+        // Deny denies instead of confirming). Only confirm when focus is on the
+        // prompt body itself.
+        const target = e.target as HTMLElement | null;
+        if (target?.closest('button')) return;
+        e.preventDefault();
+        onRespond({ id, confirmed: true });
+      }
       if (e.key === 'Escape') { e.preventDefault(); onRespond({ id, confirmed: false }); }
     };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+    node.addEventListener('keydown', handler);
+    return () => node.removeEventListener('keydown', handler);
   }, [id, onRespond]);
 
   return (
@@ -138,12 +151,17 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
     }
   }, [showCustomInput]);
 
+  // Scope the Escape handler to the prompt container so pressing Escape to
+  // cancel an inline edit or blur the composer no longer also cancels this
+  // ask_user prompt from anywhere on the page.
   useEffect(() => {
+    const node = containerRef.current;
+    if (!node) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { e.preventDefault(); onRespond({ id, cancelled: true }); }
     };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
+    node.addEventListener('keydown', handler);
+    return () => node.removeEventListener('keydown', handler);
   }, [id, onRespond]);
 
   const handleCustomSubmit = useCallback(() => {
@@ -156,10 +174,9 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
     if (e.key === 'Enter' && customValue.trim()) {
       e.preventDefault();
       onRespond({ id, value: customValue.trim() });
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      onRespond({ id, cancelled: true });
     }
+    // Escape is handled by the container-scoped listener; handling it here too
+    // would double-respond because the event bubbles up to the container.
   }, [id, customValue, onRespond]);
 
   return (
