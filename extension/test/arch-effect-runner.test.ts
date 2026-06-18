@@ -16,7 +16,7 @@ type Call =
   | { kind: 'onModelConfigChanged'; sessionPath: string; modelId: string; thinkingLevel: string }
   | { kind: 'handleSelectionFailure'; token: string; notice: string };
 
-function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; modalChoice?: string | undefined } = {}): {
+function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; modalChoice?: string | undefined; optimisticOpTimeoutMs?: number } = {}): {
   deps: EffectRunnerDeps;
   calls: Call[];
   events: EffectResultEvent[];
@@ -91,6 +91,7 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
     dispatch: (e) => events.push(e),
     dispatchCommand: (cmd) => commands.push(cmd),
     dispatchEvent: () => {},
+    optimisticOpTimeoutMs: opts.optimisticOpTimeoutMs,
   };
   return { deps, calls, events, commands };
 }
@@ -489,4 +490,104 @@ test('EffectRunner CancelBackendReadyWatchdog prevents the timer from firing', a
   await new Promise<void>((r) => setTimeout(r, 50));
 
   assert.equal(dispatchedEvents.length, 0);
+});
+
+// ─── Optimistic-op TTL ──────────────────────────────────────────────────────
+
+test('EffectRunner SendRpc starts an optimistic-op timer that is cancelled on success', async () => {
+  const { deps, events } = makeDeps({
+    requestImpl: () => new Promise((r) => setTimeout(() => r({ requestId: 'req-1' }), 5)),
+    optimisticOpTimeoutMs: 50,
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-ttl-ok', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
+  await settle();
+  // Wait past the timeout window to ensure no spurious timeout event fires.
+  await new Promise<void>((r) => setTimeout(r, 100));
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.kind, 'SendResult');
+  assert.equal(events[0]?.ok, true);
+  if (events[0]?.ok === true) {
+    assert.equal(events[0].requestId, 'req-1');
+  }
+  runner.dispose();
+});
+
+test('EffectRunner SendRpc dispatches SendResult{ok:false} on timeout when backend hangs', async () => {
+  const { deps, events } = makeDeps({
+    requestImpl: () => new Promise(() => {}), // never resolves
+    optimisticOpTimeoutMs: 50,
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-ttl-hang', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
+  // Wait long enough for the 50ms timer to fire.
+  await new Promise<void>((r) => setTimeout(r, 120));
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.kind, 'SendResult');
+  assert.equal(events[0]?.ok, false);
+  if (events[0]?.ok === false) {
+    assert.match(events[0].error ?? '', /Timed out/);
+  }
+  runner.dispose();
+});
+
+test('EffectRunner EditRpc dispatches EditResult{ok:false} on timeout when backend hangs', async () => {
+  const { deps, events } = makeDeps({
+    requestImpl: () => new Promise(() => {}), // never resolves
+    optimisticOpTimeoutMs: 50,
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'EditRpc', corrId: 'c-ttl-edit', sessionPath: '/a', messageId: 'msg-1', text: 'edited', localId: 'loc-e1' });
+  await new Promise<void>((r) => setTimeout(r, 120));
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.kind, 'EditResult');
+  assert.equal(events[0]?.ok, false);
+  if (events[0]?.ok === false) {
+    assert.match(events[0].error ?? '', /Timed out/);
+  }
+  runner.dispose();
+});
+
+test('EffectRunner SendRpc cancels timer on failure (no spurious timeout)', async () => {
+  const { deps, events } = makeDeps({
+    requestImpl: () => Promise.reject(new Error('boom')),
+    optimisticOpTimeoutMs: 50,
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-ttl-fail', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
+  await settle();
+  // Wait past the timeout window to ensure no spurious timeout event fires.
+  await new Promise<void>((r) => setTimeout(r, 100));
+
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.kind, 'SendResult');
+  assert.equal(events[0]?.ok, false);
+  if (events[0]?.ok === false) {
+    assert.equal(events[0].error, 'boom');
+  }
+  runner.dispose();
+});
+
+test('EffectRunner dispose clears all optimistic-op timers', async () => {
+  const { deps, events } = makeDeps({
+    requestImpl: () => new Promise(() => {}), // never resolves
+    optimisticOpTimeoutMs: 1000,
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-ttl-dispose', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
+  await settle();
+  // Dispose before the 1000ms timer can fire.
+  runner.dispose();
+  // Wait past the timeout window.
+  await new Promise<void>((r) => setTimeout(r, 1100));
+
+  assert.equal(events.length, 0);
 });

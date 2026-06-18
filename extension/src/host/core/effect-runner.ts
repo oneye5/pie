@@ -124,13 +124,33 @@ export interface EffectRunnerDeps {
    * back into the reducer. The runner uses this for watchdog timeout events.
    */
   dispatchEvent: (event: import('./events').Event) => void;
+  /**
+   * Override the optimistic-op TTL (default 60s). Used by tests to avoid
+   * waiting the full timeout. When the timer fires, the runner dispatches a
+   * `*Result{ok:false}` event so the reducer reverts the optimistic change.
+   */
+  optimisticOpTimeoutMs?: number;
 }
 
 export class EffectRunner {
   /** The backend-ready watchdog timer. Started by `StartBackendReadyWatchdog`,
    * cleared by `CancelBackendReadyWatchdog` / `DrainBackendReadyQueue` / fire. */
   private backendReadyWatchdog: NodeJS.Timeout | null = null;
-  constructor(private readonly deps: EffectRunnerDeps) {}
+
+  /** Per-corrId timers for optimistic-op TTL. Started in runSendRpc/runEditRpc,
+   * cancelled when the RPC completes. On fire, dispatches *Result{ok:false}
+   * so the reducer reverts the optimistic change (same as a backend error). */
+  private optimisticOpTimers: Map<string, NodeJS.Timeout> = new Map();
+
+  /** The timeout for optimistic ops. Generous — message.send usually returns
+   * in <1s, but a hung backend should not leave the session stuck forever. */
+  private static readonly OPTIMISTIC_OP_TIMEOUT_MS = 60_000;
+
+  private readonly optimisticOpTimeoutMs: number;
+
+  constructor(private readonly deps: EffectRunnerDeps) {
+    this.optimisticOpTimeoutMs = deps.optimisticOpTimeoutMs ?? EffectRunner.OPTIMISTIC_OP_TIMEOUT_MS;
+  }
 
   /**
    * Execute a single effect. Returns a promise that resolves when the effect
@@ -471,9 +491,39 @@ export class EffectRunner {
     }
   }
 
+  /** Start the optimistic-op TTL timer for a corrId. On fire, dispatches
+   *  a *Result{ok:false} event so the reducer reverts the optimistic change.
+   *  No-op if a timer is already running for this corrId. */
+  private startOptimisticOpTimer(corrId: string, sessionPath: string, kind: 'send' | 'edit'): void {
+    if (this.optimisticOpTimers.has(corrId)) return; // already running
+    const timer = setTimeout(() => {
+      this.optimisticOpTimers.delete(corrId);
+      const error = `Timed out waiting for backend response (${this.optimisticOpTimeoutMs / 1000}s)`;
+      if (kind === 'send') {
+        this.deps.dispatch({ kind: 'SendResult', corrId, sessionPath, ok: false, error });
+      } else {
+        this.deps.dispatch({ kind: 'EditResult', corrId, sessionPath, ok: false, error });
+      }
+    }, this.optimisticOpTimeoutMs);
+    this.optimisticOpTimers.set(corrId, timer);
+  }
+
+  /** Cancel the optimistic-op TTL timer for a corrId (the RPC completed). */
+  private clearOptimisticOpTimer(corrId: string): void {
+    const timer = this.optimisticOpTimers.get(corrId);
+    if (timer) {
+      clearTimeout(timer);
+      this.optimisticOpTimers.delete(corrId);
+    }
+  }
+
   /** Dispose of the runner's resources (called on shutdown). */
   dispose(): void {
     this.clearBackendReadyWatchdog();
+    for (const timer of this.optimisticOpTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.optimisticOpTimers.clear();
   }
 
   /**
@@ -519,6 +569,7 @@ export class EffectRunner {
     const { queues, backend, dispatch, service, statsService } = this.deps;
     void queues.enqueueLifecycle(async () => {
       await queues.enqueueSessionOperation(effect.sessionPath, async () => {
+        this.startOptimisticOpTimer(effect.corrId, effect.sessionPath, 'send');
         try {
           service.bumpSessionDataEpoch(effect.sessionPath);
           statsService.prepareForSend(effect.sessionPath, effect.inputs);
@@ -528,6 +579,7 @@ export class EffectRunner {
             inputs: effect.inputs,
             localId: effect.localId,
           });
+          this.clearOptimisticOpTimer(effect.corrId);
           dispatch({
             kind: 'SendResult',
             corrId: effect.corrId,
@@ -536,6 +588,7 @@ export class EffectRunner {
             requestId: response.requestId,
           });
         } catch (err) {
+          this.clearOptimisticOpTimer(effect.corrId);
           dispatch({
             kind: 'SendResult',
             corrId: effect.corrId,
@@ -557,6 +610,7 @@ export class EffectRunner {
     const { queues, backend, dispatch, service, statsService } = this.deps;
     void queues.enqueueLifecycle(async () => {
       await queues.enqueueSessionOperation(effect.sessionPath, async () => {
+        this.startOptimisticOpTimer(effect.corrId, effect.sessionPath, 'edit');
         try {
           service.bumpSessionDataEpoch(effect.sessionPath);
           statsService.onTruncatedAfter(effect.sessionPath, effect.messageId);
@@ -571,8 +625,10 @@ export class EffectRunner {
             text: effect.text,
             localId: effect.localId,
           });
+          this.clearOptimisticOpTimer(effect.corrId);
           dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
         } catch (err) {
+          this.clearOptimisticOpTimer(effect.corrId);
           dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       });

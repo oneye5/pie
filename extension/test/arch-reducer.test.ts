@@ -1551,3 +1551,34 @@ test('reducer: SetPruningSettings applies optimistically and emits the SetPrunin
     assert.deepEqual(result.effects[0].settings, { mode: 'off', skillCeiling: 9 });
   }
 });
+
+// ─── Optimistic-op TTL: late result after timeout is a no-op ────────────────
+
+test('reducer: late SendResult after a timeout-induced SendResult{ok:false} is a no-op (!pending guard)', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-late', role: 'user' as const, createdAt: '', markdown: 'hello', status: 'completed' as const }] },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c-late': { kind: 'send', sessionPath: '/s', localId: 'loc-late', previousSummary: null } },
+    },
+  };
+
+  // 1. Timeout fires: reducer reverts the optimistic change.
+  const afterTimeout = reducer(state, { kind: 'SendResult', corrId: 'c-late', sessionPath: '/s', ok: false, error: 'Timed out waiting for backend response (60s)' });
+  assert.equal(afterTimeout.state.pending.ops['c-late'], undefined);
+  assert.ok(!afterTimeout.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-late'), 'optimistic message removed after timeout');
+  assert.match(afterTimeout.state.settings.notice!, /Failed to send/);
+
+  // 2. Late real result arrives: reducer no-ops (pending already removed).
+  const afterLate = reducer(afterTimeout.state, { kind: 'SendResult', corrId: 'c-late', sessionPath: '/s', ok: true, requestId: 'req-late' });
+  assert.equal(afterLate.state.pending.ops['c-late'], undefined);
+  assert.ok(!afterLate.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-late'), 'optimistic message still absent after late result');
+  assert.equal(afterLate.effects.length, 0);
+  // State is unchanged from afterTimeout.
+  assert.deepEqual(afterLate.state, afterTimeout.state);
+});
