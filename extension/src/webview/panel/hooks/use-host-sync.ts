@@ -383,6 +383,10 @@ export function useHostSync(
 
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
+      // Guard against malformed messages from non-host sources (browser
+      // extensions, devtools, etc.). The dispatchHostMessage handler
+      // further validates the `type` field against known handlers.
+      if (!event.data || typeof event.data.type !== 'string') return;
       dispatchHostMessage(event.data as HostToWebviewMessage, {
         resetPerSessionState,
         hostInstanceIdRef,
