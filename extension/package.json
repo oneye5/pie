@@ -58,6 +58,10 @@
       {
         "command": "pie.exportRunAnalytics",
         "title": "pie: Export Run Analytics"
+      },
+      {
+        "command": "pie.toggleStreamDiag",
+        "title": "pie: Toggle Stream Diagnostics"
       }
     ],
     "menus": {

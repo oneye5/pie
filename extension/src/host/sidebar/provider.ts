@@ -3,6 +3,7 @@ import * as crypto from 'node:crypto';
 import * as vscode from 'vscode';
 
 import { assertInvariant, auditLog, bootLog, isBootLogEnabled } from '../util/audit';
+import { recordAckLatency, recordSnapshotPost, recordWatchdog } from '../util/stream-telemetry';
 import { toErrorMessage } from '../util/error-message';
 import {
   buildStateEnvelope,
@@ -65,6 +66,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private reloadingForStateAppliedTimeout = false;
   private stateAppliedTimer?: ReturnType<typeof setTimeout>;
   private pendingStateAppliedRevision: number | null = null;
+  private pendingStateAppliedArmedAt = 0;
   private lastStateAppliedRevision = -1;
   private lastStateAppliedAt = 0;
   private stateAppliedReloadWindowStartedAt = 0;
@@ -402,6 +404,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       .then((delivered) => {
         this.syncState = reconcilePostedMessageDelivery(this.syncState, message, delivered);
         if (delivered && message.type === 'state') {
+          recordSnapshotPost();
           this.armStateAppliedWatchdog(message.revision);
         }
         if (!delivered) {
@@ -425,6 +428,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.lastStateAppliedAt = Date.now();
 
     if (this.pendingStateAppliedRevision !== null && revision >= this.pendingStateAppliedRevision) {
+      if (this.pendingStateAppliedArmedAt > 0) {
+        recordAckLatency(Date.now() - this.pendingStateAppliedArmedAt);
+      }
       this.clearStateAppliedWatchdog();
       this.stateAppliedReloadAttempts = 0;
       this.stateAppliedReloadWindowStartedAt = 0;
@@ -446,6 +452,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     }
 
     this.pendingStateAppliedRevision = revision;
+    this.pendingStateAppliedArmedAt = Date.now();
     if (this.stateAppliedTimer !== undefined) {
       clearTimeout(this.stateAppliedTimer);
     }
@@ -495,6 +502,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     // slow to ack but still functional.
     if (!this.resnapshotAttempted) {
       this.resnapshotAttempted = true;
+      recordWatchdog('resnapshot');
       bootLog('sidebar-provider', 'stateApplied.timeout.resnapshot', {
         hostInstanceId: this.hostInstanceId,
         pendingRevision: revision,
@@ -525,6 +533,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
     const now = Date.now();
     if (this.shouldThrottleStateAppliedReload(now)) {
+      recordWatchdog('throttled');
       bootLog('sidebar-provider', 'stateApplied.timeout.throttled', {
         hostInstanceId: this.hostInstanceId,
         lastStateAppliedRevision: this.lastStateAppliedRevision,
@@ -535,6 +544,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       return;
     }
 
+    recordWatchdog('reload');
     bootLog('sidebar-provider', 'stateApplied.timeout', {
       hostInstanceId: this.hostInstanceId,
       lastStateAppliedAt: this.lastStateAppliedAt || null,

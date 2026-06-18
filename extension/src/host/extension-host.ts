@@ -30,6 +30,7 @@ import { initialArchState, type ArchState } from './core/reducer';
 import type { Event } from './core/events';
 import { selectViewState } from './core/projection';
 import { auditLog, bootLog } from './util/audit';
+import { getDiagPath, isStreamDiagEnabled, setStreamDiagEnabled } from './util/stream-telemetry';
 import { deriveSessionNameFromText } from '../shared/session-name';
 import { isPendingTabPath } from '../shared/tab-behavior';
 
@@ -252,6 +253,12 @@ export class PieExtension implements vscode.Disposable {
       }),
       vscode.commands.registerCommand('pie.dumpDebugState', async () => {
         return await this.dumpDebugState();
+      }),
+      vscode.commands.registerCommand('pie.toggleStreamDiag', () => {
+        const next = setStreamDiagEnabled(!isStreamDiagEnabled());
+        void vscode.window.showInformationMessage(
+          `pie stream diagnostics: ${next ? 'ON' : 'OFF'} — log: ${getDiagPath()}`,
+        );
       }),
       vscode.commands.registerCommand('pie.newSession', async () => {
         this.service.createNewSession();

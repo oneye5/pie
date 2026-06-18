@@ -1,5 +1,6 @@
 import type { RunObserver } from '../../stats-service';
 import type { ArchState } from '../../core/arch-state';
+import { recordStreamEvent } from '../../util/stream-telemetry';
 import type { SessionServiceState } from '../state';
 import type { Event } from '../../core/events';
 import type {
@@ -31,6 +32,7 @@ export function onMessageDelta(payload: MessageDeltaPayload, deps: HandlerDeps):
     messageId: payload.messageId,
     delta: payload.delta,
   });
+  recordStreamEvent('delta');
 }
 
 export function onMessageThinking(payload: MessageThinkingPayload, deps: HandlerDeps): void {
@@ -45,6 +47,7 @@ export function onMessageThinking(payload: MessageThinkingPayload, deps: Handler
     messageId: payload.messageId,
     thinking: payload.thinking,
   });
+  recordStreamEvent('thinking');
 }
 
 export function onMessageStarted(payload: MessageStartedPayload, deps: HandlerDeps): void {
