@@ -67,6 +67,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private lastStateAppliedAt = 0;
   private stateAppliedReloadWindowStartedAt = 0;
   private stateAppliedReloadAttempts = 0;
+  private resnapshotAttempted = false;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -149,6 +150,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
       if (!this.webviewReady) {
         this.webviewReady = true;
+        this.resnapshotAttempted = false;
         bootLog('sidebar-provider', 'message.bridgeReady', {
           hostInstanceId: this.hostInstanceId,
           type: msg.type,
@@ -412,6 +414,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       this.clearStateAppliedWatchdog();
       this.stateAppliedReloadAttempts = 0;
       this.stateAppliedReloadWindowStartedAt = 0;
+      this.resnapshotAttempted = false;
     }
   }
 
@@ -468,6 +471,24 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     }
 
     if (!this.webviewReady || !this.view?.visible) {
+      return;
+    }
+
+    // Re-snapshot-first: before force-reloading the webview HTML, try
+    // re-posting the state snapshot. Only reload if the re-snapshot also
+    // goes unacked (a consecutive timeout with resnapshotAttempted=true).
+    // This avoids reload storms on slow transcripts where the webview is
+    // slow to ack but still functional.
+    if (!this.resnapshotAttempted) {
+      this.resnapshotAttempted = true;
+      bootLog('sidebar-provider', 'stateApplied.timeout.resnapshot', {
+        hostInstanceId: this.hostInstanceId,
+        pendingRevision: revision,
+        visible: this.view.visible,
+        webviewReady: this.webviewReady,
+      });
+      this.syncState = { ...this.syncState, globalDirty: true };
+      this.flushDirtyState();
       return;
     }
 
