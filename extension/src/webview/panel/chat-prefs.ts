@@ -5,7 +5,8 @@ export type BooleanPrefKey =
   | 'autoExpandToolCalls'
   | 'autoExpandSubagentCalls'
   | 'suppressCompletionNotifications'
-  | 'showPruningMessages';
+  | 'showPruningMessages'
+  | 'subagentAlwaysParentModel';
 
 export type ChatPrefKey = keyof ChatPrefs;
 export type ChatPrefContextType = 'reasoning' | 'toolCalls' | 'subagentCalls';

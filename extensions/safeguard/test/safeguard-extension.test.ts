@@ -692,3 +692,310 @@ describe('edge cases – block reason propagation', () => {
 		assert.match(result?.reason ?? '', /sudoers/i);
 	});
 });
+
+// ─── CONFIRMED BUG: bare `clean ... all` pattern caused widespread false positives ──
+// A previous hard-block pattern `\bclean\b.*\ball\b/i` was meant to catch
+// `diskpart clean all`, but it matched ANY command containing the word "clean"
+// somewhere and "all" somewhere later — including `cargo clean --all`,
+// `gradle clean build --all`, `npm run clean-all`, `echo "please clean all ..."`,
+// and even `rm -rf dist && npm run clean --all`.  diskpart is already hard-blocked
+// at every command position by `cmdPos("diskpart\b", "i")`, so the bare pattern
+// was both redundant and dangerous.  These tests pin the fix.
+
+describe('BUG: bare clean+all pattern caused false positives', () => {
+	test('cargo clean --all is allowed (legitimate cargo flag)', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('cargo clean --all'), true);
+	});
+
+	test('npm cache clean --all is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('npm cache clean --all'), true);
+	});
+
+	test('gradle clean build --all is allowed (standard gradle invocation)', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('gradle clean build --all'), true);
+	});
+
+	test('npm run clean-all (script name) is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('npm run clean-all'), true);
+	});
+
+	test('make clean-all-targets is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('make clean-all-targets'), true);
+	});
+
+	test('make clean all (two make targets) is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('make clean all'), true);
+	});
+
+	test('echo with "clean all" in a quoted string is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('echo "please clean all the files"'), true);
+	});
+
+	test('npm run lint -- --clean --all is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('npm run lint -- --clean --all'), true);
+	});
+
+	test('git clean -xfd -- all is allowed (in-project git clean)', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('git clean -xfd -- all'), true);
+	});
+
+	test('rm -rf dist && npm run clean --all is allowed (in-cwd rm + benign clean)', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf dist && npm run clean --all', { cwd: '/repo' }), true);
+	});
+
+	test('plain "clean" with no "all" is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('make clean'), true);
+		assert.equal(isSafe('cargo clean'), true);
+		assert.equal(isSafe('npm run clean'), true);
+	});
+});
+
+// ─── REGRESSION: real diskpart danger stays hard-blocked without the bare pattern ──
+// Removing the over-broad `clean ... all` pattern must NOT weaken coverage of
+// actual diskpart destruction, because `diskpart` is hard-blocked at every
+// command position (start, after ;, &&, ||, |, newline).
+
+describe('REGRESSION: diskpart destruction is still hard-blocked', () => {
+	test('bare diskpart is hard-blocked', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('diskpart'), false);
+	});
+
+	test('diskpart with a script argument is hard-blocked', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('diskpart /s clean-script.txt'), false);
+	});
+
+	test('echo "clean all" piped into diskpart is hard-blocked', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('echo clean all | diskpart'), false);
+	});
+
+	test('subshell piping clean all into diskpart is hard-blocked', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('(echo clean all & echo exit) | diskpart'), false);
+	});
+
+	test('printf clean all piped into diskpart is hard-blocked', async () => {
+		const { isSafe } = await loadSafeguard();
+		// Avoid a literal backslash-n sequence confusion; the command is a single line.
+		assert.equal(isSafe('printf "clean all\\nexit\\n" | diskpart'), false);
+	});
+
+	test('diskpart after && is hard-blocked', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('cmd1 && diskpart'), false);
+	});
+
+	test('diskpart handler returns a hard block (not a prompt) even with UI+approve', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: true, confirmResult: true });
+		const result = await handler(
+			{ toolName: 'bash', input: { command: 'echo clean all | diskpart' } },
+			ctx,
+		) as any;
+		assert.equal(result?.block, true);
+		assert.match(result?.reason ?? '', /diskpart/i);
+	});
+});
+
+// ─── CONFIRMED BUG: confirmation prompt timed out, silently denying slow users ──
+// Previously promptOrBlock wrapped ctx.ui.confirm in a 30s withTimeout.  If the
+// user took too long to click Allow/Decline, the promise rejected and the
+// command was auto-denied ("confirmation timed out"), so the agent would give up
+// and try a different approach.  The fix: when a UI is present, wait for user
+// input indefinitely — never time out.
+
+describe('BUG: confirmation prompt must not time out — wait for user input', () => {
+	test('a slow APPROVE is honoured (not auto-denied)', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		let resolveConfirm!: (v: boolean) => void;
+		const confirmPromise = new Promise<boolean>((res) => { resolveConfirm = res; });
+		const ctx = {
+			cwd: '/repo',
+			hasUI: true,
+			ui: {
+				confirm: async () => confirmPromise,
+				notify: () => {},
+			},
+		};
+		const pending = handler({ toolName: 'bash', input: { command: 'sudo ls /root' } }, ctx);
+		// Simulate the user taking a while to click "Allow".
+		await new Promise((r) => setTimeout(r, 60));
+		resolveConfirm(true);
+		const result = await pending;
+		assert.equal(result, undefined, 'slow approval must still allow the command');
+	});
+
+	test('a slow DECLINE is honoured (denied by user, not timed out)', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		let resolveConfirm!: (v: boolean) => void;
+		const confirmPromise = new Promise<boolean>((res) => { resolveConfirm = res; });
+		const ctx = {
+			cwd: '/repo',
+			hasUI: true,
+			ui: {
+				confirm: async () => confirmPromise,
+				notify: () => {},
+			},
+		};
+		const pending = handler({ toolName: 'bash', input: { command: 'sudo ls /root' } }, ctx);
+		await new Promise((r) => setTimeout(r, 60));
+		resolveConfirm(false);
+		const result = (await pending) as any;
+		assert.equal(result?.block, true);
+		assert.match(result?.reason ?? '', /denied by user/);
+		assert.doesNotMatch(result?.reason ?? '', /timed out/);
+	});
+
+	test('an UNANSWERED prompt keeps the handler pending (no auto-timeout)', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		let resolveConfirm!: (v: boolean) => void;
+		const confirmPromise = new Promise<boolean>((res) => { resolveConfirm = res; });
+		const ctx = {
+			cwd: '/repo',
+			hasUI: true,
+			ui: {
+				confirm: async () => confirmPromise,
+				notify: () => {},
+			},
+		};
+		let settled = false;
+		const pending = handler({ toolName: 'bash', input: { command: 'sudo ls /root' } }, ctx);
+		pending.then(() => { settled = true; });
+		// Wait long enough that any short/accidental timeout would have fired.
+		await new Promise((r) => setTimeout(r, 150));
+		assert.equal(settled, false, 'handler must wait for user input, not time out');
+		// Clean up so the process can exit.
+		resolveConfirm(false);
+		await pending;
+	});
+
+	test('a confirm promise that REJECTS (UI error) is treated as a block', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const ctx = {
+			cwd: '/repo',
+			hasUI: true,
+			ui: {
+				confirm: async () => { throw new Error('ui disconnected'); },
+				notify: () => {},
+			},
+		};
+		const result = (await handler(
+			{ toolName: 'bash', input: { command: 'sudo ls /root' } },
+			ctx,
+		)) as any;
+		assert.equal(result?.block, true);
+		assert.match(result?.reason ?? '', /confirmation failed/);
+		assert.doesNotMatch(result?.reason ?? '', /timed out/);
+	});
+
+	test('no-UI prompt still blocks immediately (unchanged)', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx, confirmations } = makeCtx({ hasUI: false });
+		const result = (await handler(
+			{ toolName: 'bash', input: { command: 'sudo apt-get remove vim' } },
+			ctx,
+		)) as any;
+		assert.equal(result?.block, true);
+		assert.match(result?.reason ?? '', /no UI for confirmation/);
+		assert.equal(confirmations.length, 0);
+	});
+});
+
+// ─── CONFIRMED BUG: relative path vs Windows cwd produced a false positive ─────
+// On Windows, process.cwd() is a drive path like `D:\proj`.  A relative rm
+// target such as `dist` was resolved with path.posix.resolve against the
+// Windows cwd string, which posix treats as a relative path and re-prepends
+// process.cwd() — yielding garbage that never started with the cwd, so the
+// command was falsely flagged as "outside cwd" and blocked/denied.
+
+describe('BUG: relative rm/write targets resolved correctly under a Windows cwd', () => {
+	test('rm -rf dist with a Windows drive cwd is allowed (in-project)', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf dist', { cwd: 'D:\\proj' }), true);
+	});
+
+	test('rm -rf ./build with a Windows drive cwd is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf ./build', { cwd: 'D:\\proj' }), true);
+	});
+
+	test('rm -rf dist with a forward-slash Windows cwd is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf dist', { cwd: 'D:/proj' }), true);
+	});
+
+	test('rm -rf ../sibling with a Windows cwd is still denied (escapes cwd)', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf ../sibling', { cwd: 'D:\\proj' }), false);
+	});
+
+	test('rm -rf D:\\proj\dist (absolute Windows, in-project) is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf D:\\proj\\dist', { cwd: 'D:\\proj' }), true);
+	});
+
+	test('rm -rf D:\\other (absolute Windows, outside) is denied', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf D:\\other', { cwd: 'D:\\proj' }), false);
+	});
+
+	test('write to a relative path under a Windows cwd passes through', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false, cwd: 'D:\\proj' });
+		const result = await handler(
+			{ toolName: 'write', input: { path: 'src/main.ts' } },
+			ctx,
+		);
+		assert.equal(result, undefined, 'relative write under Windows cwd must not prompt');
+	});
+
+	test('write to a sensitive path under a Windows cwd via traversal is blocked', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false, cwd: 'D:\\proj' });
+		const result = (await handler(
+			{ toolName: 'write', input: { path: 'D:\\proj\\..\\.ssh\\config' } },
+			ctx,
+		)) as any;
+		assert.equal(result?.block, true, 'traversal to .ssh must still be blocked');
+	});
+});
+
+// ─── REGRESSION: POSIX relative paths still resolve correctly ─────────────────
+
+describe('REGRESSION: POSIX relative rm targets unchanged after Windows fix', () => {
+	test('rm -rf ./build with POSIX cwd is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf ./build', { cwd: '/repo' }), true);
+	});
+
+	test('rm -rf dist with POSIX cwd is allowed', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf dist', { cwd: '/repo' }), true);
+	});
+
+	test('rm -rf ../sibling with POSIX cwd is denied', async () => {
+		const { isSafe } = await loadSafeguard();
+		assert.equal(isSafe('rm -rf ../sibling', { cwd: '/repo' }), false);
+	});
+});

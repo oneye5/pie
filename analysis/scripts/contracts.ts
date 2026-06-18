@@ -73,6 +73,7 @@ export interface SessionSkillFactor {
 export interface SessionAnalyticsFactors {
   promptFamily: string | null;
   promptHash: string | null;
+  promptCapturedAt: string | null;
   harnessPromptHash: string | null;
   customPromptHash: string | null;
   appendSystemPromptHash: string | null;
@@ -253,6 +254,7 @@ export interface PreparedRunRow {
   experimentAssignment: string | null;
   promptFamily: string | null;
   promptHashPrefix: string | null;
+  promptCapturedAt: string | null;
   toolSetHashPrefix: string | null;
   skillSetHashPrefix: string | null;
   skillEntries: PreparedSkillEntry[];

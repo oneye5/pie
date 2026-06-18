@@ -86,6 +86,7 @@ const filesystemInput: ComposerInput = {
 const sampleFactors: SessionAnalyticsFactors = {
   promptFamily: 'harness+skills',
   promptHash: 'prompt-hash',
+  promptCapturedAt: '2025-06-15T10:30:00.000Z',
   harnessPromptHash: 'harness-hash',
   customPromptHash: null,
   appendSystemPromptHash: null,

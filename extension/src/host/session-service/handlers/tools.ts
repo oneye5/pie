@@ -2,7 +2,7 @@ import type { RunObserver } from '../../stats-service';
 import type { ArchState } from '../../core/arch-state';
 import type { SessionServiceState } from '../state';
 import type { Event } from '../../core/events';
-import { deriveFileChangeFromToolCall, deriveFileChangesFromSubagentResult } from '../../core/file-change-derivation';
+import { deriveFileChangesFromToolCall, deriveFileChangesFromSubagentResult } from '../../core/file-change-derivation';
 import { isRecord } from '../../../shared/type-guards';
 import type {
   ToolFinishedPayload,
@@ -65,16 +65,18 @@ export function onToolStarted(payload: ToolStartedPayload, deps: HandlerDeps): v
   deps.runObserver.onToolStarted(sessionPath, toolCall);
 
   // Track file changes from file-modifying tools
-  const fileChange = deriveFileChangeFromToolCall(
+  const fileChanges = deriveFileChangesFromToolCall(
     { id: payload.toolCallId, name: payload.name, input: payload.input },
     payload.messageId,
     new Date().toISOString(),
   );
-  console.log('[pie:fileChanges] onToolStarted', { name: payload.name, hasInput: !!payload.input, inputType: typeof payload.input, fileChange: fileChange ? fileChange.path : null });
-  if (fileChange) {
+  console.log('[pie:fileChanges] onToolStarted', { name: payload.name, hasInput: !!payload.input, inputType: typeof payload.input, changeCount: fileChanges.length });
+  if (fileChanges.length > 0) {
     const existing = deps.getArchState().fileChanges.bySession[sessionPath] ?? [];
     const next = [...existing];
-    upsertFileChange(next, fileChange);
+    for (const change of fileChanges) {
+      upsertFileChange(next, change);
+    }
     deps.dispatchArch({ kind: 'FileChangesUpdated', sessionPath, fileChanges: next });
     deps.scheduleRender();
   }

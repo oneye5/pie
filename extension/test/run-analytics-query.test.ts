@@ -30,6 +30,7 @@ async function getRunStorageDir(tempDir: string): Promise<string> {
 const ANALYTICS_FACTORS: SessionAnalyticsFactors = {
   promptFamily: 'harness+customPrompt',
   promptHash: 'prompt-hash',
+  promptCapturedAt: '2025-06-15T10:30:00.000Z',
   harnessPromptHash: 'harness-hash',
   customPromptHash: 'custom-hash',
   appendSystemPromptHash: null,

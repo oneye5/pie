@@ -56,6 +56,7 @@ function makeRun(overrides: Partial<PreparedRunRow> & { runId: string }): Prepar
     experimentAssignment: null,
     promptFamily: null,
     promptHashPrefix: null,
+    promptCapturedAt: null,
     toolSetHashPrefix: null,
     skillSetHashPrefix: null,
     skillEntries: [],

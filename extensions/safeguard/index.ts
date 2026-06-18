@@ -48,8 +48,19 @@ function resolvePathForComparison(targetPath: string, cwd: string): string {
 	if (rawTarget.startsWith("~")) {
 		return normalizePath(rawTarget);
 	}
+	if (rawTarget.startsWith("/")) {
+		// Absolute POSIX path — keep as-is regardless of cwd platform.
+		return normalizePath(rawTarget);
+	}
+	// Relative target. Resolve against the cwd using the cwd's native platform
+	// so that a Windows cwd (`D:/proj`) with a relative target (`dist`) resolves
+	// to `D:/proj/dist` instead of being mangled by posix.resolve (which treats
+	// `D:/proj` as a relative path and re-prepends process.cwd()).
 	const base = rawCwd || process.cwd().replace(/\\/g, "/");
-	return normalizePath(rawTarget.startsWith("/") ? rawTarget : path.posix.resolve(base, rawTarget));
+	if (isWindowsLikePath(base)) {
+		return normalizePath(path.win32.resolve(base, rawTarget));
+	}
+	return normalizePath(path.posix.resolve(base, rawTarget));
 }
 
 function trimTrailingPathSeparatorForComparison(p: string): string {
@@ -222,11 +233,17 @@ const HARD_BLOCK_PATTERNS: { pattern: RegExp; reason: string }[] = [
 	{ pattern: /\bcryptsetup\s+(erase|luksErase)\b/, reason: "LUKS encryption erase" },
 
 	// Windows: disk/volume destruction (PowerShell & cmd)
+	// NOTE: `diskpart` itself is hard-blocked at any command position by the
+	// cmdPos("diskpart\b", "i") pattern above, which already covers every form
+	// of piping `clean all` into diskpart (e.g. `echo clean all | diskpart`).
+	// A previous bare `\bclean\b.*\ball\b` pattern here caused widespread
+	// false positives on legitimate build commands (cargo/npm/gradle/make
+	// `clean --all`, `clean-all` script names, even `echo "... clean all ..."`)
+	// so it was removed — diskpart remains fully covered.
 	{ pattern: cmdPos("Format-Volume\\b", "i"), reason: "Formatting volume (PowerShell)" },
 	{ pattern: cmdPos("Clear-Disk\\b", "i"), reason: "Clearing disk (PowerShell)" },
 	{ pattern: cmdPos("Initialize-Disk\\b", "i"), reason: "Initializing disk (PowerShell)" },
 	{ pattern: cmdPos("Remove-Partition\\b", "i"), reason: "Removing partition (PowerShell)" },
-	{ pattern: /\bclean\b.*\ball\b/i, reason: "Diskpart clean all" },
 
 	// Windows: system destruction
 	{ pattern: /\brd\s+\/s\s+\/q\s+[a-zA-Z]:\\/i, reason: "Recursive delete of drive root (rd /s /q)" },
@@ -451,8 +468,6 @@ function handleWritePath(targetPath: string, ctx: ExtensionContext) {
 
 // ─── Utilities ───────────────────────────────────────────────────────────────
 
-const CONFIRM_TIMEOUT_MS = 30_000;
-
 async function promptOrBlock(
 	ctx: ExtensionContext,
 	target: string,
@@ -466,12 +481,14 @@ async function promptOrBlock(
 
 	let allowed: boolean;
 	try {
-		allowed = await withTimeout(
-			ctx.ui.confirm(`⚠️ Safeguard: ${reason}`, `Allow?\n\n  ${truncated}`),
-			CONFIRM_TIMEOUT_MS,
-		);
+		// Await user input indefinitely. A confirmation prompt must NOT time out —
+		// if the user is slow to respond, timing out would silently deny the
+		// command and force the agent down a different (possibly worse) path.
+		// We only reach this branch when a UI is present, so the prompt is
+		// guaranteed to be answerable; we wait as long as the user needs.
+		allowed = await ctx.ui.confirm(`⚠️ Safeguard: ${reason}`, `Allow?\n\n  ${truncated}`);
 	} catch {
-		return { block: true, reason: `Safeguard: ${reason} (confirmation timed out)` };
+		return { block: true, reason: `Safeguard: ${reason} (confirmation failed)` };
 	}
 
 	if (!allowed) {
@@ -479,16 +496,6 @@ async function promptOrBlock(
 	}
 
 	return undefined;
-}
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-	return new Promise<T>((resolve, reject) => {
-		const timer = setTimeout(() => reject(new Error("timeout")), ms);
-		promise.then(
-			(value) => { clearTimeout(timer); resolve(value); },
-			(err) => { clearTimeout(timer); reject(err); },
-		);
-	});
 }
 
 function notify(ctx: ExtensionContext, message: string): void {

@@ -135,6 +135,7 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     'autoExpandSubagentCalls',
     'suppressCompletionNotifications',
     'showPruningMessages',
+    'subagentAlwaysParentModel',
   ];
   const toggleKeys: Array<keyof ChatPrefs> = [
     'extensionToggles',

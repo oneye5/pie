@@ -598,6 +598,13 @@ function shortHashLabel(prefix: string | null | undefined, fallback: string): st
   return prefix?.trim() ? prefix.slice(0, 8) : fallback;
 }
 
+function promptDisplayLabel(prefix: string | null | undefined, capturedAt: string | null | undefined, fallback: string): string {
+  const hash = prefix?.trim();
+  if (!hash) return fallback;
+  const datePart = capturedAt ? ` (${capturedAt.slice(0, 10)})` : '';
+  return hash.slice(0, 8) + datePart;
+}
+
 function skillDisplayLabel(name: string, lastModifiedAt: string | null): string {
   const datePart = lastModifiedAt ? ` (${lastModifiedAt.slice(0, 10)})` : '';
   const maxLen = 32;
@@ -899,7 +906,7 @@ function subagentDoseRows(runs: PreparedRunRow[]): OutcomeEstimateRow[] {
 function dimensionComparisonRows(runs: PreparedRunRow[]): { rows: DimensionRow[]; dimensionsWithContrast: number } {
   const dimensions: Array<{ name: string; key: (run: PreparedRunRow) => string }> = [
     { name: 'Experiment', key: (run) => normalizedExperimentLabel(run.experimentAssignment) },
-    { name: 'Prompt', key: (run) => shortHashLabel(run.promptHashPrefix, 'no-prompt') },
+    { name: 'Prompt', key: (run) => promptDisplayLabel(run.promptHashPrefix, run.promptCapturedAt, 'no-prompt') },
     { name: 'Tool set', key: (run) => shortHashLabel(run.toolSetHashPrefix, 'no-tools') },
   ];
   const completed = selectedCompletedRuns(runs);

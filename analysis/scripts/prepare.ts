@@ -161,6 +161,7 @@ function prepareRun(
     experimentAssignment: normalizeNullableText(run.experimentAssignment),
     promptFamily: normalizeNullableText(run.analyticsFactors?.promptFamily),
     promptHashPrefix: existingHashPrefix(run.analyticsFactors?.promptHash),
+    promptCapturedAt: normalizeNullableText(run.analyticsFactors?.promptCapturedAt),
     toolSetHashPrefix: existingHashPrefix(run.analyticsFactors?.toolSetHash),
     skillSetHashPrefix: existingHashPrefix(run.analyticsFactors?.skillSetHash),
     skillEntries: (run.analyticsFactors?.skills ?? []).map((s) => ({

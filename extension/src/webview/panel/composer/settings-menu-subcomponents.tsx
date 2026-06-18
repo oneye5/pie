@@ -221,6 +221,27 @@ function SkillPrunerSettings({ prefs, pruningSettings, modelEntries, availableMo
   );
 }
 
+function SubagentSettings({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnSetPrefs }) {
+  return (
+    <div class="toolbar-settings-ext-settings">
+      <button
+        class={`toolbar-settings-item${prefs.subagentAlwaysParentModel ? ' checked' : ''}`}
+        type="button"
+        role="menuitemcheckbox"
+        aria-checked={prefs.subagentAlwaysParentModel}
+        onClick={() => onSetPrefs(toggleChatPref(prefs, 'subagentAlwaysParentModel'))}
+      >
+        <span class="toolbar-settings-item-check" aria-hidden="true">
+          <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style={prefs.subagentAlwaysParentModel ? '' : 'opacity:0'}>
+            <polyline points="2.5,6.5 5,9 10.5,3.5" />
+          </svg>
+        </span>
+        <span class="toolbar-settings-item-label">Always use parent model</span>
+      </button>
+    </div>
+  );
+}
+
 interface ExtensionItemProps {
   ext: ExtensionInfo;
   prefs: ChatPrefs;
@@ -279,6 +300,9 @@ function ExtensionItem({ ext, prefs, onSetPrefs, isExpanded, setExpandedExt, pru
           onSetPrefs={onSetPrefs}
           onSetPruningSettings={onSetPruningSettings}
         />
+      )}
+      {hasSettings && isExpanded && ext.id === 'subagent' && (
+        <SubagentSettings prefs={prefs} onSetPrefs={onSetPrefs} />
       )}
     </div>
   );

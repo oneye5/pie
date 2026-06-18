@@ -64,6 +64,12 @@ export function coerceSessionAnalyticsFactors(value: unknown): SessionAnalyticsF
         : typeof value.promptHash === 'string'
           ? value.promptHash
           : null,
+    promptCapturedAt:
+      value.promptCapturedAt === null
+        ? null
+        : typeof value.promptCapturedAt === 'string'
+          ? value.promptCapturedAt
+          : null,
     harnessPromptHash:
       value.harnessPromptHash === null
         ? null

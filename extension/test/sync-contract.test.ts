@@ -33,6 +33,7 @@ test('DEFAULT_CHAT_PREFS shape', () => {
   assert.equal(typeof DEFAULT_CHAT_PREFS.autoExpandToolCalls, 'boolean');
   assert.equal(typeof DEFAULT_CHAT_PREFS.autoExpandSubagentCalls, 'boolean');
   assert.equal(typeof DEFAULT_CHAT_PREFS.suppressCompletionNotifications, 'boolean');
+  assert.equal(typeof DEFAULT_CHAT_PREFS.subagentAlwaysParentModel, 'boolean');
 });
 
 test('resolveChatPrefs backfills subagent auto-expand from legacy tool-call prefs', () => {
@@ -216,6 +217,7 @@ test('SessionOpenedPayload can carry structured analytics factors', () => {
   const analyticsFactors: SessionAnalyticsFactors = {
     promptFamily: 'harness+customPrompt',
     promptHash: 'prompt-hash',
+  promptCapturedAt: '2025-06-15T10:30:00.000Z',
     harnessPromptHash: 'harness-hash',
     customPromptHash: 'custom-hash',
     appendSystemPromptHash: null,

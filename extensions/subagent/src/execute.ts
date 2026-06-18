@@ -34,6 +34,15 @@ import type { ParentBridge } from "./parent-extension-ui-bridge-proxy.js";
 /** Root of the pi-config repo, resolved from this extension's known position. */
 const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 
+/** Environment key used by the pie host to force sub-agents to use the parent model. */
+const SUBAGENT_ALWAYS_PARENT_MODEL_ENV = "PIE_SUBAGENT_ALWAYS_PARENT_MODEL";
+
+/** Reads the always-parent-model override from the environment (set by the pie host). */
+export function readAlwaysParentModel(): boolean {
+	const raw = process.env[SUBAGENT_ALWAYS_PARENT_MODEL_ENV];
+	return raw === "1" || raw === "true";
+}
+
 /** Context for model selection settings and restrictions. */
 export interface SelectionContext {
 	modelConfig: SimpleModelConfig[];
@@ -42,6 +51,8 @@ export interface SelectionContext {
 	analyticsDir: string;
 	/** Cached bucket assignments for this tool call (computed once). */
 	bucketAssignments: BucketAssignments | undefined;
+	/** When true, skip bucket selection and always use the parent's active model. */
+	alwaysParentModel: boolean;
 }
 
 /**
@@ -111,6 +122,26 @@ export async function resolveModel(
 ) {
 	const bucket = perCallBucket ?? agent.bucket ?? "medium";
 	const thinkingLevel = perCallThinkingLevel ?? agent.thinkingLevel;
+
+	// When the user has enabled "always use parent model", skip bucket
+	// selection entirely and use the caller's active model (the same path as
+	// the empty-pool fallback in selectModel). If the active model has been
+	// excluded via retry, fall through to a "" modelId to signal exhaustion.
+	if (selectionCtx.alwaysParentModel) {
+		const fallbackId = activeModelId && !excludeModels?.has(activeModelId) ? activeModelId : "";
+		return {
+			modelOverride: fallbackId,
+			thinkingLevel,
+			selection: {
+				modelId: fallbackId,
+				thinkingLevel,
+				bucket,
+				pool: [],
+				fallback: true,
+			},
+			bucket,
+		};
+	}
 
 	// Load bucket assignments on first call (cached for subsequent calls)
 	if (!selectionCtx.bucketAssignments) {
@@ -318,7 +349,7 @@ function setupModelSelection(ctx: ToolContext): SelectionContext {
 			.map((m) => m.id),
 	);
 
-	return { modelConfig, disabledProviders, allowedModelIds, analyticsDir, bucketAssignments: undefined };
+	return { modelConfig, disabledProviders, allowedModelIds, analyticsDir, bucketAssignments: undefined, alwaysParentModel: readAlwaysParentModel() };
 }
 
 /** Routes the validated request to the mode-specific execution function. */

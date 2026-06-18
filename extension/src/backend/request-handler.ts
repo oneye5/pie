@@ -74,6 +74,9 @@ async function handleRuntimePrefsSet(
   const params = validateRuntimePrefsSet(request.params);
   process.env[PROVIDER_TOGGLES_ENV] = JSON.stringify(params.providerToggles);
   process.env[EXTENSION_TOGGLES_ENV] = JSON.stringify(params.extensionToggles);
+  if (params.subagentAlwaysParentModel !== undefined) {
+    process.env['PIE_SUBAGENT_ALWAYS_PARENT_MODEL'] = params.subagentAlwaysParentModel ? '1' : '0';
+  }
   return params;
 }
 

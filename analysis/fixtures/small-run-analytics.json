@@ -26,6 +26,7 @@
       "analyticsFactors": {
         "promptFamily": "default",
         "promptHash": "ph_001f2c4d",
+        "promptCapturedAt": "2025-06-15T10:30:00.000Z",
         "harnessPromptHash": "hh_101f2c4d",
         "customPromptHash": null,
         "appendSystemPromptHash": "as_001a1a1a",
@@ -201,6 +202,7 @@
       "analyticsFactors": {
         "promptFamily": "default",
         "promptHash": "ph_001f2c4d",
+        "promptCapturedAt": "2025-06-15T10:30:00.000Z",
         "harnessPromptHash": "hh_101f2c4d",
         "customPromptHash": "cp_variant_blue",
         "appendSystemPromptHash": "as_001a1a1a",
@@ -392,6 +394,7 @@
       "analyticsFactors": {
         "promptFamily": "analysis-review",
         "promptHash": "ph_review_c",
+        "promptCapturedAt": "2025-06-18T14:22:00.000Z",
         "harnessPromptHash": "hh_review_c",
         "customPromptHash": null,
         "appendSystemPromptHash": "as_001a1a1a",
@@ -557,6 +560,7 @@
       "analyticsFactors": {
         "promptFamily": "quick-check",
         "promptHash": "ph_quick_d",
+        "promptCapturedAt": "2025-06-20T09:15:00.000Z",
         "harnessPromptHash": "hh_quick_d",
         "customPromptHash": null,
         "appendSystemPromptHash": "as_001a1a1a",
@@ -694,6 +698,7 @@
       "analyticsFactors": {
         "promptFamily": null,
         "promptHash": "ph_safe_e",
+        "promptCapturedAt": "2025-06-22T16:45:00.000Z",
         "harnessPromptHash": "hh_safe_e",
         "customPromptHash": null,
         "appendSystemPromptHash": "as_001a1a1a",
@@ -1133,6 +1138,7 @@
       "analyticsFactors": {
         "promptFamily": "analysis-review",
         "promptHash": "ph_open_g",
+        "promptCapturedAt": "2025-06-25T11:10:00.000Z",
         "harnessPromptHash": "hh_open_g",
         "customPromptHash": null,
         "appendSystemPromptHash": "as_001a1a1a",

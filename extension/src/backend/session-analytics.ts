@@ -190,9 +190,15 @@ export async function buildSessionAnalyticsFactors(options: {
     activeExtensions,
   }));
 
+  // Timestamp when the prompt factors were captured — gives a human-readable
+  // date alongside the opaque hash prefix, mirroring how skills surface
+  // lastModifiedAt alongside their name.
+  const promptCapturedAt = new Date().toISOString();
+
   return {
     promptFamily,
     promptHash,
+    promptCapturedAt,
     harnessPromptHash,
     customPromptHash,
     appendSystemPromptHash,

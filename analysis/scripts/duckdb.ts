@@ -48,6 +48,7 @@ interface DuckDbRunRow {
   experiment_assignment: string | null;
   prompt_family: string | null;
   prompt_hash_prefix: string | null;
+  prompt_captured_at: string | null;
   tool_set_hash_prefix: string | null;
   skill_set_hash_prefix: string | null;
   active_extensions: string[];
@@ -252,6 +253,7 @@ function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
     experiment_assignment: row.experimentAssignment,
     prompt_family: row.promptFamily,
     prompt_hash_prefix: row.promptHashPrefix,
+    prompt_captured_at: row.promptCapturedAt,
     tool_set_hash_prefix: row.toolSetHashPrefix,
     skill_set_hash_prefix: row.skillSetHashPrefix,
     active_extensions: row.activeExtensions,
@@ -521,6 +523,7 @@ CREATE TABLE runs (
   experiment_assignment VARCHAR,
   prompt_family VARCHAR,
   prompt_hash_prefix VARCHAR,
+  prompt_captured_at TIMESTAMP,
   tool_set_hash_prefix VARCHAR,
   skill_set_hash_prefix VARCHAR,
   active_extensions VARCHAR[],
@@ -767,6 +770,7 @@ SELECT
   run_id,
   prompt_family,
   prompt_hash_prefix,
+  prompt_captured_at,
   tool_set_hash_prefix,
   skill_set_hash_prefix,
   active_extensions,

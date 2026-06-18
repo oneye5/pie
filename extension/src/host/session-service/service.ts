@@ -214,6 +214,7 @@ export class SessionService implements vscode.Disposable {
     void this.backend.request('runtimePrefs.set', {
       providerToggles: merged.providerToggles,
       extensionToggles: merged.extensionToggles,
+      subagentAlwaysParentModel: merged.subagentAlwaysParentModel,
     }).catch(() => {
       // Non-fatal: the backend may be restarting or may not support runtime prefs yet.
     });

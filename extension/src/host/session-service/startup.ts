@@ -202,6 +202,7 @@ async function sendRuntimePrefsWithLogging(
     await options.backend.request('runtimePrefs.set', {
       providerToggles: archState.settings.prefs.providerToggles,
       extensionToggles: archState.settings.prefs.extensionToggles,
+      subagentAlwaysParentModel: archState.settings.prefs.subagentAlwaysParentModel,
     });
     bootLog('session-startup', 'runtimePrefs.set.completed', {
       backendReady: options.getArchState().settings.backendReady,

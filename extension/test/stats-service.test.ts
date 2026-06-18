@@ -695,6 +695,7 @@ test('StatsService captures structured analytics factors and experiment assignme
       draft.sessions.analyticsFactorsBySession[sessionPath] = {
         promptFamily: 'harness+customPrompt',
         promptHash: 'prompt-hash',
+        promptCapturedAt: '2025-06-15T10:30:00.000Z',
         harnessPromptHash: 'harness-hash',
         customPromptHash: 'custom-hash',
         appendSystemPromptHash: null,
@@ -949,6 +950,7 @@ test('StatsService tracks busy durations and mixed treatment changes', async () 
       draft.sessions.analyticsFactorsBySession[sessionPath] = {
         promptFamily: 'harness',
         promptHash: 'prompt-a',
+        promptCapturedAt: '2025-06-15T10:30:00.000Z',
         harnessPromptHash: 'harness-a',
         customPromptHash: null,
         appendSystemPromptHash: null,
@@ -989,6 +991,7 @@ test('StatsService tracks busy durations and mixed treatment changes', async () 
     stats.onSessionAnalyticsFactorsChanged(sessionPath, {
       promptFamily: 'harness+customPrompt',
       promptHash: 'prompt-b',
+        promptCapturedAt: '2025-06-16T10:30:00.000Z',
       harnessPromptHash: 'harness-a',
       customPromptHash: 'custom-b',
       appendSystemPromptHash: null,

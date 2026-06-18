@@ -372,6 +372,7 @@ function coerceSessionAnalyticsFactors(value: unknown): SessionAnalyticsFactors 
   return {
     promptFamily: coerceNullableString(value.promptFamily),
     promptHash: coerceNullableString(value.promptHash),
+    promptCapturedAt: coerceNullableString(value.promptCapturedAt),
     harnessPromptHash: coerceNullableString(value.harnessPromptHash),
     customPromptHash: coerceNullableString(value.customPromptHash),
     appendSystemPromptHash: coerceNullableString(value.appendSystemPromptHash),

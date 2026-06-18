@@ -317,6 +317,7 @@ export function validateMessageSend(params: unknown): MessageSendParams {
 export interface RuntimePrefsSetParams {
   providerToggles: Record<string, boolean>;
   extensionToggles: Record<string, boolean>;
+  subagentAlwaysParentModel?: boolean;
 }
 
 export interface SettingsSetParams extends Partial<ModelSettings> {
@@ -358,7 +359,10 @@ export function validateRuntimePrefsSet(params: unknown): RuntimePrefsSetParams 
     'extensionToggles',
     (params as Record<string, unknown>)['extensionToggles'],
   );
-  return { providerToggles, extensionToggles };
+  const rawAlwaysParent = (params as Record<string, unknown>)['subagentAlwaysParentModel'];
+  const subagentAlwaysParentModel =
+    rawAlwaysParent === undefined ? undefined : typeof rawAlwaysParent === 'boolean' ? rawAlwaysParent : fail('runtimePrefs.set', 'subagentAlwaysParentModel must be a boolean when provided');
+  return { providerToggles, extensionToggles, subagentAlwaysParentModel };
 }
 
 export function validateSettingsSet(params: unknown): SettingsSetParams {

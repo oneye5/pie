@@ -148,12 +148,13 @@ test('validateRuntimePrefsSet accepts provider and extension toggles', () => {
       extensionToggles: {
         'skill-pruner': false,
       },
+      subagentAlwaysParentModel: undefined,
     },
   );
 });
 
 test('validateRuntimePrefsSet defaults missing toggle maps to empty', () => {
-  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {}, extensionToggles: {} });
+  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: undefined });
 });
 
 test('validateRuntimePrefsSet rejects non-boolean provider toggle values', () => {

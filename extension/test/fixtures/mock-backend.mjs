@@ -132,6 +132,7 @@ rl.on('line', (line) => {
         analyticsFactors: {
           promptFamily: 'harness+customPrompt+selectedTools+skills',
           promptHash: 'mock-prompt-hash',
+          promptCapturedAt: '2025-06-15T10:30:00.000Z',
           harnessPromptHash: 'mock-harness-hash',
           customPromptHash: 'mock-custom-hash',
           appendSystemPromptHash: null,

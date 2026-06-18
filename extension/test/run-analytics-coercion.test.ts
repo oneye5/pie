@@ -101,6 +101,7 @@ test('coerceSessionAnalyticsFactors accepts only supported shapes and values', (
   assert.deepEqual(coerced, {
     promptFamily: 'harness+skills',
     promptHash: null,
+    promptCapturedAt: null,
     harnessPromptHash: null,
     customPromptHash: 'custom-hash',
     appendSystemPromptHash: null,

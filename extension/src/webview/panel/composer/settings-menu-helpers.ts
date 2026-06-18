@@ -1,7 +1,7 @@
 import type { PruningMode, ThinkingLevel } from '../../../shared/protocol';
 
 /** Extension IDs that have nested settings panels */
-export const EXTENSIONS_WITH_SETTINGS = new Set(['skill-pruner']);
+export const EXTENSIONS_WITH_SETTINGS = new Set(['skill-pruner', 'subagent']);
 
 export const PRUNING_MODE_OPTIONS: { value: PruningMode; label: string }[] = [
   { value: 'auto', label: 'Auto' },

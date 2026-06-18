@@ -82,6 +82,8 @@ export interface SessionSkillFactor {
 export interface SessionAnalyticsFactors {
   promptFamily: string | null;
   promptHash: string | null;
+  /** ISO timestamp when the prompt factors were captured (session open time). */
+  promptCapturedAt: string | null;
   harnessPromptHash: string | null;
   customPromptHash: string | null;
   appendSystemPromptHash: string | null;
