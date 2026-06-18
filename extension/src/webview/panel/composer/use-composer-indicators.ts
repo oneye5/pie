@@ -21,6 +21,7 @@ import {
   type TokenPricing,
 } from '../session-tabs/token-usage';
 import { resolveComposerModelState } from './model-state';
+import { useTokenRateIndicator } from './use-token-rate';
 
 export function useComposerIndicators({
   activeModelId,
@@ -33,6 +34,7 @@ export function useComposerIndicators({
   transcriptWindow,
   pruningResult,
   busy,
+  sessionPath,
 }: {
   activeModelId?: string;
   activeThinkingLevel?: ThinkingLevel;
@@ -44,6 +46,7 @@ export function useComposerIndicators({
   transcriptWindow: TranscriptWindow;
   pruningResult: PruningResult | null;
   busy: boolean;
+  sessionPath: string | null;
 }) {
   const {
     selectedModel,
@@ -107,6 +110,8 @@ export function useComposerIndicators({
     [sessionTokenUsage, selectedModelInfo, transcript, pruningResult, pricingByModelId, liveCostEstimate],
   );
 
+  const tokenRateIndicator = useTokenRateIndicator({ transcript, busy, sessionPath });
+
   return {
     selectedModel,
     selectedLevel,
@@ -117,5 +122,6 @@ export function useComposerIndicators({
     contextIndicator,
     sessionTokenIndicator,
     sessionCostIndicator,
+    tokenRateIndicator,
   };
 }

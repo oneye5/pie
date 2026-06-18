@@ -110,6 +110,15 @@
   opacity: 0.75;
 }
 
+/*
+ * Generation-speed indicator (tokens/sec). Dimmed while the generation clock
+ * is frozen — i.e. a tool is running, between turns, or the model stalled —
+ * signalling that the displayed rate is the last measured value, not live.
+ */
+.panel-chip-indicator-speed.is-paused {
+  opacity: 0.45;
+}
+
 .panel-chip-run-status {
   flex: 0 0 auto;
 }

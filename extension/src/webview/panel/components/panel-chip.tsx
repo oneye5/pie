@@ -108,14 +108,16 @@ export function ToolbarChip({ label, title, ariaLabel, tone = 'muted' }: Toolbar
   return <PanelChip variant="toolbar" tone={tone} label={label} title={title} ariaLabel={ariaLabel} />;
 }
 
-export type ToolbarIndicatorKind = 'tokens' | 'cost' | 'context';
+export type ToolbarIndicatorKind = 'tokens' | 'cost' | 'context' | 'speed';
 
 interface ToolbarIndicatorChipProps extends ToolbarChipProps {
   kind: ToolbarIndicatorKind;
   severity?: 'warning' | 'critical' | string | null;
+  /** Visual pause marker for indicators whose underlying measurement is frozen (e.g. the speed chip while a tool runs). */
+  state?: 'paused' | null;
 }
 
-function indicatorClassName(kind: ToolbarIndicatorKind, severity?: string | null): string {
+function indicatorClassName(kind: ToolbarIndicatorKind, severity?: string | null, state?: 'paused' | null): string {
   return [
     'panel-chip-indicator',
     `panel-chip-indicator-${kind}`,
@@ -123,15 +125,16 @@ function indicatorClassName(kind: ToolbarIndicatorKind, severity?: string | null
     kind === 'cost' && 'session-cost-indicator',
     kind === 'context' && 'context-window-indicator',
     severity,
+    state === 'paused' && 'is-paused',
   ].filter(Boolean).join(' ');
 }
 
-export function ToolbarIndicatorChip({ kind, severity, label, title, ariaLabel }: ToolbarIndicatorChipProps) {
+export function ToolbarIndicatorChip({ kind, severity, state, label, title, ariaLabel }: ToolbarIndicatorChipProps) {
   return (
     <PanelChip
       variant="toolbar"
       tone="neutral"
-      className={indicatorClassName(kind, severity)}
+      className={indicatorClassName(kind, severity, state)}
       ariaLabel={ariaLabel}
       title={title}
       label={label}

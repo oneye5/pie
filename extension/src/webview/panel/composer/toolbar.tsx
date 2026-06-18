@@ -8,6 +8,7 @@ import { useMemo } from 'preact/hooks';
 import { ToolbarChip, ToolbarIndicatorChip, ToolbarRunStatusChip, ToolbarSelectChip } from '../components/panel-chip';
 import { ModelPicker } from '../components/model-picker';
 import { orderModelsForPicker } from './model-list';
+import type { TokenRateIndicatorState } from './use-token-rate';
 import { ComposerSettingsMenu } from './settings-menu';
 
 const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
@@ -41,6 +42,7 @@ interface ComposerToolbarProps {
   contextBreakdownTitle: string | null;
   sessionTokenIndicator: { label: string; ariaLabel: string; tooltip: string };
   sessionCostIndicator: { label: string; ariaLabel: string; tooltip: string } | null;
+  tokenRateIndicator: TokenRateIndicatorState;
   runStatus: ComposerToolbarStatus | null;
   onModelChange: (model: string, thinkingLevel: ThinkingLevel) => void;
 }
@@ -61,6 +63,7 @@ export function ComposerToolbar({
   contextBreakdownTitle,
   sessionTokenIndicator,
   sessionCostIndicator,
+  tokenRateIndicator,
   runStatus,
   onModelChange,
 }: ComposerToolbarProps) {
@@ -108,6 +111,16 @@ export function ComposerToolbar({
       </div>
 
       <div class="ml-auto flex min-w-0 shrink-0 flex-nowrap items-center justify-end gap-1.5">
+        {tokenRateIndicator.label && (
+          <ToolbarIndicatorChip
+            kind="speed"
+            state={tokenRateIndicator.paused ? 'paused' : null}
+            ariaLabel={tokenRateIndicator.ariaLabel}
+            title={tokenRateIndicator.tooltip}
+            label={tokenRateIndicator.label}
+          />
+        )}
+
         <ToolbarIndicatorChip
           kind="tokens"
           ariaLabel={sessionTokenIndicator.ariaLabel}

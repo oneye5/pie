@@ -16,6 +16,8 @@ import {
 } from '../file-drop';
 
 export { useComposerIndicators } from './use-composer-indicators';
+export { useTokenRateIndicator, tickTokenRate, createTokenRateAccumulator } from './use-token-rate';
+export type { TokenRateIndicatorState } from './use-token-rate';
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
 

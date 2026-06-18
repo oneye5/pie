@@ -113,6 +113,7 @@ function ComposerView({
     contextIndicator,
     sessionTokenIndicator,
     sessionCostIndicator,
+    tokenRateIndicator,
   } = useComposerIndicators({
     activeModelId,
     activeThinkingLevel,
@@ -124,6 +125,7 @@ function ComposerView({
     transcriptWindow,
     pruningResult,
     busy,
+    sessionPath,
   });
 
   const {
@@ -200,6 +202,7 @@ function ComposerView({
               tooltip: sessionTokenIndicator.tooltip,
             }}
         sessionCostIndicator={sessionCostIndicator}
+        tokenRateIndicator={tokenRateIndicator}
         runStatus={runControls.status}
         onModelChange={onModelChange}
       />
