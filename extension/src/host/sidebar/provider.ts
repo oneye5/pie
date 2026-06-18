@@ -338,7 +338,14 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
    * handles these independently from the state flow.
    */
   postImperative(msg: HostToWebviewMessage): void {
-    if (!this.view || !this.webviewReady) return;
+    if (!this.view || !this.webviewReady) {
+      // State-bearing imperatives (sendRejected) trigger a snapshot re-post
+      // when the webview becomes ready. Fire-and-forget imperatives are dropped.
+      if (msg.type === 'sendRejected') {
+        this.syncState = { ...this.syncState, globalDirty: true };
+      }
+      return;
+    }
     this.postToWebview(msg);
   }
 

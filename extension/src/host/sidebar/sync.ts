@@ -97,7 +97,7 @@ export function reconcilePostedMessageDelivery(
     return syncState;
   }
 
-  if (message.type === 'state') {
+  if (message.type === 'state' || message.type === 'sendRejected') {
     return { ...syncState, globalDirty: true };
   }
 
