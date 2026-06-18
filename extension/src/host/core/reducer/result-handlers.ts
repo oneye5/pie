@@ -62,7 +62,7 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
     {
       kind: 'PostImperative',
       corrId: event.corrId,
-      imperativeMessage: { type: 'sendRejected', sessionPath: pending.sessionPath, localId: pending.localId },
+      imperativeMessage: { type: 'sendRejected', sessionPath: pending.sessionPath, text: pending.text ?? '', localId: pending.localId },
     },
   ];
 

@@ -164,6 +164,8 @@ export interface PendingOp {
   localId: string;
   /** Session summary snapshot before optimistic name change (null = no change). */
   previousSummary: SessionSummary | null;
+  /** The raw user text sent (for send ops only — used to restore the draft on sendRejected). */
+  text?: string;
 }
 
 /** Snapshot of the state an optimistic `SetModel` changed, for rollback when

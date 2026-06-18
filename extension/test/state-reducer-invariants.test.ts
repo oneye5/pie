@@ -156,12 +156,14 @@ test('arch: concurrent sends across different sessions do not interfere', () => 
     sessionPath: '/s/a',
     localId: 'loc-a',
     previousSummary: null,
+    text: 'text-a',
   });
   assert.deepEqual(result.state.pending.ops['c-b'], {
     kind: 'send',
     sessionPath: '/s/b',
     localId: 'loc-b',
     previousSummary: null,
+    text: 'text-b',
   });
 });
 
@@ -533,6 +535,7 @@ test('selectViewState exposes session-derived pruning catalog as enum options', 
     draft.sessions.analyticsFactorsBySession[sessionPath] = {
       promptFamily: 'harness+skills',
       promptHash: 'prompt-hash',
+  promptCapturedAt: '2025-06-15T10:30:00.000Z',
       harnessPromptHash: 'harness-hash',
       customPromptHash: null,
       appendSystemPromptHash: null,

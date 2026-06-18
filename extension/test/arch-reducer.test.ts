@@ -188,6 +188,7 @@ test('reducer: Send command inserts optimistic message and produces SendRpc', ()
     sessionPath: '/s',
     localId: 'loc-1',
     previousSummary: null,
+    text: 'raw',
   });
 
   // Optimistic user message inserted in transcript.

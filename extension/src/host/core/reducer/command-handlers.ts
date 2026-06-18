@@ -107,6 +107,7 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
           sessionPath: cmd.sessionPath,
           localId: cmd.localId,
           previousSummary: cmd.previousSummary,
+          text: cmd.text,
         };
         draft.sessions.runningSessionPaths = nextRunningPaths;
         delete draft.composer.draftTextBySession[cmd.sessionPath];
