@@ -4,6 +4,34 @@ export function cloneToolCall(toolCall: ToolCall): ToolCall {
   return { ...toolCall };
 }
 
+/**
+ * True when a tool-call input carries no meaningful content: missing,
+ * null, an empty string, an empty array, or an empty object.
+ *
+ * Used when merging updates so that a placeholder `{}` or `undefined`
+ * from a later message doesn't clobber arguments that arrived earlier
+ * via `tool.started`.
+ */
+export function isEmptyToolCallInput(value: unknown): boolean {
+  if (value === undefined || value === null) {
+    return true;
+  }
+
+  if (typeof value === 'string') {
+    return value.trim().length === 0;
+  }
+
+  if (Array.isArray(value)) {
+    return value.length === 0;
+  }
+
+  if (typeof value === 'object') {
+    return Object.keys(value as Record<string, unknown>).length === 0;
+  }
+
+  return false;
+}
+
 export function cloneMessagePart(part: ChatMessagePart): ChatMessagePart {
   if (part.kind === 'toolCall') {
     return { kind: 'toolCall', toolCall: cloneToolCall(part.toolCall) };
@@ -41,7 +69,34 @@ export function upsertAssistantToolPart(parts: ChatMessagePart[], toolCall: Tool
     return;
   }
 
-  parts[index] = { kind: 'toolCall', toolCall: nextToolCall };
+  const existing = (parts[index] as Extract<ChatMessagePart, { kind: 'toolCall' }>).toolCall;
+  const merged: ToolCall = { ...existing };
+
+  if (nextToolCall.name) {
+    merged.name = nextToolCall.name;
+  }
+
+  if (!isEmptyToolCallInput(nextToolCall.input)) {
+    merged.input = nextToolCall.input;
+  }
+
+  if (nextToolCall.result !== undefined) {
+    merged.result = nextToolCall.result;
+  }
+
+  if (nextToolCall.status !== undefined) {
+    merged.status = nextToolCall.status;
+  }
+
+  if (nextToolCall.startedAt !== undefined) {
+    merged.startedAt = nextToolCall.startedAt;
+  }
+
+  if (nextToolCall.durationMs !== undefined) {
+    merged.durationMs = nextToolCall.durationMs;
+  }
+
+  parts[index] = { kind: 'toolCall', toolCall: merged };
 }
 
 export function legacyAssistantParts(message: ChatMessage): ChatMessagePart[] {

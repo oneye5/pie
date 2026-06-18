@@ -4,7 +4,7 @@ import type {
   ToolCall,
   UserContentPart,
 } from '../../shared/protocol';
-import { cloneToolCall } from '../../shared/chat-message-parts';
+import { cloneToolCall, isEmptyToolCallInput } from '../../shared/chat-message-parts';
 
 export function ensureAssistantParts(message: ChatMessage): ChatMessagePart[] {
   if (message.parts) {
@@ -134,23 +134,52 @@ export function upsertAssistantToolCall(message: ChatMessage, toolCall: ToolCall
   const existingToolCalls = message.toolCalls ?? [];
   const toolIndex = existingToolCalls.findIndex((item) => item.id === nextToolCall.id);
 
+  let mergedToolCall: ToolCall;
   if (toolIndex === -1) {
-    message.toolCalls = [...existingToolCalls, nextToolCall];
+    mergedToolCall = nextToolCall;
+    message.toolCalls = [...existingToolCalls, mergedToolCall];
   } else {
+    const existing = existingToolCalls[toolIndex]!;
+    mergedToolCall = { ...existing };
+
+    if (nextToolCall.name) {
+      mergedToolCall.name = nextToolCall.name;
+    }
+
+    if (!isEmptyToolCallInput(nextToolCall.input)) {
+      mergedToolCall.input = nextToolCall.input;
+    }
+
+    if (nextToolCall.result !== undefined) {
+      mergedToolCall.result = nextToolCall.result;
+    }
+
+    if (nextToolCall.status !== undefined) {
+      mergedToolCall.status = nextToolCall.status;
+    }
+
+    if (nextToolCall.startedAt !== undefined) {
+      mergedToolCall.startedAt = nextToolCall.startedAt;
+    }
+
+    if (nextToolCall.durationMs !== undefined) {
+      mergedToolCall.durationMs = nextToolCall.durationMs;
+    }
+
     message.toolCalls = existingToolCalls.map((item) =>
-      item.id === nextToolCall.id ? nextToolCall : item,
+      item.id === nextToolCall.id ? mergedToolCall : item,
     );
   }
 
   const partIndex = parts.findIndex(
-    (part) => part.kind === 'toolCall' && part.toolCall.id === nextToolCall.id,
+    (part) => part.kind === 'toolCall' && part.toolCall.id === mergedToolCall.id,
   );
   if (partIndex === -1) {
-    parts.push({ kind: 'toolCall', toolCall: nextToolCall });
+    parts.push({ kind: 'toolCall', toolCall: mergedToolCall });
     return;
   }
 
-  parts[partIndex] = { kind: 'toolCall', toolCall: nextToolCall };
+  parts[partIndex] = { kind: 'toolCall', toolCall: mergedToolCall };
 }
 
 export function mergeContinuationToolCalls(message: ChatMessage, incoming: ChatMessage): void {
@@ -203,7 +232,9 @@ export function mergeAssistantToolCallsPreservingResolvedState(
     const mergedToolCall: ToolCall = {
       ...currentToolCall,
       name: currentToolCall.name || previousToolCall.name,
-      input: currentToolCall.input !== undefined ? currentToolCall.input : previousToolCall.input,
+      input: isEmptyToolCallInput(currentToolCall.input)
+        ? previousToolCall.input
+        : currentToolCall.input,
       result: currentToolCall.result !== undefined ? currentToolCall.result : previousToolCall.result,
       status:
         currentToolCall.status === 'failed' || previousToolCall.status !== 'failed'

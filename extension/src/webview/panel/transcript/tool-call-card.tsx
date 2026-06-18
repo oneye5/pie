@@ -2,6 +2,7 @@
 /** @jsxImportSource preact */
 
 import type { ToolCall } from '../../../shared/protocol';
+import { isEmptyToolCallInput } from '../../../shared/chat-message-parts';
 import { normalizeToolCallName } from '../../../shared/tool-call-analysis';
 import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
@@ -393,9 +394,13 @@ function ToolCallBody({ toolCall }: ToolCallBodyProps) {
     <div class="tool-call-body" onClick={(e) => e.stopPropagation()}>
       <div class="tool-call-section">
         <div class="tool-call-section-label">Input</div>
-        <pre class="tool-call-pre tool-call-code">
-          <code class="language-yaml" dangerouslySetInnerHTML={{ __html: formatValueAsHighlightedYaml(toolCall.input) }} />
-        </pre>
+        {isEmptyToolCallInput(toolCall.input) ? (
+          <div class="tool-call-empty">(no input)</div>
+        ) : (
+          <pre class="tool-call-pre tool-call-code">
+            <code class="language-yaml" dangerouslySetInnerHTML={{ __html: formatValueAsHighlightedYaml(toolCall.input) }} />
+          </pre>
+        )}
       </div>
       {toolCall.result !== undefined && (
         <div class="tool-call-section">

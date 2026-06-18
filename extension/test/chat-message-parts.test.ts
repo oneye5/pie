@@ -86,6 +86,30 @@ test('upsertAssistantToolPart appends new tool calls and replaces existing ids',
   assert.equal(appended.toolCall.id, 'tool-2');
 });
 
+test('upsertAssistantToolPart preserves previous input when an update has no meaningful input', () => {
+  const parts: ChatMessagePart[] = [
+    { kind: 'toolCall', toolCall: makeToolCall({ id: 'tool-1', input: { command: 'ls -la' }, status: 'running' }) },
+  ];
+
+  upsertAssistantToolPart(parts, { id: 'tool-1', name: 'bash', input: {}, status: 'running' });
+
+  assert.equal(parts.length, 1);
+  const updated = parts[0] as Extract<ChatMessagePart, { kind: 'toolCall' }>;
+  assert.deepEqual(updated.toolCall.input, { command: 'ls -la' });
+  assert.equal(updated.toolCall.status, 'running');
+});
+
+test('upsertAssistantToolPart replaces previous input when the update carries real arguments', () => {
+  const parts: ChatMessagePart[] = [
+    { kind: 'toolCall', toolCall: makeToolCall({ id: 'tool-1', input: { command: 'ls' }, status: 'running' }) },
+  ];
+
+  upsertAssistantToolPart(parts, { id: 'tool-1', name: 'bash', input: { command: 'pwd' }, status: 'running' });
+
+  const updated = parts[0] as Extract<ChatMessagePart, { kind: 'toolCall' }>;
+  assert.deepEqual(updated.toolCall.input, { command: 'pwd' });
+});
+
 test('legacyAssistantParts preserves reasoning, tool call ordering, and markdown text', () => {
   const message = makeAssistantMessage({
     markdown: 'final answer',

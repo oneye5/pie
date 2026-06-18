@@ -52,6 +52,14 @@
   white-space: pre;
 }
 
+/* Placeholder when a tool call has no meaningful input to display */
+.tool-call-empty {
+  padding: 6px 10px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--panel-muted);
+}
+
 /* ── Subagent header ─────────────────────────────────────────────────────── */
 
 .subagent-header {

@@ -658,6 +658,44 @@ test('reducer: ToolCall resolves alias and upserts tool call directly', () => {
   assert.equal(result.effects.length, 0);
 });
 
+test('reducer: MessageFinished preserves streaming tool-call input when final message has empty arguments', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{
+          id: 'msg-1',
+          role: 'assistant' as const,
+          createdAt: '',
+          markdown: '',
+          status: 'streaming' as const,
+          parts: [{ kind: 'toolCall', toolCall: { id: 'tool-1', name: 'bash', input: { command: 'ls' }, status: 'running' } }],
+          toolCalls: [{ id: 'tool-1', name: 'bash', input: { command: 'ls' }, status: 'running' }],
+        }],
+      },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+  };
+
+  const message: ChatMessage = {
+    id: 'msg-1',
+    role: 'assistant',
+    createdAt: '',
+    markdown: 'done',
+    status: 'completed',
+    parts: [{ kind: 'toolCall', toolCall: { id: 'tool-1', name: 'bash', input: {}, status: 'completed', result: 'ok' } }],
+    toolCalls: [{ id: 'tool-1', name: 'bash', input: {}, status: 'completed', result: 'ok' }],
+  };
+
+  const result = reducer(state, { kind: 'MessageFinished', sessionPath: '/s', message });
+  const msg = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'msg-1');
+  assert.ok(msg);
+  assert.deepEqual(msg!.toolCalls?.[0]?.input, { command: 'ls' });
+  assert.equal(msg!.toolCalls?.[0]?.status, 'completed');
+  assert.equal(msg!.toolCalls?.[0]?.result, 'ok');
+});
+
 test('reducer: MessageFinished resolves alias and merges into canonical message', () => {
   const state: ArchState = {
     ...initialArchState,
