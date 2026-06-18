@@ -467,7 +467,7 @@ test('reducer: MessageStarted with new requestId creates currentTurn and assista
   const result = reducer(initialArchState, event);
 
   // currentTurnBySession updated
-  assert.deepEqual(result.state.pending.currentTurnBySession['/s'], { requestId: 'req-1', firstMessageId: 'msg-1' });
+  assert.deepEqual(result.state.pending.currentTurnBySession['/s'], { requestId: 'req-1', firstMessageId: 'msg-1', firstMessageIndex: 0 });
   // No alias created
   assert.equal(result.state.pending.messageIdAlias['msg-1'], undefined);
   // Assistant message created in transcript

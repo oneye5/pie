@@ -203,6 +203,11 @@ export interface SetModelPending {
 export interface CurrentTurn {
   requestId: string;
   firstMessageId: string;
+  /** Cached array index of the streaming (active-turn) message, set on
+   *  MessageStarted so per-delta handlers can look it up in O(1) instead of
+   *  an O(n) find through the Immer draft. Validated by an id check on use,
+   *  so a stale value (cull, cleared turn, etc.) safely falls back to find. */
+  firstMessageIndex?: number;
 }
 
 /**

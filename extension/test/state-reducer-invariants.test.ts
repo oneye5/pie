@@ -206,6 +206,7 @@ test('arch: MessageStarted without modelId still creates turn and assistant mess
   assert.deepEqual(result.state.pending.currentTurnBySession['/s'], {
     requestId: 'req-1',
     firstMessageId: 'msg-1',
+    firstMessageIndex: 0,
   });
   // Assistant message created directly in transcript
   const msg = result.state.transcript.bySession['/s']?.find(m => m.id === 'msg-1');
@@ -240,6 +241,7 @@ test('arch: MessageStarted with different requestId starts a new turn', () => {
   assert.deepEqual(result.state.pending.currentTurnBySession['/s'], {
     requestId: 'req-new',
     firstMessageId: 'msg-new',
+    firstMessageIndex: 0,
   });
   // New assistant message created in transcript
   const msg = result.state.transcript.bySession['/s']?.find(m => m.id === 'msg-new');

@@ -102,6 +102,7 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "tsx --test ./test/**/*.test.ts",
+    "perf": "tsx ./test/perf/streaming-pipeline.perf.ts",
     "package": "vsce package --no-dependencies --allow-missing-repository"
   },
   "devDependencies": {

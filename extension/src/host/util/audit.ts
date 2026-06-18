@@ -14,6 +14,14 @@ export function setBootTraceEnabled(enabled: boolean): void {
   bootTraceEnabled = enabled;
 }
 
+/** Whether boot tracing is currently active. Callers can use this to avoid
+ *  computing expensive log payloads (e.g. a full ViewState projection) when
+ *  tracing is off — `bootLog` itself short-circuits, but only after the caller
+ *  has already built the payload object. */
+export function isBootLogEnabled(): boolean {
+  return bootTraceEnabled;
+}
+
 function appendBootTraceSync(record: Record<string, unknown>): void {
   if (!bootTraceEnabled) {
     return;

@@ -370,19 +370,29 @@ export class PieExtension implements vscode.Disposable {
   }
 
   private scheduleRender(): void {
-    const viewState = selectViewState(this.archState);
+    // Read ArchState fields directly instead of paying for a full ViewState
+    // projection on every event — these bootLog/status-bar fields are all
+    // available on ArchState without the (un-memoized, O(transcript))
+    // projection that selectViewState would run. scheduleRender fires once per
+    // backend event, so this was previously 2 full projections per delta.
+    const activeSessionPath = this.archState.sessions.activeSessionPath ?? null;
     bootLog('extension-host', 'render.schedule', {
-      activeSessionPath: viewState.activeSession?.path ?? null,
-      backendReady: viewState.backendReady,
-      notice: viewState.notice,
-      openTabCount: viewState.openTabPaths.length,
-      transcriptLoaded: viewState.transcriptLoaded,
+      activeSessionPath,
+      backendReady: this.archState.settings.backendReady,
+      notice: this.archState.settings.notice,
+      openTabCount: this.archState.sessions.openTabPaths.length,
+      transcriptLoaded: activeSessionPath
+        ? Object.prototype.hasOwnProperty.call(this.archState.transcript.windowBySession, activeSessionPath)
+        : false,
     });
     this.sidebarProvider.scheduleState();
     queueMicrotask(() => {
-      const state = selectViewState(this.archState);
       this.updateStatusBar(
-        state.notice ? 'Error' : state.runningSessionPaths.length > 0 ? 'Thinking' : 'Idle',
+        this.archState.settings.notice
+          ? 'Error'
+          : this.archState.sessions.runningSessionPaths.length > 0
+            ? 'Thinking'
+            : 'Idle',
       );
     });
   }
@@ -393,18 +403,23 @@ export class PieExtension implements vscode.Disposable {
    * and the first streaming event of a turn so feedback is instant.
    */
   private flushRender(): void {
-    const viewState = selectViewState(this.archState);
+    const activeSessionPath = this.archState.sessions.activeSessionPath ?? null;
     bootLog('extension-host', 'render.flush', {
-      activeSessionPath: viewState.activeSession?.path ?? null,
-      backendReady: viewState.backendReady,
-      notice: viewState.notice,
-      openTabCount: viewState.openTabPaths.length,
-      transcriptLoaded: viewState.transcriptLoaded,
+      activeSessionPath,
+      backendReady: this.archState.settings.backendReady,
+      notice: this.archState.settings.notice,
+      openTabCount: this.archState.sessions.openTabPaths.length,
+      transcriptLoaded: activeSessionPath
+        ? Object.prototype.hasOwnProperty.call(this.archState.transcript.windowBySession, activeSessionPath)
+        : false,
     });
     this.sidebarProvider.postState();
-    const state = selectViewState(this.archState);
     this.updateStatusBar(
-      state.notice ? 'Error' : state.runningSessionPaths.length > 0 ? 'Thinking' : 'Idle',
+      this.archState.settings.notice
+        ? 'Error'
+        : this.archState.sessions.runningSessionPaths.length > 0
+          ? 'Thinking'
+          : 'Idle',
     );
   }
 

@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 
 import * as vscode from 'vscode';
 
-import { assertInvariant, auditLog, bootLog } from '../util/audit';
+import { assertInvariant, auditLog, bootLog, isBootLogEnabled } from '../util/audit';
 import { toErrorMessage } from '../util/error-message';
 import {
   buildStateEnvelope,
@@ -247,14 +247,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     }
 
     const previousRevision = this.syncState.globalRevision;
+    const viewState = this.getViewState();
     const result = buildStateEnvelope(
       this.syncState,
-      this.getViewState(),
+      viewState,
       this.canPostSnapshotToView(),
     );
     this.syncState = result.nextSyncState;
-
-    const viewState = this.getViewState();
 
     auditLog(this.context, 'sidebar-provider', 'snapshot.postState', {
       globalDirty: this.syncState.globalDirty,
@@ -303,17 +302,19 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         revision: this.syncState.globalRevision,
         visible: this.view?.visible ?? false,
       });
-      const viewState = this.getViewState();
-      bootLog('sidebar-provider', 'snapshot.markDirty', {
-        activeSessionPath: viewState.activeSession?.path ?? null,
-        backendReady: viewState.backendReady,
-        globalDirty: this.syncState.globalDirty,
-        notice: viewState.notice,
-        openTabCount: viewState.openTabPaths.length,
-        ready: this.webviewReady,
-        revision: this.syncState.globalRevision,
-        visible: this.view?.visible ?? false,
-      });
+      if (isBootLogEnabled()) {
+        const viewState = this.getViewState();
+        bootLog('sidebar-provider', 'snapshot.markDirty', {
+          activeSessionPath: viewState.activeSession?.path ?? null,
+          backendReady: viewState.backendReady,
+          globalDirty: this.syncState.globalDirty,
+          notice: viewState.notice,
+          openTabCount: viewState.openTabPaths.length,
+          ready: this.webviewReady,
+          revision: this.syncState.globalRevision,
+          visible: this.view?.visible ?? false,
+        });
+      }
       return;
     }
 
@@ -354,10 +355,9 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   }
 
   private flushDirtyState(): void {
-    const result = flushDirtySnapshot(this.syncState, this.getViewState(), this.canPostSnapshotToView());
-    this.syncState = result.nextSyncState;
-
     const viewState = this.getViewState();
+    const result = flushDirtySnapshot(this.syncState, viewState, this.canPostSnapshotToView());
+    this.syncState = result.nextSyncState;
 
     auditLog(this.context, 'sidebar-provider', 'snapshot.flushDirty', {
       globalDirty: this.syncState.globalDirty,

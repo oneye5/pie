@@ -70,7 +70,6 @@ export function onToolStarted(payload: ToolStartedPayload, deps: HandlerDeps): v
     payload.messageId,
     new Date().toISOString(),
   );
-  console.log('[pie:fileChanges] onToolStarted', { name: payload.name, hasInput: !!payload.input, inputType: typeof payload.input, changeCount: fileChanges.length });
   if (fileChanges.length > 0) {
     const existing = deps.getArchState().fileChanges.bySession[sessionPath] ?? [];
     const next = [...existing];
@@ -90,11 +89,19 @@ export function onToolFinished(payload: ToolFinishedPayload, deps: HandlerDeps):
     return;
   }
 
-  // Look up existing tool call by toolCallId to carry forward name/input.
-  const existing = deps.getArchState()
-    .transcript.bySession[sessionPath]
-    ?.flatMap((message: any) => message.toolCalls ?? [])
-    .find((toolCall: any) => toolCall.id === payload.toolCallId);
+  // Look up the existing tool call to carry forward name/input. The owner
+  // message is identified by payload.messageId, so locate that one message
+  // (no array allocation across the whole transcript) and find the tool call
+  // within its toolCalls. Use the cached streaming-turn index for O(1) when
+  // it still points at this message; otherwise fall back to a find.
+  const archState = deps.getArchState();
+  const transcript = archState.transcript.bySession[sessionPath];
+  const cachedIdx = archState.pending.currentTurnBySession[sessionPath]?.firstMessageIndex;
+  const ownerMessage =
+    cachedIdx !== undefined && transcript?.[cachedIdx]?.id === payload.messageId
+      ? transcript?.[cachedIdx]
+      : transcript?.find((message) => message.id === payload.messageId);
+  const existing = ownerMessage?.toolCalls?.find((toolCall) => toolCall.id === payload.toolCallId);
 
   const toolCall = {
     id: payload.toolCallId,
@@ -122,7 +129,6 @@ export function onToolFinished(payload: ToolFinishedPayload, deps: HandlerDeps):
       new Date().toISOString(),
       payload.toolCallId,
     );
-    console.log('[pie:fileChanges] onToolFinished subagent', { toolCallId: payload.toolCallId, changeCount: subagentChanges.length });
     if (subagentChanges.length > 0) {
       const existingChanges = deps.getArchState().fileChanges.bySession[sessionPath] ?? [];
       const next = [...existingChanges];
@@ -143,11 +149,19 @@ export function onToolProgress(payload: ToolProgressPayload, deps: HandlerDeps):
     return;
   }
 
-  // Look up existing tool call by toolCallId to carry forward name/input.
-  const existing = deps.getArchState()
-    .transcript.bySession[sessionPath]
-    ?.flatMap((message: any) => message.toolCalls ?? [])
-    .find((toolCall: any) => toolCall.id === payload.toolCallId);
+  // Look up the existing tool call to carry forward name/input. The owner
+  // message is identified by payload.messageId, so locate that one message
+  // (no array allocation across the whole transcript) and find the tool call
+  // within its toolCalls. Use the cached streaming-turn index for O(1) when
+  // it still points at this message; otherwise fall back to a find.
+  const archState = deps.getArchState();
+  const transcript = archState.transcript.bySession[sessionPath];
+  const cachedIdx = archState.pending.currentTurnBySession[sessionPath]?.firstMessageIndex;
+  const ownerMessage =
+    cachedIdx !== undefined && transcript?.[cachedIdx]?.id === payload.messageId
+      ? transcript?.[cachedIdx]
+      : transcript?.find((message) => message.id === payload.messageId);
+  const existing = ownerMessage?.toolCalls?.find((toolCall) => toolCall.id === payload.toolCallId);
 
   const toolCall = {
     id: payload.toolCallId,

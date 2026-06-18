@@ -74,6 +74,18 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
           draft.transcript.windowBySession[sessionPath],
         );
         enforceLoadedWindowBudget(draft, sessionPath);
+        // Cache the streaming message's index for O(1) per-delta lookup, but
+        // only when this event owns the turn (requestId present → currentTurn's
+        // firstMessageId === this message). enforceLoadedWindowBudget keeps the
+        // active-turn (last) message last, so its index is the (post-cull) array
+        // length minus one. A MessageStarted without requestId must not mutate
+        // the existing turn's cached index.
+        if (requestId) {
+          const turn = draft.pending.currentTurnBySession[sessionPath];
+          if (turn) {
+            turn.firstMessageIndex = (draft.transcript.bySession[sessionPath]?.length ?? 0) - 1;
+          }
+        }
       }
     }
   });
@@ -83,10 +95,17 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
 
 export function handleMessageDelta(state: ArchState, event: Extract<Event, { kind: 'MessageDelta' }>): ReducerResult {
   const messageId = resolveAlias(state, event.messageId);
+  const cachedIndex = state.pending.currentTurnBySession[event.sessionPath]?.firstMessageIndex;
   const nextState = produce(state, (draft) => {
-    const message = draft.transcript.bySession[event.sessionPath]?.find(
-      (m: ChatMessage) => m.id === messageId,
-    );
+    const list = draft.transcript.bySession[event.sessionPath];
+    if (!list) return;
+    // O(1) guarded lookup: the cached streaming-turn index is stable during a
+    // delta stream (cull only runs on MessageStarted/MessageFinished, not per
+    // delta). Fall back to find if the index is absent or stale.
+    const message =
+      cachedIndex !== undefined && list[cachedIndex]?.id === messageId
+        ? list[cachedIndex]
+        : list.find((m: ChatMessage) => m.id === messageId);
     if (message && message.status !== 'completed' && message.status !== 'interrupted') {
       appendAssistantTextPart(message, 'text', event.delta);
       message.status = 'streaming';
@@ -98,10 +117,14 @@ export function handleMessageDelta(state: ArchState, event: Extract<Event, { kin
 
 export function handleMessageThinking(state: ArchState, event: Extract<Event, { kind: 'MessageThinking' }>): ReducerResult {
   const messageId = resolveAlias(state, event.messageId);
+  const cachedIndex = state.pending.currentTurnBySession[event.sessionPath]?.firstMessageIndex;
   const nextState = produce(state, (draft) => {
-    const message = draft.transcript.bySession[event.sessionPath]?.find(
-      (m: ChatMessage) => m.id === messageId,
-    );
+    const list = draft.transcript.bySession[event.sessionPath];
+    if (!list) return;
+    const message =
+      cachedIndex !== undefined && list[cachedIndex]?.id === messageId
+        ? list[cachedIndex]
+        : list.find((m: ChatMessage) => m.id === messageId);
     if (message && message.status !== 'completed' && message.status !== 'interrupted') {
       appendAssistantTextPart(message, 'reasoning', event.thinking);
       message.status = 'streaming';
@@ -113,10 +136,14 @@ export function handleMessageThinking(state: ArchState, event: Extract<Event, { 
 
 export function handleToolCall(state: ArchState, event: Extract<Event, { kind: 'ToolCall' }>): ReducerResult {
   const messageId = resolveAlias(state, event.messageId);
+  const cachedIndex = state.pending.currentTurnBySession[event.sessionPath]?.firstMessageIndex;
   const nextState = produce(state, (draft) => {
-    const message = draft.transcript.bySession[event.sessionPath]?.find(
-      (m: ChatMessage) => m.id === messageId,
-    );
+    const list = draft.transcript.bySession[event.sessionPath];
+    if (!list) return;
+    const message =
+      cachedIndex !== undefined && list[cachedIndex]?.id === messageId
+        ? list[cachedIndex]
+        : list.find((m: ChatMessage) => m.id === messageId);
     if (message) {
       upsertAssistantToolCall(message, event.toolCall);
     }
