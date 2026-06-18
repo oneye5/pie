@@ -21,8 +21,8 @@ export function createSidebarSyncState(hostInstanceId: string): SidebarSyncState
   };
 }
 
-export function canPostSnapshotToWebview(hasView: boolean, _webviewReady: boolean): boolean {
-  return hasView;
+export function canPostSnapshotToWebview(hasView: boolean, webviewReady: boolean): boolean {
+  return hasView && webviewReady;
 }
 
 /**

@@ -93,10 +93,11 @@ test('buildStateEnvelope clears dirty state and advances revision when posted', 
   assert.equal(result.nextSyncState.globalRevision, 4);
 });
 
-test('canPostSnapshotToWebview allows a full snapshot whenever the view exists', () => {
+test('canPostSnapshotToWebview requires both a view and webviewReady', () => {
   assert.equal(canPostSnapshotToWebview(true, true), true);
-  assert.equal(canPostSnapshotToWebview(true, false), true);
+  assert.equal(canPostSnapshotToWebview(true, false), false);
   assert.equal(canPostSnapshotToWebview(false, true), false);
+  assert.equal(canPostSnapshotToWebview(false, false), false);
 });
 
 test('reconcilePostedMessageDelivery marks global snapshots dirty when delivery fails', () => {
