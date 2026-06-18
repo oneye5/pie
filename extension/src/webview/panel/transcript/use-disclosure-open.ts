@@ -5,6 +5,12 @@ import { syncDisclosureOpenState } from '../disclosure-state';
 const disclosureOpenByKey = new Map<string, boolean>();
 const disclosureDefaultByKey = new Map<string, boolean>();
 
+/** Clear the module-level disclosure cache. Called on host-instance/session change to prevent stale open/closed state from a previous session. */
+export function clearDisclosureCache(): void {
+  disclosureOpenByKey.clear();
+  disclosureDefaultByKey.clear();
+}
+
 export function useDisclosureOpen(storageKey: string, defaultOpen: boolean) {
   const resolvedStorageKey = useMemo(() => storageKey || '__anonymous__', [storageKey]);
   const [open, setOpen] = useState<boolean>(() => {

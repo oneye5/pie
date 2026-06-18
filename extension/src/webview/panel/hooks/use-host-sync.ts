@@ -5,6 +5,7 @@ import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } fr
 
 import { playCompletionSound } from '../completion-sound';
 import { validateViewState } from '../state-validator';
+import { clearDisclosureCache } from '../transcript/use-disclosure-open';
 
 import type {
   ChatMessage,
@@ -327,6 +328,8 @@ export function useHostSync(
   const clearTransientUi = useCallback(() => {
     setDraftRestore(null);
     setOptimisticMessages([]);
+    pendingDraftRestoreRef.current.clear();
+    clearDisclosureCache();
   }, []);
 
   const resetPerSessionState = useCallback(() => {
