@@ -367,6 +367,12 @@ profiles:
     disabled_reason: null
     cost: 10
 
+  - id: umans-qwen3.6-35b-a3b
+    eligible: true
+    thinking: [low, medium, high]
+    disabled_reason: null
+    cost: 7
+
   # === OLLAMA LOCAL MODELS ===
 
   # --- Pi local presets ---

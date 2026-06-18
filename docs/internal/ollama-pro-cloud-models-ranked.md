@@ -2,37 +2,37 @@
 
 > Sorted by total parameters. Source: `models.json` (pi-config).
 
-> **Pricing update (2026-06-04):** All per-token costs below are now sourced from the [Portkey-AI/models](https://github.com/Portkey-AI/models) open-source pricing database ([`configs.portkey.ai`](https://configs.portkey.ai/pricing)), converted to USD per 1M tokens. Cache prices are included where available from original provider files. The previous OpenRouter and H100 @ $3/hr methodologies are preserved at the bottom of this document for historical reference only.
+> **Pricing update (2026-06-19):** All per-token costs below are sourced live from the [OpenRouter](https://openrouter.ai/api/v1/models) model API (`pricing.prompt` / `pricing.completion` / `pricing.input_cache_read`), converted to USD per 1M tokens. OpenRouter aggregates upstream provider rates (DeepSeek, Google, z-ai/GLM, Moonshot/Kimi, Alibaba/Qwen, MiniMax, NVIDIA, OpenAI); these are real billed rates. `cacheRead` is shown where OpenRouter exposes it. This supersedes the 2026-06-04 Portkey snapshot — several Portkey values were stale or mis-mapped (e.g. `kimi-k2.7-code` had matched base `kimi-k2` at $0.57/$2.30, and `minimax-m3` was 2× the live rate); `glm-5.2:cloud` is now priced (was TBD in the Portkey snapshot). The earlier H100 @ $3/hr compute-estimate methodology is preserved at the bottom of this document for historical reference only.
 
 ## Full Model List (23 models)
 
-| Rank | Model ID | Display Name | Total Params | Active Params | Cost (USD / 1M tokens) — Portkey |
+| Rank | Model ID | Display Name | Total Params | Active Params | Cost (USD / 1M tokens) — OpenRouter (2026-06-19) |
 |------|----------|--------------|-------------:|-------------:|----------------------------------------:|
-| 1 | deepseek-v4-pro:cloud | DeepSeek V4 Pro | 1.6T | 49B | $0.4350 in / $0.8700 out (cacheR $0.0036) |
-| 2 | kimi-k2.6:cloud | Kimi K2.6 | 1.04T | 32B | $0.7500 in / $3.5000 out |
-| 3 | kimi-k2.7-code:cloud | Kimi K2.7 Code | ~1T | 32B | $0.5700 in / $2.3000 out |
-| 4 | kimi-k2.5:cloud | Kimi K2.5 | ~1T | 32B (est.) | $0.4400 in / $2.0000 out |
-| 5 | glm-5.2:cloud | GLM 5.2 | 756B | 40B (est.) | TBD — compute estimate $0.0667 in / $0.0667 out |
-| 6 | glm-5.1:cloud | GLM 5.1 | 754B | 40B | $1.4000 in / $4.4000 out (cacheR $0.2600) |
-| 7 | glm-5:cloud | GLM 5 | 744B | 40B | $1.0000 in / $3.2000 out (cacheR $0.2000) |
-| 8 | nemotron-3-ultra:cloud | Nemotron 3 Ultra | 550B | 55B | $0.5000 in / $2.5000 out (cacheR $0.1500) |
-| 9 | qwen3-coder:480b-cloud | Qwen3 Coder 480B | 480B | 35B | $0.2200 in / $1.8000 out |
-| 10 | minimax-m3:cloud | MiniMax M3 | 428B | 22B | $0.6000 in / $2.4000 out (cacheR $0.1200) |
-| 11 | qwen3.5:397b-cloud | Qwen 3.5 397B (A17B variant) | 397B | 17B | $0.3900 in / $2.3400 out |
-| 12 | glm-4.7:cloud | GLM 4.7 | 355B | 32B | $0.6000 in / $2.2000 out (cacheR $0.1100) |
-| 13 | deepseek-v4-flash:cloud | DeepSeek V4 Flash | 284B | 13B | $0.1400 in / $0.2800 out (cacheR $0.0028) |
-| 14 | minimax-m2.7:cloud | MiniMax M2.7 | 230B | 10B | $0.3000 in / $1.2000 out |
-| 15 | minimax-m2.5:cloud | MiniMax M2.5 | 230B | 10B | $0.1500 in / $1.1500 out |
-| 16 | minimax-m2.1:cloud | MiniMax M2.1 | 230B | 10B | $0.2900 in / $0.9500 out |
-| 17 | nemotron-3-super:cloud | Nemotron 3 Super | 120B | 12B | $0.0900 in / $0.4500 out |
-| 18 | gpt-oss:120b-cloud | GPT OSS 120B | 120B | 120B | $0.0390 in / $0.1800 out |
-| 19 | qwen3-coder-next:cloud | Qwen3 Coder Next | 80B | 3B | $0.1100 in / $0.8000 out |
-| 20 | gemma4:31b-cloud | Gemma 4 31B | 31B | 31B | $0.1300 in / $0.3800 out |
-| 21 | gpt-oss:20b-cloud | GPT OSS 20B | 20B | 20B | $0.0300 in / $0.1400 out |
-| 22 | qwen3.5:cloud | Qwen 3.5 (default variants) | 397B | 35B / 27B / 9B / 4B / 2B / 0.8B | $0.2600 in / $1.5600 out |
-| 23 | gemini-3-flash-preview:cloud | Gemini 3 Flash Preview | undisclosed | — | $0.5000 in / $3.0000 out (cacheW $0.5000, cacheR $0.0500) |
+| 1 | deepseek-v4-pro:cloud | DeepSeek V4 Pro | 1.6T | 49B | $0.435 in / $0.870 out (cacheR $0.0036) |
+| 2 | kimi-k2.6:cloud | Kimi K2.6 | 1.04T | 32B | $0.670 in / $3.500 out (cacheR $0.200) |
+| 3 | kimi-k2.7-code:cloud | Kimi K2.7 Code | ~1T | 32B | $0.740 in / $3.500 out (cacheR $0.150) |
+| 4 | kimi-k2.5:cloud | Kimi K2.5 | ~1T | 32B (est.) | $0.375 in / $2.025 out |
+| 5 | glm-5.2:cloud | GLM 5.2 | 756B | 40B (est.) | $1.200 in / $3.200 out (cacheR $0.200) |
+| 6 | glm-5.1:cloud | GLM 5.1 | 754B | 40B | $0.980 in / $3.080 out (cacheR $0.182) |
+| 7 | glm-5:cloud | GLM 5 | 744B | 40B | $0.600 in / $1.920 out (cacheR $0.120) |
+| 8 | nemotron-3-ultra:cloud | Nemotron 3 Ultra | 550B | 55B | $0.500 in / $2.200 out (cacheR $0.100) |
+| 9 | qwen3-coder:480b-cloud | Qwen3 Coder 480B | 480B | 35B | $0.220 in / $1.800 out |
+| 10 | minimax-m3:cloud | MiniMax M3 | 428B | 22B | $0.300 in / $1.200 out (cacheR $0.060) |
+| 11 | qwen3.5:397b-cloud | Qwen 3.5 397B (A17B variant) | 397B | 17B | $0.385 in / $2.450 out |
+| 12 | glm-4.7:cloud | GLM 4.7 | 355B | 32B | $0.400 in / $1.750 out (cacheR $0.080) |
+| 13 | deepseek-v4-flash:cloud | DeepSeek V4 Flash | 284B | 13B | $0.090 in / $0.180 out (cacheR $0.020) |
+| 14 | minimax-m2.7:cloud | MiniMax M2.7 | 230B | 10B | $0.250 in / $1.000 out (cacheR $0.050) |
+| 15 | minimax-m2.5:cloud | MiniMax M2.5 | 230B | 10B | $0.150 in / $0.900 out (cacheR $0.050) |
+| 16 | minimax-m2.1:cloud | MiniMax M2.1 | 230B | 10B | $0.290 in / $0.950 out (cacheR $0.030) |
+| 17 | nemotron-3-super:cloud | Nemotron 3 Super | 120B | 12B | $0.090 in / $0.450 out |
+| 18 | gpt-oss:120b-cloud | GPT OSS 120B | 120B | 120B | $0.039 in / $0.180 out |
+| 19 | qwen3-coder-next:cloud | Qwen3 Coder Next | 80B | 3B | $0.110 in / $0.800 out (cacheR $0.070) |
+| 20 | gemma4:31b-cloud | Gemma 4 31B | 31B | 31B | $0.120 in / $0.350 out (cacheR $0.090) |
+| 21 | gpt-oss:20b-cloud | GPT OSS 20B | 20B | 20B | $0.029 in / $0.140 out |
+| 22 | qwen3.5:cloud | Qwen 3.5 (default variants) | 397B | 35B / 27B / 9B / 4B / 2B / 0.8B | $0.260 in / $1.560 out |
+| 23 | gemini-3-flash-preview:cloud | Gemini 3 Flash Preview | undisclosed | — | $0.500 in / $3.000 out (cacheR $0.050) |
 
-**Key observation:** Portkey pricing is often asymmetric (input ≠ output) and differs significantly from the old compute estimates. Models with cache support (DeepSeek V4, Gemini 3 Flash, GLM, Nemotron 3 Ultra, MiniMax M3) now show cache read/write costs where available. These are real billed rates from the upstream providers, not lower-bound compute projections. `glm-5.2:cloud` is newly released and not yet listed in Portkey; the compute-estimate placeholder is $0.0667/1M in/out.
+**Key observation:** OpenRouter pricing is often asymmetric (input ≠ output) and reflects live upstream provider rates. Cache-read (`cacheR`) is shown where OpenRouter exposes `input_cache_read`; absent entries bill cache reads at the input rate or have no caching tier. `cacheWrite` is `$0` for all models — where upstreams charge for cache creation it is at the input rate (DeepSeek, Kimi) or billed per-hour for context caching (Gemini, GLM). These are real billed rates, not compute projections. The previously-TBD `glm-5.2:cloud` now has a live price ($1.20/$3.20, cacheR $0.20).
 
 ---
 

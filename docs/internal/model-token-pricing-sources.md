@@ -3,7 +3,7 @@
 **Purpose:** Authoritative traceability record for every price written to `models.json`.
 Every non-zero cost field in `models.json` MUST have a corresponding row in this document.
 
-**Retrieval date:** 2026-06-04
+**Retrieval date:** 2026-06-19 (Ollama Cloud refreshed live via OpenRouter; Umans section added; Copilot unchanged)
 **Format:** All prices in USD per 1M tokens unless otherwise noted.
 
 ---
@@ -12,7 +12,8 @@ Every non-zero cost field in `models.json` MUST have a corresponding row in this
 
 For each model in `model-profiles.yaml`:
 - **GitHub Copilot models**: Token pricing sourced from official GitHub Copilot billing documentation. 1 AI credit = $0.01 USD.
-- **Ollama Cloud models**: Compute-based estimates using the methodology from `ollama-pro-cloud-models-ranked.md` (H100 @ $3/hr, 2×active_params FLOPs/token). These are lower-bound estimates; actual billed prices may be higher due to platform margin and overhead.
+- **Ollama Cloud models**: Live per-token pricing from the [OpenRouter](https://openrouter.ai/api/v1/models) model API (`pricing.prompt` / `pricing.completion` / `pricing.input_cache_read`), converted from USD-per-token to USD per 1M tokens. OpenRouter aggregates upstream provider rates (DeepSeek, Google, z-ai/GLM, Moonshot/Kimi, Alibaba/Qwen, MiniMax, NVIDIA, OpenAI); these are real billed rates, not compute estimates. The earlier H100-@-$3/hr compute-estimate methodology is preserved in `ollama-pro-cloud-models-ranked.md` for historical reference only.
+- **Umans models**: Subscription coding plans (`api.code.umans.ai`) — unlimited tokens for the plan holder, so per-token marginal cost is $0. Per-token "service keys for teams" exist but are out of scope for the personal plan key configured here. Cache usage is still captured for token accounting (see Umans section).
 - **Ollama Local models**: Free/local (no API cost).
 - **Grok models**: No official token pricing found; marked as unknown.
 
@@ -22,7 +23,8 @@ For each model in `model-profiles.yaml`:
 |---|---|
 | `official` | Published on provider's official pricing page |
 | `official-inferred` | Derived from official data with documented formula |
-| `third-party` | From independent analysis or compute estimates |
+| `openrouter` | Sourced live from the OpenRouter model pricing API (aggregates upstream provider rates) |
+| `third-party` | From independent analysis or compute estimates (historical compute-estimate methodology) |
 | `unknown` | No reliable pricing found |
 
 ---
@@ -102,43 +104,48 @@ Cache write pricing is NOT published for Google Copilot models.
 
 ## Ollama Cloud Models
 
-Source: Compute-based estimates from `ollama-pro-cloud-models-ranked.md` (H100 @ $3/hr methodology).
-These are **lower-bound compute-only estimates** and do not include platform margin.
+**Source:** [OpenRouter `/api/v1/models`](https://openrouter.ai/api/v1/models) — live aggregator of upstream provider per-token rates.
+**Retrieval date:** 2026-06-19
+**Confidence:** `openrouter`
+**Units:** USD per 1M tokens.
 
-Cost formula: `cost_per_1M ≈ active_params_in_billions / 600`
-Confidence: `third-party` (compute estimates, not official pricing)
+Each Ollama Cloud model is mapped to its OpenRouter slug (e.g. `deepseek-v4-pro:cloud` → `deepseek/deepseek-v4-pro`). `cacheRead` is populated where OpenRouter exposes `input_cache_read`; `—` means the upstream provider does not publish a separate cache-read discount for that model (cache read billed at the input rate, or no caching tier). `cacheWrite` is `0` for every cloud model: where the upstream charges for cache creation it does so at the input rate (DeepSeek, Kimi) or bills context caching per-hour (Gemini, GLM) — neither is a per-token cache-write line item.
 
-Cache pricing is NOT explicitly published for Ollama Cloud. Marked as `not applicable` in models.json.
+| Model ID | OpenRouter slug | Input | Output | Cache Read | Confidence | Notes |
+|---|---|---|---|---|---|---|
+| deepseek-v4-pro:cloud | deepseek/deepseek-v4-pro | $0.435 | $0.870 | $0.0036 | openrouter | 1.6T MoE, 49B active |
+| deepseek-v4-flash:cloud | deepseek/deepseek-v4-flash | $0.090 | $0.180 | $0.020 | openrouter | 284B MoE, 13B active |
+| gemini-3-flash-preview:cloud | google/gemini-3-flash-preview | $0.50 | $3.00 | $0.05 | openrouter | Closed-source; previously range-only, now live |
+| gemma4:31b-cloud | google/gemma-4-31b-it | $0.120 | $0.350 | $0.090 | openrouter | Dense 31B |
+| glm-4.7:cloud | z-ai/glm-4.7 | $0.400 | $1.750 | $0.080 | openrouter | 32B active |
+| glm-5:cloud | z-ai/glm-5 | $0.600 | $1.920 | $0.120 | openrouter | 744B MoE; tools+thinking |
+| glm-5.1:cloud | z-ai/glm-5.1 | $0.980 | $3.080 | $0.182 | openrouter | 754B MoE; current gen |
+| glm-5.2:cloud | z-ai/glm-5.2 | $1.200 | $3.200 | $0.200 | openrouter | 756B MoE; newest gen (was TBD in the Portkey snapshot) |
+| gpt-oss:120b-cloud | openai/gpt-oss-120b | $0.039 | $0.180 | — | openrouter | Dense 120B |
+| gpt-oss:20b-cloud | openai/gpt-oss-20b | $0.029 | $0.140 | — | openrouter | Dense 20B |
+| kimi-k2.5:cloud | moonshotai/kimi-k2.5 | $0.375 | $2.025 | — | openrouter | Earlier K2 gen |
+| kimi-k2.6:cloud | moonshotai/kimi-k2.6 | $0.670 | $3.500 | $0.200 | openrouter | 1.04T MoE, 32B active |
+| kimi-k2.7-code:cloud | moonshotai/kimi-k2.7-code | $0.740 | $3.500 | $0.150 | openrouter | Coding-focused K2 variant |
+| minimax-m2.1:cloud | minimax/minimax-m2.1 | $0.290 | $0.950 | $0.030 | openrouter | Tools only (no thinking) |
+| minimax-m2.5:cloud | minimax/minimax-m2.5 | $0.150 | $0.900 | $0.050 | openrouter | Tools+thinking |
+| minimax-m2.7:cloud | minimax/minimax-m2.7 | $0.250 | $1.000 | $0.050 | openrouter | Current gen |
+| minimax-m3:cloud | minimax/minimax-m3 | $0.300 | $1.200 | $0.060 | openrouter | 428B MoE, 22B active |
+| nemotron-3-super:cloud | nvidia/nemotron-3-super-120b-a12b | $0.090 | $0.450 | — | openrouter | 120B MoE, 12B active |
+| nemotron-3-ultra:cloud | nvidia/nemotron-3-ultra-550b-a55b | $0.500 | $2.200 | $0.100 | openrouter | 550B MoE, 55B active |
+| qwen3-coder-next:cloud | qwen/qwen3-coder-next | $0.110 | $0.800 | $0.070 | openrouter | 80B, 3B active |
+| qwen3.5:397b-cloud | qwen/qwen3.5-397b-a17b | $0.385 | $2.450 | — | openrouter | A17B variant |
+| qwen3.5:cloud | qwen/qwen3.5-plus-02-15 | $0.260 | $1.560 | — | openrouter | Default Plus variant |
+| qwen3-coder:480b-cloud | qwen/qwen3-coder | $0.220 | $1.800 | — | openrouter | 480B, 35B active; code-specialized |
 
-| Model ID | Input (est.) | Output (est.) | Active Params | Confidence | Notes |
-|---|---|---|---|---|---|
-| deepseek-v4-pro:cloud | $0.0817 | $0.0817 | 49B | third-party | Frontier; 1.6T total, MoE |
-| deepseek-v4-flash:cloud | $0.0217 | $0.0217 | 13B | third-party | Flash variant; 284B total, MoE |
-| gemini-3-flash-preview:cloud | $0.02-$0.08 | $0.02-$0.08 | undisclosed | unknown | Closed-source; range from docs. No compute estimate possible. |
-| gemma4:31b-cloud | $0.0517 | $0.0517 | 31B | third-party | Dense 31B |
-| qwen3.5:397b-cloud | $0.0283 | $0.0283 | 17B | third-party | Uses A17B variant (midpoint of variant range) |
-| qwen3.5:cloud | $0.0298 | $0.0298 | varies | third-party | Midpoint of documented variant range ($0.0013-$0.0583) |
-| qwen3-coder-next:cloud | $0.0050 | $0.0050 | 3B | third-party | Very small active params |
-| qwen3-coder:480b-cloud | $0.0583 | $0.0583 | 35B | third-party | Code-specialized |
-| kimi-k2.6:cloud | $0.0533 | $0.0533 | 32B | third-party | Top open-weight model |
-| kimi-k2.5:cloud | $0.0533 | $0.0533 | ~32B (est.) | third-party | Earlier gen |
-| kimi-k2.7-code:cloud | $0.0533 | $0.0533 | ~32B (est.) | third-party | Coding-focused K2 variant; vision+tools+thinking |
-| nemotron-3-super:cloud | $0.0200 | $0.0200 | 12B | third-party | 120B MoE |
-| glm-5.2:cloud | $0.0667 | $0.0667 | 40B (est.) | third-party | 756B total, MoE; active params assumed same 40B generation as GLM-5/5.1 pending official spec |
-| glm-5.1:cloud | $0.0667 | $0.0667 | 40B | third-party | Current gen |
-| glm-5:cloud | $0.0667 | $0.0667 | 40B | third-party | 744B MoE; tools+thinking |
-| glm-4.7:cloud | $0.0533 | $0.0533 | 32B | third-party | Current gen |
-| gpt-oss:120b-cloud | $0.2000 | $0.2000 | 120B | third-party | Dense 120B |
-| gpt-oss:20b-cloud | $0.0333 | $0.0333 | 20B | third-party | Superseded |
-| minimax-m2.7:cloud | $0.0167 | $0.0167 | 10B | third-party | Current gen |
-| minimax-m2.5:cloud | $0.0167 | $0.0167 | 10B | third-party | Tools+thinking; reinstated on cloud |
-| minimax-m2.1:cloud | $0.0167 | $0.0167 | 10B | third-party | Tools only (no thinking); reinstated on cloud |
+Cache write: `$0` for all rows (see note above).
 
 ---
 
 ## Removed from Ollama Cloud (historical)
 
 Models previously available on Ollama Cloud but no longer listed. Pricing retained for reference.
+
+> Note: removed-model prices below are retained from the earlier compute-estimate methodology and were **not** refreshed via OpenRouter (these models are no longer billable). Current models use OpenRouter rates (see table above).
 
 | Model ID | Input (est.) | Output (est.) | Active Params | Confidence | Notes |
 |---|---|---|---|---|---|
@@ -176,6 +183,34 @@ Models previously available on Ollama Cloud but no longer listed. Pricing retain
 
 ---
 
+## Umans Models (code by Umans)
+
+**Provider:** `api.code.umans.ai` (OpenAI-compatible). Per [umans.ai](https://umans.ai), the service is
+subscription-first: hosted Kimi K2.6/K2.7-Code, GLM 5.1/5.2, Qwen 3.6 35B-A3B, plus Umans-coder/flash,
+offered as **coding plans with unlimited tokens** (Pro ~$17–20/mo). The configured `$UMANS_API_KEY` is a
+plan key, so the per-token marginal cost is **$0** — `input`/`output`/`cacheRead`/`cacheWrite` are all `0`
+in `models.json`.
+
+A separate **per-token "service keys for teams"** tier exists but is not configured here; if a service key
+is adopted, populate these cost blocks from Umans's published per-token rates.
+
+Cache usage is still captured for token accounting and the context-window indicator: Umans uses the same
+`openai-completions` API path as Ollama, and the host usage parser (`extension/src/backend/transcript/content.ts`,
+`usageFromMessage`) reads cache tokens from `prompt_tokens_details.cached_tokens` / `cache_read_input_tokens` /
+`prompt_cache_hit_tokens` — the standard fields Kimi/GLM/Qwen return. No Umans-specific wiring is required.
+
+| Model ID | Input | Output | Cache Read | Cache Write | Confidence | Notes |
+|---|---|---|---|---|---|---|
+| umans-coder | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
+| umans-flash | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
+| umans-kimi-k2.6 | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
+| umans-kimi-k2.7 | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
+| umans-glm-5.1 | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
+| umans-glm-5.2 | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
+| umans-qwen3.6-35b-a3b | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens; newly added model |
+
+---
+
 ## Normalization Baseline
 
 For the normalized cost calculation (`estimateNormalizedCost()`), the baseline is:
@@ -202,8 +237,10 @@ Models in `model-profiles.yaml` without pricing in this evidence document:
 |---|---|
 | grok-code-fast-1 | No official token pricing published by GitHub Copilot. Only multiplier-based pricing exists in the old premium-request model. Use legacy `cost: 13` in model-profiles.yaml until token pricing is published. |
 
-Models with `unknown` confidence for pricing:
-- `gemini-3-flash-preview:cloud` — closed-source model on Ollama Cloud with undisclosed parameters. Range estimate only ($0.02-$0.08). No single defensible price to store.
+No models remain at `unknown` confidence as of 2026-06-19:
+- `gemini-3-flash-preview:cloud` — previously range-only; now priced via OpenRouter (`google/gemini-3-flash-preview`).
+- `glm-5.2:cloud` — previously "TBD" in the Portkey snapshot; now priced via OpenRouter (`z-ai/glm-5.2`).
+- Umans models — intentionally $0 (subscription unlimited-token plans); see Umans section.
 
 ---
 
@@ -211,9 +248,11 @@ Models with `unknown` confidence for pricing:
 
 1. **GitHub Copilot models and pricing**: https://docs.github.com/copilot/reference/copilot-billing/models-and-pricing
 2. **GitHub Copilot model multipliers (annual plans)**: https://docs.github.com/en/copilot/reference/copilot-billing/model-multipliers-for-annual-plans
-3. **Ollama Cloud documentation**: https://ollama.com/ (pricing measured by GPU time)
-4. Internal historical: `docs/internal/copilot-model-pricing.md` (last updated 2026-05-16)
-5. Internal historical: `docs/internal/ollama-pro-cloud-models-ranked.md` (compute estimate methodology)
+3. **OpenRouter model pricing API** (Ollama Cloud source): https://openrouter.ai/api/v1/models
+4. **Umans** (code by Umans; subscription + per-token service keys): https://umans.ai
+5. **Ollama Cloud documentation**: https://ollama.com/ (pricing measured by GPU time)
+6. Internal historical: `docs/internal/copilot-model-pricing.md` (last updated 2026-05-16)
+7. Internal historical: `docs/internal/ollama-pro-cloud-models-ranked.md` (compute estimate methodology; superseded for live pricing by OpenRouter)
 
 ---
 
@@ -224,3 +263,4 @@ Models with `unknown` confidence for pricing:
 | 2026-06-01 | Initial evidence ledger created. Copilot pricing sourced from official docs (via internal copilot-model-pricing.md). Ollama Cloud pricing from compute estimates (via ollama-pro-cloud-models-ranked.md). |
 | 2026-06-15 | Synced Ollama Cloud model list: added glm-5, kimi-k2.7-code, minimax-m2.1, minimax-m2.5; removed 21 models no longer on cloud page |
 | 2026-06-17 | Added `glm-5.2:cloud` with compute-estimate pricing (active params estimated 40B pending official spec) |
+| 2026-06-19 | **Ollama Cloud refresh to live API pricing.** Replaced stale compute-estimate cost blocks for all 22 compute-estimate Ollama Cloud models with live per-token rates from the OpenRouter model API (`/api/v1/models`), including cache-read where OpenRouter exposes it, and added the previously-missing `glm-5.2:cloud` price (`z-ai/glm-5.2`). Supersedes the 2026-06-04 Portkey snapshot (several Portkey values were stale or mis-mapped, e.g. `kimi-k2.7-code` had matched base `kimi-k2`, `minimax-m3` was 2× the live rate). Added the Umans section (subscription → $0/token; cache captured via the shared `openai-completions` path) and the newly-listed `umans-qwen3.6-35b-a3b` model + profile. Copilot models unchanged (already official GitHub token pricing). |
