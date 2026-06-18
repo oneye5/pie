@@ -4,18 +4,25 @@
 import { useState } from 'preact/hooks';
 
 import type { ChatMessage } from '../../../../shared/protocol';
-import { useNotice } from '../../hooks/notice-context';
+import { useNotice, useDismissNotice } from '../../hooks/notice-context';
 
 const ERROR_TRUNCATE = 150;
 
 export function ErrorDetailWithFallback({ message }: { message: ChatMessage }) {
   const notice = useNotice();
+  const dismissNotice = useDismissNotice();
   const detail = message.errorDetail || notice;
   if (!detail) return null;
-  return <ErrorDetail detail={detail} />;
+  // If the error originates from the global notice (not a per-message
+  // errorDetail), dismissing it should dispatch `dismissNotice` to the host
+  // so the notice is cleared in ArchState — not just hidden locally (MVI:
+  // the webview doesn't own the notice). Per-message errorDetail has no
+  // host-side dismiss mechanism, so it falls back to local `dismissed` state.
+  const onDismiss = !message.errorDetail ? (dismissNotice ?? undefined) : undefined;
+  return <ErrorDetail detail={detail} onDismiss={onDismiss} />;
 }
 
-export function ErrorDetail({ detail }: { detail: string }) {
+export function ErrorDetail({ detail, onDismiss }: { detail: string; onDismiss?: () => void }) {
   const [expanded, setExpanded] = useState(false);
   const [dismissed, setDismissed] = useState(false);
   const isLong = detail.length > ERROR_TRUNCATE;
@@ -41,7 +48,7 @@ export function ErrorDetail({ detail }: { detail: string }) {
         >
           Copy
         </button>
-        <button class="message-error-detail-btn" onClick={() => setDismissed(true)} title="Dismiss" aria-label="Dismiss error detail">✕</button>
+        <button class="message-error-detail-btn" onClick={() => { if (onDismiss) onDismiss(); else setDismissed(true); }} title="Dismiss" aria-label="Dismiss error detail">✕</button>
       </span>
     </div>
   );

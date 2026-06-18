@@ -349,7 +349,7 @@ export function AppBody({ adapter }: AppBodyProps) {
   useSessionRecovery(viewState.backendReady, derived.needsSessionRecovery, derived.recoverySessionPath, viewState.notice, postMessage);
 
   return (
-    <NoticeContext.Provider value={viewState.notice}>
+    <NoticeContext.Provider value={{ notice: viewState.notice, dismiss: () => postMessage({ type: 'dismissNotice' }) }}>
     <AskUserContext.Provider value={derived.askUserContextValue}>
     <div id="app">
       {viewState.showOutcomeDialog && viewState.activeSession && (
