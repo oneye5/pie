@@ -1,4 +1,4 @@
-import type { ArchState, PendingOp } from '../arch-state.js';
+import type { ArchState, PendingOp, SetModelPending } from '../arch-state.js';
 import type { ChatMessage, SessionSummary, UserContentPart } from '../../../shared/protocol.js';
 import { markdownFromUserParts } from '../transcript-helpers.js';
 import {
@@ -74,6 +74,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
   const { [sp]: _sp, ...remainingSystemPrompts } = state.transcript.systemPromptsBySession;
   const { [sp]: _w, ...remainingWindows } = state.transcript.windowBySession;
   const { [sp]: _e, ...remainingEditing } = state.transcript.editingMessageIdBySession;
+  const { [sp]: _pf, ...remainingPagingInFlight } = state.transcript.pagingInFlightBySession;
   const { [sp]: _i, ...remainingInterrupts } = state.sessions.interruptInFlightBySession;
   const { [sp]: _a, ...remainingAnalytics } = state.sessions.analyticsFactorsBySession;
   const { [sp]: _ct, ...remainingTurns } = state.pending.currentTurnBySession;
@@ -84,10 +85,19 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
   const { [sp]: _ci, ...remainingComposer } = state.composer.pendingComposerInputsBySession;
   const { [sp]: _rs, ...remainingRunSummaries } = state.composer.activeRunSummaryBySession;
   const { [sp]: _fc, ...remainingFileChanges } = state.fileChanges.bySession;
+  const { [sp]: _psq, ...remainingPendingSendQueue } = state.pending.sendQueueBySession;
+  const { [sp]: _brq, ...remainingBackendReadyQueue } = state.pending.backendReadyQueueBySession;
 
   const remainingOps: Record<string, PendingOp> = {};
   for (const [corrId, op] of Object.entries(state.pending.ops)) {
     if (op.sessionPath !== sp) remainingOps[corrId] = op;
+  }
+
+  // Drop in-flight setModel lifecycles for the evicted session (both the
+  // modal-confirm phase and the RPC phase). Mirrors handleSessionScopeCleared.
+  const remainingSetModel: Record<string, SetModelPending> = {};
+  for (const [corrId, entry] of Object.entries(state.pending.setModelByCorrId)) {
+    if (entry.sessionPath !== sp) remainingSetModel[corrId] = entry;
   }
 
   const remainingRequestIdToLocalId: Record<string, { sessionPath: string; localId: string }> = {};
@@ -104,6 +114,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         systemPromptsBySession: remainingSystemPrompts,
         windowBySession: remainingWindows,
         editingMessageIdBySession: remainingEditing,
+        pagingInFlightBySession: remainingPagingInFlight,
       },
       sessions: {
         ...state.sessions,
@@ -135,6 +146,9 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         ops: remainingOps,
         currentTurnBySession: remainingTurns,
         requestIdToLocalId: remainingRequestIdToLocalId,
+        setModelByCorrId: remainingSetModel,
+        sendQueueBySession: remainingPendingSendQueue,
+        backendReadyQueueBySession: remainingBackendReadyQueue,
       },
     },
     effects: [],

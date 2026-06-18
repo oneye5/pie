@@ -519,15 +519,19 @@ export function handleSessionScopeCleared(
   const { [sp]: _sp, ...remainingSystemPrompts } = state.transcript.systemPromptsBySession;
   const { [sp]: _w, ...remainingWindows } = state.transcript.windowBySession;
   const { [sp]: _pf, ...remainingPagingInFlight } = state.transcript.pagingInFlightBySession;
+  const { [sp]: _ed, ...remainingEditing } = state.transcript.editingMessageIdBySession;
   const { [sp]: _m, ...remainingModels } = state.settings.availableModelsBySession;
   const { [sp]: _cu, ...remainingContext } = state.settings.contextUsageBySession;
   const { [sp]: _eui, ...remainingExtUI } = state.settings.pendingExtensionUIRequestsBySession;
+  const { [sp]: _od, ...remainingOutcome } = state.settings.showOutcomeDialogBySession;
   const { [sp]: _ci, ...remainingComposer } = state.composer.pendingComposerInputsBySession;
   const { [sp]: _rs, ...remainingRunSummaries } = state.composer.activeRunSummaryBySession;
   const { [sp]: _fc, ...remainingFileChanges } = state.fileChanges.bySession;
   const { [sp]: _af, ...remainingAnalytics } = state.sessions.analyticsFactorsBySession;
+  const { [sp]: _if, ...remainingInterrupts } = state.sessions.interruptInFlightBySession;
   const { [sp]: _psq, ...remainingPendingSendQueue } = state.pending.sendQueueBySession;
   const { [sp]: _brq, ...remainingBackendReadyQueue } = state.pending.backendReadyQueueBySession;
+  const { [sp]: _ct, ...remainingTurns } = state.pending.currentTurnBySession;
   // If the closed session had backend-ready-queued sends and no other sessions
   // have entries, cancel the watchdog timer (the queue is now empty).
   const hadBackendReadyEntries = !!state.pending.backendReadyQueueBySession[sp]?.length;
@@ -580,6 +584,7 @@ export function handleSessionScopeCleared(
         systemPromptsBySession: remainingSystemPrompts,
         windowBySession: remainingWindows,
         pagingInFlightBySession: remainingPagingInFlight,
+        editingMessageIdBySession: remainingEditing,
       },
       sessions: {
         ...state.sessions,
@@ -589,12 +594,14 @@ export function handleSessionScopeCleared(
         unreadFinishedSessionPaths: nextUnreadPaths,
         activeSessionPath: nextActivePath,
         analyticsFactorsBySession: remainingAnalytics,
+        interruptInFlightBySession: remainingInterrupts,
       },
       settings: {
         ...state.settings,
         availableModelsBySession: remainingModels,
         contextUsageBySession: remainingContext,
         pendingExtensionUIRequestsBySession: remainingExtUI,
+        showOutcomeDialogBySession: remainingOutcome,
       },
       composer: {
         ...state.composer,
@@ -612,6 +619,7 @@ export function handleSessionScopeCleared(
         setModelByCorrId: remainingSetModel,
         sendQueueBySession: remainingPendingSendQueue,
         backendReadyQueueBySession: remainingBackendReadyQueue,
+        currentTurnBySession: remainingTurns,
       },
     },
     effects: (hadBackendReadyEntries && backendReadyQueueNowEmpty)
