@@ -68,6 +68,7 @@
 
 .status-chip-running::before {
   animation: status-chip-pulse var(--status-chip-motion-duration) cubic-bezier(0.4, 0, 0.6, 1) infinite;
+  will-change: opacity, transform;
 }
 
 .status-chip-completed {

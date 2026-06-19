@@ -93,17 +93,6 @@
   animation: panel-entrance var(--panel-duration-entrance) var(--panel-ease-out-expo);
 }
 
-@keyframes file-changes-expand {
-  from {
-    max-height: 0;
-    opacity: 0;
-  }
-  to {
-    max-height: min(260px, calc(50vh - 38px));
-    opacity: 1;
-  }
-}
-
 
 
 .file-change-item {

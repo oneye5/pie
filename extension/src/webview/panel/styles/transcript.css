@@ -394,24 +394,41 @@
   position: relative;
 }
 
+/* While running, the strip reads at full strength — motion is carried by the
+   bouncing dots below, not by a text shimmer. The previous shimmer animated
+   `background-position` with `background-clip: text` and `background-repeat:
+   no-repeat`, which (a) ran on the main thread, fighting streaming reflows,
+   and (b) left the gradient off the text for part of each loop, making the
+   label wink invisible and hard-snap back — the reported "start/ends cut off". */
+.turn-activity-strip.running {
+  opacity: 1;
+}
+
 .turn-activity-strip.running .turn-activity-strip-label {
-  /* Continuous shimmer: a bright stripe sweeps across the dim base text. */
-  background-image: linear-gradient(
-    100deg,
-    color-mix(in srgb, var(--panel-foreground) 38%, transparent) 0%,
-    color-mix(in srgb, var(--panel-foreground) 38%, transparent) 40%,
-    var(--panel-foreground) 50%,
-    color-mix(in srgb, var(--panel-foreground) 38%, transparent) 60%,
-    color-mix(in srgb, var(--panel-foreground) 38%, transparent) 100%
-  );
-  background-size: 250% 100%;
-  background-repeat: no-repeat;
-  background-position: 100% 0;
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  color: transparent;
-  animation: turn-activity-shimmer 1.8s linear infinite;
+  color: color-mix(in srgb, var(--panel-foreground) 72%, var(--panel-muted));
+}
+
+/* Bouncing trailing ellipsis — mirrors .loading-ellipsis. Animates opacity +
+   transform only, so it runs on the compositor thread and never blocks the
+   streaming repaints happening in the same view. */
+.turn-activity-strip-dot {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+  margin-left: 1px;
+}
+
+.turn-activity-strip-dot > span {
+  animation: loading-ellipsis-bounce 1.2s ease-in-out infinite;
+  will-change: transform, opacity;
+}
+
+.turn-activity-strip-dot > span:nth-child(2) {
+  animation-delay: 0.18s;
+}
+
+.turn-activity-strip-dot > span:nth-child(3) {
+  animation-delay: 0.36s;
 }
 
 .turn-activity-strip-detail {
@@ -461,6 +478,7 @@
   border: 2px solid color-mix(in srgb, var(--panel-border) 78%, transparent);
   border-top-color: var(--panel-accent);
   animation: panel-loading-wheel-spin 0.72s linear infinite;
+  will-change: transform;
 }
 
 /* ── Loading indicator (wheel + status line) ────────────────────────────── */
@@ -502,6 +520,7 @@
 
 .loading-ellipsis > span {
   animation: loading-ellipsis-bounce 1.2s ease-in-out infinite;
+  will-change: transform, opacity;
 }
 
 .loading-ellipsis > span:nth-child(2) {
@@ -857,11 +876,6 @@
 }
 
 /* ── Transcript-specific animations ─────────────────────────────────────── */
-
-@keyframes turn-activity-shimmer {
-  0%   { background-position: 100% 0; }
-  100% { background-position: -150% 0; }
-}
 
 @keyframes transcript-jump-latest-in {
   from {

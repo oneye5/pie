@@ -374,17 +374,6 @@
   }
 }
 
-@keyframes notify-toast-exit {
-  from {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  to {
-    opacity: 0;
-    transform: translateY(-8px);
-  }
-}
-
 @media (forced-colors: active) {
   .ext-prompt {
     border-color: Highlight;

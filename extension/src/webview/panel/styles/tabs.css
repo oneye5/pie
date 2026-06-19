@@ -162,14 +162,33 @@ body.session-tab-dragging {
   z-index: 0;
 }
 
+/* Pulsing-state glow overlay. The unread / attention pulses animate this
+   layer's opacity rather than the shell's box-shadow, so the expensive glow is
+   painted once and the loop runs on the compositor thread instead of
+   repainting on the main thread every frame (compounds when several tabs
+   pulse at once). */
+.session-tab-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  opacity: 0;
+  z-index: 0;
+}
+
 .session-tab:hover {
   --session-tab-surface: var(--session-tab-hover-surface);
 }
 
 /* ── Tab states ──────────────────────────────────────────────────────────── */
 
-.session-tab.unread-finished:not(.active) .session-tab-shell {
+.session-tab.unread-finished:not(.active) .session-tab-shell::after {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--panel-success) 28%, var(--session-tab-outline)),
+    0 0 0 1px color-mix(in srgb, var(--panel-success) 10%, transparent);
   animation: session-tab-unread-flash 1.8s ease-in-out infinite;
+  will-change: opacity;
 }
 
 .session-tab.unread-finished .session-tab-label {
@@ -196,8 +215,12 @@ body.session-tab-dragging {
    The active tab gets a strong warning pulse; non-active tabs get a calmer
    steady warning border with a gentle breathing glow (see below) so a pending
    question is visible even when the tab is not selected. */
-.session-tab.attention .session-tab-shell {
+.session-tab.attention .session-tab-shell::after {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 36%, var(--session-tab-outline)),
+    0 0 0 1px color-mix(in srgb, var(--panel-warning) 14%, transparent);
   animation: session-tab-attention-pulse 1.6s ease-in-out infinite;
+  will-change: opacity;
 }
 
 .session-tab.attention .session-tab-label {
@@ -207,10 +230,20 @@ body.session-tab-dragging {
 /* Non-active attention — distinct from `unread-finished` (green flash):
    a steady warning-colored inset border with a slow breathing outer glow. */
 .session-tab.attention:not(.active) .session-tab-shell {
+  /* Steady warning inset border + faint ring (non-animated). */
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 42%, var(--session-tab-outline)),
     0 0 0 1px color-mix(in srgb, var(--panel-warning) 10%, transparent);
+}
+
+/* Breathing warning ring — opacity-animated so it stays off the main thread.
+   A 1px ring (not a blurred halo) so the strip's `overflow-x: auto` doesn't
+   clip it vertically. Base shell already holds a steady 10% ring; this overlay
+   breathes the extra delta up to ~22% at peak, matching the original pulse. */
+.session-tab.attention:not(.active) .session-tab-shell::after {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--panel-warning) 12%, transparent);
   animation: session-tab-attention-idle 2.4s ease-in-out infinite;
+  will-change: opacity;
 }
 
 /* Focus ring propagates from any focused child (main or close button) */
@@ -331,6 +364,7 @@ body.session-tab-dragging {
   background: var(--panel-accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--panel-accent) 14%, transparent);
   animation: pulse 1.4s ease-in-out infinite;
+  will-change: opacity;
 }
 
 .session-tab-finished {
@@ -501,47 +535,39 @@ body.session-tab-dragging {
 
 /* ── Tab-specific animations ─────────────────────────────────────────────── */
 
+/* Opacity pulses for the shell ::after glow overlay (compositor-friendly).
+   The underlying shell keeps its steady box-shadow; the glow fades in/out. */
 @keyframes session-tab-unread-flash {
   0%,
   100% {
-    box-shadow: inset 0 0 0 1px var(--session-tab-outline);
+    opacity: 0;
   }
 
   50% {
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--panel-success) 28%, var(--session-tab-outline)),
-      0 0 0 1px color-mix(in srgb, var(--panel-success) 10%, transparent);
+    opacity: 1;
   }
 }
 
 @keyframes session-tab-attention-pulse {
   0%,
   100% {
-    box-shadow: inset 0 0 0 1px var(--session-tab-outline);
+    opacity: 0;
   }
 
   50% {
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 36%, var(--session-tab-outline)),
-      0 0 0 1px color-mix(in srgb, var(--panel-warning) 14%, transparent);
+    opacity: 1;
   }
 }
 
-/* Non-active attention: steady warning inset border with a slow breathing
-   outer glow. Calmer than the active pulse and distinct in color from the
-   green `unread-finished` flash. */
+/* Non-active attention: slow breathing outer halo. */
 @keyframes session-tab-attention-idle {
   0%,
   100% {
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 42%, var(--session-tab-outline)),
-      0 0 0 1px color-mix(in srgb, var(--panel-warning) 10%, transparent);
+    opacity: 0;
   }
 
   50% {
-    box-shadow:
-      inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 42%, var(--session-tab-outline)),
-      0 0 0 1px color-mix(in srgb, var(--panel-warning) 22%, transparent);
+    opacity: 1;
   }
 }
 
