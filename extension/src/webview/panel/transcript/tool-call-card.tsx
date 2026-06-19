@@ -281,10 +281,11 @@ function CollapsedSummary({
 }
 
 /** Compact status indicator shown at the right of the tool-call header: a
- *  spinner while running, a checkmark once completed. Failed keeps the
+ *  spinner while running, nothing once completed. Failed keeps the
  *  interactive "Failed" status chip (with copy-error affordance) rendered by
- *  the header, so it is intentionally absent here. Strengthens running vs
- *  completed vs failed so completion is unambiguous. */
+ *  the header, so it is intentionally absent here. Follows an "alert on
+ *  failure, not on success" philosophy — completion is the expected/default
+ *  state and gets no glyph, mirroring the subagent StatusIndicator. */
 function ToolCallStatusGlyph({ status }: { status: ToolCall['status'] }) {
   if (status === 'running') {
     return (
@@ -293,27 +294,6 @@ function ToolCallStatusGlyph({ status }: { status: ToolCall['status'] }) {
         role="img"
         aria-label="Running"
       />
-    );
-  }
-  if (status === 'completed') {
-    return (
-      <svg
-        class="tool-call-status-glyph tool-call-status-check"
-        viewBox="0 0 16 16"
-        width="13"
-        height="13"
-        role="img"
-        aria-label="Completed"
-      >
-        <path
-          d="M3.2 8.4L6.1 11.3L13 4.2"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2.1"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      </svg>
     );
   }
   return null;

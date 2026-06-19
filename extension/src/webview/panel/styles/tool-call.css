@@ -360,11 +360,11 @@
    <pre>/container that holds highlighted code. */
 
 /* ── Tool-call status glyph (header) ─────────────────────────────────────── */
-/* Compact running/completed indicator in the header. Running shows a spinner
-   (reuses the global panel-loading-wheel-spin keyframe); completed shows a
-   checkmark in the success tone. Failed keeps the interactive "Failed"
-   status chip (with copy-error affordance), so it has no glyph here.
-   Strengthens running vs completed vs failed so completion is unambiguous. */
+/* Compact running indicator in the header: a spinner (reuses the global
+   panel-loading-wheel-spin keyframe) while the tool is executing. Completed
+   calls show no glyph — success is the expected/default state, so we only
+   alert on failure (the interactive "Failed" status chip rendered by the
+   header). Mirrors the subagent StatusIndicator's failure-only design. */
 
 .tool-call-status-spinner {
   flex: 0 0 auto;
@@ -375,15 +375,6 @@
   border: 1.5px solid color-mix(in srgb, var(--panel-accent) 26%, transparent);
   border-top-color: var(--panel-accent);
   animation: panel-loading-wheel-spin 0.72s linear infinite;
-}
-
-.tool-call-status-glyph {
-  flex: 0 0 auto;
-  display: block;
-}
-
-.tool-call-status-check {
-  color: var(--panel-success);
 }
 
 /* ── Tool-call completion pulse ──────────────────────────────────────────── */
