@@ -3,7 +3,7 @@
 **Purpose:** Authoritative traceability record for every price written to `models.json`.
 Every non-zero cost field in `models.json` MUST have a corresponding row in this document.
 
-**Retrieval date:** 2026-06-19 (Ollama Cloud refreshed live via OpenRouter; Umans section added; Copilot unchanged)
+**Retrieval date:** 2026-06-19 (Ollama Cloud refreshed live via OpenRouter; Umans section added with opportunity-cost mirror; Copilot unchanged)
 **Format:** All prices in USD per 1M tokens unless otherwise noted.
 
 ---
@@ -13,7 +13,7 @@ Every non-zero cost field in `models.json` MUST have a corresponding row in this
 For each model in `model-profiles.yaml`:
 - **GitHub Copilot models**: Token pricing sourced from official GitHub Copilot billing documentation. 1 AI credit = $0.01 USD.
 - **Ollama Cloud models**: Live per-token pricing from the [OpenRouter](https://openrouter.ai/api/v1/models) model API (`pricing.prompt` / `pricing.completion` / `pricing.input_cache_read`), converted from USD-per-token to USD per 1M tokens. OpenRouter aggregates upstream provider rates (DeepSeek, Google, z-ai/GLM, Moonshot/Kimi, Alibaba/Qwen, MiniMax, NVIDIA, OpenAI); these are real billed rates, not compute estimates. The earlier H100-@-$3/hr compute-estimate methodology is preserved in `ollama-pro-cloud-models-ranked.md` for historical reference only.
-- **Umans models**: Subscription coding plans (`api.code.umans.ai`) — unlimited tokens for the plan holder, so per-token marginal cost is $0. Per-token "service keys for teams" exist but are out of scope for the personal plan key configured here. Cache usage is still captured for token accounting (see Umans section).
+- **Umans models**: Subscription coding plans (`api.code.umans.ai`) — unlimited tokens for the plan holder, so the per-token cost billed to the user is $0. For the cost indicator, umans entries that share an underlying model with an Ollama Cloud twin mirror that twin's live OpenRouter API rate (opportunity-cost estimate, consistent with every other model's `cost` block); proprietary umans models with no public API twin remain $0. Cache usage is still captured for token accounting (see Umans section).
 - **Ollama Local models**: Free/local (no API cost).
 - **Grok models**: No official token pricing found; marked as unknown.
 
@@ -188,26 +188,33 @@ Models previously available on Ollama Cloud but no longer listed. Pricing retain
 **Provider:** `api.code.umans.ai` (OpenAI-compatible). Per [umans.ai](https://umans.ai), the service is
 subscription-first: hosted Kimi K2.6/K2.7-Code, GLM 5.1/5.2, Qwen 3.6 35B-A3B, plus Umans-coder/flash,
 offered as **coding plans with unlimited tokens** (Pro ~$17–20/mo). The configured `$UMANS_API_KEY` is a
-plan key, so the per-token marginal cost is **$0** — `input`/`output`/`cacheRead`/`cacheWrite` are all `0`
-in `models.json`.
+plan key, so the per-token cost actually billed to the user is **$0**.
+
+**`cost` block convention (opportunity-cost display).** Every other model's `cost` block holds the model's
+public per-token API rate (Copilot token price, OpenRouter rate, or $0 for local) — not the provider's
+billing arrangement. To keep the session cost indicator **consistent across all models**, umans entries
+that share an underlying model with an Ollama Cloud twin **mirror that twin's live OpenRouter rate** as
+their `cost`. The indicator then reflects the *opportunity cost* of the tokens used (what the equivalent
+pay-per-token usage would cost), which is more useful for comparing models than the flat subscription.
+Actual spend remains the fixed monthly plan fee.
 
 A separate **per-token "service keys for teams"** tier exists but is not configured here; if a service key
-is adopted, populate these cost blocks from Umans's published per-token rates.
+is adopted, replace the mirrored rates with Umans's published per-token rates.
 
 Cache usage is still captured for token accounting and the context-window indicator: Umans uses the same
 `openai-completions` API path as Ollama, and the host usage parser (`extension/src/backend/transcript/content.ts`,
 `usageFromMessage`) reads cache tokens from `prompt_tokens_details.cached_tokens` / `cache_read_input_tokens` /
 `prompt_cache_hit_tokens` — the standard fields Kimi/GLM/Qwen return. No Umans-specific wiring is required.
 
-| Model ID | Input | Output | Cache Read | Cache Write | Confidence | Notes |
+| Model ID | Input | Output | Cache Read | Cache Write | Confidence | Source / Notes |
 |---|---|---|---|---|---|---|
-| umans-coder | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
-| umans-flash | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
-| umans-kimi-k2.6 | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
-| umans-kimi-k2.7 | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
-| umans-glm-5.1 | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
-| umans-glm-5.2 | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens |
-| umans-qwen3.6-35b-a3b | $0.00 | $0.00 | $0.00 | $0.00 | official | Subscription plan; unlimited tokens; newly added model |
+| umans-coder | $0.00 | $0.00 | $0.00 | $0.00 | official | Proprietary; no public API twin. Subscription $0 marginal. |
+| umans-flash | $0.00 | $0.00 | $0.00 | $0.00 | official | Proprietary; no public API twin. Subscription $0 marginal. |
+| umans-kimi-k2.6 | $0.67 | $3.50 | $0.20 | $0.00 | openrouter | Mirrors `kimi-k2.6:cloud` (`moonshotai/kimi-k2.6`) |
+| umans-kimi-k2.7 | $0.74 | $3.50 | $0.15 | $0.00 | openrouter | Mirrors `kimi-k2.7-code:cloud` (`moonshotai/kimi-k2.7-code`) |
+| umans-glm-5.1 | $0.98 | $3.08 | $0.182 | $0.00 | openrouter | Mirrors `glm-5.1:cloud` (`z-ai/glm-5.1`) |
+| umans-glm-5.2 | $1.20 | $3.20 | $0.20 | $0.00 | openrouter | Mirrors `glm-5.2:cloud` (`z-ai/glm-5.2`) |
+| umans-qwen3.6-35b-a3b | $0.00 | $0.00 | $0.00 | $0.00 | official | No Ollama Cloud twin. Subscription $0 marginal. |
 
 ---
 
@@ -240,7 +247,7 @@ Models in `model-profiles.yaml` without pricing in this evidence document:
 No models remain at `unknown` confidence as of 2026-06-19:
 - `gemini-3-flash-preview:cloud` — previously range-only; now priced via OpenRouter (`google/gemini-3-flash-preview`).
 - `glm-5.2:cloud` — previously "TBD" in the Portkey snapshot; now priced via OpenRouter (`z-ai/glm-5.2`).
-- Umans models — intentionally $0 (subscription unlimited-token plans); see Umans section.
+- Umans models — twinned entries mirror their Ollama Cloud twin's OpenRouter rate (opportunity-cost display); proprietary models (`umans-coder`, `umans-flash`, `umans-qwen3.6-35b-a3b`) remain $0 (no public API twin). See Umans section.
 
 ---
 
@@ -263,4 +270,4 @@ No models remain at `unknown` confidence as of 2026-06-19:
 | 2026-06-01 | Initial evidence ledger created. Copilot pricing sourced from official docs (via internal copilot-model-pricing.md). Ollama Cloud pricing from compute estimates (via ollama-pro-cloud-models-ranked.md). |
 | 2026-06-15 | Synced Ollama Cloud model list: added glm-5, kimi-k2.7-code, minimax-m2.1, minimax-m2.5; removed 21 models no longer on cloud page |
 | 2026-06-17 | Added `glm-5.2:cloud` with compute-estimate pricing (active params estimated 40B pending official spec) |
-| 2026-06-19 | **Ollama Cloud refresh to live API pricing.** Replaced stale compute-estimate cost blocks for all 22 compute-estimate Ollama Cloud models with live per-token rates from the OpenRouter model API (`/api/v1/models`), including cache-read where OpenRouter exposes it, and added the previously-missing `glm-5.2:cloud` price (`z-ai/glm-5.2`). Supersedes the 2026-06-04 Portkey snapshot (several Portkey values were stale or mis-mapped, e.g. `kimi-k2.7-code` had matched base `kimi-k2`, `minimax-m3` was 2× the live rate). Added the Umans section (subscription → $0/token; cache captured via the shared `openai-completions` path) and the newly-listed `umans-qwen3.6-35b-a3b` model + profile. Copilot models unchanged (already official GitHub token pricing). |
+| 2026-06-19 | **Ollama Cloud refresh to live API pricing.** Replaced stale compute-estimate cost blocks for all 22 compute-estimate Ollama Cloud models with live per-token rates from the OpenRouter model API (`/api/v1/models`), including cache-read where OpenRouter exposes it, and added the previously-missing `glm-5.2:cloud` price (`z-ai/glm-5.2`). Supersedes the 2026-06-04 Portkey snapshot (several Portkey values were stale or mis-mapped, e.g. `kimi-k2.7-code` had matched base `kimi-k2`, `minimax-m3` was 2× the live rate). Added the Umans section: twinned umans entries mirror their Ollama Cloud twin's OpenRouter rate as an opportunity-cost `cost` block (consistent with all other models); proprietary `umans-coder`/`flash`/`qwen3.6-35b-a3b` remain $0 (no public API twin). Cache captured via the shared `openai-completions` path. Newly-listed `umans-qwen3.6-35b-a3b` model + profile added. Copilot models unchanged (already official GitHub token pricing). |
