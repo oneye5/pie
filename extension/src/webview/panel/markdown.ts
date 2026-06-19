@@ -2,6 +2,7 @@ import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
 import { highlightCodeBlock } from './transcript/highlight';
+import { LruCache } from './utils/lru-cache';
 
 marked.setOptions({ breaks: true, gfm: true });
 
@@ -49,13 +50,57 @@ marked.use({
   },
 });
 
+/**
+ * Bounded LRU cache for rendered markdown. `renderMarkdown` is a pure
+ * function of its input text (marked options + DOMPurify config are fixed at
+ * module load), so output can be safely memoised by content. The host posts a
+ * full `ViewState` ~7×/sec while streaming, and every `state` message gives
+ * each message a fresh object reference — without this cache, every visible
+ * message re-runs `marked.parse` + per-code-block `hljs.highlight` +
+ * `DOMPurify.sanitize` on every snapshot (and again on every auto-expand /
+ * tab-switch re-render), which is the dominant cost behind the UI's perceived
+ * lag despite "just rendering text".
+ *
+ * Entry-count bound (rather than byte bound) keeps bookkeeping cheap; typical
+ * markdown fragments are a few KB so 256 entries is ample for the visible
+ * window plus recently-scrolled history. LRU refresh on hit keeps the
+ * frequently-rendered visible fragments resident even as streaming
+ * intermediate snapshots churn through the cache.
+ */
+const MARKDOWN_CACHE_MAX = 256;
+const markdownCache = new LruCache<string, string>(MARKDOWN_CACHE_MAX);
+
+/**
+ * Reset the markdown render cache. Entries are content-addressed and always
+ * valid, so production never needs to clear this — it exists for tests that
+ * need a deterministic cache state.
+ */
+export function clearMarkdownCache(): void {
+  markdownCache.clear();
+}
+
+/** Cache capacity, exported so tests can drive the eviction boundary exactly. */
+export const MARKDOWN_CACHE_MAX_ENTRIES = MARKDOWN_CACHE_MAX;
+
+/** Number of entries currently in the cache. Test-support / diagnostics. */
+export function getMarkdownCacheSize(): number {
+  return markdownCache.size;
+}
+
 export function renderMarkdown(text: string): string {
+  const cached = markdownCache.get(text);
+  if (cached !== undefined) {
+    return cached;
+  }
+
   const raw = marked.parse(text) as string;
   // Wrap GFM tables so they can scroll horizontally in a narrow sidebar.
   const withTableWrappers = raw
     .replace(/<table>/g, '<div class="md-table-wrap"><table>')
     .replace(/<\/table>/g, '</table></div>');
-  return DOMPurify.sanitize(withTableWrappers, { RETURN_DOM: false });
+  const html = DOMPurify.sanitize(withTableWrappers, { RETURN_DOM: false });
+  markdownCache.set(text, html);
+  return html;
 }
 
 export function reasoningSummary(text: string): string {

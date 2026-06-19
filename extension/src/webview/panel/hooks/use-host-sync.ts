@@ -8,23 +8,46 @@ import { clearCollapsibleCache } from '../transcript/use-collapsible-open';
 
 import type {
   ChatMessage,
+  ChatPrefs,
   HostToWebviewMessage,
+  PruningCatalog,
+  PruningSettings,
   ViewState,
   WebviewToHostMessage,
 } from '../../../shared/protocol';
 import { DEFAULT_CHAT_PREFS, DEFAULT_PRUNING_SETTINGS, EMPTY_TRANSCRIPT_WINDOW, WEBVIEW_PROTOCOL_VERSION } from '../../../shared/protocol';
+import { pickStable } from '../utils/view-state-stabilize';
 
 /**
  * Fill gaps in host-delivered state with safe defaults and log violations.
  * Prevents render crashes when the host omits newly-added nested fields.
+ *
+ * `prefs` / `pruningSettings` / `pruningCatalog` are reference-stabilised: the
+ * host re-serialises the whole `ViewState` on every snapshot (fresh refs even
+ * when content is unchanged), which would otherwise defeat every `memo()` /
+ * `useMemo` / `useCallback` barrier downstream (notably `MessageItem = memo()`
+ * and `useTranscriptRenderToolCall`'s `useCallback([prefs, ...])`). Reusing the
+ * previous reference when content is unchanged keeps those barriers effective.
+ * The cached refs live for the module's lifetime; `pickStable` compares content
+ * so a genuinely different value (e.g. a pref toggle) still produces a new ref.
  */
+let stablePrefs: ChatPrefs | null = null;
+let stablePruningSettings: PruningSettings | null = null;
+let stablePruningCatalog: PruningCatalog | null = null;
+
 function hydrateViewState(raw: ViewState): ViewState {
   validateViewState(raw);
+  const prefs = pickStable(stablePrefs, { ...DEFAULT_CHAT_PREFS, ...raw.prefs });
+  stablePrefs = prefs;
+  const pruningSettings = pickStable(stablePruningSettings, { ...DEFAULT_PRUNING_SETTINGS, ...raw.pruningSettings });
+  stablePruningSettings = pruningSettings;
+  const pruningCatalog = pickStable(stablePruningCatalog, { ...EMPTY_VIEW_STATE.pruningCatalog, ...raw.pruningCatalog });
+  stablePruningCatalog = pruningCatalog;
   return {
     ...raw,
-    pruningSettings: { ...EMPTY_VIEW_STATE.pruningSettings, ...raw.pruningSettings },
-    pruningCatalog: { ...EMPTY_VIEW_STATE.pruningCatalog, ...raw.pruningCatalog },
-    prefs: { ...EMPTY_VIEW_STATE.prefs, ...raw.prefs },
+    prefs,
+    pruningSettings,
+    pruningCatalog,
   };
 }
 
