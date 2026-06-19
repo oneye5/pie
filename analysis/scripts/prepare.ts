@@ -8,6 +8,7 @@ import {
   type PreparedRunRow,
   type PreparedToolFailureRow,
   type PreparedToolUsageRow,
+  type PreparedTurnThroughputRow,
   type PreparedVerificationUsageRow,
   type PruningSourceDecision,
   type SourceAnalyticsPayload,
@@ -516,6 +517,48 @@ function preparePruningEvents(
   });
 }
 
+function roundThroughput(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/**
+ * Flatten per-turn throughput samples into analysis rows stamped with the
+ * parent run's metadata. `tokensPerSecond` is precomputed for completed turns
+ * with reported output tokens and positive generation time (null otherwise so
+ * errored / tokenless turns stay countable without polluting the throughput
+ * distribution).
+ */
+function prepareTurnThroughput(run: RunSnapshot): PreparedTurnThroughputRow[] {
+  if (!run.turnThroughputSamples || run.turnThroughputSamples.length === 0) {
+    return [];
+  }
+  const modelId = normalizeNullableText(run.modelId);
+  const thinkingLevel = normalizeThinkingLevel(run.thinkingLevel);
+  const experimentAssignment = normalizeNullableText(run.experimentAssignment);
+
+  return run.turnThroughputSamples.map((sample) => {
+    const tokensPerSecond =
+      sample.status === 'completed'
+      && sample.outputTokens > 0
+      && sample.generationDurationMs > 0
+        ? roundThroughput((sample.outputTokens / sample.generationDurationMs) * 1000)
+        : null;
+    return {
+      runId: run.runId,
+      endedAt: sample.endedAt,
+      startedDay: toStartedDay(sample.endedAt),
+      modelId,
+      thinkingLevel,
+      experimentAssignment,
+      outputTokens: sample.outputTokens,
+      generationDurationMs: sample.generationDurationMs,
+      concurrentBusySessions: sample.concurrentBusySessions,
+      status: sample.status,
+      tokensPerSecond,
+    };
+  });
+}
+
 export function prepareSourceAnalytics(source: SourceAnalyticsPayload): PreparedAnalyticsData {
   const outcomesByRunId = new Map<string, RunOutcome>();
   for (const outcome of source.outcomes) {
@@ -530,6 +573,7 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
   const verificationUsage: PreparedVerificationUsageRow[] = [];
   const backendErrors: PreparedBackendErrorRow[] = [];
   const fileExtensions: PreparedFileExtensionRow[] = [];
+  const turnThroughput: PreparedTurnThroughputRow[] = [];
 
   for (const run of dedupedRuns) {
     const outcome = getRunOutcome(run, outcomesByRunId);
@@ -538,6 +582,7 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
     verificationUsage.push(...prepareVerificationUsage(run, outcome));
     backendErrors.push(...prepareBackendErrors(run, outcome));
     fileExtensions.push(...prepareFileExtensions(run, outcome));
+    turnThroughput.push(...prepareTurnThroughput(run));
   }
 
   const pruningEvents = preparePruningEvents(source.pruningDecisions ?? [], runs);
@@ -552,6 +597,7 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
     verificationUsage,
     backendErrors,
     fileExtensions,
+    turnThroughput,
     pruningEvents,
   };
 }

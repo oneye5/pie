@@ -186,6 +186,11 @@ test('assistant turns, busy windows, unsupported inputs, and experiment assignme
   assert.equal(currentRun?.assistantTurnDurationMs, 400);
   assert.equal(currentRun?.inputTokens, 10);
   assert.equal(currentRun?.outputTokens, 20);
+  assert.equal(currentRun?.turnThroughputSamples.length, 1);
+  assert.equal(currentRun?.turnThroughputSamples[0]?.outputTokens, 20);
+  assert.equal(currentRun?.turnThroughputSamples[0]?.generationDurationMs, 400);
+  assert.equal(currentRun?.turnThroughputSamples[0]?.concurrentBusySessions, 0);
+  assert.equal(currentRun?.turnThroughputSamples[0]?.status, 'completed');
   assert.equal(currentRun?.busyPeriodCount, 1);
   assert.equal(currentRun?.busyDurationMs, 500);
   assert.equal(currentRun?.unsupportedInputCount, 1);
@@ -196,6 +201,67 @@ test('assistant turns, busy windows, unsupported inputs, and experiment assignme
   const persistCountBefore = harness.persistCalls.length;
   harness.tracker.onExperimentAssignmentChanged('control');
   assert.equal(harness.persistCalls.length, persistCountBefore, 'unchanged assignments should not persist again');
+});
+
+test('turn throughput samples stamp concurrency, accumulate per turn, and capture errored turns', () => {
+  const harness = createHarness();
+  const secondSession = '/workspace/other-session.jsonl';
+  harness.tracker.prepareForSend(harness.sessionPath, []);
+
+  // A second concurrent session becomes busy mid-run.
+  harness.tracker.onBusyChanged(secondSession, true);
+  // This run's own session is also busy.
+  harness.tracker.onBusyChanged(harness.sessionPath, true);
+
+  harness.tracker.onAssistantTurnStarted(harness.sessionPath, 'turn-a');
+  harness.advance(100);
+  harness.tracker.onAssistantTurnEnded(
+    harness.sessionPath,
+    'turn-a',
+    1000,
+    { inputTokens: 50, outputTokens: 300, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 350 },
+    'completed',
+  );
+
+  // Errored turn still produces a sample (rate-limit / failure signal) even
+  // with no reported usage, and keeps its error status.
+  harness.tracker.onAssistantTurnStarted(harness.sessionPath, 'turn-b');
+  harness.advance(50);
+  harness.tracker.onAssistantTurnEnded(harness.sessionPath, 'turn-b', 250, undefined, 'error');
+
+  harness.tracker.onBusyChanged(secondSession, false);
+  harness.tracker.onBusyChanged(harness.sessionPath, false);
+
+  const run = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun;
+  assert.equal(run?.turnThroughputSamples.length, 2);
+
+  const completed = run?.turnThroughputSamples[0];
+  assert.equal(completed?.outputTokens, 300);
+  assert.equal(completed?.generationDurationMs, 1000);
+  assert.equal(completed?.status, 'completed');
+  assert.equal(completed?.concurrentBusySessions, 2, 'both sessions were busy when the turn ended');
+
+  const errored = run?.turnThroughputSamples[1];
+  assert.equal(errored?.status, 'error');
+  assert.equal(errored?.outputTokens, 0);
+  assert.equal(errored?.generationDurationMs, 250);
+  assert.equal(errored?.concurrentBusySessions, 2);
+});
+
+test('duplicate onAssistantTurnEnded calls for the same turn do not double-count', () => {
+  const harness = createHarness();
+  harness.tracker.prepareForSend(harness.sessionPath, []);
+
+  const usage = { inputTokens: 10, outputTokens: 40, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 50 };
+  harness.tracker.onAssistantTurnEnded(harness.sessionPath, 'dup-turn', 1000, usage, 'completed');
+  // A duplicate `message.finished` for the same turn must be ignored.
+  harness.tracker.onAssistantTurnEnded(harness.sessionPath, 'dup-turn', 1000, usage, 'completed');
+
+  const run = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun;
+  assert.equal(run?.assistantTurnDurationMs, 1000, 'duration not double-counted');
+  assert.equal(run?.outputTokens, 40, 'tokens not double-counted');
+  assert.equal(run?.tokenReportedTurnCount, 1, 'reported-turn count not double-counted');
+  assert.equal(run?.turnThroughputSamples.length, 1, 'only one throughput sample recorded');
 });
 
 test('replaceSessionPath, continueTask, and recordOutcome handle last-run state transitions', () => {

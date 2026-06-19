@@ -197,6 +197,28 @@ test('prepareSourceAnalytics flattens functional settings into fs* columns', asy
   assert.deepEqual(untrackedRow.fsExtensionToggles, {});
 });
 
+test('prepareSourceAnalytics flattens per-turn throughput samples and precomputes tokensPerSecond', async () => {
+  const fixture = deepClone(await loadFixture());
+  const run = fixture.completedRuns[0] as any;
+  run.turnThroughputSamples = [
+    { endedAt: '2026-05-10T14:08:00.000Z', outputTokens: 1800, generationDurationMs: 28000, concurrentBusySessions: 1, status: 'completed' },
+    { endedAt: '2026-05-10T14:12:00.000Z', outputTokens: 1400, generationDurationMs: 33000, concurrentBusySessions: 3, status: 'completed' },
+    { endedAt: '2026-05-10T14:13:00.000Z', outputTokens: 0, generationDurationMs: 1200, concurrentBusySessions: 3, status: 'error' },
+  ];
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const rows = prepared.turnThroughput.filter((row) => row.runId === run.runId);
+
+  assert.equal(rows.length, 3);
+  assert.equal(rows[0]?.tokensPerSecond, Math.round((1800 / 28000) * 1000 * 100) / 100);
+  assert.equal(rows[0]?.concurrentBusySessions, 1);
+  assert.equal(rows[0]?.status, 'completed');
+  assert.equal(rows[1]?.concurrentBusySessions, 3);
+  // Errored turns are retained but excluded from the throughput distribution.
+  assert.equal(rows[2]?.status, 'error');
+  assert.equal(rows[2]?.tokensPerSecond, null);
+});
+
 test('prepareSourceAnalytics sets tokenEfficiency to null when lineMutationTotal is zero', async () => {
   const fixture = deepClone(await loadFixture());
   (fixture.completedRuns[0] as any).fileMutation.lineAdditions = 0;

@@ -15,11 +15,13 @@ import {
   type ResolutionCounts,
   type PreparedAnalyticsData,
   type PreparedRunRow,
+  type PreparedTurnThroughputRow,
   type SiteDataBundle,
   type SiteDataFileName,
   type SiteManifest,
   type TimelineData,
   type TimelineRow,
+  type TokenThroughputData,
   type ToolUsageAggregateRow,
   type ToolUsageData,
   type TreatmentComparisonData,
@@ -533,6 +535,24 @@ function createFileExtensions(prepared: PreparedAnalyticsData): FileExtensionDat
   };
 }
 
+function createTokenThroughput(prepared: PreparedAnalyticsData): TokenThroughputData {
+  // Only completed turns with a precomputed tokensPerSecond contribute to the
+  // throughput distribution; errored / tokenless turns are retained for
+  // future error-rate analysis but excluded from the throughput series.
+  const rows: PreparedTurnThroughputRow[] = prepared.turnThroughput
+    .filter((row) => row.tokensPerSecond !== null)
+    .map((row) => ({ ...row }));
+  return {
+    schemaVersion: SITE_DATA_SCHEMA_VERSION,
+    rows,
+    notes: [
+      'Throughput = output tokens / generation time (ms → s). Generation time excludes tool execution (tools run between assistant messages), so it isolates raw model emission speed.',
+      'concurrentBusySessions records how many sessions were mid-run when the turn ended; throughput degradation as this rises indicates provider rate-limiting under multi-session load.',
+      'Only completed turns with reported output tokens are plotted; errored / tokenless turns are stored but excluded from the throughput distribution.',
+    ],
+  };
+}
+
 export function buildSiteDataBundle(prepared: PreparedAnalyticsData, generatedAt = new Date()): SiteDataBundle {
   return {
     manifest: createManifest(prepared, generatedAt),
@@ -550,6 +570,7 @@ export function buildSiteDataBundle(prepared: PreparedAnalyticsData, generatedAt
     pruningImpact: createPruningImpact(prepared),
     backendErrors: createBackendErrors(prepared),
     fileExtensions: createFileExtensions(prepared),
+    tokenThroughput: createTokenThroughput(prepared),
   };
 }
 
@@ -567,6 +588,7 @@ export function siteDataFileMap(bundle: SiteDataBundle): Record<SiteDataFileName
     'pruning-impact.json': bundle.pruningImpact,
     'backend-errors.json': bundle.backendErrors,
     'file-types.json': bundle.fileExtensions,
+    'token-throughput.json': bundle.tokenThroughput,
   };
 }
 
@@ -756,6 +778,22 @@ function validateFileExtensions(data: unknown): asserts data is FileExtensionDat
   assert(Array.isArray(data.summary), 'file-types.json is missing summary.');
 }
 
+function validateTokenThroughput(data: unknown): asserts data is TokenThroughputData {
+  assert(isRecord(data), 'token-throughput.json must contain an object.');
+  assert(data.schemaVersion === SITE_DATA_SCHEMA_VERSION, 'token-throughput.json has an unexpected schemaVersion.');
+  assert(Array.isArray(data.rows), 'token-throughput.json is missing rows.');
+  assert(Array.isArray(data.notes), 'token-throughput.json is missing notes.');
+  data.rows.forEach((row, index) => {
+    assert(isRecord(row), `token-throughput.json row ${index} must be an object.`);
+    assert(typeof row.runId === 'string', `token-throughput.json row ${index} is missing runId.`);
+    assert(typeof row.endedAt === 'string', `token-throughput.json row ${index} is missing endedAt.`);
+    assert(typeof row.generationDurationMs === 'number' && row.generationDurationMs >= 0, `token-throughput.json row ${index} has an invalid generationDurationMs.`);
+    assert(typeof row.outputTokens === 'number' && row.outputTokens >= 0, `token-throughput.json row ${index} has an invalid outputTokens.`);
+    assert(typeof row.concurrentBusySessions === 'number' && row.concurrentBusySessions >= 0, `token-throughput.json row ${index} has an invalid concurrentBusySessions.`);
+    assert(typeof row.status === 'string', `token-throughput.json row ${index} is missing status.`);
+  });
+}
+
 export function validateSiteDataBundle(bundle: SiteDataBundle): void {
   validateManifest(bundle.manifest);
   validateOverview(bundle.overview, bundle.manifest);
@@ -769,6 +807,7 @@ export function validateSiteDataBundle(bundle: SiteDataBundle): void {
   validatePruningImpact(bundle.pruningImpact);
   validateBackendErrors(bundle.backendErrors);
   validateFileExtensions(bundle.fileExtensions);
+  validateTokenThroughput(bundle.tokenThroughput);
 }
 
 export async function readSiteDataBundle(outputDir: string): Promise<SiteDataBundle> {
@@ -791,5 +830,6 @@ export async function readSiteDataBundle(outputDir: string): Promise<SiteDataBun
     pruningImpact: files['pruning-impact.json'] as SiteDataBundle['pruningImpact'],
     backendErrors: files['backend-errors.json'] as SiteDataBundle['backendErrors'],
     fileExtensions: files['file-types.json'] as SiteDataBundle['fileExtensions'],
+    tokenThroughput: files['token-throughput.json'] as SiteDataBundle['tokenThroughput'],
   };
 }

@@ -23,6 +23,8 @@ import {
   type ToolFailureSample,
   type ToolUsageRollup,
   type TreatmentChangeKind,
+  type TurnThroughputSample,
+  type TurnThroughputStatus,
   type VerificationCommandKind,
   type VerificationRollup,
 } from './contracts.ts';
@@ -403,6 +405,36 @@ function coerceBooleanRecord(value: unknown): Record<string, boolean> {
   return result;
 }
 
+const THROUGHPUT_STATUSES = new Set<TurnThroughputStatus>(['completed', 'error', 'interrupted']);
+
+/**
+ * Coerce per-turn throughput samples. Malformed samples are dropped; older runs
+ * recorded before sampling existed coerce to an empty array.
+ */
+function coerceTurnThroughputSamples(value: unknown): TurnThroughputSample[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const samples: TurnThroughputSample[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry) || typeof entry.endedAt !== 'string') {
+      continue;
+    }
+    const status: TurnThroughputStatus =
+      typeof entry.status === 'string' && THROUGHPUT_STATUSES.has(entry.status as TurnThroughputStatus)
+        ? (entry.status as TurnThroughputStatus)
+        : 'completed';
+    samples.push({
+      endedAt: entry.endedAt,
+      outputTokens: toNonNegativeInteger(entry.outputTokens),
+      generationDurationMs: toNonNegativeInteger(entry.generationDurationMs),
+      concurrentBusySessions: toNonNegativeInteger(entry.concurrentBusySessions),
+      status,
+    });
+  }
+  return samples;
+}
+
 function coerceFunctionalSettings(value: unknown): FunctionalSettingsSnapshot | null {
   if (!isRecord(value)) {
     return null;
@@ -543,6 +575,7 @@ export function coerceRunSnapshot(value: unknown): RunSnapshot | null {
     cacheReadTokens: toNonNegativeInteger(value.cacheReadTokens),
     cacheWriteTokens: toNonNegativeInteger(value.cacheWriteTokens),
     tokenReportedTurnCount: toNonNegativeInteger(value.tokenReportedTurnCount),
+    turnThroughputSamples: coerceTurnThroughputSamples(value.turnThroughputSamples),
     filesystemPathRefCount: toNonNegativeInteger(value.filesystemPathRefCount),
     imageInputCount: toNonNegativeInteger(value.imageInputCount),
     imageInputBytes: toNonNegativeInteger(value.imageInputBytes),

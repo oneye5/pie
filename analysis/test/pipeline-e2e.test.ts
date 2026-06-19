@@ -54,6 +54,7 @@ function createMinimalRunSnapshot(overrides: Partial<RunSnapshot> = {}): RunSnap
     cacheReadTokens: 0,
     cacheWriteTokens: 0,
     tokenReportedTurnCount: 1,
+    turnThroughputSamples: [],
     filesystemPathRefCount: 0,
     imageInputCount: 0,
     imageInputBytes: 0,

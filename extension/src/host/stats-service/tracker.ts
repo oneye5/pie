@@ -19,6 +19,8 @@ import {
   type OutcomeHistoryLogEntry,
   type RunSnapshot,
   type TreatmentChangeKind,
+  type TurnThroughputSample,
+  type TurnThroughputStatus,
 } from '../run-analytics';
 import { SessionRunStateManager } from './run-state-manager';
 import type { GetArchState, DispatchArchEvent } from './types';
@@ -40,6 +42,13 @@ export class SessionRunTracker {
   private readonly dispatchArchEvent: DispatchArchEvent;
   private readonly scheduleRender: () => void;
   private readonly runState: SessionRunStateManager;
+  /**
+   * Session paths currently mid-run (busy) across ALL sessions. Maintained on
+   * the shared tracker instance so per-turn throughput samples can stamp how
+   * many sessions were concurrently active — the multi-session load signal
+   * for throughput / rate-limit-resilience analysis.
+   */
+  private readonly busySessionPaths = new Set<string>();
 
   constructor(options: SessionRunTrackerOptions) {
     this.getArchState = options.getArchState;
@@ -76,6 +85,7 @@ export class SessionRunTracker {
     const run = this.runState.createRunSnapshot(sessionPath, state);
     state.currentRun = run;
     state.turnIdsSeenInCurrentRun.clear();
+    state.endedTurnIdsInCurrentRun.clear();
     state.busyStartedAt = null;
 
     run.sendCount += 1;
@@ -108,7 +118,13 @@ export class SessionRunTracker {
     }
   }
 
-  onAssistantTurnEnded(sessionPath: string, turnId: string, durationMs: number, usage?: AssistantUsage): void {
+  onAssistantTurnEnded(
+    sessionPath: string,
+    turnId: string,
+    durationMs: number,
+    usage?: AssistantUsage,
+    status: TurnThroughputStatus = 'completed',
+  ): void {
     const state = this.runState.sessions.get(sessionPath);
     const run = state?.currentRun;
     if (!run || !state) {
@@ -120,7 +136,16 @@ export class SessionRunTracker {
       run.assistantTurnCount += 1;
     }
 
-    run.assistantTurnDurationMs += Math.max(0, Math.trunc(durationMs));
+    // Ignore duplicate `message.finished` events for the same turn so duration,
+    // token totals, and throughput samples are not double-counted.
+    if (state.endedTurnIdsInCurrentRun.has(turnId)) {
+      return;
+    }
+    state.endedTurnIdsInCurrentRun.add(turnId);
+
+    const generationDurationMs = Math.max(0, Math.trunc(durationMs));
+    run.assistantTurnDurationMs += generationDurationMs;
+    const outputTokens = usage?.outputTokens ?? 0;
     if (usage) {
       run.inputTokens += usage.inputTokens;
       run.outputTokens += usage.outputTokens;
@@ -129,6 +154,22 @@ export class SessionRunTracker {
       run.tokenReportedTurnCount += 1;
       run.lastTurnUsage = usage;
     }
+
+    // Record a throughput sample whenever the turn produced measurable
+    // generation time or tokens, or ended abnormally. This keeps the sum of
+    // sample durations / tokens aligned with the cumulative counters above
+    // while still capturing errored turns (a rate-limit / failure signal).
+    if (generationDurationMs > 0 || outputTokens > 0 || status !== 'completed') {
+      const sample: TurnThroughputSample = {
+        endedAt: this.runState.isoNow(),
+        outputTokens,
+        generationDurationMs,
+        concurrentBusySessions: this.busySessionPaths.size,
+        status,
+      };
+      run.turnThroughputSamples = [...run.turnThroughputSamples, sample];
+    }
+
     run.updatedAt = this.runState.isoNow();
     this.runState.persist();
   }
@@ -297,6 +338,15 @@ export class SessionRunTracker {
   }
 
   onBusyChanged(sessionPath: string, busy: boolean): void {
+    // Track concurrent busy sessions globally (before the run-state guard) so
+    // the counter stays accurate even for sessions whose run snapshot hasn't
+    // been created yet or has already been finalized.
+    if (busy) {
+      this.busySessionPaths.add(sessionPath);
+    } else {
+      this.busySessionPaths.delete(sessionPath);
+    }
+
     const state = this.runState.sessions.get(sessionPath);
     const run = state?.currentRun;
     if (!state || !run) {
@@ -374,6 +424,7 @@ export class SessionRunTracker {
   }
 
   onSessionClosed(sessionPath: string): void {
+    this.busySessionPaths.delete(sessionPath);
     if (this.runState.sessions.get(sessionPath)?.currentRun) {
       this.runState.finalizeCurrentRun(sessionPath, 'closed_unscored');
     }
@@ -386,6 +437,10 @@ export class SessionRunTracker {
   replaceSessionPath(oldPath: string, newPath: string): void {
     if (!oldPath || !newPath || oldPath === newPath) {
       return;
+    }
+    if (this.busySessionPaths.has(oldPath)) {
+      this.busySessionPaths.delete(oldPath);
+      this.busySessionPaths.add(newPath);
     }
     const state = this.runState.sessions.get(oldPath);
     if (!state) {
@@ -485,5 +540,6 @@ export class SessionRunTracker {
     for (const sessionPath of openSessionPaths) {
       this.runState.finalizeCurrentRun(sessionPath, 'closed_unscored');
     }
+    this.busySessionPaths.clear();
   }
 }

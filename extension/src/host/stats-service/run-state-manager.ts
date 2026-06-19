@@ -67,6 +67,7 @@ export class SessionRunStateManager {
         nextTaskIntent: sessionState.nextTaskIntent,
         queuedUnsupportedInputCount: sessionState.queuedUnsupportedInputCount,
         turnIdsSeenInCurrentRun: new Set<string>(),
+        endedTurnIdsInCurrentRun: new Set<string>(),
         busyStartedAt: sessionState.busyStartedAt,
       });
       this.syncSessionSummary(sessionPath);
@@ -136,6 +137,7 @@ export class SessionRunStateManager {
       cacheWriteTokens: 0,
       tokenReportedTurnCount: 0,
       lastTurnUsage: null,
+      turnThroughputSamples: [],
       filesystemPathRefCount: 0,
       imageInputCount: 0,
       imageInputBytes: 0,
@@ -175,6 +177,7 @@ export class SessionRunStateManager {
     state.currentRun = null;
     state.lastRun = finalizedRun;
     state.turnIdsSeenInCurrentRun.clear();
+    state.endedTurnIdsInCurrentRun.clear();
     state.busyStartedAt = null;
 
     this.syncSessionSummary(sessionPath);

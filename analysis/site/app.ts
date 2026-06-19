@@ -21,6 +21,7 @@ import type {
   PreparedToolUsageRow,
   SiteManifest,
   TimelineData,
+  TokenThroughputData,
   ToolUsageData,
   TreatmentComparisonData,
   VerificationImpactData,
@@ -38,6 +39,7 @@ interface DashboardData {
   pruningImpact: PruningImpactData;
   backendErrors: BackendErrorData;
   fileExtensions: FileExtensionData;
+  tokenThroughput: TokenThroughputData;
 }
 
 interface FilterState {
@@ -4090,6 +4092,7 @@ async function renderCharts(
   const ctx: ChartContext = {
     runs,
     toolRows,
+    turnThroughputRows: data.tokenThroughput.rows,
     renderToken,
     pruning: data.pruningImpact,
     backendErrors: data.backendErrors,
@@ -4199,6 +4202,10 @@ function emptyFileExtensionsData(schemaVersion: number): FileExtensionData {
   return { schemaVersion, rows: [], summary: [] };
 }
 
+function emptyTokenThroughputData(schemaVersion: number): TokenThroughputData {
+  return { schemaVersion, rows: [], notes: [] };
+}
+
 // ─── Bootstrap ────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -4207,7 +4214,7 @@ async function main(): Promise<void> {
     fetchJson<RunSummaryData>('./data/run-summary.json'),
   ]);
 
-  const [overview, modelQuality, verificationImpact, toolUsage, treatmentComparison, timeline, pruningImpact, backendErrors, fileExtensions] = await Promise.all([
+  const [overview, modelQuality, verificationImpact, toolUsage, treatmentComparison, timeline, pruningImpact, backendErrors, fileExtensions, tokenThroughput] = await Promise.all([
     fetchOptionalJson<OverviewData>('./data/overview.json'),
     fetchOptionalJson<ModelQualityData>('./data/model-quality.json'),
     fetchOptionalJson<VerificationImpactData>('./data/verification-impact.json'),
@@ -4217,10 +4224,11 @@ async function main(): Promise<void> {
     fetchOptionalJson<PruningImpactData>('./data/pruning-impact.json'),
     fetchOptionalJson<BackendErrorData>('./data/backend-errors.json'),
     fetchOptionalJson<FileExtensionData>('./data/file-types.json'),
+    fetchOptionalJson<TokenThroughputData>('./data/token-throughput.json'),
   ]);
 
   const precomputedAvailable = Boolean(
-    overview && modelQuality && verificationImpact && toolUsage && treatmentComparison && timeline && pruningImpact && backendErrors && fileExtensions,
+    overview && modelQuality && verificationImpact && toolUsage && treatmentComparison && timeline && pruningImpact && backendErrors && fileExtensions && tokenThroughput,
   );
 
   if (!precomputedAvailable) {
@@ -4239,6 +4247,7 @@ async function main(): Promise<void> {
     pruningImpact: pruningImpact ?? emptyPruningImpactData(manifest.schemaVersion),
     backendErrors: backendErrors ?? emptyBackendErrorsData(manifest.schemaVersion),
     fileExtensions: fileExtensions ?? emptyFileExtensionsData(manifest.schemaVersion),
+    tokenThroughput: tokenThroughput ?? emptyTokenThroughputData(manifest.schemaVersion),
   };
 
   setText('generated-at', formatDateTime(data.manifest.generatedAt));

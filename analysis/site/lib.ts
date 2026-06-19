@@ -16,6 +16,7 @@ import type {
   FileExtensionData,
   PreparedRunRow,
   PreparedToolUsageRow,
+  PreparedTurnThroughputRow,
   PruningImpactData,
 } from '../scripts/contracts.ts';
 import { meanDifferenceInterval, meanInterval, wilsonInterval } from './chart-stats.ts';
@@ -61,6 +62,8 @@ export interface ChartContext {
   runs: PreparedRunRow[];
   /** All tool-usage rows (filter to ctx.runs via runId when needed). */
   toolRows: PreparedToolUsageRow[];
+  /** All per-turn throughput rows (filter to ctx.runs via runId when needed). */
+  turnThroughputRows: PreparedTurnThroughputRow[];
   /** Token used to abort superseded renders. */
   renderToken: number;
   pruning: PruningImpactData;

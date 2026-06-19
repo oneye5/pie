@@ -32,6 +32,37 @@ export interface ToolFailureSample {
   occurredAt: string;
 }
 
+/**
+ * Terminal status of a single assistant turn, mirrored on throughput samples
+ * so rate-limit / failure signals can be graphed alongside generation speed.
+ */
+export type TurnThroughputStatus = 'completed' | 'error' | 'interrupted';
+
+/**
+ * One timestamped throughput observation per assistant turn.
+ *
+ * Throughput = `outputTokens` ÷ (`generationDurationMs` / 1000). The
+ * generation duration is the wall-clock span from `message_start` to
+ * `message_end`, which excludes tool-execution time (tools run between
+ * messages), so it isolates how fast the model itself is emitting tokens.
+ *
+ * `concurrentBusySessions` records how many sessions were mid-run when the
+ * turn ended (including this one), enabling multi-session throughput /
+ * rate-limit-resilience analysis.
+ */
+export interface TurnThroughputSample {
+  /** ISO timestamp when the assistant turn ended (`message_end`). */
+  endedAt: string;
+  /** Output tokens reported for this turn (0 when the provider did not report usage). */
+  outputTokens: number;
+  /** Wall-clock generation time for this turn in ms (tool-execution excluded). */
+  generationDurationMs: number;
+  /** Sessions concurrently mid-run when this turn ended, including this one. */
+  concurrentBusySessions: number;
+  /** Terminal status of the turn. */
+  status: TurnThroughputStatus;
+}
+
 export interface ToolUsageRollup {
   totalCount: number;
   failureCount: number;
@@ -144,6 +175,11 @@ export interface RunSnapshot {
   tokenReportedTurnCount: number;
   /** Usage from the most recent assistant turn in this run that reported it. */
   lastTurnUsage: AssistantUsage | null;
+  /**
+   * Per-turn throughput observations (one timestamped sample per assistant
+   * turn). Empty for runs recorded before throughput sampling existed.
+   */
+  turnThroughputSamples: TurnThroughputSample[];
   filesystemPathRefCount: number;
   imageInputCount: number;
   imageInputBytes: number;

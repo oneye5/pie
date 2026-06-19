@@ -8,6 +8,7 @@ import { fileTypeCharts } from './filetypes.ts';
 import { interruptionCharts } from './interruptions.ts';
 import { inputCharts } from './inputs.ts';
 import { settingsCharts } from './settings.ts';
+import { throughputCharts } from './throughput.ts';
 
 /**
  * Registry of all analytics charts added in the gap-analysis pass.
@@ -21,6 +22,7 @@ import { settingsCharts } from './settings.ts';
 export const newCharts: ChartEntry[] = [
   ...costCharts,
   ...efficiencyCharts,
+  ...throughputCharts,
   ...toolDurationCharts,
   ...pruningCharts,
   ...errorCharts,

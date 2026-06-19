@@ -10,6 +10,7 @@ import type {
   PreparedRunRow,
   PreparedToolFailureRow,
   PreparedToolUsageRow,
+  PreparedTurnThroughputRow,
   PreparedVerificationUsageRow,
 } from './contracts.ts';
 import { ensureDir, sqlStringLiteral, writeJsonFile } from './fs-utils.ts';
@@ -232,6 +233,20 @@ interface DuckDbPruningEventRow {
   pruned_tool_names: string[];
 }
 
+interface DuckDbTurnThroughputRow {
+  run_id: string;
+  ended_at: string;
+  started_day: string;
+  model_id: string | null;
+  thinking_level: string | null;
+  experiment_assignment: string | null;
+  output_tokens: number;
+  generation_duration_ms: number;
+  concurrent_busy_sessions: number;
+  status: string;
+  tokens_per_second: number | null;
+}
+
 function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
   return {
     run_id: row.runId,
@@ -450,6 +465,22 @@ function toDuckDbPruningEventRow(row: PreparedPruningEventRow): DuckDbPruningEve
   };
 }
 
+function toDuckDbTurnThroughputRow(row: PreparedTurnThroughputRow): DuckDbTurnThroughputRow {
+  return {
+    run_id: row.runId,
+    ended_at: row.endedAt,
+    started_day: row.startedDay,
+    model_id: row.modelId,
+    thinking_level: row.thinkingLevel,
+    experiment_assignment: row.experimentAssignment,
+    output_tokens: row.outputTokens,
+    generation_duration_ms: row.generationDurationMs,
+    concurrent_busy_sessions: row.concurrentBusySessions,
+    status: row.status,
+    tokens_per_second: row.tokensPerSecond,
+  };
+}
+
 export async function writeDuckDbStagingExports(exportsDir: string, prepared: PreparedAnalyticsData): Promise<{
   runsPath: string;
   toolUsagePath: string;
@@ -458,6 +489,7 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
   backendErrorsPath: string;
   fileExtensionsPath: string;
   pruningEventsPath: string;
+  turnThroughputPath: string;
 }> {
   await ensureDir(exportsDir);
   const runsPath = path.join(exportsDir, 'runs.json');
@@ -467,6 +499,7 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
   const backendErrorsPath = path.join(exportsDir, 'backend-errors.json');
   const fileExtensionsPath = path.join(exportsDir, 'file-extensions.json');
   const pruningEventsPath = path.join(exportsDir, 'pruning-events.json');
+  const turnThroughputPath = path.join(exportsDir, 'turn-throughput.json');
 
   await Promise.all([
     writeJsonFile(runsPath, prepared.runs.map(toDuckDbRunRow)),
@@ -476,9 +509,10 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
     writeJsonFile(backendErrorsPath, prepared.backendErrors.map(toDuckDbBackendErrorRow)),
     writeJsonFile(fileExtensionsPath, prepared.fileExtensions.map(toDuckDbFileExtensionRow)),
     writeJsonFile(pruningEventsPath, prepared.pruningEvents.map(toDuckDbPruningEventRow)),
+    writeJsonFile(turnThroughputPath, prepared.turnThroughput.map(toDuckDbTurnThroughputRow)),
   ]);
 
-  return { runsPath, toolUsagePath, toolFailuresPath, verificationUsagePath, backendErrorsPath, fileExtensionsPath, pruningEventsPath };
+  return { runsPath, toolUsagePath, toolFailuresPath, verificationUsagePath, backendErrorsPath, fileExtensionsPath, pruningEventsPath, turnThroughputPath };
 }
 
 async function openDuckDb(dbPath: string) {
@@ -733,6 +767,24 @@ CREATE TABLE pruning_events (
 `.trim();
 }
 
+function turnThroughputTableSchema(): string {
+  return `
+CREATE TABLE turn_throughput (
+  run_id VARCHAR,
+  ended_at TIMESTAMP,
+  started_day DATE,
+  model_id VARCHAR,
+  thinking_level VARCHAR,
+  experiment_assignment VARCHAR,
+  output_tokens BIGINT,
+  generation_duration_ms BIGINT,
+  concurrent_busy_sessions INTEGER,
+  status VARCHAR,
+  tokens_per_second DOUBLE
+);
+`.trim();
+}
+
 async function populateTableFromJson(connection: { run: (sql: string) => Promise<unknown> }, tableName: string, schemaSql: string, sourcePath: string): Promise<void> {
   await runStatements(connection, [
     `DROP TABLE IF EXISTS ${tableName};`,
@@ -824,6 +876,7 @@ export async function buildDuckDbDatabase(params: {
     await populateTableFromJson(connection, 'backend_errors', backendErrorsTableSchema(), stagingPaths.backendErrorsPath);
     await populateTableFromJson(connection, 'file_extensions', fileExtensionsTableSchema(), stagingPaths.fileExtensionsPath);
     await populateTableFromJson(connection, 'pruning_events', pruningEventsTableSchema(), stagingPaths.pruningEventsPath);
+    await populateTableFromJson(connection, 'turn_throughput', turnThroughputTableSchema(), stagingPaths.turnThroughputPath);
     await createDerivedViews(connection);
   } finally {
     await closeDuckDb(instance, connection);

@@ -174,7 +174,23 @@
           "format": 0,
           "other": 0
         }
-      }
+      },
+      "turnThroughputSamples": [
+        {
+          "endedAt": "2026-05-10T14:08:00.000Z",
+          "outputTokens": 1800,
+          "generationDurationMs": 28000,
+          "concurrentBusySessions": 1,
+          "status": "completed"
+        },
+        {
+          "endedAt": "2026-05-10T14:12:00.000Z",
+          "outputTokens": 1400,
+          "generationDurationMs": 33000,
+          "concurrentBusySessions": 2,
+          "status": "completed"
+        }
+      ]
     },
     {
       "sessionPath": "C:\\Users\\analyst\\SENTINEL_SESSION_PATH_BRAVO\\run-002.jsonl",
@@ -369,7 +385,23 @@
       "outputTokens": 5600,
       "cacheReadTokens": 12000,
       "cacheWriteTokens": 200,
-      "tokenReportedTurnCount": 2
+      "tokenReportedTurnCount": 2,
+      "turnThroughputSamples": [
+        {
+          "endedAt": "2026-05-10T16:48:00.000Z",
+          "outputTokens": 3200,
+          "generationDurationMs": 45000,
+          "concurrentBusySessions": 1,
+          "status": "completed"
+        },
+        {
+          "endedAt": "2026-05-10T16:56:00.000Z",
+          "outputTokens": 2400,
+          "generationDurationMs": 39000,
+          "concurrentBusySessions": 3,
+          "status": "completed"
+        }
+      ]
     },
     {
       "sessionPath": "/Users/analyst/SENTINEL_SESSION_PATH_CHARLIE/run-003.jsonl",

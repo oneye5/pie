@@ -1,6 +1,6 @@
 import type { AssistantUsage, ThinkingLevel } from '../../shared/protocol';
 import { RUN_ANALYTICS_SCHEMA_VERSION } from './types';
-import type { OutcomeHistoryLogEntry, RunSnapshot } from './types';
+import type { OutcomeHistoryLogEntry, RunSnapshot, TurnThroughputSample, TurnThroughputStatus } from './types';
 import { coerceSessionAnalyticsFactors } from './coercion-factors';
 import { coerceFunctionalSettings } from './coercion-functional-settings';
 import {
@@ -33,6 +33,42 @@ function coerceAssistantUsage(value: unknown): AssistantUsage | null {
     return null;
   }
   return { inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, totalTokens };
+}
+
+const THROUGHPUT_STATUSES = new Set<TurnThroughputStatus>(['completed', 'error', 'interrupted']);
+
+/**
+ * Coerce per-turn throughput samples from a persisted run snapshot. Malformed
+ * samples are dropped; older runs recorded before sampling existed coerce to
+ * an empty array.
+ */
+function coerceTurnThroughputSamples(value: unknown): TurnThroughputSample[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const samples: TurnThroughputSample[] = [];
+  for (const entry of value) {
+    if (!isObjectRecord(entry)) {
+      continue;
+    }
+    const endedAt = typeof entry.endedAt === 'string' ? entry.endedAt : null;
+    if (!endedAt) {
+      continue;
+    }
+    const status: TurnThroughputStatus =
+      typeof entry.status === 'string' && THROUGHPUT_STATUSES.has(entry.status as TurnThroughputStatus)
+        ? (entry.status as TurnThroughputStatus)
+        : 'completed';
+    samples.push({
+      endedAt,
+      outputTokens: toNonNegativeInteger(entry.outputTokens),
+      generationDurationMs: toNonNegativeInteger(entry.generationDurationMs),
+      concurrentBusySessions: toNonNegativeInteger(entry.concurrentBusySessions),
+      status,
+    });
+  }
+  return samples;
 }
 
 /* ---------- Validation helpers ---------- */
@@ -163,6 +199,7 @@ function buildRunSnapshot(candidate: Partial<RunSnapshot>): RunSnapshot {
     cacheWriteTokens: toNonNegativeInteger(candidate.cacheWriteTokens),
     tokenReportedTurnCount: toNonNegativeInteger(candidate.tokenReportedTurnCount),
     lastTurnUsage: coerceAssistantUsage(candidate.lastTurnUsage),
+    turnThroughputSamples: coerceTurnThroughputSamples(candidate.turnThroughputSamples),
     filesystemPathRefCount: Math.trunc(c.filesystemPathRefCount),
     imageInputCount: Math.trunc(c.imageInputCount),
     imageInputBytes: Math.trunc(c.imageInputBytes),

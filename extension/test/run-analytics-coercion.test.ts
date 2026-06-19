@@ -58,6 +58,7 @@ function makeRunSnapshot(): RunSnapshot {
     cacheWriteTokens: 0,
     tokenReportedTurnCount: 0,
     lastTurnUsage: null,
+    turnThroughputSamples: [],
     filesystemPathRefCount: 0,
     imageInputCount: 0,
     imageInputBytes: 0,

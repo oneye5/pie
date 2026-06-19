@@ -7,7 +7,7 @@ import type {
 } from '../../shared/protocol';
 import type { ArchState } from '../core/arch-state';
 import type { Event } from '../core/events';
-import type { TaskBoundaryIntent, RunSnapshot } from '../run-analytics';
+import type { TaskBoundaryIntent, RunSnapshot, TurnThroughputStatus } from '../run-analytics';
 
 export type DispatchArchEvent = (event: Event) => void;
 export type GetArchState = () => ArchState;
@@ -18,6 +18,8 @@ export interface SessionRunState {
   nextTaskIntent: TaskBoundaryIntent;
   queuedUnsupportedInputCount: number;
   turnIdsSeenInCurrentRun: Set<string>;
+  /** Turn IDs whose `onAssistantTurnEnded` has already been processed — guards against duplicate `message.finished` events double-counting duration / tokens / throughput samples. */
+  endedTurnIdsInCurrentRun: Set<string>;
   busyStartedAt: string | null;
 }
 
@@ -29,6 +31,7 @@ export interface RunObserver {
     turnId: string,
     durationMs: number,
     usage?: AssistantUsage,
+    status?: TurnThroughputStatus,
   ): void;
   onToolStarted(sessionPath: string, toolCall: ToolCall): void;
   onToolFinished(sessionPath: string, toolCall: ToolCall): void;
@@ -84,6 +87,7 @@ export function emptySessionRunState(): SessionRunState {
     nextTaskIntent: null,
     queuedUnsupportedInputCount: 0,
     turnIdsSeenInCurrentRun: new Set<string>(),
+    endedTurnIdsInCurrentRun: new Set<string>(),
     busyStartedAt: null,
   };
 }

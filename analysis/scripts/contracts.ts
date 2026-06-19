@@ -16,6 +16,7 @@ export const SITE_DATA_FILE_NAMES = [
   'pruning-impact.json',
   'backend-errors.json',
   'file-types.json',
+  'token-throughput.json',
 ] as const;
 
 export type SiteDataFileName = (typeof SITE_DATA_FILE_NAMES)[number];
@@ -119,6 +120,22 @@ export interface ToolFailureSample {
   occurredAt: string;
 }
 
+/** Terminal status of a single assistant turn, mirrored on throughput samples. */
+export type TurnThroughputStatus = 'completed' | 'error' | 'interrupted';
+
+/**
+ * One timestamped throughput observation per assistant turn. Throughput =
+ * `outputTokens` / (`generationDurationMs` / 1000); the generation duration
+ * excludes tool-execution time (tools run between messages).
+ */
+export interface TurnThroughputSample {
+  endedAt: string;
+  outputTokens: number;
+  generationDurationMs: number;
+  concurrentBusySessions: number;
+  status: TurnThroughputStatus;
+}
+
 export interface ToolUsageRollup {
   totalCount: number;
   failureCount: number;
@@ -202,6 +219,8 @@ export interface RunSnapshot {
   cacheReadTokens: number;
   cacheWriteTokens: number;
   tokenReportedTurnCount: number;
+  /** Per-turn throughput observations; empty for runs recorded before sampling existed. */
+  turnThroughputSamples: TurnThroughputSample[];
   filesystemPathRefCount: number;
   imageInputCount: number;
   imageInputBytes: number;
@@ -437,6 +456,25 @@ export interface PreparedFileExtensionRow {
   resolution: RunOutcomeResolution | null;
 }
 
+/**
+ * One row per assistant turn, flattened from `RunSnapshot.turnThroughputSamples`
+ * with run-level metadata. `tokensPerSecond` is precomputed for completed turns
+ * with reported output tokens and positive generation time; null otherwise.
+ */
+export interface PreparedTurnThroughputRow {
+  runId: string;
+  endedAt: string;
+  startedDay: string;
+  modelId: string | null;
+  thinkingLevel: ThinkingLevel | null;
+  experimentAssignment: string | null;
+  outputTokens: number;
+  generationDurationMs: number;
+  concurrentBusySessions: number;
+  status: TurnThroughputStatus;
+  tokensPerSecond: number | null;
+}
+
 /** Raw pruning decision as read from data/pruning.jsonl. */
 export interface PruningSourceDecision {
   timestamp: string;
@@ -494,6 +532,7 @@ export interface PreparedAnalyticsData {
   verificationUsage: PreparedVerificationUsageRow[];
   backendErrors: PreparedBackendErrorRow[];
   fileExtensions: PreparedFileExtensionRow[];
+  turnThroughput: PreparedTurnThroughputRow[];
   pruningEvents: PreparedPruningEventRow[];
 }
 
@@ -730,6 +769,12 @@ export interface FileExtensionData {
   summary: FileExtensionSummaryRow[];
 }
 
+export interface TokenThroughputData {
+  schemaVersion: number;
+  rows: PreparedTurnThroughputRow[];
+  notes: string[];
+}
+
 export interface SiteDataBundle {
   manifest: SiteManifest;
   overview: OverviewData;
@@ -743,4 +788,5 @@ export interface SiteDataBundle {
   pruningImpact: PruningImpactData;
   backendErrors: BackendErrorData;
   fileExtensions: FileExtensionData;
+  tokenThroughput: TokenThroughputData;
 }

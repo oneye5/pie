@@ -10,6 +10,22 @@ import type {
   MessageStartedPayload,
   MessageThinkingPayload,
 } from '../../../shared/protocol';
+import type { TurnThroughputStatus } from '../../run-analytics';
+
+/**
+ * Map a finished assistant message's status onto the throughput-sample
+ * status. `streaming` should not occur at `message_end` and is treated as a
+ * normal completion.
+ */
+function toTurnThroughputStatus(status: string | undefined): TurnThroughputStatus {
+  if (status === 'error') {
+    return 'error';
+  }
+  if (status === 'interrupted') {
+    return 'interrupted';
+  }
+  return 'completed';
+}
 
 interface HandlerDeps {
   getArchState: () => ArchState;
@@ -110,6 +126,7 @@ export function onMessageFinished(payload: MessageFinishedPayload, deps: Handler
     message.id,
     message.durationMs ?? 0,
     message.usage,
+    toTurnThroughputStatus(message.status),
   );
   deps.state.unbindRequestSessionPath(payload.requestId);
 

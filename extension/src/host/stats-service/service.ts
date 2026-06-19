@@ -1,5 +1,6 @@
 import { defaultCreateId, defaultNow } from './helpers';
 import type { RunAnalyticsExportPayload, RunAnalyticsQueryResult } from '../run-analytics/query';
+import type { TurnThroughputStatus } from '../run-analytics';
 import type {
   AssistantUsage,
   ComposerInput,
@@ -86,8 +87,9 @@ export class StatsService implements RunObserver {
     turnId: string,
     durationMs: number,
     usage?: AssistantUsage,
+    status?: TurnThroughputStatus,
   ): void {
-    this.tracker.onAssistantTurnEnded(sessionPath, turnId, durationMs, usage);
+    this.tracker.onAssistantTurnEnded(sessionPath, turnId, durationMs, usage, status);
   }
 
   onToolStarted(sessionPath: string, toolCall: ToolCall): void {
