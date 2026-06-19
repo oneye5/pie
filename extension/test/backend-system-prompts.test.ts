@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { SdkBuildSystemPromptOptions, SdkSkill, SdkToolInfo } from '../src/backend/sdk';
-import { buildSessionSystemPrompts } from '../src/backend/system-prompts';
+import { buildProviderSystemPrompt, buildSessionSystemPrompts } from '../src/backend/system-prompts';
 
 function makeSkill(name: string): SdkSkill {
   return {
@@ -184,4 +184,41 @@ test('buildSessionSystemPrompts truncates long tool summary', () => {
   assert.ok(toolEntry);
   assert.ok(toolEntry.summary.length <= 83); // 80 + '...'
   assert.ok(toolEntry.summary.endsWith('...'));
+});
+
+test('buildProviderSystemPrompt names the active provider/model instead of hardcoding GitHub Copilot', () => {
+  const entry = buildProviderSystemPrompt({ provider: 'umans', modelId: 'umans-glm-5.2', modelName: 'GLM 5.2' });
+
+  assert.equal(entry.source, 'provider');
+  assert.equal(entry.title, 'Provider system prompt');
+  assert.equal(entry.availability, 'unknown');
+  assert.equal(entry.summary, 'umans');
+  assert.ok(!/GitHub Copilot provider prompt is not exposed/.test(entry.text), 'must not carry the stale hardcoded Copilot text');
+  assert.match(entry.text, /umans/);
+  assert.match(entry.text, /GLM 5\.2/);
+});
+
+test('buildProviderSystemPrompt falls back to a neutral unresolved state when no model is selected', () => {
+  const entry = buildProviderSystemPrompt(undefined);
+
+  assert.equal(entry.title, 'Provider system prompt');
+  assert.equal(entry.availability, 'unknown');
+  assert.equal(entry.summary, 'Unknown');
+  assert.ok(!/GitHub Copilot/.test(entry.text), 'fallback must not assume a specific provider');
+  assert.match(entry.text, /No active model has been selected/);
+});
+
+test('buildSessionSystemPrompts threads the active provider into the provider entry', () => {
+  const prompts = buildSessionSystemPrompts({
+    harnessPrompt: 'Harness\nCurrent date: 2026-05-13\nCurrent working directory: /repo',
+    promptOptions: { cwd: '/repo', skills: [] },
+    formatSkillsForPrompt: () => '',
+    activeProvider: { provider: 'anthropic', modelId: 'claude-3-5-sonnet' },
+  });
+
+  const provider = prompts[0];
+  assert.equal(provider.title, 'Provider system prompt');
+  assert.equal(provider.summary, 'anthropic');
+  assert.match(provider.text, /anthropic/);
+  assert.match(provider.text, /claude-3-5-sonnet/);
 });

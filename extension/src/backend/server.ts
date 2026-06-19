@@ -24,6 +24,7 @@ import { handleSdkSessionEvent } from './session-event-handler';
 import {
   listAvailableModels,
   listSessions as listSessionSummaries,
+  resolveActiveModel,
 } from './session-metadata';
 import {
   loadSdk,
@@ -421,6 +422,7 @@ export class BackendServer {
       promptOptions: promptState._baseSystemPromptOptions,
       formatSkillsForPrompt: this.sdk.formatSkillsForPrompt,
       tools,
+      activeProvider: resolveActiveModel(context),
     });
   }
 

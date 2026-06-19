@@ -23,10 +23,10 @@ function getCollapsedSummary(prompt: SystemPromptEntry): string {
     return '';
   }
 
-  if (
-    (prompt.source === 'provider' && prompt.availability === 'unknown') ||
-    (prompt.availability !== 'available' && /^(unknown|unavailable|none configured)$/i.test(summary))
-  ) {
+  // Hide placeholder summaries that carry no real information (e.g. a provider
+  // entry before its provider has been resolved). A resolved provider name is
+  // a meaningful summary and should surface on the collapsed card.
+  if (prompt.availability !== 'available' && /^(unknown|unavailable|none configured)$/i.test(summary)) {
     return '';
   }
 
@@ -88,7 +88,10 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
     : `${prompts.length} system prompts`;
 
   const collapsedSummary = useMemo(() => {
-    const available = prompts.filter((p) => getCollapsedSummary(p));
+    // The provider entry is informational metadata — it describes the system
+    // prompt pi sends rather than being one — so exclude it from the group
+    // preview even when its resolved provider summary now shows on its own card.
+    const available = prompts.filter((p) => p.source !== 'provider' && getCollapsedSummary(p));
     if (available.length === 0) return null;
     if (available.length <= 2) {
       return available.map((p) => p.title).join(' · ');

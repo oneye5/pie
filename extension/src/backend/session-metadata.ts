@@ -118,6 +118,42 @@ export function buildTranscript(context: SessionContext): ChatMessage[] {
   return mapTranscript(entries);
 }
 
+export interface ActiveModelInfo {
+  /** Resolved provider name (e.g. 'umans', 'anthropic'), when the active model is found in the registry. */
+  provider?: string;
+  /** Active model id, when a model is selected for the session. */
+  modelId?: string;
+  /** Human-readable model name from the registry, when available. */
+  modelName?: string;
+}
+
+/**
+ * Resolve the session's active model and its provider from the model registry.
+ *
+ * `context.session.model` only carries the id (plus context-window metadata),
+ * so the provider/name are looked up in the registry. Returns an empty object
+ * when no model is selected yet or the registry is unavailable — callers
+ * should render a neutral "not resolved" state rather than guessing a provider.
+ */
+export function resolveActiveModel(context: SessionContext): ActiveModelInfo {
+  const modelId = context.session.model?.id;
+  if (!modelId) {
+    return {};
+  }
+
+  try {
+    const available = context.runtime.services?.modelRegistry?.getAvailable() ?? [];
+    const match = available.find((model) => model.id === modelId);
+    // Only include provider/modelName when actually resolved so a present key
+    // means "known" (callers can branch on key presence rather than undefined).
+    return match
+      ? { modelId, provider: match.provider, modelName: match.name }
+      : { modelId };
+  } catch {
+    return { modelId };
+  }
+}
+
 export function listAvailableModels(context?: SessionContext, agentDir?: string): ModelInfo[] {
   if (!context) {
     return [];

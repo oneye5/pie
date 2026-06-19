@@ -1,5 +1,6 @@
 import type { SystemPromptEntry } from '../shared/protocol';
 import { prepareContextFiles } from './context-files';
+import type { ActiveModelInfo } from './session-metadata';
 import type { SdkBuildSystemPromptOptions, SdkSkill, SdkToolInfo } from './sdk';
 
 /** Maximum characters for system prompt and tool description summaries. */
@@ -68,22 +69,55 @@ function buildContextFileSection(displayPath: string, content: string): string {
   return `## ${displayPath}\n\n${content}`;
 }
 
-export const PROVIDER_SYSTEM_PROMPT: SystemPromptEntry = {
-  source: 'provider',
-  title: 'Provider system prompt',
-  summary: 'Unknown',
-  text: 'Unknown.\n\nThe upstream GitHub Copilot provider prompt is not exposed to this extension.',
-  availability: 'unknown',
-};
+/**
+ * Build the "Provider system prompt" entry from the session's active model.
+ *
+ * pi sends the reconstructed system prompt (harness template or a custom
+ * prompt, plus appended / project-context / skills / runtime sections) to the
+ * active provider as the system message. The provider's own system prompt is
+ * not exposed to this extension — direct API providers do not inject one, while
+ * wrapper providers (e.g. GitHub Copilot Chat) may prepend hidden instructions
+ * server-side. This entry names the active provider/model so the card reflects
+ * the live session instead of a hardcoded provider.
+ */
+export function buildProviderSystemPrompt(active?: ActiveModelInfo): SystemPromptEntry {
+  const provider = active?.provider;
+  const modelId = active?.modelId;
+  const modelLabel = active?.modelName ?? modelId;
+  const modelClause = modelLabel ? ` (${modelLabel})` : '';
+
+  if (provider) {
+    return {
+      source: 'provider',
+      title: 'Provider system prompt',
+      summary: provider,
+      text: `Not directly exposed.\n\npi sends the reconstructed system prompt — built from the harness template (or a custom prompt) plus the appended, project-context, skills, and runtime entries — to ${provider}${modelClause} as the system message. Some providers also inject their own hidden instructions server-side (e.g. GitHub Copilot Chat's prelude); those are not visible to this extension.`,
+      availability: 'unknown',
+    };
+  }
+
+  const text = modelId
+    ? `Not resolved.\n\nThe active model (${modelId}) is not in pi's model registry, so its provider cannot be named here. pi still sends the reconstructed system prompt to it as the system message.`
+    : `Not resolved yet.\n\nNo active model has been selected for this session. Once a model is chosen, this entry names its provider and describes the system prompt pi sends to it.`;
+  return {
+    source: 'provider',
+    title: 'Provider system prompt',
+    summary: 'Unknown',
+    text,
+    availability: 'unknown',
+  };
+}
 
 export function buildSessionSystemPrompts(options: {
   harnessPrompt?: string;
   promptOptions?: SdkBuildSystemPromptOptions;
   formatSkillsForPrompt?: ((skills: SdkSkill[]) => string) | undefined;
   tools?: SdkToolInfo[];
+  /** Active provider/model for the provider entry. Omit to render a neutral "not resolved" state. */
+  activeProvider?: ActiveModelInfo;
 }): SystemPromptEntry[] {
   const { harnessPrompt, promptOptions, formatSkillsForPrompt } = options;
-  const entries: SystemPromptEntry[] = [PROVIDER_SYSTEM_PROMPT];
+  const entries: SystemPromptEntry[] = [buildProviderSystemPrompt(options.activeProvider)];
 
   const customPrompt = normalizePromptText(promptOptions?.customPrompt);
   const { mainText: harnessMainText, runtimeText: harnessRuntimeText } = splitRuntimeContext(harnessPrompt);

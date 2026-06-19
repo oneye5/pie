@@ -10,6 +10,7 @@ import {
   deriveSessionName,
   listAvailableModels,
   listSessions,
+  resolveActiveModel,
 } from '../src/backend/session-metadata';
 import { NEW_SESSION_NAME } from '../src/shared/session-name';
 import type { SessionContext } from '../src/backend/server-types';
@@ -211,6 +212,60 @@ test('listAvailableModels derives input kinds and tolerates missing or failing r
     } as SessionContext['runtime'],
   });
   assert.deepEqual(listAvailableModels(failingContext), []);
+});
+
+test('resolveActiveModel names the active provider/model from the registry and tolerates failures', () => {
+  // No model selected yet → empty info (callers render a neutral state).
+  const noModel = makeContext({ session: { model: undefined } as unknown as SessionContext['session'] });
+  assert.deepEqual(resolveActiveModel(noModel), {});
+
+  // Model selected and found in the registry → provider/name resolved.
+  const context = makeContext({
+    session: { model: { id: 'claude-sonnet' } } as unknown as SessionContext['session'],
+    runtime: {
+      session: {} as any,
+      dispose: async () => undefined,
+      services: {
+        modelRegistry: {
+          getAvailable: () => [{
+            id: 'claude-sonnet',
+            name: 'Claude Sonnet',
+            provider: 'anthropic',
+            reasoning: true,
+            input: ['text'],
+          }],
+          find: () => undefined,
+        },
+      },
+    } as SessionContext['runtime'],
+  });
+  assert.deepEqual(resolveActiveModel(context), {
+    modelId: 'claude-sonnet',
+    provider: 'anthropic',
+    modelName: 'Claude Sonnet',
+  });
+
+  // Model selected but missing from the registry → modelId only, no provider guess.
+  const orphan = makeContext({
+    session: { model: { id: 'mystery-model' } } as unknown as SessionContext['session'],
+  });
+  assert.deepEqual(resolveActiveModel(orphan), { modelId: 'mystery-model' });
+
+  // Throwing or absent registry → modelId only, no crash, no provider guess.
+  const throwing = makeContext({
+    session: { model: { id: 'boom-model' } } as unknown as SessionContext['session'],
+    runtime: {
+      session: {} as any,
+      dispose: async () => undefined,
+      services: {
+        modelRegistry: {
+          getAvailable: () => { throw new Error('boom'); },
+          find: () => undefined,
+        },
+      },
+    } as SessionContext['runtime'],
+  });
+  assert.deepEqual(resolveActiveModel(throwing), { modelId: 'boom-model' });
 });
 
 test('listSessions derives placeholder names from the session file and sorts by modified time', async () => {
