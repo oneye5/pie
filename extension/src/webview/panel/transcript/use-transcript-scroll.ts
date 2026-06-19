@@ -24,6 +24,9 @@ interface UseTranscriptScrollOptions {
 
 interface UseTranscriptScrollResult {
   scrollRef: { current: HTMLDivElement | null };
+  /** Live ref to the auto-follow state (true while pinned to the bottom).
+   *  Read by scroll-anchoring to know when NOT to pin the top visible row. */
+  autoFollowRef: { current: boolean };
   isAtBottom: boolean;
   isInitialPositioning: boolean;
   isLoadingOlder: boolean;
@@ -523,6 +526,7 @@ export function useTranscriptScroll({
 
   return {
     scrollRef,
+    autoFollowRef,
     isAtBottom,
     isInitialPositioning,
     isLoadingOlder,

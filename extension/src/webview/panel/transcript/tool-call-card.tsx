@@ -8,7 +8,7 @@ import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
 import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../utils/looks-like-path-token';
 
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useContext, useEffect, useRef, useState } from 'preact/hooks';
 
 import { ClickablePathButton } from '../file-path';
 import { CollapsibleChevron } from '../components/chevron';
@@ -24,6 +24,7 @@ import {
   textFromToolResult,
 } from './highlight';
 import { StatusChip } from './status-chip';
+import { TurnActiveContext } from './turn-active-context';
 import { useCollapsibleOpen } from './use-collapsible-open';
 
 interface ToolCallCardProps {
@@ -504,11 +505,24 @@ export function ToolCallCard({
   const [closing, setClosing] = useState(false);
   // Brief highlight pulse on the card when a tool call completes (all tools).
   const [justCompleted, setJustCompleted] = useState(false);
+  // One-shot expand animation (symmetric with the post-grace close). Applied
+  // to the wrapper on the first render the AUTO-shown body appears.
+  const [expand, setExpand] = useState(false);
 
   const prevRunningRef = useRef(false);
   const graceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const closeFallbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const expandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Wall-clock completion time used to compute the remaining grace when the
+  // close is deferred until the turn goes idle (see effect below).
+  const completedAtRef = useRef<number | null>(null);
+  // `busy` from the owning transcript: while the turn is still active the
+  // auto-close is deferred. `undefined` (no provider, e.g. nested subagent
+  // transcripts) keeps the legacy completion-relative grace.
+  const turnActive = useContext(TurnActiveContext);
+
+  const renderBodyRef = useRef(false);
 
   // Refs mirror the latest open/lingering/closing so the status-transition
   // effect (keyed on toolCall.status) always reads current values without
@@ -526,13 +540,16 @@ export function ToolCallCard({
   const showBody = open || (isShell && isRunning) || lingering;
 
   // Detect running→completed/failed to (a) flash a completion pulse for all
-  // tool calls, and (b) start the grace timer for the auto-shown shell body.
+  // tool calls, and (b) enter the lingering state for the auto-shown shell
+  // body. The actual close is scheduled/deferred below based on turn activity.
   useEffect(() => {
     const wasRunning = prevRunningRef.current;
     const nowRunning = toolCall.status === 'running';
     prevRunningRef.current = nowRunning;
 
-    if (wasRunning && !nowRunning) {
+    const justCompleted = wasRunning && !nowRunning;
+
+    if (justCompleted) {
       // Completion pulse applies to every tool call (not just shell).
       if (toolCall.status === 'completed') {
         setJustCompleted(true);
@@ -544,9 +561,38 @@ export function ToolCallCard({
       }
 
       // Grace period only for the AUTO-shown shell body — never when the
-      // user explicitly opened it (manual opens are sticky).
+      // user explicitly opened it (manual opens are sticky). Record the
+      // completion time; the close itself is scheduled below.
       if (isShell && !openRef.current && !lingeringRef.current && !closingRef.current) {
         setLingering(true);
+        completedAtRef.current = Date.now();
+      }
+    }
+
+    // If the call returns to running, cancel any pending close so the
+    // streaming body re-shows cleanly.
+    if (!wasRunning && nowRunning) {
+      setLingering(false);
+      setClosing(false);
+      completedAtRef.current = null;
+      if (graceTimerRef.current) { clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
+      if (closeFallbackTimerRef.current) { clearTimeout(closeFallbackTimerRef.current); closeFallbackTimerRef.current = null; }
+      return;
+    }
+
+    // Schedule (or defer) the post-completion auto-close. The grace is
+    // measured from completion so earlier tools close first, but the close
+    // is HELD while the owning turn is still active (turnActive === true) to
+    // avoid collapse→re-expand churn when the agent runs consecutive
+    // commands. turnActive === undefined (no provider, e.g. nested subagent
+    // transcripts) keeps the legacy completion-relative behaviour.
+    const isLingering = justCompleted ? true : lingeringRef.current;
+    const completedAt = completedAtRef.current;
+    if (isLingering && !closingRef.current && !openRef.current && completedAt !== null) {
+      const canClose = turnActive === undefined ? true : !turnActive;
+      if (canClose) {
+        const elapsed = Date.now() - completedAt;
+        const remaining = Math.max(0, TOOL_CALL_CLOSE_GRACE_MS - elapsed);
         if (graceTimerRef.current) clearTimeout(graceTimerRef.current);
         graceTimerRef.current = setTimeout(() => {
           graceTimerRef.current = null;
@@ -559,19 +605,14 @@ export function ToolCallCard({
             closeFallbackTimerRef.current = null;
             setClosing(false);
           }, TOOL_CALL_CLOSE_TRANSITION_MS + 60);
-        }, TOOL_CALL_CLOSE_GRACE_MS);
+        }, remaining);
+      } else {
+        // Turn still active: cancel any pending close so the body stays open
+        // while the agent keeps producing.
+        if (graceTimerRef.current) { clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
       }
     }
-
-    // If the call somehow returns to running, cancel any pending close so
-    // the streaming body re-shows cleanly.
-    if (!wasRunning && nowRunning) {
-      setLingering(false);
-      setClosing(false);
-      if (graceTimerRef.current) { clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
-      if (closeFallbackTimerRef.current) { clearTimeout(closeFallbackTimerRef.current); closeFallbackTimerRef.current = null; }
-    }
-  }, [toolCall.status, isShell]);
+  }, [toolCall.status, isShell, turnActive]);
 
   // Cancel any pending auto-close when the user manually opens the body, so
   // an explicit expand is sticky.
@@ -587,6 +628,7 @@ export function ToolCallCard({
     if (graceTimerRef.current) clearTimeout(graceTimerRef.current);
     if (closeFallbackTimerRef.current) clearTimeout(closeFallbackTimerRef.current);
     if (pulseTimerRef.current) clearTimeout(pulseTimerRef.current);
+    if (expandTimerRef.current) clearTimeout(expandTimerRef.current);
   }, []);
 
   const errorDetail = toolCall.status === 'failed'
@@ -606,6 +648,25 @@ export function ToolCallCard({
   };
 
   const renderBody = showBody || closing;
+
+  // One-shot expand animation for the AUTO-shown body (symmetric with the
+  // post-grace close). When the body first appears while the card is
+  // collapsed (!open — i.e. the auto-show path, not a manual open), apply the
+  // `data-expand` flag so the wrapper's @keyframes grow-in runs. Cleared on
+  // animationend (or a fallback timer, e.g. under prefers-reduced-motion
+  // where the animation is disabled and animationend never fires).
+  useEffect(() => {
+    const wasRendered = renderBodyRef.current;
+    renderBodyRef.current = renderBody;
+    if (renderBody && !wasRendered && !openRef.current) {
+      setExpand(true);
+      if (expandTimerRef.current) clearTimeout(expandTimerRef.current);
+      expandTimerRef.current = setTimeout(() => {
+        expandTimerRef.current = null;
+        setExpand(false);
+      }, TOOL_CALL_CLOSE_TRANSITION_MS + 60);
+    }
+  }, [renderBody]);
 
   return (
     <div
@@ -642,6 +703,7 @@ export function ToolCallCard({
         <div
           class="tool-call-body-wrap"
           data-streaming={isRunning ? 'true' : undefined}
+          data-expand={expand ? 'true' : undefined}
           data-closing={!showBody && closing ? 'true' : undefined}
           onTransitionEnd={(e) => {
             // Only react to transitions on the wrapper itself, not children.
@@ -650,6 +712,13 @@ export function ToolCallCard({
               if (closeFallbackTimerRef.current) { clearTimeout(closeFallbackTimerRef.current); closeFallbackTimerRef.current = null; }
               setClosing(false);
             }
+          }}
+          onAnimationEnd={(e) => {
+            // Only clear on the wrapper's own expand animation (ignore child
+            // animations like the streaming cursor blink).
+            if (e.animationName !== 'tool-call-body-expand') return;
+            if (expandTimerRef.current) { clearTimeout(expandTimerRef.current); expandTimerRef.current = null; }
+            setExpand(false);
           }}
         >
           <div class="tool-call-body-inner">

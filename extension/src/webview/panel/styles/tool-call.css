@@ -411,9 +411,18 @@
    post-completion grace period (see tool-call-card.tsx). Uses the
    grid-template-rows 0fr↔1fr technique so variable-height terminal output
    collapses smoothly without a guessed max-height. While the tool is running
-   the body streams continuously, so the open transition is suppressed
-   (mirrors the [data-streaming="true"] { animation: none } pattern in
-   transcript.css) — only the post-grace CLOSE animates. */
+   the body streams continuously, so per-delta height changes during streaming
+   suppress transitions (mirrors the [data-streaming="true"] { transition:
+   none } pattern in transcript.css) — only the post-grace CLOSE animates
+   once streaming has ended.
+
+   The initial EXPAND is animated symmetrically with a one-shot CSS
+   @keyframes animation (`data-expand`). A keyframes animation is used instead
+   of a transition because the expand happens WHILE streaming (transition:
+   none is in effect), and CSS animations are not suppressed by `transition:
+   none`. The animation is scoped to the AUTO-show path (not manual opens) so
+   it pairs with the auto-close: manual toggles stay instant in both
+   directions, matching prior behaviour. */
 
 .tool-call-body-wrap {
   display: grid;
@@ -431,14 +440,32 @@
 }
 
 /* Suppress transitions while streaming so per-delta height changes don't
-   thrash; only the post-grace close animates. */
+   thrash; only the post-grace close animates. The initial expand uses a
+   @keyframes animation (data-expand) which is unaffected by this. */
 .tool-call-body-wrap[data-streaming="true"] {
   transition: none;
+}
+
+/* One-shot expand animation (symmetric with the post-grace close). Applied on
+   the first render the auto-shown body appears and cleared on animationend. */
+@keyframes tool-call-body-expand {
+  from { grid-template-rows: 0fr; opacity: 0; }
+  to { grid-template-rows: 1fr; opacity: 1; }
+}
+
+.tool-call-body-wrap[data-expand="true"] {
+  animation: tool-call-body-expand 180ms var(--panel-ease-out);
 }
 
 .tool-call-body-wrap > .tool-call-body-inner {
   overflow: hidden;
   min-height: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Disable both expand and collapse so resizes are instant. */
+  .tool-call-body-wrap { transition: none; }
+  .tool-call-body-wrap[data-expand="true"] { animation: none; }
 }
 
 @media (forced-colors: active) {

@@ -13,6 +13,7 @@ import { act } from 'preact/test-utils';
 
 import { ToolCallCard } from '../src/webview/panel/transcript/tool-call-card.tsx';
 import { clearCollapsibleCache } from '../src/webview/panel/transcript/use-collapsible-open';
+import { TurnActiveContext } from '../src/webview/panel/transcript/turn-active-context';
 import type { ToolCall } from '../src/shared/protocol';
 
 let container: HTMLElement;
@@ -121,6 +122,22 @@ function renderCard(toolCall: ToolCall) {
   });
 }
 
+function renderCardWithTurnActive(toolCall: ToolCall, turnActive: boolean | undefined) {
+  act(() => {
+    render(
+      h(TurnActiveContext.Provider, { value: turnActive },
+        h(ToolCallCard, {
+          toolCall,
+          autoExpand: false,
+          workingDirectory: '/repo',
+          onOpenFile: noop,
+          onContextMenu: noopContextMenu,
+        })),
+      container,
+    );
+  });
+}
+
 const BODY_WRAP = '.tool-call-body-wrap';
 const BODY = '.tool-call-body';
 
@@ -137,10 +154,10 @@ test('shell auto-shown body lingers after completion, then animates closed via t
     renderCard(bashTool('completed', 'bash-lifecycle'));
 
     // Immediately after completion: lingering — body still present, NOT closing,
-    // completion glyph + pulse visible.
+    // completion pulse visible (no status glyph — success is the default state).
     assert.ok(container.querySelector(BODY_WRAP), 'body lingers after completion');
     assert.ok(!container.querySelector(`${BODY_WRAP}[data-closing="true"]`), 'not closing during grace');
-    assert.ok(container.querySelector('.tool-call-status-check'), 'completed check glyph');
+    assert.ok(!container.querySelector('.tool-call-status-check'), 'no completed check glyph');
     assert.ok(!container.querySelector('.tool-call-status-spinner'), 'no spinner once completed');
     assert.ok(container.querySelector('.tool-call-just-completed'), 'completion pulse class applied');
 
@@ -218,15 +235,75 @@ test('non-shell tools get the completion indicator but never auto-open or auto-c
     assert.ok(!container.querySelector(BODY_WRAP), 'non-shell body hidden while running');
     assert.ok(container.querySelector('.tool-call-status-spinner'), 'spinner while running');
 
-    // Complete: completion glyph + pulse appear, but no body (open=false) and no grace timer.
+    // Complete: completion pulse appears (no status glyph — success is the default
+    // state), but no body (open=false) and no grace timer.
     renderCard(readTool('completed', 'read-nonshell'));
-    assert.ok(container.querySelector('.tool-call-status-check'), 'completed check glyph');
+    assert.ok(!container.querySelector('.tool-call-status-check'), 'no completed check glyph');
     assert.ok(container.querySelector('.tool-call-just-completed'), 'completion pulse applied');
     assert.ok(!container.querySelector(BODY_WRAP), 'non-shell body never auto-shown');
 
     // Advancing time must not mount a body (no grace/close for non-shell).
     timers.advance(2000);
     assert.ok(!container.querySelector(BODY_WRAP), 'no auto-close animation for non-shell');
+  } finally {
+    timers.restore();
+  }
+});
+
+test('auto-shown shell body gets the expand animation flag, cleared after the animation window', () => {
+  const timers = useFakeTimers();
+  try {
+    renderCard(bashTool('running', 'bash-expand-flag'));
+    const wrap = container.querySelector(BODY_WRAP) as HTMLElement;
+    assert.ok(wrap, 'body auto-shown while running');
+    assert.equal(wrap.getAttribute('data-expand'), 'true', 'expand flag set on auto-show');
+
+    // After the expand animation window (180ms transition + fallback slack)
+    // the flag is cleared so the streaming transition-suppress can re-engage.
+    timers.advance(240 + 60);
+    const wrapAfter = container.querySelector(BODY_WRAP) as HTMLElement;
+    assert.ok(wrapAfter, 'body still mounted');
+    assert.ok(!wrapAfter.getAttribute('data-expand'), 'expand flag cleared after animation window');
+  } finally {
+    timers.restore();
+  }
+});
+
+test('turn-aware grace: auto-close is deferred while the owning turn is still active', () => {
+  const timers = useFakeTimers();
+  try {
+    renderCardWithTurnActive(bashTool('running', 'bash-turn-active'), true);
+    renderCardWithTurnActive(bashTool('completed', 'bash-turn-active'), true);
+    assert.ok(container.querySelector(BODY_WRAP), 'body lingers after completion');
+
+    // Well past the legacy 1000ms grace — still NOT closing, because the turn
+    // is still active and the close is held to avoid collapse→re-expand churn.
+    timers.advance(3000);
+    assert.ok(container.querySelector(BODY_WRAP), 'body held open while turn active');
+    assert.ok(!container.querySelector(`${BODY_WRAP}[data-closing="true"]`), 'not closing while turn active');
+    assert.ok(timers.pendingCount() === 0, 'no close timer scheduled while turn active');
+  } finally {
+    timers.restore();
+  }
+});
+
+test('turn-aware grace: closing resumes once the turn goes idle, measured from completion', () => {
+  const timers = useFakeTimers();
+  try {
+    renderCardWithTurnActive(bashTool('running', 'bash-turn-release'), true);
+    renderCardWithTurnActive(bashTool('completed', 'bash-turn-release'), true);
+    // Hold well past the grace while the turn is active.
+    timers.advance(3000);
+    assert.ok(container.querySelector(BODY_WRAP), 'still held while active');
+
+    // Turn goes idle -> the close is scheduled with the remaining grace
+    // (completion-relative; real elapsed since completion is tiny here, so
+    // ~1000ms remains).
+    renderCardWithTurnActive(bashTool('completed', 'bash-turn-release'), false);
+    assert.ok(!container.querySelector(`${BODY_WRAP}[data-closing="true"]`), 'still in grace right after idle');
+
+    timers.advance(1000);
+    assert.ok(container.querySelector(`${BODY_WRAP}[data-closing="true"]`), 'closing once grace elapses after idle');
   } finally {
     timers.restore();
   }

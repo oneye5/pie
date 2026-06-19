@@ -8,9 +8,11 @@ import { type ChatMessage, type ChatPrefs, type PruningResult, type PruningSetti
 import { deriveTurnActivityState } from './activity';
 import { ToolCallItem } from './tool-call-item';
 import { useTranscriptScroll } from './use-transcript-scroll';
+import { useTranscriptScrollAnchor } from './use-transcript-scroll-anchor';
 import { handleTranscriptClick } from './transcript-click-handler';
 import { cx } from '../utils/cx';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
+import { TurnActiveContext } from './turn-active-context';
 import { TranscriptVirtualRow } from './virtual-list-row';
 import { buildTranscriptRows, estimateTranscriptRowSize, type TranscriptRow } from './virtual-list-rows';
 
@@ -321,6 +323,7 @@ export function TranscriptVirtualList({
 
   const {
     scrollRef,
+    autoFollowRef,
     isAtBottom,
     isInitialPositioning,
     isLoadingOlder,
@@ -361,12 +364,25 @@ export function TranscriptVirtualList({
   const totalSize = virtualizer.getTotalSize();
   const lastRow = rows[rows.length - 1];
 
+  // Pin the top visible row when the user has scrolled up and a tool body
+  // above the viewport resizes (Tier 2). No-op while pinned to the bottom
+  // (auto-follow owns that) or while paginating (dedicated restore owns that).
+  useTranscriptScrollAnchor({
+    scrollRef,
+    virtualizer,
+    autoFollowRef,
+    totalSize,
+    isLoadingOlder,
+    isLoadingNewer,
+  });
+
   return (
     <div
       class={`transcript transcript-virtual${isInitialPositioning ? ' transcript-positioning' : ''}`}
       ref={scrollRef}
       onClick={handleTranscriptClick}
     >
+      <TurnActiveContext.Provider value={busy}>
       <div class="transcript-virtual-inner" style={{ height: `${totalSize}px` }}>
         {virtualRows.map((virtualRow) => (
           <VirtualRow
@@ -408,6 +424,7 @@ export function TranscriptVirtualList({
           <span aria-hidden="true">↓</span>
         </button>
       )}
+      </TurnActiveContext.Provider>
     </div>
   );
 }

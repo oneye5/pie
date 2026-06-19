@@ -9,17 +9,25 @@ const SCROLL_TOP_DELTA_EPSILON_PX = 1;
 const SCROLL_ANCHOR_VISIBILITY_EPSILON_PX = 1;
 const SMOOTH_SCROLL_INTERPOLATION = 0.22;
 const SMOOTH_SCROLL_MIN_STEP_PX = 2;
-const SMOOTH_SCROLL_MAX_STEP_PX = 56;
+// Raised from 56 so mid-size one-shot deltas (tool-body expand/collapse, ~up to
+// 420px) converge in ~6 frames (~100ms) instead of crawling over ~8+ frames.
+const SMOOTH_SCROLL_MAX_STEP_PX = 80;
 export const SMOOTH_SCROLL_SNAP_EPSILON_PX = 1;
 /**
- * When the gap between the current and target scroll position exceeds this many
- * pixels, snap directly to the target instead of easing toward it. This keeps
- * the latest content in view during bursty growth (large code blocks, tables,
- * rapid streaming deltas) and makes explicit jumps instant rather than
- * crawling toward the bottom at the per-frame max-step rate. Easing is
- * reserved for small streaming increments so the follow still feels smooth.
+ * Only truly huge one-shot deltas snap directly to the target; everything
+ * below this threshold eases. The previous value (200) snapped on ordinary
+ * tool-body expand/collapse, which read as a visible jump because the viewport
+ * lunged to the new bottom in a single frame. Tool terminal panes cap at
+ * ~360px and most resizes stay well under this threshold, so they now ease
+ * smoothly while the follow still feels continuous. Explicit jumps
+ * (scrollToBottom, jumpToLatest, post-session-switch positioning) snap via
+ * direct scrollTop assignments rather than through advanceSmoothScrollTop, so
+ * this threshold only governs bursty *growth* during the auto-follow loop. The
+ * high cap bounds the worst case so a pathological multi-thousand-pixel burst
+ * (e.g. a huge collapsed block suddenly expanded) doesn't ease over many
+ * frames and leave the latest content off-screen for ~0.5s+.
  */
-const SMOOTH_SCROLL_LARGE_DELTA_SNAP_PX = 200;
+const SMOOTH_SCROLL_LARGE_DELTA_SNAP_PX = 1000;
 
 export interface ScrollAnchorSnapshot {
   key: string;
@@ -118,8 +126,9 @@ export function advanceSmoothScrollTop(
     return targetScrollTop;
   }
 
-  // Large deltas (bursty growth / explicit jumps) snap to the target so the
-  // latest content is always in view instead of easing over many frames.
+  // Only truly huge one-shot deltas (see SMOOTH_SCROLL_LARGE_DELTA_SNAP_PX)
+  // snap; ordinary tool-body expand/collapse eases so the follow doesn't
+  // visibly jump. Explicit jumps snap via direct scrollTop sets, not here.
   if (Math.abs(delta) > largeDeltaSnapPx) {
     return targetScrollTop;
   }

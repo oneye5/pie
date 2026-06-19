@@ -160,3 +160,23 @@ test('advanceSmoothScrollTop snaps when already within epsilon of the target', (
 
   assert.equal(next, 200);
 });
+
+test('advanceSmoothScrollTop eases typical tool-body deltas instead of snapping', () => {
+  // A ~420px delta (a terminal pane max-height expand/collapse) is below the
+  // large-delta snap threshold, so it must ease toward the target rather than
+  // jump there in a single frame (the previous 200px threshold snapped this).
+  const next = advanceSmoothScrollTop(0, 420);
+  assert.ok(next > 0 && next < 420, `expected an eased step < 420, got ${next}`);
+});
+
+test('advanceSmoothScrollTop still snaps truly huge one-shot deltas', () => {
+  // Above the large-delta threshold the follow snaps so the latest content
+  // doesn't take ~0.5s+ to ease into view.
+  assert.equal(advanceSmoothScrollTop(0, 1500), 1500);
+});
+
+test('advanceSmoothScrollTop treats the large-delta threshold as exclusive', () => {
+  // `> threshold` snaps; exactly at the threshold eases, one above snaps.
+  assert.ok(advanceSmoothScrollTop(0, 1000) < 1000, 'delta == threshold eases');
+  assert.equal(advanceSmoothScrollTop(0, 1001), 1001, 'delta > threshold snaps');
+});
