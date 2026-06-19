@@ -7,6 +7,8 @@ SELECT
   ROUND(AVG(satisfaction), 2) AS average_satisfaction,
   COUNT(*) FILTER (WHERE verification_total_count > 0) AS verification_run_count,
   SUM(tool_failure_count) AS tool_failure_count,
+  ROUND(SUM(estimated_cost_usd), 4) AS total_estimated_cost_usd,
+  COUNT(*) FILTER (WHERE estimated_cost_usd IS NOT NULL) AS priced_run_count,
   ROUND(AVG(busy_duration_ms), 0) AS average_busy_duration_ms
 FROM runs
 GROUP BY 1, 2

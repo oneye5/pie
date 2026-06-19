@@ -21,6 +21,7 @@ SELECT
   output_tokens,
   cache_read_tokens,
   cache_write_tokens,
-  token_reported_turn_count
+  token_reported_turn_count,
+  estimated_cost_usd
 FROM runs
 ORDER BY started_at DESC;
