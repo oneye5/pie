@@ -8,6 +8,7 @@ import {
   activityToneToStripTone,
   type TurnActivityPhase,
 } from '../turn-activity-strip';
+import { TurnActivityBlock } from '../turn-activity-tail';
 import { registerRowRenderer, type RowRendererProps } from '../registry';
 
 function renderTypingIndicator({ row }: RowRendererProps) {
@@ -17,6 +18,14 @@ function renderTypingIndicator({ row }: RowRendererProps) {
   const label = activityState?.label ?? AGENT_ACTIVITY_LABELS.preparing;
   const ariaLabel = activityState?.ariaLabel ?? 'Agent is preparing response';
   const phase = (activityState?.phase as TurnActivityPhase | undefined) ?? 'preparing';
+
+  if (activityState?.tail) {
+    return (
+      <div class="activity-status-row">
+        <TurnActivityBlock state={activityState} standalone />
+      </div>
+    );
+  }
 
   return (
     <div class="activity-status-row">

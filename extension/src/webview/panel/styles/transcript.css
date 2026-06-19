@@ -442,6 +442,86 @@
   text-transform: none;
 }
 
+/* ── Turn-activity tail ──────────────────────────────────────────────────── */
+/* Compact "last few rows" live preview rendered below the activity strip: a
+   tool's input + streaming output tail, the tail of streaming reasoning/reply
+   text, or a running subagent's live activity. Rendered as a bounded,
+   terminal-style block with a blinking caret. */
+
+.turn-activity-block {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+}
+
+.turn-activity-block .turn-activity-strip {
+  margin-bottom: 1px;
+}
+
+.turn-activity-tail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 1px 0 0;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  line-height: 14px;
+  color: color-mix(in srgb, var(--panel-foreground) 58%, var(--panel-muted) 42%);
+  opacity: 0.85;
+}
+
+.turn-activity-tail-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 4px;
+}
+
+.turn-activity-tail-text {
+  min-width: 0;
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* Preserve output alignment/indentation; nowrap so ellipsis can clip long lines. */
+  white-space: pre;
+}
+
+.turn-activity-tail-input .turn-activity-tail-text {
+  color: color-mix(in srgb, var(--panel-foreground) 74%, var(--panel-muted) 26%);
+}
+
+.turn-activity-tail-sep .turn-activity-tail-text {
+  opacity: 0.5;
+  letter-spacing: 2px;
+}
+
+.turn-activity-tail.reasoning {
+  font-style: italic;
+  opacity: 0.72;
+}
+
+.turn-activity-tail.reasoning .turn-activity-tail-input .turn-activity-tail-text {
+  font-style: italic;
+}
+
+.turn-activity-tail-cursor {
+  flex: 0 0 auto;
+  display: inline-block;
+  width: 7px;
+  height: 12px;
+  background: var(--panel-accent, var(--vscode-foreground));
+  opacity: 0.85;
+  animation: turn-activity-cursor-blink 1.05s steps(2, start) infinite;
+  will-change: opacity;
+}
+
+@keyframes turn-activity-cursor-blink {
+  0%, 50% { opacity: 0.85; }
+  50.01%, 100% { opacity: 0; }
+}
+
 /* Tone classes are retained for semantics, but the compact activity line stays deliberately uncolored. */
 
 /* ── Inline message activity ─────────────────────────────────────────────── */

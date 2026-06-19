@@ -1,5 +1,6 @@
 import type { ChatMessage } from '../../../shared/protocol';
 import { type TurnActivityState } from './activity';
+import { estimateActivityTailHeight } from './activity-tail';
 import { isPruningResultMessage, pruningDetailsFromMessage, type PruningHeaderState } from './pruning';
 
 export type TranscriptRow =
@@ -240,8 +241,9 @@ export function estimateTranscriptRowSize(row: TranscriptRow): number {
     return 56;
   }
   if (row.kind === 'typingIndicator') {
-    return 40;
+    return 40 + estimateActivityTailHeight(row.activityState?.tail);
   }
   if (row.message.role === 'user') return 120;
-  return row.pruningHeaderState?.kind === 'result' ? 220 : 180;
+  const tailHeight = estimateActivityTailHeight(row.activityState?.tail);
+  return (row.pruningHeaderState?.kind === 'result' ? 220 : 180) + tailHeight;
 }

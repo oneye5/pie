@@ -1,6 +1,12 @@
 import type { ChatMessage, ChatPrefs, PruningSettings, ToolCall } from '../../../shared/protocol';
 import { assistantPartsFromMessage, toolCallsFromMessageParts } from '../../../shared/chat-message-parts';
 import { isPruningResultMessage } from './pruning';
+import {
+  deriveMultiToolTail,
+  deriveRunningToolTail,
+  deriveStreamingTail,
+  type TurnActivityTail,
+} from './activity-tail';
 
 export const AGENT_ACTIVITY_LABELS = {
   pruning: 'pruning skills/tools',
@@ -35,6 +41,13 @@ export interface TurnActivityState {
   runningToolSummary?: string;
   /** Selected model label when known before message_start */
   pendingModelLabel?: string;
+  /**
+   * Compact "last few rows" live-activity tail: the tail of streaming
+   * reasoning/reply text, a running tool's input + streaming output, or a
+   * running subagent's live activity. Present only while busy and only when a
+   * meaningful tail could be derived for the current phase.
+   */
+  tail?: TurnActivityTail;
 }
 
 interface PendingActivityOptions {
@@ -117,12 +130,25 @@ export function deriveTurnActivityState({
 
   if (assistant) {
     if (assistant.status === 'streaming') {
+      const pendingModelLabel = formatModelLabel(assistant.modelId || pendingAssistantModelId, assistant.thinkingLevel || pendingAssistantThinkingLevel);
+      const streaming = deriveStreamingTail(assistantPartsFromMessage(assistant));
+      if (streaming) {
+        const isReasoning = streaming.tail.kind === 'reasoning';
+        return {
+          phase: 'streaming',
+          label: isReasoning ? 'reasoning' : AGENT_ACTIVITY_LABELS.responding,
+          tone: 'active',
+          ariaLabel: isReasoning ? 'Agent is reasoning' : 'Agent is responding',
+          pendingModelLabel,
+          tail: streaming.tail,
+        };
+      }
       return {
         phase: 'streaming',
         label: AGENT_ACTIVITY_LABELS.responding,
         tone: 'active',
         ariaLabel: 'Agent is responding',
-        pendingModelLabel: formatModelLabel(assistant.modelId || pendingAssistantModelId, assistant.thinkingLevel || pendingAssistantThinkingLevel),
+        pendingModelLabel,
       };
     }
 
@@ -132,7 +158,20 @@ export function deriveTurnActivityState({
     if (runningTools.length > 0) {
       const phase = 'runningTool';
       if (runningTools.length === 1) {
-        const toolName = runningTools[0]!.name;
+        const tool = runningTools[0]!;
+        const toolName = tool.name;
+        const derived = deriveRunningToolTail(tool);
+        if (derived) {
+          return {
+            phase,
+            label: derived.label,
+            detail: undefined,
+            tone: 'active',
+            ariaLabel: `Agent is running ${toolName}`,
+            runningToolName: toolName,
+            tail: derived.tail,
+          };
+        }
         return {
           phase,
           label: `running ${toolName}`,
@@ -143,6 +182,7 @@ export function deriveTurnActivityState({
         };
       } else {
         const summary = `running ${runningTools.length} tools`;
+        const derived = deriveMultiToolTail(runningTools);
         return {
           phase,
           label: summary,
@@ -150,6 +190,7 @@ export function deriveTurnActivityState({
           tone: 'active',
           ariaLabel: `Agent is ${summary}`,
           runningToolSummary: summary,
+          tail: derived.tail,
         };
       }
     }

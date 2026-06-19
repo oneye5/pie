@@ -3,6 +3,7 @@
 
 import type { ChatMessage } from '../../../../shared/protocol';
 import type { TurnActivityState } from '../activity';
+import { TurnActivityBlock } from '../turn-activity-tail';
 import {
   TurnActivityStrip,
   activityPhaseHasRunningDot,
@@ -27,14 +28,18 @@ export function MessageFooter({
       {hasActivityFooter && (
         <div class="message-activity-footer">
           {footerActivityState ? (
-            <TurnActivityStrip
-              label={footerActivityState.label}
-              detail={footerActivityState.detail}
-              tone={activityToneToStripTone(footerActivityState.tone)}
-              runningDot={activityPhaseHasRunningDot(footerActivityState.phase)}
-              phase={footerActivityState.phase}
-              ariaLabel={footerActivityState.ariaLabel}
-            />
+            footerActivityState.tail ? (
+              <TurnActivityBlock state={footerActivityState} />
+            ) : (
+              <TurnActivityStrip
+                label={footerActivityState.label}
+                detail={footerActivityState.detail}
+                tone={activityToneToStripTone(footerActivityState.tone)}
+                runningDot={activityPhaseHasRunningDot(footerActivityState.phase)}
+                phase={footerActivityState.phase}
+                ariaLabel={footerActivityState.ariaLabel}
+              />
+            )
           ) : null}
         </div>
       )}
