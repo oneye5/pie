@@ -40,6 +40,7 @@ export default defineConfig(({ mode }) => {
       resolve: {
         alias: {
           '@shared': path.join(srcDir, 'shared'),
+          react: 'preact/compat',
         },
       },
     };
@@ -76,6 +77,9 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: {
         '@shared': path.join(srcDir, 'shared'),
+        // `use-undo` imports its hooks from "react"; redirect to Preact's
+        // official compat layer (already used elsewhere in this webview).
+        react: 'preact/compat',
       },
     },
   };

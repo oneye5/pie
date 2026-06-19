@@ -7,6 +7,7 @@ import type {
   ComposerInputDraft,
   WebviewToHostMessage,
 } from '../../../shared/protocol';
+import useUndo from 'use-undo';
 import { shouldHandleGlobalComposerPaste } from './affordances';
 import {
   canAcceptComposerTransfer,
@@ -20,6 +21,9 @@ export { useTokenRateIndicator, tickTokenRate, createTokenRateAccumulator } from
 export type { TokenRateIndicatorState } from './use-token-rate';
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
+/** Idle window that groups a typing burst into a single undo checkpoint,
+ * mirroring how word processors undo by word/action rather than per keystroke. */
+const CHECKPOINT_DEBOUNCE_MS = 500;
 
 export function resizeComposerTextarea(textarea: HTMLTextAreaElement): void {
   textarea.style.height = 'auto';
@@ -53,6 +57,36 @@ export function useComposerInput({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftPostTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Word-processor-style undo/redo history for the composer text. It lives in a
+  // dedicated past/present/future store (use-undo) so it survives the
+  // programmatic clear on send — letting Ctrl+Z step back to a prompt that was
+  // deleted or already sent. The live `text` state still drives the controlled
+  // textarea; history.present only advances on debounced checkpoints so undo
+  // groups typing bursts instead of stepping per character.
+  const [history, { set: setHistory, reset: resetHistory, undo, redo, canUndo, canRedo }] =
+    useUndo<string>('', { useCheckpoints: true });
+  const checkpointTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCheckpointTimer = useCallback(() => {
+    if (checkpointTimerRef.current) {
+      clearTimeout(checkpointTimerRef.current);
+      checkpointTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleCheckpoint = useCallback((value: string) => {
+    clearCheckpointTimer();
+    checkpointTimerRef.current = setTimeout(() => {
+      checkpointTimerRef.current = null;
+      setHistory(value, true);
+    }, CHECKPOINT_DEBOUNCE_MS);
+  }, [clearCheckpointTimer, setHistory]);
+
+  // Drop any pending checkpoint timer if the composer unmounts (e.g. the panel is
+  // disposed) so it can't fire setHistory on a stale instance.
+  useEffect(() => () => {
+    clearCheckpointTimer();
+  }, [clearCheckpointTimer]);
   // Latch that suppresses a second submit between the moment we post a send
   // and when the host round-trip flips `busy` to true (or clears pending
   // inputs). `busy` is the durable latch but lags a round-trip; this ref closes
@@ -70,6 +104,9 @@ export function useComposerInput({
   // mounts or the active session changes. Host-backed draftText is the source
   // of truth across reloads and session switches.
   useEffect(() => {
+    clearCheckpointTimer();
+    // Start a fresh undo history per session — undo never crosses sessions.
+    resetHistory(draftText);
     setText(draftText);
     submitting.current = false;
     const textarea = textareaRef.current;
@@ -110,6 +147,10 @@ export function useComposerInput({
       return;
     }
 
+    clearCheckpointTimer();
+    // Checkpoint the restore so a single Ctrl+Z steps back to the prior state
+    // (e.g. the post-send empty composer) rather than a duplicate of the text.
+    setHistory(draftRestore.text, true);
     setText(draftRestore.text);
     const textarea = textareaRef.current;
     if (textarea) {
@@ -149,8 +190,39 @@ export function useComposerInput({
     if ((trimmed.length === 0 && pendingComposerInputsLength === 0) || busy) return;
     submitting.current = true;
     onSend(trimmed);
+    // Make the send undoable: sync present to the sent text (no history entry),
+    // then checkpoint the clear so Ctrl+Z restores what was just sent.
+    clearCheckpointTimer();
+    setHistory(trimmed);
+    setHistory('', true);
     resetComposer();
-  }, [busy, onSend, pendingComposerInputsLength, resetComposer, text]);
+  }, [busy, onSend, pendingComposerInputsLength, resetComposer, setHistory, clearCheckpointTimer, text]);
+
+  const undoComposer = useCallback(() => {
+    if (!canUndo) return;
+    clearCheckpointTimer();
+    const target = history.past[history.past.length - 1] ?? '';
+    undo();
+    setText(target);
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.value = target;
+      resizeComposerTextarea(textarea);
+    }
+  }, [canUndo, clearCheckpointTimer, history.past, undo]);
+
+  const redoComposer = useCallback(() => {
+    if (!canRedo) return;
+    clearCheckpointTimer();
+    const target = history.future[0] ?? '';
+    redo();
+    setText(target);
+    const textarea = textareaRef.current;
+    if (textarea) {
+      textarea.value = target;
+      resizeComposerTextarea(textarea);
+    }
+  }, [canRedo, clearCheckpointTimer, history.future, redo]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -158,19 +230,38 @@ export function useComposerInput({
         return;
       }
 
+      // Word-processor undo/redo. We always preventDefault so the browser's
+      // native textarea undo (which a controlled input fights, and which cannot
+      // survive the programmatic clear on send) never partially applies.
+      const mod = e.ctrlKey || e.metaKey;
+      if (mod) {
+        const key = e.key.toLowerCase();
+        if (key === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          undoComposer();
+          return;
+        }
+        if ((key === 'z' && e.shiftKey) || key === 'y') {
+          e.preventDefault();
+          redoComposer();
+          return;
+        }
+      }
+
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendCurrentText();
       }
     },
-    [sendCurrentText],
+    [undoComposer, redoComposer, sendCurrentText],
   );
 
   const handleInput = useCallback((e: Event) => {
     const target = e.target as HTMLTextAreaElement;
     setText(target.value);
     resizeComposerTextarea(target);
-  }, []);
+    scheduleCheckpoint(target.value);
+  }, [scheduleCheckpoint]);
 
   const applyComposerTransfer = useCallback(async (dataTransfer: DataTransfer | null, source: 'drop' | 'paste') => {
     const { inputs, unsupportedInputs, rejectedFiles } = await extractComposerInputs(dataTransfer, source);
