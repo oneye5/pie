@@ -63,7 +63,13 @@ export function mapAssistantMessage(
   messageId: string,
   message: MessageLike,
   durationMs?: number,
-  metadata?: { modelId?: string; thinkingLevel?: ThinkingLevel },
+  metadata?: {
+    modelId?: string;
+    thinkingLevel?: ThinkingLevel;
+    turnLatencyMs?: number;
+    overheadMs?: number;
+    providerLatencyMs?: number;
+  },
 ): ChatMessage {
   const parts = Array.isArray(message.content) ? message.content : undefined;
   const messageParts = assistantPartsFromContent(parts, 'completed');
@@ -80,6 +86,9 @@ export function mapAssistantMessage(
     errorDetail: message.errorMessage,
     toolCalls: toolCallsFromMessageParts(messageParts),
     durationMs,
+    turnLatencyMs: metadata?.turnLatencyMs,
+    overheadMs: metadata?.overheadMs,
+    providerLatencyMs: metadata?.providerLatencyMs,
     usage: usageFromMessage(message),
   };
 }

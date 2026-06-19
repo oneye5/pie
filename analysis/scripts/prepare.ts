@@ -555,6 +555,9 @@ function prepareTurnThroughput(run: RunSnapshot): PreparedTurnThroughputRow[] {
       concurrentBusySessions: sample.concurrentBusySessions,
       status: sample.status,
       tokensPerSecond,
+      turnLatencyMs: sample.turnLatencyMs,
+      overheadMs: sample.overheadMs,
+      providerLatencyMs: sample.providerLatencyMs,
     };
   });
 }

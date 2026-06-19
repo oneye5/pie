@@ -127,6 +127,13 @@ export function onMessageFinished(payload: MessageFinishedPayload, deps: Handler
     message.durationMs ?? 0,
     message.usage,
     toTurnThroughputStatus(message.status),
+    message.turnLatencyMs !== undefined || message.overheadMs !== undefined || message.providerLatencyMs !== undefined
+      ? {
+          turnLatencyMs: message.turnLatencyMs,
+          overheadMs: message.overheadMs,
+          providerLatencyMs: message.providerLatencyMs,
+        }
+      : undefined,
   );
   deps.state.unbindRequestSessionPath(payload.requestId);
 

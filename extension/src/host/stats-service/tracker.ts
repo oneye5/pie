@@ -19,6 +19,7 @@ import {
   type OutcomeHistoryLogEntry,
   type RunSnapshot,
   type TreatmentChangeKind,
+  type TurnLatencyMeasurement,
   type TurnThroughputSample,
   type TurnThroughputStatus,
 } from '../run-analytics';
@@ -124,6 +125,7 @@ export class SessionRunTracker {
     durationMs: number,
     usage?: AssistantUsage,
     status: TurnThroughputStatus = 'completed',
+    latency?: TurnLatencyMeasurement,
   ): void {
     const state = this.runState.sessions.get(sessionPath);
     const run = state?.currentRun;
@@ -156,16 +158,26 @@ export class SessionRunTracker {
     }
 
     // Record a throughput sample whenever the turn produced measurable
-    // generation time or tokens, or ended abnormally. This keeps the sum of
-    // sample durations / tokens aligned with the cumulative counters above
-    // while still capturing errored turns (a rate-limit / failure signal).
-    if (generationDurationMs > 0 || outputTokens > 0 || status !== 'completed') {
+    // generation time or tokens, ended abnormally, or captured a turn-latency
+    // measurement (any component — overhead alone still counts, e.g. a turn
+    // that observed `turn_start` but produced no content delta). This keeps the
+    // sum of sample durations / tokens aligned with the cumulative counters
+    // above while still capturing errored turns (a rate-limit / failure signal)
+    // and turns where latency was observable even if generation was negligible.
+    const hasLatency = latency !== undefined
+      && (latency.turnLatencyMs !== undefined
+        || latency.overheadMs !== undefined
+        || latency.providerLatencyMs !== undefined);
+    if (generationDurationMs > 0 || outputTokens > 0 || status !== 'completed' || hasLatency) {
       const sample: TurnThroughputSample = {
         endedAt: this.runState.isoNow(),
         outputTokens,
         generationDurationMs,
         concurrentBusySessions: this.busySessionPaths.size,
         status,
+        turnLatencyMs: latency?.turnLatencyMs ?? null,
+        overheadMs: latency?.overheadMs ?? null,
+        providerLatencyMs: latency?.providerLatencyMs ?? null,
       };
       run.turnThroughputSamples = [...run.turnThroughputSamples, sample];
     }

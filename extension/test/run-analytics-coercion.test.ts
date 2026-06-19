@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { coerceSessionAnalyticsFactors } from '../src/host/run-analytics/coercion-factors';
 import { coerceFunctionalSettings } from '../src/host/run-analytics/coercion-functional-settings';
+import { coerceRunSnapshot } from '../src/host/run-analytics/coercion-snapshots';
 import {
   coerceFileExtensionRollup,
   coerceFileMutationRollup,
@@ -24,7 +25,7 @@ import {
   workspaceHash,
 } from '../src/host/stats-service/helpers';
 import type { ComposerInput } from '../src/shared/protocol';
-import type { RunSnapshot } from '../src/host/run-analytics';
+import type { RunSnapshot, TurnThroughputSample } from '../src/host/run-analytics';
 
 function makeRunSnapshot(): RunSnapshot {
   return {
@@ -307,4 +308,55 @@ test('coerceFunctionalSettings accepts valid snapshots and drops malformed ones'
     pruningMode: 'shadow',
     extensionToggles: { subagent: true, cwd: false },
   });
+});
+
+test('coerceRunSnapshot coerces turn-latency fields on throughput samples, defaulting missing/malformed ones to null', () => {
+  const snapshot = makeRunSnapshot();
+  snapshot.turnThroughputSamples = [
+    {
+      endedAt: '2026-01-01T00:00:00.000Z',
+      outputTokens: 10,
+      generationDurationMs: 500,
+      concurrentBusySessions: 1,
+      status: 'completed',
+      turnLatencyMs: 800,
+      overheadMs: 100,
+      providerLatencyMs: 700,
+    },
+    {
+      // Legacy sample recorded before latency tracking existed.
+      endedAt: '2026-01-01T00:00:01.000Z',
+      outputTokens: 4,
+      generationDurationMs: 200,
+      concurrentBusySessions: 1,
+      status: 'completed',
+    } as unknown as TurnThroughputSample,
+    {
+      // Errored turn with malformed (negative / string) latency values.
+      endedAt: '2026-01-01T00:00:02.000Z',
+      outputTokens: 0,
+      generationDurationMs: 0,
+      concurrentBusySessions: 1,
+      status: 'error',
+      turnLatencyMs: -5,
+      overheadMs: 'fast',
+      providerLatencyMs: null,
+    } as unknown as TurnThroughputSample,
+  ];
+
+  const coerced = coerceRunSnapshot(snapshot);
+  assert.equal(coerced?.turnThroughputSamples.length, 3);
+
+  const [a, b, c] = coerced!.turnThroughputSamples;
+  assert.equal(a.turnLatencyMs, 800);
+  assert.equal(a.overheadMs, 100);
+  assert.equal(a.providerLatencyMs, 700);
+
+  assert.equal(b.turnLatencyMs, null, 'missing latency coerces to null');
+  assert.equal(b.overheadMs, null);
+  assert.equal(b.providerLatencyMs, null);
+
+  assert.equal(c.turnLatencyMs, null, 'negative coerces to null');
+  assert.equal(c.overheadMs, null, 'non-number coerces to null');
+  assert.equal(c.providerLatencyMs, null);
 });

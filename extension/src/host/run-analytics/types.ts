@@ -49,6 +49,15 @@ export type TurnThroughputStatus = 'completed' | 'error' | 'interrupted';
  * `concurrentBusySessions` records how many sessions were mid-run when the
  * turn ended (including this one), enabling multi-session throughput /
  * rate-limit-resilience analysis.
+ *
+ * `turnLatencyMs` / `overheadMs` / `providerLatencyMs` decompose the gap
+ * between the previous tool call finishing and the model's first reply token
+ * (null when not measurable for a given turn — e.g. `turn_start` was not
+ * observed, or the turn produced no content delta). `turnLatencyMs` ≈
+ * `overheadMs` + `providerLatencyMs`; the split is anchored on the SDK's
+ * `turn_start` event: overhead = turn boundary → `turn_start` (serial
+ * inter-turn work on our side), provider = `turn_start` → first reply token
+ * (request preparation + network + provider TTFT).
  */
 export interface TurnThroughputSample {
   /** ISO timestamp when the assistant turn ended (`message_end`). */
@@ -61,6 +70,37 @@ export interface TurnThroughputSample {
   concurrentBusySessions: number;
   /** Terminal status of the turn. */
   status: TurnThroughputStatus;
+  /**
+   * Total turn latency: previous tool end (or prompt send) → first reply
+   * token, in ms. Null when not measurable for this turn.
+   */
+  turnLatencyMs: number | null;
+  /**
+   * Our overhead: turn boundary → `turn_start` (serial inter-turn work), in ms.
+   * Null when `turn_start` was not observed.
+   */
+  overheadMs: number | null;
+  /**
+   * Provider latency: `turn_start` → first reply token (request prep + network
+   * + provider TTFT), in ms. Null when not measurable.
+   */
+  providerLatencyMs: number | null;
+}
+
+/**
+ * Per-turn latency breakdown measured between the previous tool call finishing
+ * (or the prompt being sent, for the first turn) and the model's first reply
+ * token. Carried from the backend through `onAssistantTurnEnded` into a
+ * {@link TurnThroughputSample}. Fields are optional on the wire (undefined when
+ * not measurable) and normalized to `null` on the persisted sample.
+ */
+export interface TurnLatencyMeasurement {
+  /** Total: turn boundary → first reply token, ms. */
+  turnLatencyMs?: number;
+  /** Our overhead: turn boundary → `turn_start`, ms. */
+  overheadMs?: number;
+  /** Provider latency: `turn_start` → first reply token, ms. */
+  providerLatencyMs?: number;
 }
 
 export interface ToolUsageRollup {

@@ -537,3 +537,160 @@ test('agent_end does not emit an extra aborted event when the request already ha
   assert.deepEqual(emitted, []);
   assert.equal(context.activeRequest, undefined);
 });
+
+test('turn latency is measured from the turn boundary, turn_start, and first content delta', () => {
+  const { deps, emitted } = createDeps();
+  const originalNow = Date.now;
+  let t = 1_000;
+  Date.now = () => t;
+  try {
+    const context = createContext({
+      activeRequest: {
+        id: 'req-lat',
+        messageIndex: 0,
+        modelId: 'claude-test',
+        thinkingLevel: 'medium',
+        // Prompt-send opened the latency window at t=1000.
+        turnBoundaryAt: 1000,
+        aborted: false,
+      },
+    });
+
+    // turn_start at t=1100 — start of the provider request side.
+    t = 1100;
+    handleSdkSessionEvent(deps, context, { type: 'turn_start' });
+    assert.equal(context.activeRequest?.turnStartedAt, 1100);
+
+    // message_start at t=1150 — resets the per-message first-delta marker.
+    t = 1150;
+    handleSdkSessionEvent(deps, context, { type: 'message_start', message: { role: 'assistant' } });
+    assert.equal(context.activeRequest?.providerFirstDeltaAt, undefined);
+
+    // First content delta at t=1800 — the provider has begun replying.
+    t = 1800;
+    handleSdkSessionEvent(deps, context, {
+      type: 'message_update',
+      message: { role: 'assistant' },
+      assistantMessageEvent: { type: 'text_delta', delta: 'Hello' },
+    });
+    assert.equal(context.activeRequest?.providerFirstDeltaAt, 1800);
+
+    // A subsequent delta must not move the first-content timestamp.
+    t = 1850;
+    handleSdkSessionEvent(deps, context, {
+      type: 'message_update',
+      message: { role: 'assistant' },
+      assistantMessageEvent: { type: 'text_delta', delta: ' world' },
+    });
+    assert.equal(context.activeRequest?.providerFirstDeltaAt, 1800);
+
+    // message_end at t=2000 — latency breakdown attached to the message.
+    t = 2000;
+    handleSdkSessionEvent(deps, context, {
+      type: 'message_end',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'Hello world' }], stopReason: 'end_turn' },
+    } as SdkSessionEvent);
+
+    const finished = emitted.find((entry) => entry.event === 'message.finished')?.payload as {
+      message: { turnLatencyMs?: number; overheadMs?: number; providerLatencyMs?: number };
+    };
+    assert.equal(finished.message.turnLatencyMs, 800, 'total = first delta - turn boundary');
+    assert.equal(finished.message.overheadMs, 100, 'overhead = turn_start - turn boundary');
+    assert.equal(finished.message.providerLatencyMs, 700, 'provider = first delta - turn_start');
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('tool_execution_end advances the turn boundary and message_start resets the first-delta marker', () => {
+  const { deps } = createDeps();
+  const originalNow = Date.now;
+  let t = 5_000;
+  Date.now = () => t;
+  try {
+    const context = createContext({
+      activeRequest: {
+        id: 'req-multi',
+        messageIndex: 0,
+        lastAssistantMessageId: 'req-multi:0',
+        aborted: false,
+      },
+    });
+
+    // A prior turn left a first-delta timestamp behind; a new message_start must clear it.
+    context.activeRequest!.providerFirstDeltaAt = 4_900;
+    handleSdkSessionEvent(deps, context, { type: 'message_start', message: { role: 'assistant' } });
+    assert.equal(context.activeRequest?.providerFirstDeltaAt, undefined, 'message_start resets the first-delta marker');
+
+    t = 5_100;
+    handleSdkSessionEvent(deps, context, {
+      type: 'message_update',
+      message: { role: 'assistant' },
+      assistantMessageEvent: { type: 'thinking_delta', thinking: 'reasoning' },
+    });
+    assert.equal(context.activeRequest?.providerFirstDeltaAt, 5_100, 'thinking_delta stamps the first-content marker');
+
+    // tool_execution_end advances the latency window origin to "now" (last tool wins).
+    t = 6_000;
+    handleSdkSessionEvent(deps, context, {
+      type: 'tool_execution_end',
+      toolCallId: 'tool-1',
+      result: { ok: true },
+      isError: false,
+    });
+    assert.equal(context.activeRequest?.turnBoundaryAt, 6_000, 'tool_execution_end advances the turn boundary');
+
+    // A parallel/second tool end overwrites (most recent wins).
+    t = 6_050;
+    handleSdkSessionEvent(deps, context, {
+      type: 'tool_execution_end',
+      toolCallId: 'tool-2',
+      result: { ok: true },
+      isError: false,
+    });
+    assert.equal(context.activeRequest?.turnBoundaryAt, 6_050);
+  } finally {
+    Date.now = originalNow;
+  }
+});
+
+test('turn_start and toolless turns leave latency undefined when an anchoring event is missing', () => {
+  const { deps, emitted } = createDeps();
+  const originalNow = Date.now;
+  let t = 9_000;
+  Date.now = () => t;
+  try {
+    const context = createContext({
+      activeRequest: {
+        id: 'req-noboundary',
+        messageIndex: 0,
+        modelId: 'claude-test',
+        aborted: false,
+      },
+    });
+
+    // No turn_start observed and no turn boundary set.
+    t = 9_100;
+    handleSdkSessionEvent(deps, context, { type: 'message_start', message: { role: 'assistant' } });
+    t = 9_200;
+    handleSdkSessionEvent(deps, context, {
+      type: 'message_update',
+      message: { role: 'assistant' },
+      assistantMessageEvent: { type: 'text_delta', delta: 'hi' },
+    });
+    t = 9_300;
+    handleSdkSessionEvent(deps, context, {
+      type: 'message_end',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }], stopReason: 'end_turn' },
+    } as SdkSessionEvent);
+
+    const finished = emitted.find((entry) => entry.event === 'message.finished')?.payload as {
+      message: { turnLatencyMs?: number; overheadMs?: number; providerLatencyMs?: number };
+    };
+    assert.equal(finished.message.turnLatencyMs, undefined);
+    assert.equal(finished.message.overheadMs, undefined);
+    assert.equal(finished.message.providerLatencyMs, undefined);
+  } finally {
+    Date.now = originalNow;
+  }
+});

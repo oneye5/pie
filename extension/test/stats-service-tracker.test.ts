@@ -349,3 +349,78 @@ test('onSessionClosed and finalizeOpenRunsForShutdown close active runs and clea
   assert.equal(finalized?.status, 'closed_unscored');
   assert.equal(finalized?.finalizationReason, 'closed_unscored');
 });
+
+test('turn latency breakdown is recorded on throughput samples', () => {
+  const harness = createHarness();
+  harness.tracker.prepareForSend(harness.sessionPath, []);
+  harness.tracker.onAssistantTurnStarted(harness.sessionPath, 'turn-lat');
+  harness.tracker.onAssistantTurnEnded(
+    harness.sessionPath,
+    'turn-lat',
+    500,
+    { inputTokens: 5, outputTokens: 50, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 55 },
+    'completed',
+    { turnLatencyMs: 800, overheadMs: 100, providerLatencyMs: 700 },
+  );
+
+  const sample = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun?.turnThroughputSamples[0];
+  assert.equal(sample?.turnLatencyMs, 800);
+  assert.equal(sample?.overheadMs, 100);
+  assert.equal(sample?.providerLatencyMs, 700);
+});
+
+test('throughput samples default latency fields to null when unmeasured', () => {
+  const harness = createHarness();
+  harness.tracker.prepareForSend(harness.sessionPath, []);
+  harness.tracker.onAssistantTurnStarted(harness.sessionPath, 'turn-nolat');
+  harness.tracker.onAssistantTurnEnded(harness.sessionPath, 'turn-nolat', 500, undefined, 'completed');
+
+  const sample = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun?.turnThroughputSamples[0];
+  assert.equal(sample?.turnLatencyMs, null);
+  assert.equal(sample?.overheadMs, null);
+  assert.equal(sample?.providerLatencyMs, null);
+});
+
+test('a turn with measurable latency still records a sample even with negligible generation', () => {
+  const harness = createHarness();
+  harness.tracker.prepareForSend(harness.sessionPath, []);
+  harness.tracker.onAssistantTurnStarted(harness.sessionPath, 'turn-latonly');
+  // generationDurationMs=0, outputTokens=0, status completed — would normally be
+  // skipped, but a measurable turn latency keeps the sample.
+  harness.tracker.onAssistantTurnEnded(
+    harness.sessionPath,
+    'turn-latonly',
+    0,
+    undefined,
+    'completed',
+    { turnLatencyMs: 250, overheadMs: 30, providerLatencyMs: 220 },
+  );
+
+  const samples = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun?.turnThroughputSamples ?? [];
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0]?.turnLatencyMs, 250);
+  assert.equal(samples[0]?.generationDurationMs, 0);
+});
+
+test('an overhead-only turn (no content delta) still records its measured overhead', () => {
+  const harness = createHarness();
+  harness.tracker.prepareForSend(harness.sessionPath, []);
+  harness.tracker.onAssistantTurnStarted(harness.sessionPath, 'turn-overhead-only');
+  // A degenerate turn that observed `turn_start` (so overhead is measurable) but
+  // produced no content delta (so turn/provider latency are undefined). The
+  // measured overhead must still be captured rather than dropped.
+  harness.tracker.onAssistantTurnEnded(
+    harness.sessionPath,
+    'turn-overhead-only',
+    0,
+    undefined,
+    'completed',
+    { overheadMs: 120 },
+  );
+
+  const samples = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun?.turnThroughputSamples ?? [];
+  assert.equal(samples.length, 1);
+  assert.equal(samples[0]?.overheadMs, 120);
+  assert.equal(samples[0]?.turnLatencyMs, null);
+  assert.equal(samples[0]?.providerLatencyMs, null);
+});

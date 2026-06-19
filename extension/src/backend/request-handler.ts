@@ -307,6 +307,9 @@ async function handleMessageSend(
     messageIndex: 0,
     modelId: context.session.model?.id,
     thinkingLevel: normalizeThinkingLevel(context.session.thinkingLevel),
+    // The first turn has no preceding tool call, so its latency window opens at
+    // prompt-send. Subsequent turns overwrite this on `tool_execution_end`.
+    turnBoundaryAt: Date.now(),
     aborted: false,
   };
 

@@ -9,6 +9,7 @@ import { ToolbarChip, ToolbarIndicatorChip, ToolbarRunStatusChip, ToolbarSelectC
 import { ModelPicker } from '../components/model-picker';
 import { orderModelsForPicker } from './model-list';
 import type { TokenRateIndicatorState } from './use-token-rate';
+import type { TurnLatencyIndicatorState } from './use-turn-latency';
 import { ComposerSettingsMenu } from './settings-menu';
 
 const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
@@ -43,6 +44,7 @@ interface ComposerToolbarProps {
   sessionTokenIndicator: { label: string; ariaLabel: string; tooltip: string };
   sessionCostIndicator: { label: string; ariaLabel: string; tooltip: string } | null;
   tokenRateIndicator: TokenRateIndicatorState;
+  turnLatencyIndicator: TurnLatencyIndicatorState;
   runStatus: ComposerToolbarStatus | null;
   onModelChange: (model: string, thinkingLevel: ThinkingLevel) => void;
 }
@@ -64,6 +66,7 @@ export function ComposerToolbar({
   sessionTokenIndicator,
   sessionCostIndicator,
   tokenRateIndicator,
+  turnLatencyIndicator,
   runStatus,
   onModelChange,
 }: ComposerToolbarProps) {
@@ -121,6 +124,15 @@ export function ComposerToolbar({
             ariaLabel={tokenRateIndicator.ariaLabel}
             tooltip={tokenRateIndicator.tooltip}
             label={tokenRateIndicator.label}
+          />
+        )}
+
+        {turnLatencyIndicator.label && (
+          <ToolbarIndicatorChip
+            kind="latency"
+            ariaLabel={turnLatencyIndicator.ariaLabel}
+            tooltip={turnLatencyIndicator.tooltip}
+            label={turnLatencyIndicator.label}
           />
         )}
 

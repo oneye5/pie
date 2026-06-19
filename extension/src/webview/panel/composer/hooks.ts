@@ -19,6 +19,8 @@ import {
 export { useComposerIndicators } from './use-composer-indicators';
 export { useTokenRateIndicator, tickTokenRate, createTokenRateAccumulator } from './use-token-rate';
 export type { TokenRateIndicatorState } from './use-token-rate';
+export { useTurnLatencyIndicator } from './use-turn-latency';
+export type { TurnLatencyIndicatorState } from './use-turn-latency';
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;
 /** Idle window that groups a typing burst into a single undo checkpoint,

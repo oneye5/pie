@@ -110,6 +110,26 @@ export interface ChatMessage {
   toolCalls?: ToolCall[];
   /** How long the response took to complete, in milliseconds. Only set on finished assistant messages. */
   durationMs?: number;
+  /**
+   * Turn latency: wall-clock time from the previous tool call finishing (or the
+   * prompt being sent, for the first turn) to the model's first reply token, in
+   * milliseconds. Undefined when not measurable (e.g. no preceding boundary, or
+   * the turn produced no content delta). Equals `overheadMs` + `providerLatencyMs`.
+   */
+  turnLatencyMs?: number;
+  /**
+   * Portion of turn latency incurred on our side: the gap from the previous
+   * tool finishing to the SDK emitting `turn_start` (serial inter-turn work —
+   * turn teardown, `prepareNextTurn`, extension hooks). Undefined when
+   * `turn_start` was not observed for this turn.
+   */
+  overheadMs?: number;
+  /**
+   * Portion of turn latency incurred waiting for the provider: from `turn_start`
+   * to the first reply token (request preparation + network + provider TTFT).
+   * Undefined when not measurable.
+   */
+  providerLatencyMs?: number;
   /** Token accounting reported by the provider for this assistant turn, when available. */
   usage?: AssistantUsage;
   /** Custom message type from a pi extension (e.g. 'pruning-result'). Present on system messages mapped from custom_message entries. */

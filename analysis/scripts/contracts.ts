@@ -126,7 +126,9 @@ export type TurnThroughputStatus = 'completed' | 'error' | 'interrupted';
 /**
  * One timestamped throughput observation per assistant turn. Throughput =
  * `outputTokens` / (`generationDurationMs` / 1000); the generation duration
- * excludes tool-execution time (tools run between messages).
+ * excludes tool-execution time (tools run between messages). The latency
+ * fields decompose the gap from the previous tool finishing to the model's
+ * first reply token (null when not measurable for a turn).
  */
 export interface TurnThroughputSample {
   endedAt: string;
@@ -134,6 +136,9 @@ export interface TurnThroughputSample {
   generationDurationMs: number;
   concurrentBusySessions: number;
   status: TurnThroughputStatus;
+  turnLatencyMs: number | null;
+  overheadMs: number | null;
+  providerLatencyMs: number | null;
 }
 
 export interface ToolUsageRollup {
@@ -473,6 +478,9 @@ export interface PreparedTurnThroughputRow {
   concurrentBusySessions: number;
   status: TurnThroughputStatus;
   tokensPerSecond: number | null;
+  turnLatencyMs: number | null;
+  overheadMs: number | null;
+  providerLatencyMs: number | null;
 }
 
 /** Raw pruning decision as read from data/pruning.jsonl. */

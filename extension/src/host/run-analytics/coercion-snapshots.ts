@@ -15,6 +15,7 @@ import {
   isObjectRecord,
   isRunOutcome,
   toNonNegativeInteger,
+  toNullableNonNegativeInteger,
 } from './coercion-utils';
 
 function coerceAssistantUsage(value: unknown): AssistantUsage | null {
@@ -66,6 +67,9 @@ function coerceTurnThroughputSamples(value: unknown): TurnThroughputSample[] {
       generationDurationMs: toNonNegativeInteger(entry.generationDurationMs),
       concurrentBusySessions: toNonNegativeInteger(entry.concurrentBusySessions),
       status,
+      turnLatencyMs: toNullableNonNegativeInteger(entry.turnLatencyMs),
+      overheadMs: toNullableNonNegativeInteger(entry.overheadMs),
+      providerLatencyMs: toNullableNonNegativeInteger(entry.providerLatencyMs),
     });
   }
   return samples;

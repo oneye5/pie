@@ -86,6 +86,13 @@ function toNonNegativeInteger(value: unknown, fallback = 0): number {
   return Math.trunc(value);
 }
 
+function toNullableNonNegativeInteger(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return Math.trunc(value);
+}
+
 function coerceStringArray(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -430,6 +437,9 @@ function coerceTurnThroughputSamples(value: unknown): TurnThroughputSample[] {
       generationDurationMs: toNonNegativeInteger(entry.generationDurationMs),
       concurrentBusySessions: toNonNegativeInteger(entry.concurrentBusySessions),
       status,
+      turnLatencyMs: toNullableNonNegativeInteger(entry.turnLatencyMs),
+      overheadMs: toNullableNonNegativeInteger(entry.overheadMs),
+      providerLatencyMs: toNullableNonNegativeInteger(entry.providerLatencyMs),
     });
   }
   return samples;

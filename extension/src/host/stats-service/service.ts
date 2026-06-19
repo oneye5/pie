@@ -1,6 +1,6 @@
 import { defaultCreateId, defaultNow } from './helpers';
 import type { RunAnalyticsExportPayload, RunAnalyticsQueryResult } from '../run-analytics/query';
-import type { TurnThroughputStatus } from '../run-analytics';
+import type { TurnLatencyMeasurement, TurnThroughputStatus } from '../run-analytics';
 import type {
   AssistantUsage,
   ComposerInput,
@@ -88,8 +88,9 @@ export class StatsService implements RunObserver {
     durationMs: number,
     usage?: AssistantUsage,
     status?: TurnThroughputStatus,
+    latency?: TurnLatencyMeasurement,
   ): void {
-    this.tracker.onAssistantTurnEnded(sessionPath, turnId, durationMs, usage, status);
+    this.tracker.onAssistantTurnEnded(sessionPath, turnId, durationMs, usage, status, latency);
   }
 
   onToolStarted(sessionPath: string, toolCall: ToolCall): void {

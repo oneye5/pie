@@ -245,6 +245,9 @@ interface DuckDbTurnThroughputRow {
   concurrent_busy_sessions: number;
   status: string;
   tokens_per_second: number | null;
+  turn_latency_ms: number | null;
+  overhead_ms: number | null;
+  provider_latency_ms: number | null;
 }
 
 function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
@@ -478,6 +481,9 @@ function toDuckDbTurnThroughputRow(row: PreparedTurnThroughputRow): DuckDbTurnTh
     concurrent_busy_sessions: row.concurrentBusySessions,
     status: row.status,
     tokens_per_second: row.tokensPerSecond,
+    turn_latency_ms: row.turnLatencyMs,
+    overhead_ms: row.overheadMs,
+    provider_latency_ms: row.providerLatencyMs,
   };
 }
 
@@ -780,7 +786,10 @@ CREATE TABLE turn_throughput (
   generation_duration_ms BIGINT,
   concurrent_busy_sessions INTEGER,
   status VARCHAR,
-  tokens_per_second DOUBLE
+  tokens_per_second DOUBLE,
+  turn_latency_ms INTEGER,
+  overhead_ms INTEGER,
+  provider_latency_ms INTEGER
 );
 `.trim();
 }

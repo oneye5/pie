@@ -25,6 +25,20 @@ export function toNonNegativeInteger(value: unknown, fallback = 0): number {
   return Math.trunc(value);
 }
 
+/**
+ * Coerce an optional non-negative integer that may be legitimately absent.
+ * Returns `null` for missing/non-finite/negative values (treated as "not
+ * measured"), otherwise `Math.trunc(value)`. Use for analytics fields that are
+ * only present when their anchoring events were observed (e.g. turn-latency
+ * breakdowns).
+ */
+export function toNullableNonNegativeInteger(value: unknown): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+  return Math.trunc(value);
+}
+
 export function coerceStringArray(value: unknown): string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')

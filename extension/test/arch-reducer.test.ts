@@ -724,6 +724,72 @@ test('reducer: MessageFinished resolves alias and merges into canonical message'
   assert.equal(result.effects.length, 0);
 });
 
+test('reducer: MessageFinished alias overwrites the canonical turn-latency breakdown with the latest segment', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    pending: {
+      ...initialArchState.pending,
+      messageIdAlias: { 'alias-lat': { canonicalId: 'canonical-lat', sessionPath: '/s' } },
+    },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{
+          id: 'canonical-lat', role: 'assistant' as const, createdAt: '', markdown: 'first', status: 'streaming' as const, parts: [], toolCalls: [],
+          // Prior segment's latency — must be overwritten by the continuation.
+          turnLatencyMs: 5_000, overheadMs: 1_000, providerLatencyMs: 4_000,
+        }],
+      },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+  };
+
+  // Continuation segment with its own (smaller) latency breakdown.
+  const message: ChatMessage = {
+    id: 'alias-lat', role: 'assistant', createdAt: '', markdown: ' done', status: 'completed',
+    turnLatencyMs: 800, overheadMs: 100, providerLatencyMs: 700,
+  };
+
+  const result = reducer(state, { kind: 'MessageFinished', sessionPath: '/s', message });
+  const canonical = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'canonical-lat');
+  assert.ok(canonical);
+  assert.equal(canonical!.turnLatencyMs, 800, 'latest segment latency overwrites the prior value');
+  assert.equal(canonical!.overheadMs, 100);
+  assert.equal(canonical!.providerLatencyMs, 700);
+});
+
+test('reducer: MessageFinished alias leaves prior latency intact when the continuation is unmeasured', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    pending: {
+      ...initialArchState.pending,
+      messageIdAlias: { 'alias-lat2': { canonicalId: 'canonical-lat2', sessionPath: '/s' } },
+    },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: {
+        '/s': [{
+          id: 'canonical-lat2', role: 'assistant' as const, createdAt: '', markdown: 'first', status: 'streaming' as const, parts: [], toolCalls: [],
+          turnLatencyMs: 800, overheadMs: 100, providerLatencyMs: 700,
+        }],
+      },
+      windowBySession: { '/s': { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true } },
+    },
+  };
+
+  // Continuation with no latency fields (e.g. produced no content delta).
+  const message: ChatMessage = {
+    id: 'alias-lat2', role: 'assistant', createdAt: '', markdown: ' done', status: 'completed',
+  };
+
+  const result = reducer(state, { kind: 'MessageFinished', sessionPath: '/s', message });
+  const canonical = result.state.transcript.bySession['/s']?.find((m: ChatMessage) => m.id === 'canonical-lat2');
+  assert.ok(canonical);
+  assert.equal(canonical!.turnLatencyMs, 800, 'unmeasured continuation does not clobber a prior reading');
+  assert.equal(canonical!.overheadMs, 100);
+  assert.equal(canonical!.providerLatencyMs, 700);
+});
+
 test('reducer: MessageFinished without alias upserts message directly', () => {
   const message: ChatMessage = {
     id: 'direct-id', role: 'assistant', createdAt: '', markdown: 'done', status: 'completed',

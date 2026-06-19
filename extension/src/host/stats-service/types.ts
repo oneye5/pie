@@ -7,7 +7,7 @@ import type {
 } from '../../shared/protocol';
 import type { ArchState } from '../core/arch-state';
 import type { Event } from '../core/events';
-import type { TaskBoundaryIntent, RunSnapshot, TurnThroughputStatus } from '../run-analytics';
+import type { TaskBoundaryIntent, RunSnapshot, TurnLatencyMeasurement, TurnThroughputStatus } from '../run-analytics';
 
 export type DispatchArchEvent = (event: Event) => void;
 export type GetArchState = () => ArchState;
@@ -32,6 +32,7 @@ export interface RunObserver {
     durationMs: number,
     usage?: AssistantUsage,
     status?: TurnThroughputStatus,
+    latency?: TurnLatencyMeasurement,
   ): void;
   onToolStarted(sessionPath: string, toolCall: ToolCall): void;
   onToolFinished(sessionPath: string, toolCall: ToolCall): void;

@@ -13,6 +13,22 @@ import type { SdkSessionEvent } from './sdk';
 import { mapAssistantMessage, mapCustomMessage } from './transcript';
 import type { SessionContext } from './server-types';
 
+/**
+ * Assistant-message streaming event types that count as the provider "replying
+ * with anything" — the first of these after a `message_start` stamps
+ * `providerFirstDeltaAt`, anchoring the provider-latency side of the turn-latency
+ * split. Covers text, thinking, and tool-call content blocks so pure tool-call
+ * turns (no text/thinking) are still measured.
+ */
+const FIRST_CONTENT_EVENT_TYPES = new Set([
+  'text_start',
+  'text_delta',
+  'thinking_start',
+  'thinking_delta',
+  'toolcall_start',
+  'toolcall_delta',
+]);
+
 export interface BackendSessionEventHandlerDeps {
   emit(event: string, payload?: unknown): void;
   emitBusyChanged(context: SessionContext, busy: boolean): void;
@@ -33,6 +49,19 @@ export function handleSdkSessionEvent(
       return;
     }
 
+    case 'turn_start': {
+      // `turn_start` fires at the start of every turn, before request building
+      // (`convertToLlm`, auth resolution) and the provider HTTP dispatch. It is
+      // the cleanest observable boundary between serial inter-turn work on our
+      // side and the provider request: overhead = turnBoundaryAt → turnStartedAt,
+      // provider = turnStartedAt → first reply token.
+      if (!context.activeRequest) {
+        return;
+      }
+      context.activeRequest.turnStartedAt = Date.now();
+      return;
+    }
+
     case 'message_start': {
       if (event.message?.role !== 'assistant' || !context.activeRequest) {
         return;
@@ -41,6 +70,9 @@ export function handleSdkSessionEvent(
       context.activeRequest.currentMessageId = `${context.activeRequest.id}:${context.activeRequest.messageIndex}`;
       context.activeRequest.lastAssistantMessageId = context.activeRequest.currentMessageId;
       context.activeRequest.currentMessageStartedAt = Date.now();
+      // Reset the per-message first-content marker so each assistant message
+      // measures its own provider TTFT.
+      context.activeRequest.providerFirstDeltaAt = undefined;
 
       deps.emit('message.started', {
         requestId: context.activeRequest.id,
@@ -78,6 +110,18 @@ export function handleSdkSessionEvent(
             thinking: thinkingContent,
           } satisfies MessageThinkingPayload);
         }
+      }
+
+      // Stamp the provider's first reply token for turn-latency measurement —
+      // the first content-block event (text/thinking/toolcall) after this turn's
+      // `message_start`. Stamped once per message (`message_start` resets it).
+      const assistantMessageEvent = event.assistantMessageEvent;
+      if (
+        assistantMessageEvent
+        && context.activeRequest.providerFirstDeltaAt === undefined
+        && FIRST_CONTENT_EVENT_TYPES.has(assistantMessageEvent.type)
+      ) {
+        context.activeRequest.providerFirstDeltaAt = Date.now();
       }
 
       deps.emitContextUsageChanged(context);
@@ -131,6 +175,11 @@ export function handleSdkSessionEvent(
       if (!context.activeRequest || !context.activeRequest.lastAssistantMessageId) {
         return;
       }
+
+      // Advance the turn-latency window origin to this tool's finish time. The
+      // most recent `tool_execution_end` wins, so parallel/sequential batches
+      // anchor on the last tool to finish.
+      context.activeRequest.turnBoundaryAt = Date.now();
 
       deps.emit('tool.finished', {
         requestId: context.activeRequest.id,
@@ -189,10 +238,32 @@ export function handleSdkSessionEvent(
       const durationMs = context.activeRequest.currentMessageStartedAt !== undefined
         ? Date.now() - context.activeRequest.currentMessageStartedAt
         : undefined;
+      // Turn-latency breakdown, anchored on turnBoundaryAt (last tool end, or
+      // prompt-send for the first turn) and turnStartedAt (SDK `turn_start`).
+      // The provider boundary is the first content delta (providerFirstDeltaAt).
+      // Each component is undefined when its anchoring event wasn't observed.
+      const turnBoundaryAt = context.activeRequest.turnBoundaryAt;
+      const turnStartedAt = context.activeRequest.turnStartedAt;
+      const providerFirstDeltaAt = context.activeRequest.providerFirstDeltaAt;
+      const turnLatencyMs =
+        providerFirstDeltaAt !== undefined && turnBoundaryAt !== undefined
+          ? Math.max(0, providerFirstDeltaAt - turnBoundaryAt)
+          : undefined;
+      const overheadMs =
+        turnStartedAt !== undefined && turnBoundaryAt !== undefined
+          ? Math.max(0, turnStartedAt - turnBoundaryAt)
+          : undefined;
+      const providerLatencyMs =
+        providerFirstDeltaAt !== undefined && turnStartedAt !== undefined
+          ? Math.max(0, providerFirstDeltaAt - turnStartedAt)
+          : undefined;
       context.activeRequest.currentMessageStartedAt = undefined;
       const message = mapAssistantMessage(messageId, event.message as any, durationMs, {
         modelId: context.activeRequest.modelId,
         thinkingLevel: context.activeRequest.thinkingLevel,
+        turnLatencyMs,
+        overheadMs,
+        providerLatencyMs,
       });
       deps.emit('message.finished', {
         requestId: context.activeRequest.id,

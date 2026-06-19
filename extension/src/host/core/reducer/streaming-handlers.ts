@@ -170,6 +170,14 @@ export function handleMessageFinished(state: ArchState, event: Extract<Event, { 
         if (normalizedMessage.durationMs !== undefined) {
           canonical.durationMs = (canonical.durationMs ?? 0) + normalizedMessage.durationMs;
         }
+        // Turn latency is a per-segment measurement (the gap before this
+        // segment's reply), so overwrite with the latest measurable value
+        // rather than accumulate — the indicator then reflects the most recent
+        // reply gap. Only overwrite when defined so an unmeasurable segment
+        // (e.g. one with no content delta) doesn't clobber a prior reading.
+        if (normalizedMessage.turnLatencyMs !== undefined) canonical.turnLatencyMs = normalizedMessage.turnLatencyMs;
+        if (normalizedMessage.overheadMs !== undefined) canonical.overheadMs = normalizedMessage.overheadMs;
+        if (normalizedMessage.providerLatencyMs !== undefined) canonical.providerLatencyMs = normalizedMessage.providerLatencyMs;
         mergeContinuationToolCalls(canonical, normalizedMessage);
       }
     } else {
