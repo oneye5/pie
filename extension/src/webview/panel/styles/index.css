@@ -6,6 +6,7 @@
 @import './transcript.css';
 @import './inline-editor.css';
 @import './tool-call.css';
+@import './highlight.css';
 @import './composer.css';
 @import './model-picker.css';
 @import './context-menu.css';

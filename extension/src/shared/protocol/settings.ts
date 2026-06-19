@@ -96,6 +96,10 @@ export interface ChatPrefs {
   /** When true, sub-agents always use the parent's active model (skip bucket selection). */
   subagentAlwaysParentModel: boolean;
   completionSoundVolume: number;
+  /** Font size (px) for expanded collapsible sections — tool-call bodies,
+   *  reasoning, system prompts, pruning raw output, and code blocks. Smaller
+   *  than the 13px raw agent output since expanded text is lower priority. */
+  expandedSectionFontSize: number;
   /** Per-extension enabled/disabled toggles. Keys are extension IDs. */
   extensionToggles: Record<string, boolean>;
   /** Per-provider enabled/disabled toggles. Keys are provider names. */
@@ -134,6 +138,7 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   showPruningMessages: true,
   subagentAlwaysParentModel: false,
   completionSoundVolume: 50,
+  expandedSectionFontSize: 12,
   extensionToggles: {},
   providerToggles: {},
 };

@@ -5,12 +5,14 @@ import type { JSX } from 'preact';
 
 import type { PruningDetails } from '../../../shared/protocol';
 import { pruningTotals } from './pruning';
-import { DisclosureChevron } from '../components/chevron';
+import { Disclosure } from '../components/disclosure';
+import { ResizablePre } from '../components/resizable-pre';
+import { highlightToolResultText } from './highlight';
 
 interface PruningDiagnosticsProps {
   details: PruningDetails;
   rawExpanded: boolean;
-  onRawToggle: (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => void;
+  onRawToggle: () => void;
   presentation: 'panel' | 'inline';
 }
 
@@ -72,7 +74,9 @@ function RawBlock({ label, children }: { label: string; children: string }) {
   return (
     <div class="pruning-raw-block">
       <span class="pruning-detail-hint">{label}</span>
-      <pre class="pruning-raw-pre">{children}</pre>
+      <ResizablePre class="pruning-raw-pre hljs-scope" minHeight={80}>
+        <code class="hljs" dangerouslySetInnerHTML={{ __html: highlightToolResultText(children) }} />
+      </ResizablePre>
     </div>
   );
 }
@@ -104,24 +108,24 @@ function PruningDiagnosticsContent({ details, rawExpanded, onRawToggle }: Omit<P
       {details.prepassFailOpenReason && <DetailRow label="Fail-open">{details.prepassFailOpenReason}</DetailRow>}
       <div class="pruning-detail-row">
         <span class="pruning-detail-hint">Reasoning</span>
-        <pre class="pruning-raw-pre">{diagnosticText(details.prepassThinking, '∅ No reasoning returned')}</pre>
+        <ResizablePre class="pruning-raw-pre hljs-scope" minHeight={80}>
+          <code class="hljs" dangerouslySetInnerHTML={{ __html: highlightToolResultText(diagnosticText(details.prepassThinking, '∅ No reasoning returned')) }} />
+        </ResizablePre>
       </div>
       <div class="pruning-raw-toggle">
-        <button
-          class="pruning-raw-toggle-button"
-          type="button"
-          aria-expanded={rawExpanded}
-          onClick={onRawToggle}
+        <Disclosure
+          open={rawExpanded}
+          onToggle={() => onRawToggle()}
+          ariaLabel="Toggle prepass prompts and output"
+          class="pruning-raw-toggle-disclosure"
+          headerClass="pruning-raw-toggle-button"
+          bodyClass="pruning-raw-content"
+          header={<span>Prepass prompts and output</span>}
         >
-          <DisclosureChevron open={rawExpanded} /> Prepass prompts and output
-        </button>
-        {rawExpanded && (
-          <div class="pruning-raw-content">
-            <RawBlock label="System prompt">{diagnosticText(details.prepassSystemPrompt, '∅ No system prompt captured')}</RawBlock>
-            <RawBlock label="User prompt">{diagnosticText(details.prepassUserMessage, '∅ No user prompt captured')}</RawBlock>
-            <RawBlock label="Raw LLM output">{diagnosticText(details.prepassResponse, '∅ Empty response')}</RawBlock>
-          </div>
-        )}
+          <RawBlock label="System prompt">{diagnosticText(details.prepassSystemPrompt, '∅ No system prompt captured')}</RawBlock>
+          <RawBlock label="User prompt">{diagnosticText(details.prepassUserMessage, '∅ No user prompt captured')}</RawBlock>
+          <RawBlock label="Raw LLM output">{diagnosticText(details.prepassResponse, '∅ Empty response')}</RawBlock>
+        </Disclosure>
       </div>
     </div>
   );

@@ -11,10 +11,16 @@ import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../util
 import { useEffect, useRef, useState } from 'preact/hooks';
 
 import { ClickablePathButton } from '../file-path';
+import { DisclosureChevron } from '../components/chevron';
+import { ResizeHandle } from '../components/resize-handle';
+import { ResizablePre } from '../components/resizable-pre';
+import { useResizableHeight } from '../components/use-resizable-height';
 import { formatDuration } from './header';
 import {
   formatValueAsHighlightedYaml,
+  highlightToolResultText,
   isTextOnlyToolResult,
+  languageForToolInput,
   textFromToolResult,
 } from './highlight';
 import { StatusChip } from './status-chip';
@@ -348,16 +354,17 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
           copyAriaLabel={errorDetail ? 'Copy tool-call error detail' : undefined}
         />
       )}
+      <DisclosureChevron open={open} class="ml-0.5 shrink-0" />
     </div>
   );
 }
 
 function TerminalOutput({ text, running }: { text: string; running: boolean }) {
-  const preRef = useRef<HTMLPreElement>(null);
+  const { scrollRef, height, startResize } = useResizableHeight<HTMLPreElement>();
   const stickToBottomRef = useRef(true);
 
   const handleScroll = () => {
-    const el = preRef.current;
+    const el = scrollRef.current;
     if (!el) return;
     stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= 48;
   };
@@ -365,16 +372,25 @@ function TerminalOutput({ text, running }: { text: string; running: boolean }) {
   // Keep the pane pinned to the latest output as it streams in, unless the
   // user has scrolled up to read earlier output.
   useEffect(() => {
-    const el = preRef.current;
+    const el = scrollRef.current;
     if (!el || !stickToBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [text]);
 
   return (
-    <pre ref={preRef} class="tool-call-terminal-pre" onScroll={handleScroll}>
-      <code>{text}</code>
-      {running && <span class="tool-call-terminal-cursor" aria-hidden="true" />}
-    </pre>
+    <div class="resizable-scroll-area">
+      <ResizeHandle edge="top" onMouseDown={startResize('top')} />
+      <pre
+        ref={scrollRef}
+        class="tool-call-terminal-pre"
+        onScroll={handleScroll}
+        style={height ? { height: `${height}px`, maxHeight: 'none' } : undefined}
+      >
+        <code>{text}</code>
+        {running && <span class="tool-call-terminal-cursor" aria-hidden="true" />}
+      </pre>
+      <ResizeHandle edge="bottom" onMouseDown={startResize('bottom')} />
+    </div>
   );
 }
 
@@ -406,9 +422,9 @@ function ToolCallBody({ toolCall }: ToolCallBodyProps) {
     return (
       <div class="tool-call-body tool-call-body-terminal" onClick={(e) => e.stopPropagation()}>
         {command && (
-          <div class="tool-call-terminal-command" title={command}>
+          <div class="tool-call-terminal-command hljs-scope" title={command}>
             <span class="tool-call-terminal-prompt" aria-hidden="true">$</span>
-            <code>{command}</code>
+            <code class="hljs language-bash" dangerouslySetInnerHTML={{ __html: highlightToolResultText(command, 'bash') }} />
           </div>
         )}
         <div class="tool-call-terminal" data-running={isRunning ? 'true' : undefined}>
@@ -429,6 +445,19 @@ function ToolCallBody({ toolCall }: ToolCallBodyProps) {
 
   const resultText = textFromToolResult(toolCall.result);
   const resultIsTextOnly = isTextOnlyToolResult(toolCall.result);
+  // Infer a highlight language for file-content tools (read/grep/glob/find/cat)
+  // from the tool's input path. edit/write results are short confirmations,
+  // so they fall through to plain/JSON-detect highlighting.
+  const normalizedName = normalizeToolCallName(toolCall.name);
+  const isFileContentTool =
+    normalizedName === 'read'
+    || normalizedName === 'cat'
+    || normalizedName === 'grep'
+    || normalizedName === 'glob'
+    || normalizedName === 'find';
+  const resultLanguageHint = isFileContentTool
+    ? languageForToolInput(toolCall.name, toolCall.input)
+    : undefined;
 
   return (
     <div class="tool-call-body" onClick={(e) => e.stopPropagation()}>
@@ -437,8 +466,8 @@ function ToolCallBody({ toolCall }: ToolCallBodyProps) {
         {isEmptyToolCallInput(toolCall.input) ? (
           <div class="tool-call-empty">(no input)</div>
         ) : (
-          <pre class="tool-call-pre tool-call-code">
-            <code class="language-yaml" dangerouslySetInnerHTML={{ __html: formatValueAsHighlightedYaml(toolCall.input) }} />
+          <pre class="tool-call-pre hljs-scope">
+            <code class="hljs language-yaml" dangerouslySetInnerHTML={{ __html: formatValueAsHighlightedYaml(toolCall.input) }} />
           </pre>
         )}
       </div>
@@ -446,11 +475,13 @@ function ToolCallBody({ toolCall }: ToolCallBodyProps) {
         <div class="tool-call-section">
           <div class="tool-call-section-label">Result</div>
           {resultIsTextOnly && resultText !== undefined ? (
-            <pre class="tool-call-pre"><code>{resultText}</code></pre>
+            <ResizablePre class="tool-call-pre tool-call-pre-resizable hljs-scope" minHeight={80}>
+              <code class="hljs" dangerouslySetInnerHTML={{ __html: highlightToolResultText(resultText, resultLanguageHint) }} />
+            </ResizablePre>
           ) : (
-            <pre class="tool-call-pre tool-call-code">
-              <code class="language-yaml" dangerouslySetInnerHTML={{ __html: formatValueAsHighlightedYaml(toolCall.result) }} />
-            </pre>
+            <ResizablePre class="tool-call-pre tool-call-pre-resizable hljs-scope" minHeight={80}>
+              <code class="hljs language-yaml" dangerouslySetInnerHTML={{ __html: formatValueAsHighlightedYaml(toolCall.result) }} />
+            </ResizablePre>
           )}
         </div>
       )}

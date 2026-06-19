@@ -27,11 +27,13 @@ test('renderMarkdown wraps fenced code with a language label and copy button', a
   const renderMarkdown = await loadRenderMarkdown();
   const html = renderMarkdown('```ts\nconst x = 1;\n```');
 
-  assert.match(html, /class="code-block"/);
-  assert.match(html, /class="code-block-lang">ts</);
+  assert.match(html, /class="code-block hljs-scope"/);
+  assert.match(html, /class="code-block-lang">typescript</);
   assert.match(html, /class="code-block-copy"[^>]*aria-label="Copy code"/);
-  assert.match(html, /<code class="language-ts">/);
-  assert.match(html, /const x = 1;/);
+  assert.match(html, /<code class="hljs language-typescript">/);
+  assert.match(html, /<span class="hljs-keyword">const<\/span>/);
+  assert.match(html, /<span class="hljs-number">1<\/span>/);
+  assert.match(html, / x = /);
   // Short blocks are not collapsible.
   assert.doesNotMatch(html, /code-block-collapsible/);
   assert.doesNotMatch(html, /code-block-toggle/);
@@ -42,7 +44,7 @@ test('renderMarkdown collapses long code blocks with a show-all toggle', async (
   const lines = Array.from({ length: 25 }, (_, i) => `line${i}`).join('\n');
   const html = renderMarkdown('```\n' + lines + '\n```');
 
-  assert.match(html, /code-block code-block-collapsible code-block-collapsed/);
+  assert.match(html, /code-block code-block-collapsible code-block-collapsed hljs-scope/);
   assert.match(html, /class="code-block-toggle"[^>]*aria-expanded="false">Show all 25 lines</);
 });
 

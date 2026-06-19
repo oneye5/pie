@@ -1,6 +1,8 @@
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 
+import { highlightCodeBlock } from './transcript/highlight';
+
 marked.setOptions({ breaks: true, gfm: true });
 
 /** Code blocks taller than this are collapsed by default with a "show all" toggle. */
@@ -17,26 +19,29 @@ function escapeHtml(value: string): string {
 marked.use({
   renderer: {
     code({ text, lang }: { text: string; lang?: string }) {
-      const language = (lang || '').trim().split(/\s+/)[0] ?? '';
-      const escaped = escapeHtml(text);
+      const { html, language } = highlightCodeBlock(text, lang);
       const lineCount = text.split('\n').length;
       const collapsible = lineCount > LONG_CODE_LINE_THRESHOLD;
-      const langClass = language ? ` class="language-${escapeHtml(language)}"` : '';
+      const langLabel = language ?? (lang || '').trim().split(/\s+/)[0] ?? '';
+      // `hljs-scope` on the wrapper scopes the shared hljs token theme
+      // (styles/highlight.css) to this block. `language-X` is kept for
+      // external tooling / copy semantics.
+      const codeClass = `hljs${language ? ` language-${escapeHtml(language)}` : ''}`;
       const header =
         '<div class="code-block-header">' +
-        `<span class="code-block-lang">${language ? escapeHtml(language) : ''}</span>` +
+        `<span class="code-block-lang">${langLabel ? escapeHtml(langLabel) : ''}</span>` +
         '<button class="code-block-copy" type="button" aria-label="Copy code">Copy</button>' +
         '</div>';
       const toggle = collapsible
         ? `<button class="code-block-toggle" type="button" aria-expanded="false">Show all ${lineCount} lines</button>`
         : '';
       const wrapperClass = collapsible
-        ? 'code-block code-block-collapsible code-block-collapsed'
-        : 'code-block';
+        ? 'code-block code-block-collapsible code-block-collapsed hljs-scope'
+        : 'code-block hljs-scope';
       return (
         `<div class="${wrapperClass}">` +
         header +
-        `<pre><code${langClass}>${escaped}</code></pre>` +
+        `<pre><code class="${codeClass}">${html}</code></pre>` +
         toggle +
         '</div>'
       );

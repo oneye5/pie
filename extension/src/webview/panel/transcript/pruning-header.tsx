@@ -27,7 +27,7 @@ interface PruningHeaderButtonProps {
 interface PruningHeaderPanelProps {
   details: PruningDetails;
   rawExpanded: boolean;
-  onRawToggle: (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => void;
+  onRawToggle: () => void;
 }
 
 function formatPruningChipLabel(details: PruningDetails, fallbackText?: string): string {

@@ -276,7 +276,6 @@
   background: var(--panel-code-surface);
   color: color-mix(in srgb, var(--panel-foreground) 80%, transparent);
   font-family: var(--panel-font-mono);
-  font-size: 10.5px;
   line-height: 1.35;
   white-space: pre-wrap;
   overflow-wrap: anywhere;

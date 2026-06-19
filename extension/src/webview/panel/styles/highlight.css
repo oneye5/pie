@@ -1,0 +1,208 @@
+/* ── Shared syntax-highlighting theme + expanded-section typography ──────── */
+/* Consumed by tool-call bodies, markdown code blocks, and pruning raw output.
+   The hljs token palette is scoped to `.hljs-scope` (added to every highlighted
+   container) so it adapts to the panel palette without shipping a full hljs
+   stylesheet. `--expanded-font-size` is the user-tweakable font size for
+   expanded collapsible sections (tool calls, reasoning, system prompts,
+   pruning, code blocks); the host sets it from the `expandedSectionFontSize`
+   chat pref. Default 12px (smaller than the 13px raw agent output). */
+
+:root {
+  --expanded-font-size: 12px;
+}
+
+/* ── Expanded-section font size ──────────────────────────────────────────── */
+/* Applied to expanded code/data + collapsible-section prose only. Raw agent
+   message prose (.message-body outside a disclosure) stays at 13px. */
+
+.tool-call-terminal-pre,
+.tool-call-pre,
+.pruning-raw-pre,
+.pruning-banner-raw-pre,
+.code-block > pre,
+.code-block code {
+  font-size: var(--expanded-font-size);
+}
+
+/* Collapsible-section prose (reasoning, system prompts, pruning detail) uses
+   the same tweakable size. .message-body inside a disclosure inherits it
+   instead of forcing its own 13px. */
+.disclosure-body {
+  font-size: var(--expanded-font-size);
+}
+
+.disclosure-body .message-body {
+  font-size: inherit;
+}
+
+/* ── hljs token theme (scoped to .hljs-scope) ───────────────────────────── */
+
+.hljs-scope .hljs {
+  color: var(--panel-foreground);
+}
+
+.hljs-scope .hljs-comment,
+.hljs-scope .hljs-quote {
+  color: var(--panel-muted);
+  font-style: italic;
+}
+
+.hljs-scope .hljs-keyword,
+.hljs-scope .hljs-literal,
+.hljs-scope .hljs-symbol,
+.hljs-scope .hljs-bullet {
+  color: var(--panel-accent-strong);
+}
+
+.hljs-scope .hljs-string,
+.hljs-scope .hljs-char,
+.hljs-scope .hljs-regexp {
+  color: var(--panel-success);
+}
+
+.hljs-scope .hljs-number,
+.hljs-scope .hljs-attr,
+.hljs-scope .hljs-attribute {
+  color: var(--panel-warning);
+}
+
+.hljs-scope .hljs-boolean {
+  color: var(--panel-danger);
+}
+
+.hljs-scope .hljs-built_in,
+.hljs-scope .hljs-type,
+.hljs-scope .hljs-title,
+.hljs-scope .hljs-title.function_,
+.hljs-scope .hljs-name,
+.hljs-scope .hljs-section {
+  color: #7bd8d0;
+}
+
+.hljs-scope .hljs-meta,
+.hljs-scope .hljs-punctuation,
+.hljs-scope .hljs-operator {
+  color: var(--panel-muted);
+}
+
+.hljs-scope .hljs-variable,
+.hljs-scope .hljs-template-variable {
+  color: var(--panel-foreground-soft);
+}
+
+/* ── Generic disclosure affordance ───────────────────────────────────────── */
+/* Consistent expand/collapse affordance for transcript sections. The header
+   is a real `<button>` (native keyboard + a11y) carrying a trailing rotating
+   chevron, hover/focus states, and `aria-expanded`; the body is a sibling.
+   Callers add card/layout classes via `class`/`headerClass`/`bodyClass`.
+
+   These base rules live in the `base` cascade layer (below Tailwind
+   `utilities` and below the unlayered component stylesheets) so a caller's
+   Tailwind padding/background classes and site classes (e.g.
+   `.pruning-banner-summary`) can override the button reset. */
+
+@layer base {
+  .disclosure {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .disclosure-header {
+    /* <button> reset so it behaves like a plain flex row */
+    appearance: none;
+    background: none;
+    border: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    border-radius: var(--panel-radius-md);
+    transition: background var(--panel-transition-fast);
+  }
+
+  .disclosure-header:hover {
+    background: var(--panel-control-hover);
+  }
+
+  .disclosure-header:focus-visible {
+    outline: 1px solid var(--panel-accent);
+    outline-offset: 2px;
+  }
+
+  .disclosure-header-content {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+
+  .disclosure-body {
+    user-select: text;
+    cursor: auto;
+  }
+}
+
+/* ── Vertical resize handles (top + bottom) ────────────────────────────── */
+/* Bracket any scrollable expanded section so users can grow the visible slice
+   in place from either edge. Mirrors the original subagent top handle. */
+
+.resizable-scroll-area {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.resizable-scroll-area-scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+  /* No default height: the site class (e.g. .tool-call-terminal-pre's
+     max-height, .subagent-messages-scroll's height) provides the initial
+     size; a user drag overrides it via an inline height. */
+}
+
+.resize-handle {
+  flex: 0 0 auto;
+  height: 6px;
+  width: 100%;
+  cursor: row-resize;
+  background: transparent;
+  border-top: 1px solid transparent;
+  border-bottom: 1px solid transparent;
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast);
+}
+
+.resize-handle-top {
+  border-top-color: var(--panel-border-subtle);
+}
+
+.resize-handle-bottom {
+  border-bottom-color: var(--panel-border-subtle);
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background: color-mix(in srgb, var(--panel-accent) 22%, transparent);
+  border-top-color: var(--panel-accent);
+  border-bottom-color: var(--panel-accent);
+}
+
+@media (forced-colors: active) {
+  .resize-handle {
+    border-top-color: ButtonText;
+    border-bottom-color: ButtonText;
+  }
+}

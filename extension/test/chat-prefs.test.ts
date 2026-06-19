@@ -20,6 +20,7 @@ const prefs: ChatPrefs = {
   showPruningMessages: true,
   subagentAlwaysParentModel: false,
   completionSoundVolume: 50,
+  expandedSectionFontSize: 12,
   extensionToggles: {},
   providerToggles: {},
 };
@@ -67,6 +68,7 @@ test('toggle helpers return partial pref patches without mutating source prefs',
     showPruningMessages: true,
     subagentAlwaysParentModel: false,
     completionSoundVolume: 50,
+    expandedSectionFontSize: 12,
     extensionToggles: {},
     providerToggles: {},
   });

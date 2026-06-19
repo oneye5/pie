@@ -88,6 +88,30 @@ function SoundSection({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnS
   );
 }
 
+function ExpandedSectionFontSizeSection({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnSetPrefs }) {
+  return (
+    <div key="expanded-font-size" class="toolbar-settings-section">
+      <div class="toolbar-settings-section-label">Expanded Section Text</div>
+      <div class="toolbar-settings-list">
+        <div class="toolbar-settings-item toolbar-settings-mode-row">
+          <span class="toolbar-settings-item-label">{prefs.expandedSectionFontSize}px</span>
+          <input
+            type="range"
+            class="toolbar-settings-slider"
+            min="9"
+            max="18"
+            step="1"
+            value={prefs.expandedSectionFontSize}
+            onInput={(e) => onSetPrefs({ expandedSectionFontSize: Number((e.target as HTMLInputElement).value) })}
+            aria-label="Expanded section font size"
+          />
+        </div>
+        <div class="toolbar-settings-item-hint">Font size for tool-call output, reasoning, system prompts, and code blocks.</div>
+      </div>
+    </div>
+  );
+}
+
 interface SkillPrunerSettingsProps {
   prefs: ChatPrefs;
   pruningSettings: PruningSettings;
@@ -485,6 +509,7 @@ export function AlwaysKeepPicker({ label, selected, catalog, category, onChange 
 
 export {
   ChatPrefSections,
+  ExpandedSectionFontSizeSection,
   SoundSection,
   ExtensionsSection,
   ProvidersSection,

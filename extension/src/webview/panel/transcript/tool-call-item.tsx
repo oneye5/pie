@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useContext, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useContext, useEffect, useMemo, useRef } from 'preact/hooks';
 import type { ChatPrefs, ToolCall } from '../../../shared/protocol';
 import { summarizeSubagentToolCallInput } from '../../../shared/tool-call-analysis';
 import { shouldOpenSubagentContextMenu } from './interactions';
@@ -10,6 +10,8 @@ import { getToolCallContextType } from '../chat-prefs';
 import { AskUserContext } from '../hooks/ask-user-context';
 
 import { cx } from '../utils/cx';
+import { ResizeHandle } from '../components/resize-handle';
+import { useResizableHeight } from '../components/use-resizable-height';
 import {
   getRenderableSubagentResultFromToolCall,
   subagentSingleResultToChatMessages,
@@ -203,9 +205,8 @@ function SubagentMessages({
     [singleResult, toolCall.id, index],
   );
   const nestedDisclosureDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const { scrollRef, height, startResize } = useResizableHeight<HTMLDivElement>();
   const stickToBottomRef = useRef(true);
-  const [height, setHeight] = useState<number | null>(null);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -220,31 +221,6 @@ function SubagentMessages({
     if (!el || !stickToBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [messages]);
-
-  const startResize = (e: MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const startY = e.clientY;
-    const startH = scrollRef.current?.clientHeight ?? 300;
-    const onMove = (ev: MouseEvent) => {
-      const next = Math.max(
-        120,
-        Math.min(Math.round(window.innerHeight * 0.8), startH + (startY - ev.clientY)),
-      );
-      stickToBottomRef.current = true;
-      setHeight(next);
-    };
-    const onUp = () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    document.body.style.cursor = 'row-resize';
-    document.body.style.userSelect = 'none';
-  };
 
   return (
     <div
@@ -267,19 +243,12 @@ function SubagentMessages({
       }}
       onKeyDown={(e) => e.stopPropagation()}
     >
-      <div
-        class="subagent-resize-handle"
-        onMouseDown={startResize}
-        title="Drag to resize"
-        role="separator"
-        aria-orientation="horizontal"
-        tabIndex={-1}
-      />
+      <ResizeHandle edge="top" onMouseDown={startResize('top')} />
       <div
         class="subagent-messages-scroll"
         ref={scrollRef}
         onScroll={handleScroll}
-        style={height ? { height: `${height}px` } : undefined}
+        style={height ? { height: `${height}px`, maxHeight: 'none' } : undefined}
       >
         {singleResult.selectionPool && singleResult.selectionPool.length > 0 && (
           <div class="subagent-model-selection">
@@ -312,6 +281,7 @@ function SubagentMessages({
           disclosureKey={nestedDisclosureDefaultsKey}
         />
       </div>
+      <ResizeHandle edge="bottom" onMouseDown={startResize('bottom')} />
     </div>
   );
 }

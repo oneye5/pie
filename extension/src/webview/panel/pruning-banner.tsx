@@ -4,7 +4,10 @@
 import { useState } from 'preact/hooks';
 
 import type { PruningResult } from '../../shared/protocol';
-import { DisclosureChevron } from './components/chevron';
+import { cx } from './utils/cx';
+import { Disclosure } from './components/disclosure';
+import { ResizablePre } from './components/resizable-pre';
+import { highlightToolResultText } from './transcript/highlight';
 
 interface PruningBannerProps {
   pruningResult: PruningResult;
@@ -33,26 +36,24 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
   // Error state
   if (error) {
     return (
-      <div
-        class={`pruning-banner pruning-banner-error${expanded ? ' pruning-banner-expanded' : ' pruning-banner-collapsed'}`}
+      <Disclosure
+        open={expanded}
+        onToggle={setExpanded}
+        ariaLabel="Toggle pruning error details"
+        class={cx('pruning-banner pruning-banner-error', expanded ? 'pruning-banner-expanded' : 'pruning-banner-collapsed')}
+        headerClass="pruning-banner-summary"
+        bodyClass="pruning-banner-detail"
+        header={
+          <>
+            <span class="pruning-banner-icon" aria-hidden="true">⚠</span>
+            <span class="pruning-banner-text">Pruning failed</span>
+          </>
+        }
       >
-        <button
-          type="button"
-          class="pruning-banner-summary"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
-        >
-          <span class="pruning-banner-icon" aria-hidden="true">⚠</span>
-          <span class="pruning-banner-text">Pruning failed</span>
-        </button>
-        {expanded && (
-          <div class="pruning-banner-detail">
-            <div class="pruning-banner-detail-row">
-              <span class="pruning-banner-detail-text pruning-banner-error-text">{error}</span>
-            </div>
-          </div>
-        )}
-      </div>
+        <div class="pruning-banner-detail-row">
+          <span class="pruning-banner-detail-text pruning-banner-error-text">{error}</span>
+        </div>
+      </Disclosure>
     );
   }
 
@@ -67,91 +68,89 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
   const summaryText = `${summaryCore}${tokenSuffix}`;
 
   return (
-    <div
-      class={`pruning-banner${expanded ? ' pruning-banner-expanded' : ' pruning-banner-collapsed'}`}
+    <Disclosure
+      open={expanded}
+      onToggle={setExpanded}
+      ariaLabel="Toggle pruning details"
+      class={cx('pruning-banner', expanded ? 'pruning-banner-expanded' : 'pruning-banner-collapsed')}
+      headerClass="pruning-banner-summary"
+      bodyClass="pruning-banner-detail"
+      header={
+        <>
+          <span class="pruning-banner-icon" aria-hidden="true">✂</span>
+          <span class="pruning-banner-text">{summaryText}</span>
+        </>
+      }
     >
-      <button
-        type="button"
-        class="pruning-banner-summary"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((v) => !v)}
-      >
-        <span class="pruning-banner-icon" aria-hidden="true">✂</span>
-        <span class="pruning-banner-text">{summaryText}</span>
-      </button>
-      {expanded && (
-        <div class="pruning-banner-detail">
-          {details ? (
-            <>
-              {details.excludedSkills.length > 0 && (
-                <div class="pruning-banner-detail-row">
-                  <span class="pruning-banner-hint">Skills pruned</span>
-                  <span class="pruning-banner-detail-text">{details.excludedSkills.join(', ')}</span>
-                </div>
-              )}
-              {details.includedSkills.length > 0 && (
-                <div class="pruning-banner-detail-row">
-                  <span class="pruning-banner-hint">Skills kept</span>
-                  <span class="pruning-banner-detail-text">{details.includedSkills.join(', ')}</span>
-                </div>
-              )}
-              {details.excludedTools.length > 0 && (
-                <div class="pruning-banner-detail-row">
-                  <span class="pruning-banner-hint">Tools pruned</span>
-                  <span class="pruning-banner-detail-text">{details.excludedTools.join(', ')}</span>
-                </div>
-              )}
-              {(details.prepassSystemPrompt || details.prepassResponse) && (
-                <div class={`pruning-banner-raw-toggle${rawExpanded ? ' pruning-banner-raw-expanded' : ''}`}>
-                  <button
-                    type="button"
-                    class="pruning-banner-raw-toggle-text"
-                    aria-expanded={rawExpanded}
-                    onClick={() => setRawExpanded((v) => !v)}
-                  >
-                    <DisclosureChevron open={rawExpanded} /> Raw LLM output
-                  </button>
-                  {rawExpanded && (
-                    <div class="pruning-banner-raw-content">
-                      {details.prepassSystemPrompt && (
-                        <div class="pruning-banner-raw-section">
-                          <span class="pruning-banner-hint">System prompt</span>
-                          <pre class="pruning-banner-raw-pre">{details.prepassSystemPrompt}</pre>
-                        </div>
-                      )}
-                      {details.prepassResponse && (
-                        <div class="pruning-banner-raw-section">
-                          <span class="pruning-banner-hint">LLM reply</span>
-                          <pre class="pruning-banner-raw-pre">{details.prepassResponse}</pre>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              )}
-            </>
-          ) : (
-            <>
-              <div class="pruning-banner-detail-row">
-                <span class="pruning-banner-hint">Skill pruning</span>
-                <span class="pruning-banner-detail-text">
-                  {hasSkillPruning
-                    ? 'Skills pruned by relevance score (low-scoring skills removed before injection)'
-                    : 'No skills were pruned'}
-                </span>
-              </div>
-              <div class="pruning-banner-detail-row">
-                <span class="pruning-banner-hint">Tool pruning</span>
-                <span class="pruning-banner-detail-text">
-                  {hasToolPruning
-                    ? 'Tools pruned by tier (only high-tier request_tools included)'
-                    : 'No tools were pruned'}
-                </span>
-              </div>
-            </>
+      {details ? (
+        <>
+          {details.excludedSkills.length > 0 && (
+            <div class="pruning-banner-detail-row">
+              <span class="pruning-banner-hint">Skills pruned</span>
+              <span class="pruning-banner-detail-text">{details.excludedSkills.join(', ')}</span>
+            </div>
           )}
-        </div>
+          {details.includedSkills.length > 0 && (
+            <div class="pruning-banner-detail-row">
+              <span class="pruning-banner-hint">Skills kept</span>
+              <span class="pruning-banner-detail-text">{details.includedSkills.join(', ')}</span>
+            </div>
+          )}
+          {details.excludedTools.length > 0 && (
+            <div class="pruning-banner-detail-row">
+              <span class="pruning-banner-hint">Tools pruned</span>
+              <span class="pruning-banner-detail-text">{details.excludedTools.join(', ')}</span>
+            </div>
+          )}
+          {(details.prepassSystemPrompt || details.prepassResponse) && (
+            <Disclosure
+              open={rawExpanded}
+              onToggle={setRawExpanded}
+              ariaLabel="Toggle raw LLM output"
+              class="pruning-banner-raw-toggle"
+              headerClass="pruning-banner-raw-toggle-text"
+              bodyClass="pruning-banner-raw-content"
+              header={<span>Raw LLM output</span>}
+            >
+              {details.prepassSystemPrompt && (
+                <div class="pruning-banner-raw-section">
+                  <span class="pruning-banner-hint">System prompt</span>
+                  <ResizablePre class="pruning-banner-raw-pre hljs-scope" minHeight={80}>
+                    <code class="hljs" dangerouslySetInnerHTML={{ __html: highlightToolResultText(details.prepassSystemPrompt) }} />
+                  </ResizablePre>
+                </div>
+              )}
+              {details.prepassResponse && (
+                <div class="pruning-banner-raw-section">
+                  <span class="pruning-banner-hint">LLM reply</span>
+                  <ResizablePre class="pruning-banner-raw-pre hljs-scope" minHeight={80}>
+                    <code class="hljs" dangerouslySetInnerHTML={{ __html: highlightToolResultText(details.prepassResponse) }} />
+                  </ResizablePre>
+                </div>
+              )}
+            </Disclosure>
+          )}
+        </>
+      ) : (
+        <>
+          <div class="pruning-banner-detail-row">
+            <span class="pruning-banner-hint">Skill pruning</span>
+            <span class="pruning-banner-detail-text">
+              {hasSkillPruning
+                ? 'Skills pruned by relevance score (low-scoring skills removed before injection)'
+                : 'No skills were pruned'}
+            </span>
+          </div>
+          <div class="pruning-banner-detail-row">
+            <span class="pruning-banner-hint">Tool pruning</span>
+            <span class="pruning-banner-detail-text">
+              {hasToolPruning
+                ? 'Tools pruned by tier (only high-tier request_tools included)'
+                : 'No tools were pruned'}
+            </span>
+          </div>
+        </>
       )}
-    </div>
+    </Disclosure>
   );
 }

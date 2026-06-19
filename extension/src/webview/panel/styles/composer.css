@@ -436,6 +436,13 @@
   accent-color: var(--panel-accent);
 }
 
+.toolbar-settings-item-hint {
+  padding: 2px 4px 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--panel-muted);
+}
+
 .toolbar-settings-test-btn {
   background: none;
   border: 1px solid var(--panel-border-subtle);

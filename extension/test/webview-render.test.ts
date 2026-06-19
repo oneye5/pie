@@ -1073,7 +1073,7 @@ test('rendered PruningBanner uses real buttons, shows at-a-glance counts, and hi
   const html = renderToString(h(PruningBanner, { pruningResult }));
 
   // Accessible disclosure button
-  assert.match(html, /<button[^>]*class="pruning-banner-summary"[^>]*>/);
+  assert.match(html, /<button[^>]*pruning-banner-summary[^>]*>/);
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /role="button"/);
 
@@ -1102,7 +1102,7 @@ test('rendered PruningBanner uses real buttons, shows at-a-glance counts, and hi
   }));
 
   assert.match(errorHtml, /Pruning failed/);
-  assert.match(errorHtml, /<button[^>]*class="pruning-banner-summary"[^>]*>/);
+  assert.match(errorHtml, /<button[^>]*pruning-banner-summary[^>]*>/);
   assert.match(errorHtml, /aria-expanded="false"/);
   assert.doesNotMatch(errorHtml, /role="button"/);
 });

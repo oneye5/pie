@@ -5,7 +5,7 @@ import { useState } from 'preact/hooks';
 
 import type { PruningDetails } from '../../../shared/protocol';
 import { PruningDiagnostics } from './pruning-details';
-import { DisclosureChevron } from '../components/chevron';
+import { Disclosure } from '../components/disclosure';
 
 interface PruningInlineCardProps {
   details: PruningDetails;
@@ -58,24 +58,27 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
         </div>
       </div>
       <div class="rounded-lg bg-accent/5 p-2.5 text-xs leading-relaxed">
-        <button
-          class="flex w-full min-w-0 cursor-pointer select-none items-center gap-2 rounded-sm text-left text-foreground focus-visible:outline-1 focus-visible:outline-accent focus-visible:outline-offset-2"
-          type="button"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((v) => !v)}
+        <Disclosure
+          open={expanded}
+          onToggle={setExpanded}
+          ariaLabel="Toggle pruning diagnostics"
+          class="w-full rounded-sm text-left text-foreground"
+          headerClass="w-full"
+          bodyClass="mt-1"
+          header={
+            <>
+              <span class="shrink-0 text-[10px] text-muted" aria-hidden="true">✂</span>
+              <span class="transcript-header-summary min-w-0 flex-1 truncate">{summary}</span>
+            </>
+          }
         >
-          <span class="shrink-0 text-[10px] text-muted" aria-hidden="true">✂</span>
-          <span class="transcript-header-summary min-w-0 flex-1 truncate">{summary}</span>
-          <DisclosureChevron open={expanded} size={9} />
-        </button>
-        {expanded && (
           <PruningDiagnostics
             details={details}
             rawExpanded={rawExpanded}
-            onRawToggle={(e) => { e.stopPropagation(); setRawExpanded((v) => !v); }}
+            onRawToggle={() => setRawExpanded((v) => !v)}
             presentation="inline"
           />
-        )}
+        </Disclosure>
       </div>
     </div>
   );

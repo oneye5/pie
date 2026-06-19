@@ -364,6 +364,16 @@ export function AppBody({ adapter }: AppBodyProps) {
 
   useSessionRecovery(viewState.backendReady, derived.needsSessionRecovery, derived.recoverySessionPath, viewState.notice, postMessage);
 
+  // Apply the user's expanded-section font size pref as a CSS custom property
+  // on :root so every expanded body (tool calls, reasoning, system prompts,
+  // pruning, code blocks) picks it up via var(--expanded-font-size).
+  useEffect(() => {
+    document.documentElement.style.setProperty(
+      '--expanded-font-size',
+      `${viewState.prefs.expandedSectionFontSize}px`,
+    );
+  }, [viewState.prefs.expandedSectionFontSize]);
+
   return (
     <NoticeContext.Provider value={{ notice: viewState.notice, dismiss: () => postMessage({ type: 'dismissNotice' }) }}>
     <AskUserContext.Provider value={derived.askUserContextValue}>

@@ -222,7 +222,6 @@
   margin: 0;
   padding: 6px 8px;
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10.5px;
   line-height: 1.5;
   color: color-mix(in srgb, var(--vscode-foreground) 80%, var(--panel-muted) 20%);
   background: color-mix(in srgb, var(--panel-control-surface) 72%, transparent);

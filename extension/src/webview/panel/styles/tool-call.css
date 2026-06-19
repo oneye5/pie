@@ -52,6 +52,15 @@
   white-space: pre;
 }
 
+/* Tool-call result pres are vertically scrollable + resizable (see
+   ResizablePre / useResizableHeight). The default max-height applies until
+   the user drags a resize handle, after which an inline height takes over. */
+.tool-call-pre.tool-call-pre-resizable {
+  max-height: 360px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* Placeholder when a tool call has no meaningful input to display */
 .tool-call-empty {
   padding: 6px 10px;
@@ -156,27 +165,6 @@
   cursor: default;
   user-select: text;
   background: var(--panel-control-surface);
-}
-
-/* Drag handle spans the full card width (not just the inset) so the resize
-   target is easy to grab. Dragging up grows the thread. */
-.subagent-resize-handle {
-  flex: 0 0 auto;
-  height: 6px;
-  margin-inline-start: calc(-1 * var(--subagent-thread-inset));
-  width: calc(100% + var(--subagent-thread-inset));
-  cursor: row-resize;
-  background: transparent;
-  border-top: 1px solid transparent;
-  transition:
-    background var(--panel-transition-fast),
-    border-color var(--panel-transition-fast);
-}
-
-.subagent-resize-handle:hover,
-.subagent-resize-handle:active {
-  background: color-mix(in srgb, var(--panel-accent) 22%, transparent);
-  border-top-color: var(--panel-accent);
 }
 
 .subagent-messages-scroll {
@@ -366,61 +354,10 @@
 }
 
 /* ── Syntax highlighting for structured tool input/output ────────────────── */
-/* Bespoke hljs theme mapping token classes onto the panel palette. Applied
-   to .tool-call-code, which wraps highlighted YAML/JSON. */
-
-.tool-call-code .hljs {
-  color: var(--panel-foreground);
-}
-
-.tool-call-code .hljs-comment,
-.tool-call-code .hljs-quote {
-  color: var(--panel-muted);
-  font-style: italic;
-}
-
-.tool-call-code .hljs-keyword,
-.tool-call-code .hljs-literal,
-.tool-call-code .hljs-symbol,
-.tool-call-code .hljs-bullet {
-  color: var(--panel-accent-strong);
-}
-
-.tool-call-code .hljs-string,
-.tool-call-code .hljs-char,
-.tool-call-code .hljs-regexp {
-  color: var(--panel-success);
-}
-
-.tool-call-code .hljs-number,
-.tool-call-code .hljs-attr,
-.tool-call-code .hljs-attribute {
-  color: var(--panel-warning);
-}
-
-.tool-call-code .hljs-boolean {
-  color: var(--panel-danger);
-}
-
-.tool-call-code .hljs-built_in,
-.tool-call-code .hljs-type,
-.tool-call-code .hljs-title,
-.tool-call-code .hljs-title.function_,
-.tool-call-code .hljs-name,
-.tool-call-code .hljs-section {
-  color: #7bd8d0;
-}
-
-.tool-call-code .hljs-meta,
-.tool-call-code .hljs-punctuation,
-.tool-call-code .hljs-operator {
-  color: var(--panel-muted);
-}
-
-.tool-call-code .hljs-variable,
-.tool-call-code .hljs-template-variable {
-  color: var(--panel-foreground-soft);
-}
+/* The hljs token theme is shared across all highlighted surfaces
+   (tool calls, markdown code blocks, pruning raw output) and lives in
+   styles/highlight.css, scoped to `.hljs-scope`. Add `hljs-scope` to any
+   <pre>/container that holds highlighted code. */
 
 /* ── Tool-call status glyph (header) ─────────────────────────────────────── */
 /* Compact running/completed indicator in the header. Running shows a spinner
@@ -518,9 +455,6 @@
     border-top-color: ButtonText;
   }
   .subagent-messages {
-    border-top-color: ButtonText;
-  }
-  .subagent-resize-handle {
     border-top-color: ButtonText;
   }
   .tool-call-terminal-command,

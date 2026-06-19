@@ -13,6 +13,7 @@ import {
 
 import {
   ChatPrefSections,
+  ExpandedSectionFontSizeSection,
   ExtensionsSection,
   ProvidersSection,
   SoundSection,
@@ -127,6 +128,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
       {open && (
         <div class="toolbar-settings-menu" role="menu" aria-label="Chat settings menu">
           <ChatPrefSections prefs={prefs} onSetPrefs={onSetPrefs} />
+          <ExpandedSectionFontSizeSection prefs={prefs} onSetPrefs={onSetPrefs} />
           <SoundSection prefs={prefs} onSetPrefs={onSetPrefs} />
           {availableExtensions.length > 0 && (
             <ExtensionsSection
