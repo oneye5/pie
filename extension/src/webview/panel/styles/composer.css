@@ -463,6 +463,121 @@
   cursor: default;
 }
 
+/* ── UI settings section ─────────────────────────────────────────────────── */
+/* Collapsible group for fonts, accent color, and text-size overrides.        */
+
+.toolbar-settings-ui-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px var(--panel-gap-md);
+  border: none;
+  border-radius: var(--panel-radius-md);
+  background: transparent;
+  color: var(--panel-muted);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1.3;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  transition: background var(--panel-transition-fast), color var(--panel-transition-fast);
+}
+
+.toolbar-settings-ui-header:hover,
+.toolbar-settings-ui-header:focus-visible {
+  background: var(--panel-control-hover);
+  color: var(--panel-foreground);
+  outline: none;
+}
+
+.toolbar-settings-ui-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--panel-gap-xs);
+  padding-top: var(--panel-gap-xs);
+}
+
+.toolbar-settings-ui-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px var(--panel-gap-md);
+}
+
+.toolbar-settings-ui-row-label {
+  font-size: 11px;
+  line-height: 1.3;
+  color: var(--panel-foreground);
+}
+
+.toolbar-settings-text-input {
+  width: 100%;
+  padding: 4px var(--panel-gap-sm);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius-sm);
+  background: var(--panel-input-surface);
+  color: var(--panel-foreground);
+  font-size: 11px;
+  font-family: var(--panel-font-mono);
+  line-height: 1.3;
+}
+
+.toolbar-settings-text-input::placeholder {
+  color: var(--panel-muted);
+}
+
+.toolbar-settings-text-input:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: 1px;
+  border-color: var(--panel-accent);
+}
+
+.toolbar-settings-color-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--panel-gap-sm);
+}
+
+.toolbar-settings-color-input {
+  width: 32px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius-sm);
+  background: transparent;
+  cursor: pointer;
+}
+
+.toolbar-settings-color-input::-webkit-color-swatch-wrapper {
+  padding: 2px;
+}
+
+.toolbar-settings-color-input::-webkit-color-swatch {
+  border: none;
+  border-radius: 2px;
+}
+
+.toolbar-settings-color-reset {
+  background: none;
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-sm);
+  color: var(--panel-foreground);
+  font-size: 10px;
+  padding: 2px var(--panel-gap-sm);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.toolbar-settings-color-reset:hover:not(:disabled) {
+  background: var(--panel-control-hover);
+}
+
+.toolbar-settings-color-reset:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* ── Always-keep picker ──────────────────────────────────────────────────── */
 /* Multi-chip select for skills/tools that are never pruned */
 

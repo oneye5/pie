@@ -100,6 +100,15 @@ export interface ChatPrefs {
    *  reasoning, system prompts, pruning raw output, and code blocks. Smaller
    *  than the 13px raw agent output since expanded text is lower priority. */
   expandedSectionFontSize: number;
+  /** Override for the sans-serif UI font stack (sets --panel-font-sans).
+   *  Empty string falls back to the bundled default (Inter / Segoe UI / system). */
+  uiFontSans: string;
+  /** Override for the monospace font stack (sets --panel-font-mono), used for
+   *  code blocks and tool output. Empty string falls back to the bundled default. */
+  uiFontMono: string;
+  /** Override for the accent color (sets --panel-accent) as a CSS color string
+   *  (e.g. '#d7a942'). Empty string falls back to the bundled default. */
+  uiAccentColor: string;
   /** Per-extension enabled/disabled toggles. Keys are extension IDs. */
   extensionToggles: Record<string, boolean>;
   /** Per-provider enabled/disabled toggles. Keys are provider names. */
@@ -139,6 +148,9 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   subagentAlwaysParentModel: false,
   completionSoundVolume: 50,
   expandedSectionFontSize: 12,
+  uiFontSans: '',
+  uiFontMono: '',
+  uiAccentColor: '',
   extensionToggles: {},
   providerToggles: {},
 };

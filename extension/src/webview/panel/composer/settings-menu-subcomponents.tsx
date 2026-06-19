@@ -88,26 +88,134 @@ function SoundSection({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnS
   );
 }
 
-function ExpandedSectionFontSizeSection({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnSetPrefs }) {
+interface SettingsTextInputProps {
+  value: string;
+  placeholder?: string;
+  ariaLabel: string;
+  onCommit: (next: string) => void;
+}
+
+/**
+ * Text input that commits to host state on blur/Enter rather than per keystroke.
+ * The host-owned pref only updates after a round-trip, so a per-keystroke
+ * `onSetPrefs` would lag and drop characters; mirroring into local state keeps
+ * typing responsive while still persisting the final value. (Per the state
+ * contract, a per-keystroke buffer inside an active input is webview-local.)
+ */
+function SettingsTextInput({ value, placeholder, ariaLabel, onCommit }: SettingsTextInputProps) {
+  const [local, setLocal] = useState(value);
+  // Re-sync when the host-persisted value changes (snapshot after a commit,
+  // or a reset from elsewhere). `value` only advances once the host round-trip
+  // lands, so this does not fight the in-flight local keystrokes.
+  useEffect(() => {
+    setLocal(value);
+  }, [value]);
+
+  const commit = () => {
+    if (local !== value) {
+      onCommit(local);
+    }
+  };
+
   return (
-    <div key="expanded-font-size" class="toolbar-settings-section">
-      <div class="toolbar-settings-section-label">Expanded Section Text</div>
-      <div class="toolbar-settings-list">
-        <div class="toolbar-settings-item toolbar-settings-mode-row">
-          <span class="toolbar-settings-item-label">{prefs.expandedSectionFontSize}px</span>
-          <input
-            type="range"
-            class="toolbar-settings-slider"
-            min="9"
-            max="18"
-            step="1"
-            value={prefs.expandedSectionFontSize}
-            onInput={(e) => onSetPrefs({ expandedSectionFontSize: Number((e.target as HTMLInputElement).value) })}
-            aria-label="Expanded section font size"
-          />
+    <input
+      type="text"
+      class="toolbar-settings-text-input"
+      placeholder={placeholder}
+      value={local}
+      aria-label={ariaLabel}
+      onInput={(e) => setLocal((e.target as HTMLInputElement).value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          (e.target as HTMLInputElement).blur();
+        }
+      }}
+    />
+  );
+}
+
+interface UiSectionProps {
+  prefs: ChatPrefs;
+  onSetPrefs: OnSetPrefs;
+  expanded: boolean;
+  setExpanded: (next: boolean) => void;
+}
+
+function UiSection({ prefs, onSetPrefs, expanded, setExpanded }: UiSectionProps) {
+  return (
+    <div key="ui" class="toolbar-settings-section">
+      <button
+        class="toolbar-settings-ui-header"
+        type="button"
+        aria-expanded={expanded}
+        aria-label={`${expanded ? 'Collapse' : 'Expand'} UI settings`}
+        onClick={() => setExpanded(!expanded)}
+      >
+        <span>UI</span>
+        <CollapsibleChevron open={expanded} size={12} />
+      </button>
+      {expanded && (
+        <div class="toolbar-settings-ui-content">
+          <div class="toolbar-settings-item toolbar-settings-mode-row">
+            <span class="toolbar-settings-item-label">{prefs.expandedSectionFontSize}px</span>
+            <input
+              type="range"
+              class="toolbar-settings-slider"
+              min="9"
+              max="18"
+              step="1"
+              value={prefs.expandedSectionFontSize}
+              onInput={(e) => onSetPrefs({ expandedSectionFontSize: Number((e.target as HTMLInputElement).value) })}
+              aria-label="Expanded section font size"
+            />
+          </div>
+          <div class="toolbar-settings-item-hint">Font size for tool-call output, reasoning, system prompts, and code blocks.</div>
+
+          <div class="toolbar-settings-ui-row">
+            <span class="toolbar-settings-ui-row-label">Sans font</span>
+            <SettingsTextInput
+              value={prefs.uiFontSans}
+              placeholder="Inter, system-ui, sans-serif"
+              ariaLabel="Sans-serif font family"
+              onCommit={(next) => onSetPrefs({ uiFontSans: next })}
+            />
+          </div>
+          <div class="toolbar-settings-item-hint">CSS font stack for body text. Blank uses the default.</div>
+
+          <div class="toolbar-settings-ui-row">
+            <span class="toolbar-settings-ui-row-label">Mono font</span>
+            <SettingsTextInput
+              value={prefs.uiFontMono}
+              placeholder={'"JetBrains Mono", monospace'}
+              ariaLabel="Monospace font family"
+              onCommit={(next) => onSetPrefs({ uiFontMono: next })}
+            />
+          </div>
+          <div class="toolbar-settings-item-hint">CSS font stack for code and tool output. Blank uses the default.</div>
+
+          <div class="toolbar-settings-ui-row">
+            <span class="toolbar-settings-ui-row-label">Accent color</span>
+            <div class="toolbar-settings-color-controls">
+              <input
+                type="color"
+                class="toolbar-settings-color-input"
+                value={prefs.uiAccentColor || '#d7a942'}
+                onInput={(e) => onSetPrefs({ uiAccentColor: (e.target as HTMLInputElement).value })}
+                aria-label="Accent color"
+              />
+              <button
+                type="button"
+                class="toolbar-settings-color-reset"
+                disabled={!prefs.uiAccentColor}
+                onClick={() => onSetPrefs({ uiAccentColor: '' })}
+                aria-label="Reset accent color"
+              >Reset</button>
+            </div>
+          </div>
+          <div class="toolbar-settings-item-hint">Theme accent for buttons, highlights, and active states. Reset restores the default.</div>
         </div>
-        <div class="toolbar-settings-item-hint">Font size for tool-call output, reasoning, system prompts, and code blocks.</div>
-      </div>
+      )}
     </div>
   );
 }
@@ -509,7 +617,7 @@ export function AlwaysKeepPicker({ label, selected, catalog, category, onChange 
 
 export {
   ChatPrefSections,
-  ExpandedSectionFontSizeSection,
+  UiSection,
   SoundSection,
   ExtensionsSection,
   ProvidersSection,

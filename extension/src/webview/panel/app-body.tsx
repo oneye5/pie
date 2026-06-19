@@ -27,6 +27,7 @@ import { useHostSync } from './hooks/use-host-sync';
 import { isPendingTabPath } from '../../shared/tab-behavior';
 import { useAppHandlers, type AppHandlers } from './use-app-handlers';
 import { useSessionRecovery } from './use-session-recovery';
+import { accentContrastColor } from './accent-contrast';
 
 export interface AppBodyProps {
   adapter: {
@@ -364,15 +365,35 @@ export function AppBody({ adapter }: AppBodyProps) {
 
   useSessionRecovery(viewState.backendReady, derived.needsSessionRecovery, derived.recoverySessionPath, viewState.notice, postMessage);
 
-  // Apply the user's expanded-section font size pref as a CSS custom property
-  // on :root so every expanded body (tool calls, reasoning, system prompts,
-  // pruning, code blocks) picks it up via var(--expanded-font-size).
+  // Apply UI prefs (expanded-section font size, font stacks, accent color) as
+  // CSS custom properties on :root so every component picks them up via var().
+  // Empty-string font overrides are cleared so the bundled stylesheet defaults
+  // win (setProperty(key, '') removes the inline declaration). The accent color
+  // also derives its hover shade (--panel-accent-strong) and readable foreground
+  // (--panel-accent-contrast); both are cleared when no accent is set so the
+  // bundled gold defaults apply unchanged.
   useEffect(() => {
-    document.documentElement.style.setProperty(
-      '--expanded-font-size',
-      `${viewState.prefs.expandedSectionFontSize}px`,
-    );
-  }, [viewState.prefs.expandedSectionFontSize]);
+    const root = document.documentElement.style;
+    root.setProperty('--expanded-font-size', `${viewState.prefs.expandedSectionFontSize}px`);
+    root.setProperty('--panel-font-sans', viewState.prefs.uiFontSans);
+    root.setProperty('--panel-font-mono', viewState.prefs.uiFontMono);
+    const accent = viewState.prefs.uiAccentColor;
+    if (accent) {
+      root.setProperty('--panel-accent', accent);
+      root.setProperty('--panel-accent-strong', 'color-mix(in srgb, var(--panel-accent) 82%, white)');
+      const contrast = accentContrastColor(accent);
+      root.setProperty('--panel-accent-contrast', contrast ?? '');
+    } else {
+      root.setProperty('--panel-accent', '');
+      root.setProperty('--panel-accent-strong', '');
+      root.setProperty('--panel-accent-contrast', '');
+    }
+  }, [
+    viewState.prefs.expandedSectionFontSize,
+    viewState.prefs.uiFontSans,
+    viewState.prefs.uiFontMono,
+    viewState.prefs.uiAccentColor,
+  ]);
 
   return (
     <NoticeContext.Provider value={{ notice: viewState.notice, dismiss: () => postMessage({ type: 'dismissNotice' }) }}>

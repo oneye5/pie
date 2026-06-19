@@ -145,12 +145,19 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     completionSoundVolume: [0, 100],
     expandedSectionFontSize: [8, 24],
   };
+  const stringKeys: Array<keyof ChatPrefs> = [
+    'uiFontSans',
+    'uiFontMono',
+    'uiAccentColor',
+  ];
   for (const key of Object.keys(value)) {
     const v = (value as Record<string, unknown>)[key];
     if ((booleanKeys as string[]).includes(key)) {
       if (v !== undefined && typeof v !== 'boolean') return false;
     } else if ((toggleKeys as string[]).includes(key)) {
       if (v !== undefined && !isStringBooleanRecord(v)) return false;
+    } else if ((stringKeys as string[]).includes(key)) {
+      if (v !== undefined && typeof v !== 'string') return false;
     } else {
       const range = numericRanges[key];
       if (!range) return false;
