@@ -137,6 +137,7 @@ function ComposerView({
     handleKeyDown,
     handleInput,
     handlePaste,
+    handleBeforeInput,
     applyComposerTransfer,
     submitting,
   } = useComposerInput({
@@ -235,6 +236,7 @@ function ComposerView({
           value={text}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
+          onBeforeInput={handleBeforeInput}
           onPaste={handlePaste}
           aria-label="Message composer"
         />

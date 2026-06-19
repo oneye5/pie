@@ -87,6 +87,19 @@ export function useComposerInput({
   useEffect(() => () => {
     clearCheckpointTimer();
   }, [clearCheckpointTimer]);
+
+  // Re-fit the textarea height after any text change (typing, undo/redo, draft
+  // seed/restore). Running in a post-commit effect means dom.value already
+  // reflects the new text, so scrollHeight is correct — without ever writing
+  // textarea.value directly during undo/redo (which would fight the controlled
+  // input in real browsers: Preact skips DOM updates when the prop already
+  // equals dom.value, so a pre-commit write can desync the field).
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (textarea) {
+      resizeComposerTextarea(textarea);
+    }
+  }, [text]);
   // Latch that suppresses a second submit between the moment we post a send
   // and when the host round-trip flips `busy` to true (or clears pending
   // inputs). `busy` is the durable latch but lags a round-trip; this ref closes
@@ -204,11 +217,9 @@ export function useComposerInput({
     const target = history.past[history.past.length - 1] ?? '';
     undo();
     setText(target);
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.value = target;
-      resizeComposerTextarea(textarea);
-    }
+    // Height is re-fit by the [text] effect above — we intentionally do NOT
+    // write textarea.value directly here. Setting it before Preact commits the
+    // controlled value can desync the input in real browsers.
   }, [canUndo, clearCheckpointTimer, history.past, undo]);
 
   const redoComposer = useCallback(() => {
@@ -217,11 +228,8 @@ export function useComposerInput({
     const target = history.future[0] ?? '';
     redo();
     setText(target);
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.value = target;
-      resizeComposerTextarea(textarea);
-    }
+    // See undoComposer: height is handled by the [text] effect, not a direct
+    // textarea.value write.
   }, [canRedo, clearCheckpointTimer, history.future, redo]);
 
   const handleKeyDown = useCallback(
@@ -296,6 +304,17 @@ export function useComposerInput({
     void applyComposerTransfer(dataTransfer, 'paste');
   }, [applyComposerTransfer]);
 
+  // Block the browser's native textarea undo/redo at the input level so it can
+  // never partially apply on top of our history (undo/redo is driven from
+  // handleKeyDown). Native undo would otherwise fight the controlled value
+  // after our programmatic changes and produce garbled/doubled text.
+  const handleBeforeInput = useCallback((event: Event) => {
+    const inputType = (event as InputEvent).inputType;
+    if (inputType === 'historyUndo' || inputType === 'historyRedo') {
+      event.preventDefault();
+    }
+  }, []);
+
   return {
     text,
     setText,
@@ -305,6 +324,7 @@ export function useComposerInput({
     handleKeyDown,
     handleInput,
     handlePaste,
+    handleBeforeInput,
     applyComposerTransfer,
     submitting,
   };
