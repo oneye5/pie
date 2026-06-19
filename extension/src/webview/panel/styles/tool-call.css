@@ -462,12 +462,6 @@
   min-height: 0;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  /* Disable both expand and collapse so resizes are instant. */
-  .tool-call-body-wrap { transition: none; }
-  .tool-call-body-wrap[data-expand="true"] { animation: none; }
-}
-
 @media (forced-colors: active) {
   .tool-call-body {
     border-top-color: ButtonText;

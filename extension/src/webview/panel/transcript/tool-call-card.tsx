@@ -653,8 +653,7 @@ export function ToolCallCard({
   // post-grace close). When the body first appears while the card is
   // collapsed (!open — i.e. the auto-show path, not a manual open), apply the
   // `data-expand` flag so the wrapper's @keyframes grow-in runs. Cleared on
-  // animationend (or a fallback timer, e.g. under prefers-reduced-motion
-  // where the animation is disabled and animationend never fires).
+  // animationend (or a fallback timer if the event is missed).
   useEffect(() => {
     const wasRendered = renderBodyRef.current;
     renderBodyRef.current = renderBody;

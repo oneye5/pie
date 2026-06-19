@@ -392,29 +392,6 @@
     color: var(--panel-foreground);
   }
 
-  /* Reduce motion for users who prefer it */
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-duration: 0.01ms !important;
-      scroll-behavior: auto !important;
-    }
-
-    /* Loading spinners are essential progress feedback (boot, session recovery,
-       transcript hydrating, running tool calls), not decorative motion. Keep
-       them rotating under reduced motion so the surface doesn't read as frozen
-       or hung. The blanket * reset above would otherwise freeze them to a
-       static ring. These class selectors outrank * within the same base layer,
-       so this !important wins the cascade. (The decorative bouncing ellipsis
-       in transcript.css is intentionally left disabled here.) */
-    .loading-wheel,
-    .tool-call-status-spinner {
-      animation: panel-loading-wheel-spin 0.72s linear infinite !important;
-    }
-  }
 }
 
 /* ── Prose utility ──────────────────────────────────────────────────────── */
@@ -485,13 +462,5 @@
   pointer-events: none;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .skill-load-glow::after {
-    animation: none;
-    box-shadow: inset 3px 0 12px -3px color-mix(in srgb, var(--panel-accent) 16%, transparent);
-  }
-}
-
 /* ── Components ─────────────────────────────────────────────────────────── */
-
 
