@@ -1,0 +1,32 @@
+/* ── Custom tooltip ─────────────────────────────────────────────────────────── */
+/*
+ * A lightweight tooltip implementation used for live-updating indicators where
+ * native `title` tooltips disappear on every re-render. The tooltip node is
+ * rendered outside the normal React tree (fixed to the viewport) so it survives
+ * parent updates and can update its text while the pointer stays over the
+ * trigger.
+ */
+
+.pie-tooltip-host {
+  max-width: min(320px, calc(100vw - 16px));
+  padding: 6px 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--panel-radius-md);
+  background: var(--panel-overlay-surface);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  box-shadow: var(--panel-shadow-overlay);
+  color: var(--panel-foreground);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-line;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  user-select: none;
+}
+
+.pie-tooltip-trigger {
+  display: inline-flex;
+  max-width: 100%;
+}

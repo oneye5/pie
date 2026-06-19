@@ -3,6 +3,8 @@
 
 import type { ComponentChildren, JSX } from 'preact';
 
+import { Tooltip } from './tooltip';
+
 type PanelChipVariant = 'toolbar' | 'pruning';
 type PanelChipTone = 'neutral' | 'muted' | 'success' | 'warning' | 'danger' | 'accent';
 
@@ -14,7 +16,13 @@ interface PanelChipBaseProps {
   leading?: ComponentChildren;
   trailing?: ComponentChildren;
   className?: string;
+  /**
+   * Native tooltip text. Prefer {@link tooltip} for live-updating values where a
+   * custom tooltip should survive parent re-renders.
+   */
   title?: string;
+  /** Custom tooltip text; when present it replaces the native title. */
+  tooltip?: string;
   ariaLabel?: string;
 }
 
@@ -51,61 +59,72 @@ function chipContent({ label, children, leading, trailing }: Pick<PanelChipBaseP
   );
 }
 
+function wrapTooltip(node: JSX.Element, tooltip: string | undefined): JSX.Element {
+  if (!tooltip) return node;
+  return <Tooltip content={tooltip}>{node}</Tooltip>;
+}
+
 function PanelChip(props: PanelChipProps) {
   const className = chipClassName(props);
   const content = chipContent(props);
+  const title = props.tooltip ? undefined : props.title;
 
   if (props.as === 'button') {
-    return (
+    return wrapTooltip(
       <button
         class={className}
         type="button"
         aria-expanded={props.expanded}
         aria-label={props.ariaLabel}
-        title={props.title}
+        title={title}
         onClick={props.onClick}
       >
         {content}
-      </button>
+      </button>,
+      props.tooltip,
     );
   }
 
   if (props.as === 'div') {
-    return (
+    return wrapTooltip(
       <div
         class={className}
         role={props.role}
         aria-live={props.ariaLive}
         aria-label={props.ariaLabel}
-        title={props.title}
+        title={title}
       >
         {content}
-      </div>
+      </div>,
+      props.tooltip,
     );
   }
 
-  return (
+  return wrapTooltip(
     <span
       class={className}
       role={props.role}
       aria-live={props.ariaLive}
       aria-label={props.ariaLabel}
-      title={props.title}
+      title={title}
     >
       {content}
-    </span>
+    </span>,
+    props.tooltip,
   );
 }
 
 interface ToolbarChipProps {
   label: ComponentChildren;
   title?: string;
+  /** Custom tooltip text; when present it replaces the native title. */
+  tooltip?: string;
   ariaLabel?: string;
   tone?: PanelChipTone;
 }
 
-export function ToolbarChip({ label, title, ariaLabel, tone = 'muted' }: ToolbarChipProps) {
-  return <PanelChip variant="toolbar" tone={tone} label={label} title={title} ariaLabel={ariaLabel} />;
+export function ToolbarChip({ label, title, tooltip, ariaLabel, tone = 'muted' }: ToolbarChipProps) {
+  return <PanelChip variant="toolbar" tone={tone} label={label} title={title} tooltip={tooltip} ariaLabel={ariaLabel} />;
 }
 
 export type ToolbarIndicatorKind = 'tokens' | 'cost' | 'context' | 'speed';
@@ -129,7 +148,7 @@ function indicatorClassName(kind: ToolbarIndicatorKind, severity?: string | null
   ].filter(Boolean).join(' ');
 }
 
-export function ToolbarIndicatorChip({ kind, severity, state, label, title, ariaLabel }: ToolbarIndicatorChipProps) {
+export function ToolbarIndicatorChip({ kind, severity, state, label, title, tooltip, ariaLabel }: ToolbarIndicatorChipProps) {
   return (
     <PanelChip
       variant="toolbar"
@@ -137,6 +156,7 @@ export function ToolbarIndicatorChip({ kind, severity, state, label, title, aria
       className={indicatorClassName(kind, severity, state)}
       ariaLabel={ariaLabel}
       title={title}
+      tooltip={tooltip}
       label={label}
     />
   );
@@ -153,16 +173,19 @@ function toolbarRunStatusTone(tone: ToolbarRunStatusTone): PanelChipTone {
 interface ToolbarRunStatusChipProps {
   label: ComponentChildren;
   title?: string;
+  /** Custom tooltip text; when present it replaces the native title. */
+  tooltip?: string;
   tone: ToolbarRunStatusTone;
 }
 
-export function ToolbarRunStatusChip({ label, title, tone }: ToolbarRunStatusChipProps) {
+export function ToolbarRunStatusChip({ label, title, tooltip, tone }: ToolbarRunStatusChipProps) {
   return (
     <PanelChip
       variant="toolbar"
       tone={toolbarRunStatusTone(tone)}
       className="panel-chip-run-status"
       title={title}
+      tooltip={tooltip}
       label={label}
     />
   );

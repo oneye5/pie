@@ -119,7 +119,7 @@ export function ComposerToolbar({
             kind="speed"
             state={tokenRateIndicator.paused ? 'paused' : null}
             ariaLabel={tokenRateIndicator.ariaLabel}
-            title={tokenRateIndicator.tooltip}
+            tooltip={tokenRateIndicator.tooltip}
             label={tokenRateIndicator.label}
           />
         )}
@@ -127,7 +127,7 @@ export function ComposerToolbar({
         <ToolbarIndicatorChip
           kind="tokens"
           ariaLabel={sessionTokenIndicator.ariaLabel}
-          title={sessionTokenIndicator.tooltip}
+          tooltip={sessionTokenIndicator.tooltip}
           label={sessionTokenIndicator.label}
         />
 
@@ -135,7 +135,7 @@ export function ComposerToolbar({
           <ToolbarIndicatorChip
             kind="cost"
             ariaLabel={sessionCostIndicator.ariaLabel}
-            title={sessionCostIndicator.tooltip}
+            tooltip={sessionCostIndicator.tooltip}
             label={sessionCostIndicator.label}
           />
         )}
@@ -145,7 +145,7 @@ export function ComposerToolbar({
             kind="context"
             severity={contextIndicator.severity}
             ariaLabel={contextIndicator.ariaLabel}
-            title={contextBreakdownTitle}
+            tooltip={contextBreakdownTitle}
             label={contextIndicator.label}
           />
         )}
@@ -154,7 +154,7 @@ export function ComposerToolbar({
           <div class="ml-auto mr-0 inline-flex shrink-0 items-center gap-1.5">
             <ToolbarRunStatusChip
               tone={runStatus.tone}
-              title={runStatus.title}
+              tooltip={runStatus.title}
               label={runStatus.text}
             />
           </div>
