@@ -6,6 +6,7 @@ import type { Event } from '../events.js';
 import type { ReducerResult } from './helpers.js';
 import { addToArray, removeFromArray, upsertSessionSummary, removeSessionFromState } from './helpers.js';
 import type { SessionSummary } from '../../../shared/protocol.js';
+import { reorderOpenTabsPinnedFirst } from '../../../shared/tab-behavior.js';
 import { resolveSessionOpenedTranscript } from '../session-opened-transcript.js';
 
 function mergeSessionSummaryPreservingLocalName(
@@ -393,6 +394,7 @@ export function handleSessionScopeCleared(state: ArchState, event: Extract<Event
 
   let nextSessions = state.sessions.sessions;
   let nextOpenTabPaths = state.sessions.openTabPaths;
+  let nextPinnedPaths = state.sessions.pinnedTabPaths;
   let nextRunningPaths = state.sessions.runningSessionPaths;
   let nextUnreadPaths = state.sessions.unreadFinishedSessionPaths;
   let nextActivePath = state.sessions.activeSessionPath;
@@ -400,6 +402,7 @@ export function handleSessionScopeCleared(state: ArchState, event: Extract<Event
   if (event.removeSessionSummary) {
     nextSessions = nextSessions.filter((s) => s.path !== sp);
     nextOpenTabPaths = removeFromArray(nextOpenTabPaths, sp);
+    nextPinnedPaths = removeFromArray(nextPinnedPaths, sp);
     nextRunningPaths = removeFromArray(nextRunningPaths, sp);
     nextUnreadPaths = removeFromArray(nextUnreadPaths, sp);
     if (nextActivePath === sp) {
@@ -422,6 +425,7 @@ export function handleSessionScopeCleared(state: ArchState, event: Extract<Event
         ...state.sessions,
         sessions: nextSessions,
         openTabPaths: nextOpenTabPaths,
+        pinnedTabPaths: nextPinnedPaths,
         runningSessionPaths: nextRunningPaths,
         unreadFinishedSessionPaths: nextUnreadPaths,
         activeSessionPath: nextActivePath,
@@ -476,6 +480,16 @@ export function handlePendingPathReplaced(state: ArchState, event: Extract<Event
     // Replace in unreadFinishedSessionPaths (dedupe)
     draft.sessions.unreadFinishedSessionPaths = [
       ...new Set(draft.sessions.unreadFinishedSessionPaths.map(
+        (p: string) => (p === oldPendingPath ? newSessionPath : p),
+      )),
+    ];
+
+    // Replace in pinnedTabPaths (dedupe). A pending tab can be pinned (it is
+    // open), so when the pending path resolves to the real session path the
+    // pinned entry must follow it — otherwise the pinned prefix invariant
+    // breaks and the tab silently unpins on resolve.
+    draft.sessions.pinnedTabPaths = [
+      ...new Set(draft.sessions.pinnedTabPaths.map(
         (p: string) => (p === oldPendingPath ? newSessionPath : p),
       )),
     ];
@@ -547,10 +561,15 @@ export function handleTabOpened(state: ArchState, event: Extract<Event, { kind: 
         if (afterIndex === -1) {
           return [...state.sessions.openTabPaths, event.sessionPath];
         }
+        // A newly opened tab is unpinned, so it must never land inside the
+        // pinned prefix. If `insertAfter` points at a pinned tab, place the
+        // new tab at the start of the unpinned region instead (mirrors
+        // handleDuplicateSession's clamp) to preserve the pinned-prefix invariant.
+        const insertAt = Math.max(afterIndex + 1, state.sessions.pinnedTabPaths.length);
         return [
-          ...state.sessions.openTabPaths.slice(0, afterIndex + 1),
+          ...state.sessions.openTabPaths.slice(0, insertAt),
           event.sessionPath,
-          ...state.sessions.openTabPaths.slice(afterIndex + 1),
+          ...state.sessions.openTabPaths.slice(insertAt),
         ];
       })()
     : [...state.sessions.openTabPaths, event.sessionPath];
@@ -567,14 +586,22 @@ export function handleTabOpened(state: ArchState, event: Extract<Event, { kind: 
 }
 
 export function handleOpenTabsChanged(state: ArchState, event: Extract<Event, { kind: 'OpenTabsChanged' }>): ReducerResult {
+  // Restore path: reorder openTabPaths so pinned tabs form the leading prefix
+  // (browser semantics) and drop any pinned path no longer open. When
+  // `pinnedTabPaths` is omitted, the existing pinned set is re-normalized
+  // against the new openTabPaths (pruning dangling entries). Idempotent when
+  // openTabPaths is already pinned-first with an empty pinned set.
+  const incomingPinned = event.pinnedTabPaths ?? state.sessions.pinnedTabPaths;
+  const { openTabPaths, pinnedTabPaths } = reorderOpenTabsPinnedFirst(event.openTabPaths, incomingPinned);
   return {
     state: {
       ...state,
       sessions: {
         ...state.sessions,
-        openTabPaths: event.openTabPaths,
+        openTabPaths,
+        pinnedTabPaths,
         unreadFinishedSessionPaths: state.sessions.unreadFinishedSessionPaths.filter((p) =>
-          event.openTabPaths.includes(p),
+          openTabPaths.includes(p),
         ),
       },
     },

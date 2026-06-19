@@ -21,7 +21,7 @@ import {
 import { type RunAnalyticsExportPayload } from './run-analytics/query';
 import { SidebarViewProvider } from './sidebar/provider';
 import { SessionService } from './session-service';
-import { OPEN_TABS_STORAGE_KEY, ACTIVE_SESSION_STORAGE_KEY } from './session-service/state';
+import { OPEN_TABS_STORAGE_KEY, ACTIVE_SESSION_STORAGE_KEY, PINNED_TABS_STORAGE_KEY } from './session-service/state';
 import { StatsService } from './stats-service';
 import type { WebviewToHostMessage } from '../shared/protocol';
 import { EffectRunner } from './core/effect-runner';
@@ -162,7 +162,7 @@ export class PieExtension implements vscode.Disposable {
         // post-reorder state) rather than re-reading the service's internal
         // state; session names are looked up from the current archState solely
         // to enrich the persisted { path, name } objects.
-        persistTabs: async (openTabPaths, activeSessionPath) => {
+        persistTabs: async (openTabPaths, activeSessionPath, pinnedTabPaths) => {
           const sessions = this.archState.sessions.sessions;
           const tabObjects = openTabPaths
             .filter((p) => !isPendingTabPath(p))
@@ -176,8 +176,13 @@ export class PieExtension implements vscode.Disposable {
             && openTabPaths.includes(activeSessionPath)
               ? activeSessionPath
               : undefined;
+          // Pinned tabs are path-only (no name enrichment needed) and filtered
+          // to drop any pending path that slipped through (a pending tab can
+          // be pinned while it resolves — never persist the transient path).
+          const persistedPinnedTabPaths = pinnedTabPaths.filter((p) => !isPendingTabPath(p));
           void context.globalState.update(OPEN_TABS_STORAGE_KEY, tabObjects);
           void context.globalState.update(ACTIVE_SESSION_STORAGE_KEY, persistedActiveSessionPath);
+          void context.globalState.update(PINNED_TABS_STORAGE_KEY, persistedPinnedTabPaths);
         },
       },
       log: {

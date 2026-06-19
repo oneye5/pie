@@ -4,6 +4,7 @@ import * as vscode from 'vscode';
 
 import { BackendClient } from '../backend/client';
 import { buildRestoredSessionPlan, filterRestorableStoredTabs } from '../core/restored-session-plan';
+import { normalizeStoredTabPaths } from '../../shared/tab-behavior';
 import { createCommandExecutor } from '../../shared/exec-command';
 
 import { resolveNodePath, resolveSdkPath } from '../../shared/runtime-resolution';
@@ -62,6 +63,13 @@ function computeRestorePlan(options: StartSessionBackendOptions) {
     () => true,
   );
   const preferredStartupPath = options.context.globalState.get<string>('activeSessionPath') ?? null;
+  // Pinned tabs are stored as a path list (no name enrichment). Normalize
+  // defensively (accept legacy string/{path} forms, drop pending/dupes), then
+  // drop any pinned path that didn't survive the open-tab restore so the
+  // pinned ⊆ openTabPaths invariant holds.
+  const storedRawPinned = options.context.globalState.get<unknown[]>('pinnedTabPaths') ?? [];
+  const storedPinned = normalizeStoredTabPaths(storedRawPinned);
+  const restoredPinnedTabs = storedPinned.filter((p) => restoredTabs.includes(p));
   const restoredSessionPlan = buildRestoredSessionPlan(restoredTabs, preferredStartupPath);
   const { startupPath: restoredStartupPath, preloadPaths } = restoredSessionPlan;
   return {
@@ -72,11 +80,13 @@ function computeRestorePlan(options: StartSessionBackendOptions) {
     preferredStartupPath,
     restoredStartupPath,
     preloadPaths,
+    storedPinned,
+    restoredPinnedTabs,
   };
 }
 
-function applyRestoredTabPaths(options: StartSessionBackendOptions, restoredTabs: string[]): void {
-  options.dispatchArch({ kind: 'OpenTabsChanged', openTabPaths: restoredTabs });
+function applyRestoredTabPaths(options: StartSessionBackendOptions, restoredTabs: string[], restoredPinnedTabs: string[]): void {
+  options.dispatchArch({ kind: 'OpenTabsChanged', openTabPaths: restoredTabs, pinnedTabPaths: restoredPinnedTabs });
 }
 
 function persistIfTabStateChanged(
@@ -85,13 +95,21 @@ function persistIfTabStateChanged(
   rawTabs: unknown[],
   preferredStartupPath: string | null,
   restoredStartupPath: string | null,
+  storedPinned: string[],
+  restoredPinnedTabs: string[],
 ): void {
-  if (
+  const tabsChanged =
     rawTabs.length !== storedRawTabs.length
-    || preferredStartupPath !== (restoredStartupPath ?? undefined)
-  ) {
+    || preferredStartupPath !== (restoredStartupPath ?? undefined);
+  const pinnedChanged =
+    restoredPinnedTabs.length !== storedPinned.length
+    || restoredPinnedTabs.some((p, i) => p !== storedPinned[i]);
+  if (tabsChanged) {
     void options.context.globalState.update('openTabPaths', rawTabs);
     void options.context.globalState.update('activeSessionPath', restoredStartupPath ?? undefined);
+  }
+  if (pinnedChanged) {
+    void options.context.globalState.update('pinnedTabPaths', restoredPinnedTabs);
   }
 }
 
@@ -259,10 +277,12 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
     preferredStartupPath,
     restoredStartupPath,
     preloadPaths,
+    storedPinned,
+    restoredPinnedTabs,
   } = computeRestorePlan(options);
 
-  applyRestoredTabPaths(options, restoredTabs);
-  persistIfTabStateChanged(options, storedRawTabs, rawTabs, preferredStartupPath, restoredStartupPath);
+  applyRestoredTabPaths(options, restoredTabs, restoredPinnedTabs);
+  persistIfTabStateChanged(options, storedRawTabs, rawTabs, preferredStartupPath, restoredStartupPath, storedPinned, restoredPinnedTabs);
 
   const cachedSessions = buildRestoredSessionSummaries(rawTabs, restoredTabs, workspaceCwd, new Date().toISOString());
   if (cachedSessions.length > 0) {

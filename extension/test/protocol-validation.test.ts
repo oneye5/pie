@@ -59,7 +59,7 @@ test('validateWebviewToHostMessage validates openFileDiff, openFileInEditor, and
 });
 
 test('validateWebviewToHostMessage validates session-scoped messages with required sessionPath', () => {
-  for (const type of ['openSession', 'closeSession', 'interrupt', 'startNewTask', 'continueTask']) {
+  for (const type of ['openSession', 'closeSession', 'interrupt', 'startNewTask', 'continueTask', 'togglePinTab']) {
     assert.equal(
       validateWebviewToHostMessage({ type, sessionPath: '/a' }).ok,
       true,

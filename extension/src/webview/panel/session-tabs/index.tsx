@@ -7,12 +7,14 @@ import type { ActiveRunSummary, ExtensionUIRequestPayload, SessionSummary } from
 import { isPendingTabPath } from '../../../shared/tab-behavior';
 import { getSessionTabRunBadge, getSessionTabRunMenuItems } from './run-state';
 import type { SessionTabRunAction } from './run-state';
+import { getTabAvatarColor, getTabAvatarLabel } from './tab-avatar';
 import { useTabDragAndDrop } from './use-drag-and-drop.js';
 import type { SessionTabContextAction, SessionTabDragState } from './types';
 
 interface SessionTabsProps {
   sessions: SessionSummary[];
   openTabPaths: string[];
+  pinnedTabPaths: string[];
   runningSessionPaths: string[];
   unreadFinishedSessionPaths: string[];
   activeSession: SessionSummary | null;
@@ -27,6 +29,7 @@ interface SessionTabsProps {
   onNew: () => void;
   onMarkComplete: () => void;
   onDuplicate: (path: string) => void;
+  onTogglePin: (path: string) => void;
   onRunAction: (action: SessionTabRunAction, tabPath: string) => void;
 }
 
@@ -64,6 +67,7 @@ interface SessionTabProps {
   activeSession: SessionSummary | null;
   hasPendingExtensionUIRequest: boolean;
   activeRunSummary: ActiveRunSummary | null;
+  isPinned: boolean;
   onContextMenu: (event: MouseEvent, tabPath: string) => void;
   onPointerDown: (event: PointerEvent, sourceIndex: number, sourcePath: string) => void;
   onClick: (tabPath: string) => void;
@@ -81,6 +85,7 @@ export function SessionTab({
   activeSession,
   hasPendingExtensionUIRequest,
   activeRunSummary,
+  isPinned,
   onContextMenu,
   onPointerDown,
   onClick,
@@ -100,10 +105,17 @@ export function SessionTab({
       ? `${label} (finished, unread)`
       : label;
 
+  const classBits = ['session-tab'];
+  if (isActive) classBits.push('active');
+  if (isAttention) classBits.push('attention');
+  if (isUnreadFinished) classBits.push('unread-finished');
+  if (isPinned) classBits.push('pinned');
+  if (isRunning) classBits.push('running');
+
   return (
     <div
       key={tabPath}
-      class={`session-tab${isActive ? ' active' : ''}${isAttention ? ' attention' : ''}${isUnreadFinished ? ' unread-finished' : ''}`}
+      class={classBits.join(' ')}
       data-drop-target-tab="true"
       onContextMenu={(event) => onContextMenu(event as MouseEvent, tabPath)}
     >
@@ -117,14 +129,26 @@ export function SessionTab({
         onPointerDown={(event) => onPointerDown(event as PointerEvent, originalIndex, tabPath)}
         onClick={() => onClick(tabPath)}
       >
-        {isRunning
-          ? <span class="session-tab-running" aria-hidden="true" />
-          : isUnreadFinished
-            ? <span class="session-tab-finished" aria-hidden="true" />
-            : null}
-        <span class="session-tab-label">{label}</span>
+        {isPinned ? (
+          <span
+            class="session-tab-avatar"
+            style={{ background: getTabAvatarColor(tabPath) }}
+            aria-hidden="true"
+          >
+            {getTabAvatarLabel(label)}
+          </span>
+        ) : (
+          <>
+            {isRunning
+              ? <span class="session-tab-running" aria-hidden="true" />
+              : isUnreadFinished
+                ? <span class="session-tab-finished" aria-hidden="true" />
+                : null}
+            <span class="session-tab-label">{label}</span>
+          </>
+        )}
       </button>
-      {isActive && (
+      {isActive && !isPinned && (
         (() => {
           const badge = getSessionTabRunBadge(activeRunSummary);
           if (!badge) return null;
@@ -141,15 +165,17 @@ export function SessionTab({
           );
         })()
       )}
-      <button
-        class="session-tab-close"
-        type="button"
-        aria-label={`Close ${label}`}
-        title={`Close ${label}`}
-        onClick={() => onClose(tabPath)}
-      >
-        ×
-      </button>
+      {!isPinned && (
+        <button
+          class="session-tab-close"
+          type="button"
+          aria-label={`Close ${label}`}
+          title={`Close ${label}`}
+          onClick={() => onClose(tabPath)}
+        >
+          ×
+        </button>
+      )}
     </div>
   );
 }
@@ -160,6 +186,7 @@ interface FloatingSessionTabProps {
   sessionByPath: Map<string, SessionSummary>;
   runningPathSet: Set<string>;
   activeSession: SessionSummary | null;
+  isPinned: boolean;
 }
 
 function FloatingSessionTab({
@@ -168,15 +195,21 @@ function FloatingSessionTab({
   sessionByPath,
   runningPathSet,
   activeSession,
+  isPinned,
 }: FloatingSessionTabProps) {
   const floatingSession = sessionByPath.get(draggedPath);
   const floatingLabel = floatingSession?.name ?? 'New Session';
   const floatingRunning = runningPathSet.has(draggedPath);
   const floatingActive = activeSession?.path === draggedPath;
 
+  const classBits = ['session-tab', 'session-tab-floating'];
+  if (floatingActive) classBits.push('active');
+  if (isPinned) classBits.push('pinned');
+  if (floatingRunning) classBits.push('running');
+
   return (
     <div
-      class={`session-tab session-tab-floating${floatingActive ? ' active' : ''}`}
+      class={classBits.join(' ')}
       style={{
         width: `${dragState.tabWidth}px`,
         height: `${dragState.tabHeight}px`,
@@ -187,10 +220,22 @@ function FloatingSessionTab({
     >
       <span class="session-tab-shell" aria-hidden="true" />
       <div class="session-tab-main">
-        {floatingRunning && <span class="session-tab-running" aria-hidden="true" />}
-        <span class="session-tab-label">{floatingLabel}</span>
+        {isPinned ? (
+          <span
+            class="session-tab-avatar"
+            style={{ background: getTabAvatarColor(draggedPath) }}
+            aria-hidden="true"
+          >
+            {getTabAvatarLabel(floatingLabel)}
+          </span>
+        ) : (
+          <>
+            {floatingRunning && <span class="session-tab-running" aria-hidden="true" />}
+            <span class="session-tab-label">{floatingLabel}</span>
+          </>
+        )}
       </div>
-      <div class="session-tab-close" aria-hidden="true">×</div>
+      {!isPinned && <div class="session-tab-close" aria-hidden="true">×</div>}
     </div>
   );
 }
@@ -199,6 +244,7 @@ interface SessionTabContextMenuProps {
   tabContextMenu: { x: number; y: number; tabPath: string };
   sessionByPath: Map<string, SessionSummary>;
   runSummary: ActiveRunSummary | null;
+  isPinned: boolean;
   onContextAction: (action: SessionTabContextAction, tabPath: string) => void;
 }
 
@@ -206,6 +252,7 @@ function SessionTabContextMenu({
   tabContextMenu,
   sessionByPath,
   runSummary,
+  isPinned,
   onContextAction,
 }: SessionTabContextMenuProps) {
   const ctxSession = sessionByPath.get(tabContextMenu.tabPath);
@@ -222,6 +269,15 @@ function SessionTabContextMenu({
       onMouseDown={(e) => e.stopPropagation()}
     >
       <div class="session-tab-context-title" title={ctxLabel}>{ctxLabel}</div>
+      <button
+        class="context-menu-item"
+        type="button"
+        onClick={() => onContextAction(isPinned ? 'unpin' : 'pin', tabContextMenu.tabPath)}
+      >
+        <svg class="context-menu-check" width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" style="opacity:0" />
+        {isPinned ? 'Unpin Tab' : 'Pin Tab'}
+      </button>
+      <div class="context-menu-separator" />
       {runItems.map((item) => (
         <button
           key={item.action}
@@ -271,6 +327,7 @@ function hasPendingRequest(
 export function SessionTabs({
   sessions,
   openTabPaths,
+  pinnedTabPaths,
   runningSessionPaths,
   unreadFinishedSessionPaths,
   activeSession,
@@ -285,6 +342,7 @@ export function SessionTabs({
   onNew,
   onMarkComplete,
   onDuplicate,
+  onTogglePin,
   onRunAction,
 }: SessionTabsProps) {
   const stripRef = useRef<HTMLDivElement>(null);
@@ -298,10 +356,12 @@ export function SessionTabs({
     onContextAction,
   } = useTabDragAndDrop({
     openTabPaths,
+    pinnedTabPaths,
     onMove,
     onSelect,
     onClose,
     onDuplicate,
+    onTogglePin,
     onRunAction,
     stripRef,
   });
@@ -310,6 +370,7 @@ export function SessionTabs({
   const openIndexByPath = new Map(openTabPaths.map((path, index) => [path, index]));
   const runningPathSet = new Set(runningSessionPaths);
   const unreadFinishedPathSet = new Set(unreadFinishedSessionPaths);
+  const pinnedPathSet = new Set(pinnedTabPaths);
 
   // Re-resolve the dragged index from the source path each render so a tab
   // closing or being inserted elsewhere mid-drag doesn't float the wrong tab.
@@ -339,6 +400,7 @@ export function SessionTabs({
             activeSession={activeSession}
             hasPendingExtensionUIRequest={hasPendingRequest(pendingExtensionUIRequestsBySession, tabPath)}
             activeRunSummary={activeRunSummary}
+            isPinned={pinnedPathSet.has(tabPath)}
             onContextMenu={onContextMenu}
             onPointerDown={onPointerDown}
             onClick={onClick}
@@ -369,6 +431,7 @@ export function SessionTabs({
           sessionByPath={sessionByPath}
           runningPathSet={runningPathSet}
           activeSession={activeSession}
+          isPinned={pinnedPathSet.has(draggedPath)}
         />
       )}
       {tabContextMenu && (
@@ -376,6 +439,7 @@ export function SessionTabs({
           tabContextMenu={tabContextMenu}
           sessionByPath={sessionByPath}
           runSummary={runSummariesBySession[tabContextMenu.tabPath] ?? null}
+          isPinned={pinnedPathSet.has(tabContextMenu.tabPath)}
           onContextAction={onContextAction}
         />
       )}

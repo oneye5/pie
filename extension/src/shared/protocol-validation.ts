@@ -259,6 +259,7 @@ export function validateWebviewToHostMessage(
     case 'openSession':
     case 'closeSession':
     case 'duplicateSession':
+    case 'togglePinTab':
       if (!isString(value.sessionPath)) return fail(`${type}: missing string \`sessionPath\``);
       return { ok: true, value: value as WebviewToHostMessage };
 

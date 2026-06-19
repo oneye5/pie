@@ -77,8 +77,10 @@ export interface TranscriptState {
 export interface SessionsState {
   /** Known session summaries. */
   sessions: SessionSummary[];
-  /** Open tab paths (preserves order). */
+  /** Open tab paths (preserves order; pinned tabs form the leading prefix). */
   openTabPaths: string[];
+  /** Pinned tab paths (browser-style: clustered at the far left, icon-only). */
+  pinnedTabPaths: string[];
   /** Session paths currently streaming a response. */
   runningSessionPaths: string[];
   /** Sessions that finished while not the active tab. */
@@ -319,6 +321,7 @@ export function createInitialArchState(): ArchState {
     sessions: {
       sessions: [],
       openTabPaths: [],
+      pinnedTabPaths: [],
       runningSessionPaths: [],
       unreadFinishedSessionPaths: [],
       activeSessionPath: null,

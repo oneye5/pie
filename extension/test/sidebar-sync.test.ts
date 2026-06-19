@@ -13,6 +13,7 @@ import { DEFAULT_CHAT_PREFS, type ViewState } from '../src/shared/protocol';
 const baseViewState: ViewState = {
   sessions: [],
   openTabPaths: [],
+  pinnedTabPaths: [],
   runningSessionPaths: [],
   unreadFinishedSessionPaths: [],
   activeSession: null,

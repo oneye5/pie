@@ -5,10 +5,12 @@ import type { SessionTabContextAction } from '../types';
 export function useTabContextMenu({
   onDuplicate,
   onClose,
+  onTogglePin,
   onRunAction,
 }: {
   onDuplicate: (tabPath: string) => void;
   onClose: (tabPath: string) => void;
+  onTogglePin: (tabPath: string) => void;
   onRunAction: (action: SessionTabRunAction, tabPath: string) => void;
 }) {
   const [tabContextMenu, setTabContextMenu] = useState<{ x: number; y: number; tabPath: string } | null>(null);
@@ -24,10 +26,12 @@ export function useTabContextMenu({
       onDuplicate(tabPath);
     } else if (action === 'close') {
       onClose(tabPath);
+    } else if (action === 'pin' || action === 'unpin') {
+      onTogglePin(tabPath);
     } else {
       onRunAction(action, tabPath);
     }
-  }, [onDuplicate, onClose, onRunAction]);
+  }, [onDuplicate, onClose, onTogglePin, onRunAction]);
 
   useEffect(() => {
     if (!tabContextMenu) return;

@@ -47,6 +47,7 @@ function renderTab(overrides: Partial<SessionTabProps> = {}): HTMLElement {
     activeSession: null,
     hasPendingExtensionUIRequest: false,
     activeRunSummary: null,
+    isPinned: false,
     onContextMenu: noop,
     onPointerDown: noop,
     onClick: noop,
@@ -112,6 +113,32 @@ test('active tab with a pending request keeps both the active and attention clas
 
   const main = tab.querySelector('.session-tab-main') as HTMLElement;
   assert.equal(main.getAttribute('title'), 'Alpha (waiting for your answer)');
+});
+
+test('pinned tab renders an avatar instead of a label, hides the close button, and keeps the full name on hover', () => {
+  const alpha = makeSession('/sessions/alpha', 'Alpha');
+  const tab = renderTab({
+    tabPath: '/sessions/alpha',
+    activeSession: alpha,
+    isPinned: true,
+  });
+
+  assert.ok(classList(tab).includes('pinned'), 'pinned tab gets the pinned class');
+  assert.ok(tab.querySelector('.session-tab-avatar'), 'pinned tab renders the letter-avatar');
+  assert.ok(!tab.querySelector('.session-tab-label'), 'pinned tab drops the title text');
+  assert.ok(!tab.querySelector('.session-tab-close'), 'pinned tab hides the close button (unpin via context menu)');
+  assert.ok(!tab.querySelector('.session-tab-run-badge'), 'pinned tab drops the run badge (activity shows via the avatar ring)');
+
+  // The avatar carries the session's first letter so two pinned tabs stay
+  // distinguishable without title text. (The deterministic background color is
+  // a pure function covered by tab-avatar.test.ts.)
+  const avatar = tab.querySelector('.session-tab-avatar') as HTMLElement;
+  assert.ok(avatar, 'avatar element renders');
+  assert.equal(avatar.textContent, 'A');
+
+  // The full name is still reachable on hover.
+  const main = tab.querySelector('.session-tab-main') as HTMLElement;
+  assert.equal(main.getAttribute('title'), 'Alpha');
 });
 
 test('pending request wins title precedence over unread-finished', () => {

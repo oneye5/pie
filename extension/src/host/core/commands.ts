@@ -98,11 +98,13 @@ export interface CreateSessionCommand extends CommandBase {
   selectionToken: string;
 }
 
-/** Persist the tab order / active tab to globalState. */
+/** Persist the tab order / active tab / pinned tabs to globalState. */
 export interface PersistTabsCommand extends CommandBase {
   kind: 'PersistTabs';
   openTabPaths: string[];
   activeSessionPath: string | null;
+  /** Pinned tab paths, persisted alongside open tabs. */
+  pinnedTabPaths: string[];
 }
 
 /** Add a composer input draft (file attachment) to a session. */
@@ -247,7 +249,8 @@ export type Command =
   | OpenFileCommand
   | SetPruningSettingsCommand
   | DuplicateSessionCommand
-  | MoveSessionTabCommand;
+  | MoveSessionTabCommand
+  | TogglePinTabCommand;
 export interface SetModelCommand extends CommandBase {
   kind: 'SetModel';
   sessionPath: string;
@@ -322,4 +325,13 @@ export interface MoveSessionTabCommand extends CommandBase {
   sessionPath: string | undefined;
   fromIndex: number;
   toIndex: number;
+}
+
+/** Toggle whether a tab is pinned (browser-style: pinned tabs cluster at the
+ *  far left and render as icon-only chips). Pure state mutation — the reducer
+ *  reorders `openTabPaths` to keep pinned tabs as the leading prefix and emits
+ *  a `PersistTabs` effect. No backend RPC. */
+export interface TogglePinTabCommand extends CommandBase {
+  kind: 'TogglePinTab';
+  sessionPath: string;
 }

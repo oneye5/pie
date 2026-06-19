@@ -546,10 +546,13 @@ export interface TabOpenedEvent {
   insertAfter?: string;
 }
 
-/** Emitted when openTabPaths is replaced wholesale (e.g. startup restore). */
+/** Emitted when openTabPaths is replaced wholesale (e.g. startup restore).
+ *  `pinnedTabPaths` (when provided) restores the pinned set and reorders
+ *  `openTabPaths` so pinned tabs form the leading prefix. */
 export interface OpenTabsChangedEvent {
   kind: 'OpenTabsChanged';
   openTabPaths: string[];
+  pinnedTabPaths?: string[];
 }
 
 export type BackendEvent =

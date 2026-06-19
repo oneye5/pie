@@ -1,7 +1,7 @@
 import type { RefObject } from 'preact';
 import type { SessionTabRunAction } from './run-state';
 
-export type SessionTabContextAction = SessionTabRunAction | 'duplicate' | 'close';
+export type SessionTabContextAction = SessionTabRunAction | 'duplicate' | 'close' | 'pin' | 'unpin';
 
 export type TabDragCandidate = {
   pointerId: number;
@@ -30,10 +30,15 @@ export type SessionTabDragState = {
 
 export interface UseTabDragAndDropOptions {
   openTabPaths: string[];
+  /** Pinned tab paths (browser-style: clustered at the far left). Constrains
+   *  drag-and-drop so a pinned tab can only be dropped within the pinned zone
+   *  (and an unpinned tab only within the unpinned zone). */
+  pinnedTabPaths: string[];
   onMove: (sessionPath: string | undefined, fromIndex: number, toIndex: number) => void;
   onSelect: (path: string) => void;
   onClose: (path: string) => void;
   onDuplicate: (path: string) => void;
+  onTogglePin: (tabPath: string) => void;
   onRunAction: (action: SessionTabRunAction, tabPath: string) => void;
   stripRef: RefObject<HTMLDivElement>;
 }

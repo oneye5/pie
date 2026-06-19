@@ -31,6 +31,7 @@ function hydrateViewState(raw: ViewState): ViewState {
 export const EMPTY_VIEW_STATE: ViewState = {
   sessions: [],
   openTabPaths: [],
+  pinnedTabPaths: [],
   runningSessionPaths: [],
   unreadFinishedSessionPaths: [],
   activeSession: null,

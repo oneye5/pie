@@ -9,7 +9,7 @@ type Call =
   | { kind: 'lifecycle' }
   | { kind: 'session'; sessionPath: string }
   | { kind: 'request'; method: string; params: unknown }
-  | { kind: 'persistTabs'; openTabPaths: string[]; active: string | null }
+  | { kind: 'persistTabs'; openTabPaths: string[]; active: string | null; pinnedTabPaths: string[] }
   | { kind: 'log'; level: string; message: string }
   | { kind: 'showWarningModal'; message: string; confirmChoice: string }
   | { kind: 'bumpEpoch'; sessionPath: string }
@@ -44,8 +44,8 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
       },
     },
     tabs: {
-      async persistTabs(openTabPaths, active) {
-        calls.push({ kind: 'persistTabs', openTabPaths, active });
+      async persistTabs(openTabPaths, active, pinnedTabPaths) {
+        calls.push({ kind: 'persistTabs', openTabPaths, active, pinnedTabPaths });
       },
     },
     log: {
@@ -267,6 +267,7 @@ test('EffectRunner runs PersistTabs synchronously without queueing', async () =>
     corrId: 'c4',
     openTabPaths: ['/a', '/b'],
     activeSessionPath: '/a',
+    pinnedTabPaths: [],
   });
   await settle();
 
@@ -275,6 +276,7 @@ test('EffectRunner runs PersistTabs synchronously without queueing', async () =>
     kind: 'persistTabs',
     openTabPaths: ['/a', '/b'],
     active: '/a',
+    pinnedTabPaths: [],
   });
   assert.equal(events.length, 1);
   assert.equal(events[0]?.kind, 'PersistTabsResult');

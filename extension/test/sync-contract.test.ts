@@ -103,12 +103,13 @@ test('ChatMessage.userParts supports structured user image content', () => {
 test('HostToWebviewMessage state envelope carries hostInstanceId and revision', () => {
   const msg: HostToWebviewMessage = {
     type: 'state',
-    protocolVersion: 1,
+    protocolVersion: 2,
     hostInstanceId: 'abc',
     revision: 7,
     state: {
       sessions: [],
       openTabPaths: [],
+      pinnedTabPaths: [],
       runningSessionPaths: [],
       unreadFinishedSessionPaths: [],
       activeSession: null,

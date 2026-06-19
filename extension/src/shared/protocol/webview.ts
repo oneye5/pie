@@ -42,6 +42,8 @@ export interface StateAppliedPayload {
 export interface ViewState {
   sessions: SessionSummary[];
   openTabPaths: string[];
+  /** Pinned tab paths (browser-style: pinned tabs cluster at the left). */
+  pinnedTabPaths: string[];
   runningSessionPaths: string[];
   unreadFinishedSessionPaths: string[];
   activeSession: SessionSummary | null;
@@ -150,6 +152,7 @@ export type WebviewToHostMessage =
   | { type: 'closeSession'; sessionPath: string }
   | { type: 'duplicateSession'; sessionPath: string }
   | { type: 'moveSessionTab'; sessionPath?: string; fromIndex: number; toIndex: number }
+  | { type: 'togglePinTab'; sessionPath: string }
   | { type: 'loadOlderTranscript'; sessionPath?: string }
   | { type: 'loadNewerTranscript'; sessionPath?: string }
   | { type: 'jumpToLatestTranscript'; sessionPath?: string }

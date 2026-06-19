@@ -35,14 +35,17 @@ import { useTabContextMenu } from './drag-and-drop/context-menu';
 
 export function useTabDragAndDrop({
   openTabPaths,
+  pinnedTabPaths,
   onMove,
   onSelect,
   onClose,
   onDuplicate,
+  onTogglePin,
   onRunAction,
   stripRef,
 }: UseTabDragAndDropOptions): UseTabDragAndDropResult {
   const openTabPathsRef = useRef(openTabPaths);
+  const pinnedTabPathsRef = useRef(pinnedTabPaths);
   const dragCandidateRef = useRef<TabDragCandidate | null>(null);
   const dragStateRef = useRef<SessionTabDragState | null>(null);
   const pointerPositionRef = useRef<{ x: number; y: number } | null>(null);
@@ -57,6 +60,7 @@ export function useTabDragAndDrop({
   const [dragState, setDragState] = useState<SessionTabDragState | null>(null);
 
   openTabPathsRef.current = openTabPaths;
+  pinnedTabPathsRef.current = pinnedTabPaths;
 
   const pointerMoveListener = useCallback((event: PointerEvent) => {
     pointerMoveHandlerRef.current(event);
@@ -95,7 +99,7 @@ export function useTabDragAndDrop({
   }, [pointerMoveListener, pointerUpListener, pointerCancelListener, windowBlurListener, stopAutoScrollLoop]);
 
   const syncDragFromPointer = useCallback((clientX: number, clientY: number) => {
-    runSyncDragFromPointer(clientX, clientY, dragStateRef, stripRef, setDragState);
+    runSyncDragFromPointer(clientX, clientY, dragStateRef, stripRef, setDragState, pinnedTabPathsRef);
   }, []);
 
   const ensureAutoScrollLoop = useCallback(() => {
@@ -167,6 +171,7 @@ export function useTabDragAndDrop({
   const { tabContextMenu, setTabContextMenu, onContextMenu, onContextAction } = useTabContextMenu({
     onDuplicate,
     onClose,
+    onTogglePin,
     onRunAction,
   });
 

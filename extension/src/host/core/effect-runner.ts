@@ -49,7 +49,7 @@ export interface QueueRouter {
  * existing `globalState`-backed tab persistence helper.
  */
 export interface TabPersistenceSink {
-  persistTabs(openTabPaths: string[], activeSessionPath: string | null): Promise<void>;
+  persistTabs(openTabPaths: string[], activeSessionPath: string | null, pinnedTabPaths: string[]): Promise<void>;
 }
 
 /** Logger sink for `Log`. Matches the audit-log surface used elsewhere. */
@@ -740,7 +740,7 @@ export class EffectRunner {
   private runPersistTabs(effect: Extract<Effect, { kind: 'PersistTabs' }>): void {
     void (async () => {
       try {
-        await this.deps.tabs.persistTabs(effect.openTabPaths, effect.activeSessionPath);
+        await this.deps.tabs.persistTabs(effect.openTabPaths, effect.activeSessionPath, effect.pinnedTabPaths);
         this.deps.dispatch({ kind: 'PersistTabsResult', corrId: effect.corrId, ok: true });
       } catch (err) {
         this.deps.dispatch({

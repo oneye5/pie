@@ -3,10 +3,39 @@ import { getHorizontalDropIndex } from '../../../../shared/tab-behavior';
 
 import type { TabDragCandidate, SessionTabDragState } from '../types';
 
+/** Pinned-zone context used to clamp the drop index so a pinned tab can only
+ *  land within the pinned zone (and an unpinned tab only within the unpinned
+ *  zone) — browser semantics. `sourcePath` is the tab being dragged; the zone
+ *  is derived from whether it is in `pinnedTabPaths`. */
+export interface DropZoneOptions {
+  sourcePath: string;
+  pinnedTabPaths: readonly string[];
+}
+
+/** Clamp a raw drop index (relative to the source-removed rendered list) to
+ *  the dragged tab's zone. Pinned tabs stay within `[0, pinnedFilteredCount]`;
+ *  unpinned tabs stay within `[pinnedFilteredCount, filteredLen]`. The two zones
+ *  meet at `pinnedFilteredCount` (a pinned tab may become the last pinned; an
+ *  unpinned tab may become the first unpinned). */
+function clampDropIndexToZone(
+  dropIndex: number,
+  zone: DropZoneOptions,
+  filteredLen: number,
+): number {
+  const sourceIsPinned = zone.pinnedTabPaths.includes(zone.sourcePath);
+  const pinnedCount = zone.pinnedTabPaths.length;
+  const pinnedFilteredCount = sourceIsPinned ? Math.max(pinnedCount - 1, 0) : pinnedCount;
+  if (sourceIsPinned) {
+    return Math.min(Math.max(dropIndex, 0), pinnedFilteredCount);
+  }
+  return Math.min(Math.max(dropIndex, pinnedFilteredCount), filteredLen);
+}
+
 export function runComputeDropIndex(
   clientX: number,
   clientY: number,
   stripRef: { current: HTMLElement | null },
+  zone: DropZoneOptions,
 ): number | null {
   const strip = stripRef.current;
   if (!strip) {
@@ -27,7 +56,8 @@ export function runComputeDropIndex(
       return { left: rect.left, right: rect.right };
     });
 
-  return getHorizontalDropIndex(rects, clientX);
+  const rawDropIndex = getHorizontalDropIndex(rects, clientX);
+  return clampDropIndexToZone(rawDropIndex, zone, rects.length);
 }
 
 export function runSyncDragFromPointer(
@@ -36,13 +66,17 @@ export function runSyncDragFromPointer(
   dragStateRef: { current: SessionTabDragState | null },
   stripRef: { current: HTMLElement | null },
   setDragState: (state: SessionTabDragState | null) => void,
+  pinnedTabPathsRef: { current: readonly string[] },
 ): void {
   const current = dragStateRef.current;
   if (!current) {
     return;
   }
 
-  const nextDropIndex = runComputeDropIndex(clientX, clientY, stripRef);
+  const nextDropIndex = runComputeDropIndex(clientX, clientY, stripRef, {
+    sourcePath: current.sourcePath,
+    pinnedTabPaths: pinnedTabPathsRef.current,
+  });
   if (
     current.currentX === clientX &&
     current.currentY === clientY &&

@@ -129,6 +129,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         runningSessionPaths: removeFromArray(state.sessions.runningSessionPaths, sp),
         unreadFinishedSessionPaths: removeFromArray(state.sessions.unreadFinishedSessionPaths, sp),
         openTabPaths: removeFromArray(state.sessions.openTabPaths, sp),
+        pinnedTabPaths: removeFromArray(state.sessions.pinnedTabPaths, sp),
         activeSessionPath: state.sessions.activeSessionPath === sp ? null : state.sessions.activeSessionPath,
       },
       settings: {

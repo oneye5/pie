@@ -32,6 +32,7 @@ import {
 import {
   handleCloseTab,
   handlePersistTabs,
+  handleTogglePinTab,
 } from './command-tab-handlers.js';
 import {
   handleHydrateModel,
@@ -192,6 +193,10 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
 
     case 'MoveSessionTab': {
       return handleMoveSessionTab(state, cmd);
+    }
+
+    case 'TogglePinTab': {
+      return handleTogglePinTab(state, cmd);
     }
 
     default: {

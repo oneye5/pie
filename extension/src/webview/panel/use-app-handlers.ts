@@ -20,6 +20,7 @@ export interface AppHandlers {
   handleNewSession: () => void;
   handleCloseTab: (path: string) => void;
   handleDuplicateTab: (path: string) => void;
+  handleTogglePinTab: (path: string) => void;
   handleMarkComplete: () => void;
   handleCancelOutcome: () => void;
   handleCancelEdit: () => void;
@@ -69,6 +70,7 @@ export function useAppHandlers(
   const handleNewSession = useCallback(() => postMessage({ type: 'newSession' }), [postMessage]);
   const handleCloseTab = useCallback((path: string) => postMessage({ type: 'closeSession', sessionPath: path }), [postMessage]);
   const handleDuplicateTab = useCallback((path: string) => postMessage({ type: 'duplicateSession', sessionPath: path }), [postMessage]);
+  const handleTogglePinTab = useCallback((path: string) => postMessage({ type: 'togglePinTab', sessionPath: path }), [postMessage]);
   const handleMarkComplete = useCallback(() => {
     const sessionPath = activeSessionPathRef.current;
     if (!sessionPath) return;
@@ -183,6 +185,7 @@ export function useAppHandlers(
     handleNewSession,
     handleCloseTab,
     handleDuplicateTab,
+    handleTogglePinTab,
     handleMarkComplete,
     handleCancelOutcome,
     handleCancelEdit,

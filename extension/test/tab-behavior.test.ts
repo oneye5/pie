@@ -5,8 +5,12 @@ import {
   getHorizontalDropIndex,
   getNextVisibleTabPathOnClose,
   getVisibleTabPaths,
+  insertTabRespectingPinnedPrefix,
   moveOpenTabPath,
-  normalizeStoredOpenTabPaths,
+  normalizeStoredTabPaths,
+  pinTab,
+  reorderOpenTabsPinnedFirst,
+  unpinTab,
 } from '../src/shared/tab-behavior';
 
 const sessions = [
@@ -122,8 +126,8 @@ test('closing the only visible tab returns null', () => {
   assert.equal(nextPath, null);
 });
 
-test('normalizeStoredOpenTabPaths removes transient and duplicate tabs', () => {
-  const paths = normalizeStoredOpenTabPaths([
+test('normalizeStoredTabPaths removes transient and duplicate tabs', () => {
+  const paths = normalizeStoredTabPaths([
     '/workspace/a',
     '__pending__:1',
     '/workspace/a',
@@ -135,8 +139,8 @@ test('normalizeStoredOpenTabPaths removes transient and duplicate tabs', () => {
   assert.deepEqual(paths, ['/workspace/a', '/workspace/b']);
 });
 
-test('normalizeStoredOpenTabPaths accepts {path, name} objects alongside strings', () => {
-  const paths = normalizeStoredOpenTabPaths([
+test('normalizeStoredTabPaths accepts {path, name} objects alongside strings', () => {
+  const paths = normalizeStoredTabPaths([
     '/workspace/a',
     { path: '/workspace/b', name: 'My Session' },
     '__pending__:1',
@@ -179,4 +183,66 @@ test('getHorizontalDropIndex returns the boundary between tab midpoints', () => 
   assert.equal(getHorizontalDropIndex(rects, 160), 1);
   assert.equal(getHorizontalDropIndex(rects, 260), 2);
   assert.equal(getHorizontalDropIndex(rects, 400), 3);
+});
+
+// ─── Pinned-tab ordering (browser-style: pinned tabs cluster at the left) ────
+
+test('pinTab moves a tab to the front of the pinned prefix and records it as pinned', () => {
+  // No pinned tabs yet — pinning /b moves it to the head of the strip (the
+  // pinned area lives at the far left, like a browser).
+  const result = pinTab(['/a', '/b', '/c'], [], '/b');
+  assert.deepEqual(result.openTabPaths, ['/b', '/a', '/c']);
+  assert.deepEqual(result.pinnedTabPaths, ['/b']);
+});
+
+test('pinTab moves an unpinned tab from the end into the pinned prefix', () => {
+  // /a is already pinned (prefix); pinning /c moves it to the tail of the pinned group.
+  const result = pinTab(['/a', '/b', '/c'], ['/a'], '/c');
+  assert.deepEqual(result.openTabPaths, ['/a', '/c', '/b']);
+  assert.deepEqual(result.pinnedTabPaths, ['/a', '/c']);
+});
+
+test('pinTab is idempotent for an already-pinned tab', () => {
+  const result = pinTab(['/a', '/b'], ['/a'], '/a');
+  assert.deepEqual(result.openTabPaths, ['/a', '/b']);
+  assert.deepEqual(result.pinnedTabPaths, ['/a']);
+});
+
+test('unpinTab moves a pinned tab to the start of the unpinned region', () => {
+  const result = unpinTab(['/a', '/b', '/c'], ['/a', '/b'], '/a');
+  // /a leaves the pinned prefix and lands right after the remaining pinned tab (/b).
+  assert.deepEqual(result.openTabPaths, ['/b', '/a', '/c']);
+  assert.deepEqual(result.pinnedTabPaths, ['/b']);
+});
+
+test('unpinTab is idempotent for a tab that is not pinned', () => {
+  const result = unpinTab(['/a', '/b'], [], '/a');
+  assert.deepEqual(result.openTabPaths, ['/a', '/b']);
+  assert.deepEqual(result.pinnedTabPaths, []);
+});
+
+test('insertTabRespectingPinnedPrefix appends unpinned tabs at the end', () => {
+  assert.deepEqual(insertTabRespectingPinnedPrefix(['/a', '/b'], ['/a'], '/c'), ['/a', '/b', '/c']);
+});
+
+test('insertTabRespectingPinnedPrefix reopens a pinned tab inside the pinned prefix', () => {
+  // /b is pinned but not currently open — reopening lands it at its pinned position.
+  assert.deepEqual(insertTabRespectingPinnedPrefix(['/a'], ['/a', '/b'], '/b'), ['/a', '/b']);
+});
+
+test('insertTabRespectingPinnedPrefix is a no-op for an already-open tab', () => {
+  assert.deepEqual(insertTabRespectingPinnedPrefix(['/a', '/b'], [], '/a'), ['/a', '/b']);
+});
+
+test('reorderOpenTabsPinnedFirst puts pinned tabs first and drops pinned paths no longer open', () => {
+  const result = reorderOpenTabsPinnedFirst(['/b', '/a', '/c', '/d'], ['/a', '/x']);
+  // /a (pinned) moves to the front; /x (pinned but not open) is dropped from both arrays.
+  assert.deepEqual(result.openTabPaths, ['/a', '/b', '/c', '/d']);
+  assert.deepEqual(result.pinnedTabPaths, ['/a']);
+});
+
+test('reorderOpenTabsPinnedFirst is a no-op when nothing is pinned', () => {
+  const result = reorderOpenTabsPinnedFirst(['/a', '/b'], []);
+  assert.deepEqual(result.openTabPaths, ['/a', '/b']);
+  assert.deepEqual(result.pinnedTabPaths, []);
 });

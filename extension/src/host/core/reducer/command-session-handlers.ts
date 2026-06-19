@@ -2,7 +2,7 @@ import type { ArchState } from '../arch-state.js';
 import type { Command } from '../commands.js';
 import type { ReducerResult } from './helpers.js';
 import { removeFromArray } from './helpers.js';
-import { getNextVisibleTabPathOnClose, moveOpenTabPath } from '../../../shared/tab-behavior.js';
+import { getNextVisibleTabPathOnClose, moveOpenTabPath, insertTabRespectingPinnedPrefix } from '../../../shared/tab-behavior.js';
 import { handleSessionScopeCleared } from './session-handlers.js';
 
 export function handleOpenSession(state: ArchState, cmd: Extract<Command, { kind: 'OpenSession' }>): ReducerResult {
@@ -21,9 +21,11 @@ export function handleOpenSession(state: ArchState, cmd: Extract<Command, { kind
   const nextSessions = alreadySummarized || !placeholderSummary
     ? sessions
     : [placeholderSummary, ...sessions];
-  const nextOpenTabPaths = state.sessions.openTabPaths.includes(sessionPath)
-    ? state.sessions.openTabPaths
-    : [...state.sessions.openTabPaths, sessionPath];
+  const nextOpenTabPaths = insertTabRespectingPinnedPrefix(
+    state.sessions.openTabPaths,
+    state.sessions.pinnedTabPaths,
+    sessionPath,
+  );
   const nextState = {
     ...state,
     sessions: {
@@ -37,7 +39,7 @@ export function handleOpenSession(state: ArchState, cmd: Extract<Command, { kind
   return {
     state: nextState,
     effects: [
-      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: sessionPath },
+      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: sessionPath, pinnedTabPaths: state.sessions.pinnedTabPaths },
       { kind: 'OpenSession', corrId: cmd.corrId, sessionPath, selectionToken },
     ],
   };
@@ -86,7 +88,7 @@ export function handleCreateSession(state: ArchState, cmd: Extract<Command, { ki
   return {
     state: nextState,
     effects: [
-      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: sessionPath },
+      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: sessionPath, pinnedTabPaths: state.sessions.pinnedTabPaths },
       { kind: 'CreateSession', corrId: cmd.corrId, sessionPath, cwd, selectionToken },
     ],
   };
@@ -145,9 +147,10 @@ export function handleCloseSession(state: ArchState, cmd: Extract<Command, { kin
   // Clear per-session keyed maps (like SessionScopeCleared{false}).
   // The summary is NOT removed — the session persists for reopening.
   const scoped = handleSessionScopeCleared(state, { kind: 'SessionScopeCleared', sessionPath, removeSessionSummary: false });
-  // Remove from openTabPaths + unreadFinished (like CloseTab).
+  // Remove from openTabPaths + unreadFinished + pinned (like CloseTab).
   const nextOpenTabPaths = removeFromArray(scoped.state.sessions.openTabPaths, sessionPath);
   const nextUnreadPaths = removeFromArray(scoped.state.sessions.unreadFinishedSessionPaths, sessionPath);
+  const nextPinnedPaths = removeFromArray(scoped.state.sessions.pinnedTabPaths, sessionPath);
   // If the closed session was active, select the next tab (or null).
   const wasActive = state.sessions.activeSessionPath === sessionPath;
   const nextActivePath = wasActive ? (nextPath ?? null) : scoped.state.sessions.activeSessionPath;
@@ -156,6 +159,7 @@ export function handleCloseSession(state: ArchState, cmd: Extract<Command, { kin
     sessions: {
       ...scoped.state.sessions,
       openTabPaths: nextOpenTabPaths,
+      pinnedTabPaths: nextPinnedPaths,
       unreadFinishedSessionPaths: nextUnreadPaths,
       activeSessionPath: nextActivePath,
     },
@@ -163,7 +167,7 @@ export function handleCloseSession(state: ArchState, cmd: Extract<Command, { kin
   return {
     state: nextState,
     effects: [
-      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: nextActivePath },
+      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: nextActivePath, pinnedTabPaths: nextPinnedPaths },
       { kind: 'CloseSession', corrId: cmd.corrId, sessionPath, nextPath },
     ],
   };
@@ -196,14 +200,18 @@ export function handleDuplicateSession(state: ArchState, cmd: Extract<Command, {
   const nextOpenTabPaths = state.sessions.openTabPaths.includes(sessionPath)
     ? state.sessions.openTabPaths
     : (() => {
+      const pinnedCount = state.sessions.pinnedTabPaths.length;
       const afterIndex = state.sessions.openTabPaths.indexOf(sourceSessionPath);
-      if (afterIndex === -1) {
-        return [...state.sessions.openTabPaths, sessionPath];
-      }
+      // The copy is unpinned, so it must never land inside the pinned prefix.
+      // When the source is pinned, place the copy at the start of the unpinned
+      // region (right after the pinned group) instead of right after the source.
+      const insertAt = afterIndex === -1
+        ? state.sessions.openTabPaths.length
+        : Math.max(afterIndex + 1, pinnedCount);
       return [
-        ...state.sessions.openTabPaths.slice(0, afterIndex + 1),
+        ...state.sessions.openTabPaths.slice(0, insertAt),
         sessionPath,
-        ...state.sessions.openTabPaths.slice(afterIndex + 1),
+        ...state.sessions.openTabPaths.slice(insertAt),
       ];
     })();
   const nextRunningPaths = state.sessions.runningSessionPaths.filter((p) => p !== sessionPath);
@@ -228,7 +236,7 @@ export function handleDuplicateSession(state: ArchState, cmd: Extract<Command, {
   return {
     state: nextState,
     effects: [
-      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: sessionPath },
+      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: sessionPath, pinnedTabPaths: state.sessions.pinnedTabPaths },
       { kind: 'DuplicateSession', corrId: cmd.corrId, sessionPath, sourceSessionPath, selectionToken },
     ],
   };
@@ -240,10 +248,32 @@ export function handleMoveSessionTab(state: ArchState, cmd: Extract<Command, { k
   // a PersistTabs effect is emitted so the runner writes globalState. The
   // legacy MoveSessionTab Effect / service.moveSessionTab / ReorderTabs
   // round-trip is gone.
-  const newOrder = moveOpenTabPath(state.sessions.openTabPaths, {
+  //
+  // Pinned-zone safety net: clamp the drop index to the source tab's zone so
+  // a pinned tab can never cross into the unpinned region (and vice versa).
+  // The webview already constrains drops to the same zone; this guards against
+  // stale indices arriving after a tab closed/inserted mid-drag. Indices are
+  // relative to the array AFTER the source is removed (the final position),
+  // matching the drop-gap rendering + moveOpenTabPath semantics.
+  const { openTabPaths, pinnedTabPaths } = state.sessions;
+  const resolvedFromIndex = cmd.sessionPath !== undefined ? openTabPaths.indexOf(cmd.sessionPath) : -1;
+  const fromIndex = cmd.sessionPath !== undefined && resolvedFromIndex !== -1 ? resolvedFromIndex : cmd.fromIndex;
+  const sourceIsPinned = cmd.sessionPath !== undefined
+    ? pinnedTabPaths.includes(cmd.sessionPath)
+    : fromIndex >= 0 && fromIndex < pinnedTabPaths.length;
+  const pinnedCount = pinnedTabPaths.length;
+  const pinnedFilteredCount = sourceIsPinned ? Math.max(pinnedCount - 1, 0) : pinnedCount;
+  const filteredLen = Math.max(openTabPaths.length - 1, 0);
+  let toIndex = cmd.toIndex;
+  if (sourceIsPinned) {
+    toIndex = Math.min(Math.max(toIndex, 0), pinnedFilteredCount);
+  } else {
+    toIndex = Math.min(Math.max(toIndex, pinnedFilteredCount), filteredLen);
+  }
+  const newOrder = moveOpenTabPath(openTabPaths, {
     sessionPath: cmd.sessionPath,
-    fromIndex: cmd.fromIndex,
-    toIndex: cmd.toIndex,
+    fromIndex,
+    toIndex,
   });
   return {
     state: {
@@ -259,6 +289,7 @@ export function handleMoveSessionTab(state: ArchState, cmd: Extract<Command, { k
         corrId: cmd.corrId,
         openTabPaths: newOrder,
         activeSessionPath: state.sessions.activeSessionPath,
+        pinnedTabPaths,
       },
     ],
   };

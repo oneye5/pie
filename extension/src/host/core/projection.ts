@@ -168,6 +168,7 @@ export function selectViewState(state: ArchState): ViewState {
   return {
     sessions: sessions.sessions,
     openTabPaths: sessions.openTabPaths,
+    pinnedTabPaths: sessions.pinnedTabPaths,
     runningSessionPaths: sessions.runningSessionPaths,
     unreadFinishedSessionPaths: sessions.unreadFinishedSessionPaths,
     activeSession,

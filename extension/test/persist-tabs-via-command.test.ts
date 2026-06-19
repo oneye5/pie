@@ -30,9 +30,10 @@ test('PersistTabs Command handler emits a PersistTabs Effect with the command ar
   const base = createInitialArchState();
   const openTabPaths = ['/workspace/a.jsonl', '/workspace/b.jsonl'];
   const activeSessionPath = '/workspace/b.jsonl';
+  const pinnedTabPaths = ['/workspace/a.jsonl'];
   const archState: ArchState = {
     ...base,
-    sessions: { ...base.sessions, openTabPaths, activeSessionPath },
+    sessions: { ...base.sessions, openTabPaths, pinnedTabPaths, activeSessionPath },
   };
 
   const result = reducer(archState, {
@@ -42,6 +43,7 @@ test('PersistTabs Command handler emits a PersistTabs Effect with the command ar
       corrId: 'persist:reducer-test',
       openTabPaths,
       activeSessionPath,
+      pinnedTabPaths,
     },
   });
 
@@ -57,6 +59,7 @@ test('PersistTabs Command handler emits a PersistTabs Effect with the command ar
       corrId: 'persist:reducer-test',
       openTabPaths,
       activeSessionPath,
+      pinnedTabPaths,
     },
   );
 });
@@ -111,4 +114,5 @@ test('handleSelectionFailure dispatches a PersistTabs Command (replaces the old 
   // (after the CloseTab + fallback SelectSession were applied synchronously).
   assert.deepEqual(cmd.openTabPaths, archState.sessions.openTabPaths);
   assert.equal(cmd.activeSessionPath, archState.sessions.activeSessionPath);
+  assert.deepEqual(cmd.pinnedTabPaths, archState.sessions.pinnedTabPaths);
 });

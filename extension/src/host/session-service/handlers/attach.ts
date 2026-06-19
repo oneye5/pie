@@ -178,6 +178,7 @@ function finalizeSessionOpening(
       corrId: `persist:${Date.now()}`,
       openTabPaths: archState.sessions.openTabPaths,
       activeSessionPath: archState.sessions.activeSessionPath,
+      pinnedTabPaths: archState.sessions.pinnedTabPaths,
     },
   });
   deps.scheduleRender();

@@ -14,6 +14,7 @@ import type { ArchState } from '../core/arch-state';
 
 export const OPEN_TABS_STORAGE_KEY = 'openTabPaths';
 export const ACTIVE_SESSION_STORAGE_KEY = 'activeSessionPath';
+export const PINNED_TABS_STORAGE_KEY = 'pinnedTabPaths';
 const DEFAULT_SELECTION_REQUEST_TIMEOUT_MS = 60_000;
 
 export class SessionServiceState {
@@ -224,6 +225,7 @@ export class SessionServiceState {
           corrId: `persist:${Date.now()}`,
           openTabPaths: archState.sessions.openTabPaths,
           activeSessionPath: archState.sessions.activeSessionPath,
+          pinnedTabPaths: archState.sessions.pinnedTabPaths,
         },
       });
     }

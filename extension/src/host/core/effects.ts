@@ -77,6 +77,7 @@ export interface PersistTabsEffect extends EffectBase {
   kind: 'PersistTabs';
   openTabPaths: string[];
   activeSessionPath: string | null;
+  pinnedTabPaths: string[];
 }
 
 export type LogLevel = 'info' | 'warn' | 'error';

@@ -128,6 +128,9 @@ export class MessageRouter {
       case 'moveSessionTab':
         return this.onMoveSessionTab(msg as Extract<WebviewToHostMessage, { type: 'moveSessionTab' }>);
 
+      case 'togglePinTab':
+        return this.onTogglePinTab(msg as Extract<WebviewToHostMessage, { type: 'togglePinTab' }>);
+
       case 'loadOlderTranscript':
         return await this.onLoadOlderTranscript(msg as Extract<WebviewToHostMessage, { type: 'loadOlderTranscript' }>);
 
@@ -423,6 +426,18 @@ export class MessageRouter {
     this.dispatchEvent({
       kind: 'Command',
       cmd: { kind: 'MoveSessionTab', corrId, sessionPath: msg.sessionPath, fromIndex: msg.fromIndex, toIndex: msg.toIndex },
+    });
+    this.sidebarProvider.postState();
+  }
+
+  private onTogglePinTab(msg: Extract<WebviewToHostMessage, { type: 'togglePinTab' }>): void {
+    // Pure state mutation — no service / backend RPC. The reducer owns the
+    // reorder that keeps pinned tabs as the leading prefix of openTabPaths and
+    // emits a PersistTabs effect. Mirrors onMoveSessionTab.
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'TogglePinTab', corrId, sessionPath: msg.sessionPath },
     });
     this.sidebarProvider.postState();
   }

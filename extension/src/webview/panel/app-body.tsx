@@ -422,6 +422,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         <SessionTabs
           sessions={viewState.sessions}
           openTabPaths={viewState.openTabPaths}
+          pinnedTabPaths={viewState.pinnedTabPaths}
           runningSessionPaths={viewState.runningSessionPaths}
           unreadFinishedSessionPaths={viewState.unreadFinishedSessionPaths}
           activeSession={viewState.activeSession}
@@ -436,6 +437,7 @@ export function AppBody({ adapter }: AppBodyProps) {
           onNew={handlers.handleNewSession}
           onMarkComplete={handlers.handleMarkComplete}
           onDuplicate={handlers.handleDuplicateTab}
+          onTogglePin={handlers.handleTogglePinTab}
           onRunAction={handlers.handleTabRunAction}
         />
       )}
