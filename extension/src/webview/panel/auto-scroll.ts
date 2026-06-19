@@ -57,23 +57,39 @@ interface ResolveAutoFollowArgs {
   nextScrollTop: number;
   metrics: ScrollMetrics;
   scrollTopDeltaEpsilonPx?: number;
-  hasManualScrollIntent?: boolean;
 }
 
+/**
+ * Decides whether auto-follow (stick-to-bottom) stays engaged after a scroll
+ * event. Detection is input-device-agnostic: any movement away from the
+ * bottom disengages, so keyboard scroll-up (Page Up / Home / ↑ / Shift+Space)
+ * — which fires no wheel/touch/pointer event — is caught just like wheel,
+ * touch, and scrollbar drag.
+ *
+ * The auto-follow rAF loop's own programmatic scrolls only ever move scrollTop
+ * toward the bottom (an increase or a snap), so they can never trip the
+ * "scrolled up" branch; a prior `hasManualScrollIntent` gate is what let
+ * keyboard scroll-up slip through and left the rAF loop re-pinning scrollTop to
+ * the bottom every frame, fighting the reader.
+ *
+ * `isNearBottom` is checked first so tiny upward nudges within the threshold
+ * stay engaged, and — importantly — so a content-shrink clamp (the browser
+ * clamping scrollTop down to the new bottom when content above shrinks, e.g. a
+ * tool card collapsing or context pruning) does not falsely disengage follow.
+ */
 export function resolveAutoFollowState({
   previousAutoFollow,
   previousScrollTop,
   nextScrollTop,
   metrics,
   scrollTopDeltaEpsilonPx = SCROLL_TOP_DELTA_EPSILON_PX,
-  hasManualScrollIntent = true,
 }: ResolveAutoFollowArgs): boolean {
-  if (hasManualScrollIntent && nextScrollTop < previousScrollTop - scrollTopDeltaEpsilonPx) {
-    return false;
-  }
-
   if (isNearBottom(metrics)) {
     return true;
+  }
+
+  if (nextScrollTop < previousScrollTop - scrollTopDeltaEpsilonPx) {
+    return false;
   }
 
   return previousAutoFollow;

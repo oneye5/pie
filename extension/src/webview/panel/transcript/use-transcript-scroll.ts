@@ -36,8 +36,6 @@ interface UseTranscriptScrollResult {
   jumpToLatest: () => void;
 }
 
-const MANUAL_SCROLL_INTENT_GRACE_MS = 280;
-
 function useScrollState(scrollRef: { current: HTMLDivElement | null }) {
   const [isAtBottom, setIsAtBottom] = useState(true);
   const autoFollowRef = useRef(true);
@@ -60,21 +58,6 @@ function useScrollState(scrollRef: { current: HTMLDivElement | null }) {
   }, [scrollRef]);
 
   return { isAtBottom, setIsAtBottom, autoFollowRef, lastScrollTopRef, scrollToBottom };
-}
-
-function useManualScrollIntent() {
-  const manualScrollIntentUntilRef = useRef(0);
-  const pointerScrollIntentRef = useRef(false);
-
-  const markManual = useCallback(() => {
-    manualScrollIntentUntilRef.current = Date.now() + MANUAL_SCROLL_INTENT_GRACE_MS;
-  }, []);
-
-  const clearPointer = useCallback(() => {
-    pointerScrollIntentRef.current = false;
-  }, []);
-
-  return { manualScrollIntentUntilRef, pointerScrollIntentRef, markManual, clearPointer };
 }
 
 function usePaginationState(
@@ -148,8 +131,6 @@ function useSessionResetEffect(
   loadedEnd: number,
   autoFollowRef: { current: boolean },
   lastScrollTopRef: { current: number },
-  manualScrollIntentUntilRef: { current: number },
-  pointerScrollIntentRef: { current: boolean },
   pendingJumpToLatestSnapRef: { current: boolean },
   pendingOlderAnchorRef: { current: MessageScrollAnchor | null },
   loadingOlderRef: { current: boolean },
@@ -160,8 +141,6 @@ function useSessionResetEffect(
   useLayoutEffect(() => {
     autoFollowRef.current = true;
     lastScrollTopRef.current = 0;
-    manualScrollIntentUntilRef.current = 0;
-    pointerScrollIntentRef.current = false;
     pendingJumpToLatestSnapRef.current = false;
     pendingOlderAnchorRef.current = null;
     loadingOlderRef.current = false;
@@ -233,12 +212,8 @@ function useScrollEventsEffect(
   autoFollowRef: { current: boolean },
   lastScrollTopRef: { current: number },
   setIsAtBottom: (v: boolean) => void,
-  manualScrollIntentUntilRef: { current: number },
-  pointerScrollIntentRef: { current: boolean },
   hasOlder: boolean,
   requestOlderPage: () => void,
-  markManual: () => void,
-  clearPointer: () => void,
   sessionKey: string | null,
 ) {
   useEffect(() => {
@@ -248,13 +223,11 @@ function useScrollEventsEffect(
     const onScroll = () => {
       const next = el.scrollTop;
       const metrics = { scrollHeight: el.scrollHeight, scrollTop: next, clientHeight: el.clientHeight };
-      const hasManual = pointerScrollIntentRef.current || Date.now() <= manualScrollIntentUntilRef.current;
       const follow = resolveAutoFollowState({
         previousAutoFollow: autoFollowRef.current,
         previousScrollTop: lastScrollTopRef.current,
         nextScrollTop: next,
         metrics,
-        hasManualScrollIntent: hasManual,
       });
       autoFollowRef.current = follow;
       lastScrollTopRef.current = next;
@@ -262,36 +235,12 @@ function useScrollEventsEffect(
       if (el.scrollTop <= 120 && hasOlder) requestOlderPage();
     };
 
-    const onWheel = () => markManual();
-    const onTouchStart = () => markManual();
-    const onTouchMove = () => markManual();
-    const onPointerDown = (e: PointerEvent) => {
-      if (e.target === el) {
-        pointerScrollIntentRef.current = true;
-        markManual();
-      }
-    };
-
-    el.addEventListener('wheel', onWheel, { passive: true });
-    el.addEventListener('touchstart', onTouchStart, { passive: true });
-    el.addEventListener('touchmove', onTouchMove, { passive: true });
-    el.addEventListener('pointerdown', onPointerDown, { passive: true });
     el.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('pointerup', clearPointer, { passive: true });
-    window.addEventListener('pointercancel', clearPointer, { passive: true });
-    window.addEventListener('blur', clearPointer);
 
     return () => {
-      el.removeEventListener('wheel', onWheel);
-      el.removeEventListener('touchstart', onTouchStart);
-      el.removeEventListener('touchmove', onTouchMove);
-      el.removeEventListener('pointerdown', onPointerDown);
       el.removeEventListener('scroll', onScroll);
-      window.removeEventListener('pointerup', clearPointer);
-      window.removeEventListener('pointercancel', clearPointer);
-      window.removeEventListener('blur', clearPointer);
     };
-  }, [scrollRef, requestOlderPage, sessionKey, hasOlder, autoFollowRef, lastScrollTopRef, setIsAtBottom, manualScrollIntentUntilRef, pointerScrollIntentRef, markManual, clearPointer]);
+  }, [scrollRef, requestOlderPage, sessionKey, hasOlder, autoFollowRef, lastScrollTopRef, setIsAtBottom]);
 }
 
 function usePaginationTrackingEffect(
@@ -438,7 +387,6 @@ export function useTranscriptScroll({
   const pendingJumpToLatestSnapRef = useRef(false);
 
   const { isAtBottom, setIsAtBottom, autoFollowRef, lastScrollTopRef, scrollToBottom } = useScrollState(scrollRef);
-  const { manualScrollIntentUntilRef, pointerScrollIntentRef, markManual, clearPointer } = useManualScrollIntent();
   const {
     isLoadingOlder,
     setIsLoadingOlder,
@@ -472,8 +420,6 @@ export function useTranscriptScroll({
     transcriptWindow.loadedEnd,
     autoFollowRef,
     lastScrollTopRef,
-    manualScrollIntentUntilRef,
-    pointerScrollIntentRef,
     pendingJumpToLatestSnapRef,
     pendingOlderAnchorRef,
     loadingOlderRef,
@@ -487,12 +433,8 @@ export function useTranscriptScroll({
     autoFollowRef,
     lastScrollTopRef,
     setIsAtBottom,
-    manualScrollIntentUntilRef,
-    pointerScrollIntentRef,
     transcriptWindow.hasOlder,
     requestOlderPage,
-    markManual,
-    clearPointer,
     sessionKey,
   );
 

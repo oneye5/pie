@@ -38,14 +38,18 @@ test('isNearBottom uses the shared threshold', () => {
   );
 });
 
-test('resolveAutoFollowState disengages immediately on upward scroll movement', () => {
+test('resolveAutoFollowState disengages on upward scroll regardless of input device', () => {
+  // Detection is direction-based, not gated on manual intent: keyboard scroll-up
+  // (Page Up / Home / ↑ / Shift+Space) fires no wheel/touch/pointer event, so a
+  // gate would leave the auto-follow rAF loop re-pinning to the bottom every
+  // frame and fighting the reader.
   const nextAutoFollow = resolveAutoFollowState({
     previousAutoFollow: true,
-    previousScrollTop: 600,
-    nextScrollTop: 592,
+    previousScrollTop: 600, // pinned at the bottom (distance 0)
+    nextScrollTop: 500, // scrolled up 100px -> distance 100 > 24px threshold
     metrics: {
       scrollHeight: 1000,
-      scrollTop: 592,
+      scrollTop: 500,
       clientHeight: 400,
     },
   });
@@ -53,17 +57,20 @@ test('resolveAutoFollowState disengages immediately on upward scroll movement', 
   assert.equal(nextAutoFollow, false);
 });
 
-test('resolveAutoFollowState ignores upward scroll movement without manual scroll intent', () => {
+test('resolveAutoFollowState stays engaged for upward nudges within the bottom threshold', () => {
+  // A small upward nudge that stays inside the 24px near-bottom zone keeps
+  // follow engaged. This also prevents a content-shrink clamp (the browser
+  // clamping scrollTop down to the new bottom when content above shrinks, e.g.
+  // a tool card collapsing or context pruning) from falsely disengaging.
   const nextAutoFollow = resolveAutoFollowState({
     previousAutoFollow: true,
-    previousScrollTop: 600,
-    nextScrollTop: 592,
+    previousScrollTop: 600, // distance 0
+    nextScrollTop: 592, // distance 8 <= 24px threshold
     metrics: {
       scrollHeight: 1000,
       scrollTop: 592,
       clientHeight: 400,
     },
-    hasManualScrollIntent: false,
   });
 
   assert.equal(nextAutoFollow, true);
