@@ -16,7 +16,8 @@ import {
   ExtensionsSection,
   ProvidersSection,
   SoundSection,
-  UiSection,
+  UiFlyout,
+  UiSubmenuTrigger,
 } from './settings-menu-subcomponents';
 
 export {
@@ -61,7 +62,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
   const [open, setOpen] = useState(false);
   const modelEntries = useMemo(() => orderModelsForPicker(availableModels), [availableModels]);
   const [expandedExt, setExpandedExt] = useState<string | null>(null);
-  const [uiExpanded, setUiExpanded] = useState(false);
+  const [uiOpen, setUiOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
 
@@ -129,7 +130,8 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
       {open && (
         <div class="toolbar-settings-menu" role="menu" aria-label="Chat settings menu">
           <ChatPrefSections prefs={prefs} onSetPrefs={onSetPrefs} />
-          <UiSection prefs={prefs} onSetPrefs={onSetPrefs} expanded={uiExpanded} setExpanded={setUiExpanded} />
+          <UiSubmenuTrigger open={uiOpen} onToggle={() => setUiOpen((v) => !v)} />
+          {uiOpen && <UiFlyout prefs={prefs} onSetPrefs={onSetPrefs} />}
           <SoundSection prefs={prefs} onSetPrefs={onSetPrefs} />
           {availableExtensions.length > 0 && (
             <ExtensionsSection

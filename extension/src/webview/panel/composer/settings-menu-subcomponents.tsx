@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useEffect, useMemo, useState } from 'preact/hooks';
+import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { playCompletionSound, warmupCompletionSoundContext } from '../completion-sound';
 
@@ -88,134 +88,213 @@ function SoundSection({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnS
   );
 }
 
-interface SettingsTextInputProps {
+interface FontOption {
+  label: string;
+  /** CSS font-family stack. Empty string means "use the bundled default". */
   value: string;
-  placeholder?: string;
+}
+
+/** Curated sans-serif (plus a few serif) stacks for the UI font picker. */
+const SANS_FONT_OPTIONS: ReadonlyArray<FontOption> = [
+  { label: 'Default', value: '' },
+  { label: 'Inter', value: 'Inter, "Segoe UI", system-ui, sans-serif' },
+  { label: 'System UI', value: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif' },
+  { label: 'Segoe UI', value: '"Segoe UI", system-ui, sans-serif' },
+  { label: 'Helvetica', value: 'Helvetica, Arial, sans-serif' },
+  { label: 'Arial', value: 'Arial, Helvetica, sans-serif' },
+  { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
+  { label: 'Tahoma', value: 'Tahoma, Geneva, sans-serif' },
+  { label: 'Trebuchet MS', value: '"Trebuchet MS", Helvetica, sans-serif' },
+  { label: 'Georgia (serif)', value: 'Georgia, "Times New Roman", serif' },
+  { label: 'Times New Roman (serif)', value: '"Times New Roman", Times, serif' },
+  { label: 'Garamond (serif)', value: 'Garamond, "Times New Roman", serif' },
+];
+
+/** Curated monospace stacks for the code/tool-output font picker. */
+const MONO_FONT_OPTIONS: ReadonlyArray<FontOption> = [
+  { label: 'Default', value: '' },
+  { label: 'JetBrains Mono', value: '"JetBrains Mono", "Cascadia Code", Consolas, monospace' },
+  { label: 'Cascadia Code', value: '"Cascadia Code", "JetBrains Mono", Consolas, monospace' },
+  { label: 'Fira Code', value: '"Fira Code", "JetBrains Mono", Consolas, monospace' },
+  { label: 'SF Mono', value: '"SF Mono", ui-monospace, Menlo, monospace' },
+  { label: 'ui-monospace', value: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
+  { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
+  { label: 'Menlo', value: 'Menlo, Consolas, monospace' },
+  { label: 'Monaco', value: 'Monaco, Menlo, monospace' },
+  { label: 'Courier New', value: '"Courier New", Courier, monospace' },
+];
+
+interface FontSelectProps {
+  value: string;
+  options: ReadonlyArray<FontOption>;
   ariaLabel: string;
-  onCommit: (next: string) => void;
+  onChange: (next: string) => void;
 }
 
 /**
- * Text input that commits to host state on blur/Enter rather than per keystroke.
- * The host-owned pref only updates after a round-trip, so a per-keystroke
- * `onSetPrefs` would lag and drop characters; mirroring into local state keeps
- * typing responsive while still persisting the final value. (Per the state
- * contract, a per-keystroke buffer inside an active input is webview-local.)
+ * Font-family dropdown (replaces the old free-text input). The closed control
+ * and each option render in their own font as a live preview where the browser
+ * supports per-option styling. A value that doesn't match any preset (e.g. left
+ * over from the old text input) is surfaced as an explicit "Custom" option so
+ * the select never silently snaps away from persisted state.
  */
-function SettingsTextInput({ value, placeholder, ariaLabel, onCommit }: SettingsTextInputProps) {
-  const [local, setLocal] = useState(value);
-  // Re-sync when the host-persisted value changes (snapshot after a commit,
-  // or a reset from elsewhere). `value` only advances once the host round-trip
-  // lands, so this does not fight the in-flight local keystrokes.
-  useEffect(() => {
-    setLocal(value);
-  }, [value]);
-
-  const commit = () => {
-    if (local !== value) {
-      onCommit(local);
-    }
-  };
-
+function FontSelect({ value, options, ariaLabel, onChange }: FontSelectProps) {
+  const hasMatch = options.some((opt) => opt.value === value);
   return (
-    <input
-      type="text"
-      class="toolbar-settings-text-input"
-      placeholder={placeholder}
-      value={local}
+    <select
+      class="toolbar-settings-select toolbar-settings-ui-font-select"
+      style={value ? { fontFamily: value } : undefined}
+      value={value}
       aria-label={ariaLabel}
-      onInput={(e) => setLocal((e.target as HTMLInputElement).value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter') {
-          (e.target as HTMLInputElement).blur();
-        }
-      }}
-    />
+      onChange={(e) => onChange((e.target as HTMLSelectElement).value)}
+    >
+      {!hasMatch && value !== '' && (
+        <option value={value} style={{ fontFamily: value }}>Custom</option>
+      )}
+      {options.map((opt) => (
+        <option key={opt.label} value={opt.value} style={opt.value ? { fontFamily: opt.value } : undefined}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
-interface UiSectionProps {
-  prefs: ChatPrefs;
-  onSetPrefs: OnSetPrefs;
-  expanded: boolean;
-  setExpanded: (next: boolean) => void;
+interface UiSubmenuTriggerProps {
+  open: boolean;
+  onToggle: () => void;
 }
 
-function UiSection({ prefs, onSetPrefs, expanded, setExpanded }: UiSectionProps) {
+/** The "UI ▸" row inside the settings menu that opens the UI flyout to the side. */
+function UiSubmenuTrigger({ open, onToggle }: UiSubmenuTriggerProps) {
   return (
-    <div key="ui" class="toolbar-settings-section">
-      <button
-        class="toolbar-settings-ui-header"
-        type="button"
-        aria-expanded={expanded}
-        aria-label={`${expanded ? 'Collapse' : 'Expand'} UI settings`}
-        onClick={() => setExpanded(!expanded)}
-      >
-        <span>UI</span>
-        <CollapsibleChevron open={expanded} size={12} />
-      </button>
-      {expanded && (
-        <div class="toolbar-settings-ui-content">
-          <div class="toolbar-settings-item toolbar-settings-mode-row">
-            <span class="toolbar-settings-item-label">{prefs.expandedSectionFontSize}px</span>
-            <input
-              type="range"
-              class="toolbar-settings-slider"
-              min="9"
-              max="18"
-              step="1"
-              value={prefs.expandedSectionFontSize}
-              onInput={(e) => onSetPrefs({ expandedSectionFontSize: Number((e.target as HTMLInputElement).value) })}
-              aria-label="Expanded section font size"
-            />
-          </div>
-          <div class="toolbar-settings-item-hint">Font size for tool-call output, reasoning, system prompts, and code blocks.</div>
+    <button
+      class={`toolbar-settings-ui-trigger${open ? ' open' : ''}`}
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={open}
+      aria-label="UI settings"
+      onClick={onToggle}
+    >
+      <span>UI</span>
+      <svg class="toolbar-settings-ui-trigger-chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+        <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+    </button>
+  );
+}
 
-          <div class="toolbar-settings-ui-row">
-            <span class="toolbar-settings-ui-row-label">Sans font</span>
-            <SettingsTextInput
-              value={prefs.uiFontSans}
-              placeholder="Inter, system-ui, sans-serif"
-              ariaLabel="Sans-serif font family"
-              onCommit={(next) => onSetPrefs({ uiFontSans: next })}
-            />
-          </div>
-          <div class="toolbar-settings-item-hint">CSS font stack for body text. Blank uses the default.</div>
+interface UiFlyoutProps {
+  prefs: ChatPrefs;
+  onSetPrefs: OnSetPrefs;
+}
 
-          <div class="toolbar-settings-ui-row">
-            <span class="toolbar-settings-ui-row-label">Mono font</span>
-            <SettingsTextInput
-              value={prefs.uiFontMono}
-              placeholder={'"JetBrains Mono", monospace'}
-              ariaLabel="Monospace font family"
-              onCommit={(next) => onSetPrefs({ uiFontMono: next })}
-            />
-          </div>
-          <div class="toolbar-settings-item-hint">CSS font stack for code and tool output. Blank uses the default.</div>
+/**
+ * Side panel of UI appearance controls. Renders as a flyout to the right of the
+ * settings menu (a child of `.toolbar-settings-menu`, positioned past its right
+ * edge) so opening it never grows the menu upward and off-screen. A mount-time
+ * effect clamps its height to the viewport and shrinks it to fit the space
+ * beside the menu, so it never grows the menu upward or runs off-screen.
+ */
+function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
+  const flyoutRef = useRef<HTMLDivElement>(null);
 
-          <div class="toolbar-settings-ui-row">
-            <span class="toolbar-settings-ui-row-label">Accent color</span>
-            <div class="toolbar-settings-color-controls">
-              <input
-                type="color"
-                class="toolbar-settings-color-input"
-                value={prefs.uiAccentColor || '#d7a942'}
-                onInput={(e) => onSetPrefs({ uiAccentColor: (e.target as HTMLInputElement).value })}
-                aria-label="Accent color"
-              />
-              <button
-                type="button"
-                class="toolbar-settings-color-reset"
-                disabled={!prefs.uiAccentColor}
-                onClick={() => onSetPrefs({ uiAccentColor: '' })}
-                aria-label="Reset accent color"
-              >Reset</button>
-            </div>
-          </div>
-          <div class="toolbar-settings-item-hint">Theme accent for buttons, highlights, and active states. Reset restores the default.</div>
+  useEffect(() => {
+    const el = flyoutRef.current;
+    const menu = el?.parentElement; // .toolbar-settings-menu
+    if (!el || !menu) return;
+    const pad = 8;
+    const gap = 8; // matches var(--panel-gap-md) in the CSS left offset
+    const naturalWidth = 260; // matches .toolbar-settings-ui-flyout width
+    const minWidth = 200;
+    const fit = () => {
+      const flyRect = el.getBoundingClientRect();
+      const menuRect = menu.getBoundingClientRect();
+      // Vertical: never overflow the viewport bottom (the main off-screen fix).
+      const overflowBottom = flyRect.bottom - (window.innerHeight - pad);
+      el.style.maxHeight =
+        overflowBottom > 0 ? `${Math.max(180, flyRect.height - overflowBottom)}px` : '';
+      // Horizontal: the menu sits at the panel's left edge, so the flyout
+      // always opens to the right. Shrink it to fit the space beside the menu
+      // rather than overflowing the right edge (there's no room to flip left).
+      const available = window.innerWidth - menuRect.right - gap - pad;
+      el.style.width =
+        available < naturalWidth ? `${Math.max(minWidth, available)}px` : '';
+    };
+    fit();
+    // Re-measure once the entrance animation settles (transform skews the rect).
+    const t = window.setTimeout(fit, 320);
+    window.addEventListener('resize', fit);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener('resize', fit);
+    };
+  }, []);
+
+  return (
+    <div ref={flyoutRef} class="toolbar-settings-ui-flyout" role="dialog" aria-label="UI settings">
+      <div class="toolbar-settings-ui-flyout-title">UI</div>
+
+      <div class="toolbar-settings-ui-control">
+        <div class="toolbar-settings-ui-control-head">
+          <span class="toolbar-settings-ui-control-label">Expanded text</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.expandedSectionFontSize}px</span>
         </div>
-      )}
+        <input
+          type="range"
+          class="toolbar-settings-slider toolbar-settings-ui-slider"
+          min="9"
+          max="18"
+          step="1"
+          value={prefs.expandedSectionFontSize}
+          onInput={(e) => onSetPrefs({ expandedSectionFontSize: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Expanded section font size"
+        />
+        <div class="toolbar-settings-item-hint">Tool-call output, reasoning, system prompts, and code blocks.</div>
+      </div>
+
+      <div class="toolbar-settings-ui-control">
+        <span class="toolbar-settings-ui-control-label">Sans font</span>
+        <FontSelect
+          value={prefs.uiFontSans}
+          options={SANS_FONT_OPTIONS}
+          ariaLabel="Sans-serif font family"
+          onChange={(next) => onSetPrefs({ uiFontSans: next })}
+        />
+        <div class="toolbar-settings-item-hint">Body and UI text. "Default" uses the bundled stack.</div>
+      </div>
+
+      <div class="toolbar-settings-ui-control">
+        <span class="toolbar-settings-ui-control-label">Mono font</span>
+        <FontSelect
+          value={prefs.uiFontMono}
+          options={MONO_FONT_OPTIONS}
+          ariaLabel="Monospace font family"
+          onChange={(next) => onSetPrefs({ uiFontMono: next })}
+        />
+        <div class="toolbar-settings-item-hint">Code and tool output. "Default" uses the bundled stack.</div>
+      </div>
+
+      <div class="toolbar-settings-ui-control">
+        <span class="toolbar-settings-ui-control-label">Accent color</span>
+        <div class="toolbar-settings-color-controls">
+          <input
+            type="color"
+            class="toolbar-settings-color-input"
+            value={prefs.uiAccentColor || '#d7a942'}
+            onInput={(e) => onSetPrefs({ uiAccentColor: (e.target as HTMLInputElement).value })}
+            aria-label="Accent color"
+          />
+          <button
+            type="button"
+            class="toolbar-settings-color-reset"
+            disabled={!prefs.uiAccentColor}
+            onClick={() => onSetPrefs({ uiAccentColor: '' })}
+            aria-label="Reset accent color"
+          >Reset</button>
+        </div>
+        <div class="toolbar-settings-item-hint">Buttons, highlights, and active states. Reset restores the default.</div>
+      </div>
     </div>
   );
 }
@@ -617,7 +696,8 @@ export function AlwaysKeepPicker({ label, selected, catalog, category, onChange 
 
 export {
   ChatPrefSections,
-  UiSection,
+  UiSubmenuTrigger,
+  UiFlyout,
   SoundSection,
   ExtensionsSection,
   ProvidersSection,
