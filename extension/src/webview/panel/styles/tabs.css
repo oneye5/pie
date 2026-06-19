@@ -30,11 +30,7 @@
     max-height: 80px;
   }
 }
-@media (prefers-reduced-motion: reduce) {
-  .notice {
-    animation: none;
-  }
-}
+
 
 .notice-content {
   flex: 1;
@@ -209,8 +205,7 @@ body.session-tab-dragging {
 }
 
 /* Non-active attention — distinct from `unread-finished` (green flash):
-   a steady warning-colored inset border with a slow breathing outer glow.
-   The declared box-shadow is also the reduced-motion fallback. */
+   a steady warning-colored inset border with a slow breathing outer glow. */
 .session-tab.attention:not(.active) .session-tab-shell {
   box-shadow:
     inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 42%, var(--session-tab-outline)),
@@ -550,11 +545,4 @@ body.session-tab-dragging {
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .session-tab-running,
-  .session-tab.unread-finished:not(.active) .session-tab-shell,
-  .session-tab.attention .session-tab-shell,
-  .session-tab.attention:not(.active) .session-tab-shell {
-    animation: none;
-  }
-}
+

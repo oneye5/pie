@@ -131,13 +131,7 @@
   50% { opacity: 1; transform: scale(1.15); }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .status-chip-running::before {
-    animation: none;
-    opacity: 0.9;
-    transform: none;
-  }
-}
+
 
 @media (forced-colors: active) {
   .status-chip.has-error-detail {

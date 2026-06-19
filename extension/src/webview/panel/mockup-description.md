@@ -26,7 +26,7 @@ A compact inline status row inside the assistant turn, reusing the existing stat
 
 - Small dot, monospace uppercase label, subtle tone surface, and optional compact detail text.
 - Stable `min-height: var(--turn-activity-min-height)` so phase changes from `pruning` → `starting model` → `thinking` do not change row shape.
-- One subtle underline/dot pulse animation per strip, disabled under `prefers-reduced-motion`.
+- One subtle underline/dot pulse animation per strip.
 - Clear ARIA `role="status"` text while keeping the decorative animation hidden from assistive tech.
 - Standalone variant for pre-assistant states (no assistant message shell yet).
 - Inline variant rendered inside the assistant turn when a shell exists.
@@ -60,7 +60,6 @@ Failed or interrupted assistant turns expose clear recovery paths:
 ## Motion philosophy
 
 - One high-signal animation only: running statuses breathe with a subtle dot glow.
-- Respect `prefers-reduced-motion` by removing pulse/glow animation.
 - Hover transitions stay under 150ms and only adjust surface, border, and lift.
 
 ## Spatial composition plan
@@ -104,10 +103,9 @@ Failed or interrupted assistant turns expose clear recovery paths:
 - Error detail text keeps the existing truncation/More/Dismiss behavior and adds a copy-detail affordance matching failed tool/subagent chips.
 - Retry/edit actions respect transcript windowing: if the previous user message is not in `transcriptWindow`, a disabled explanation such as `Load older messages to retry` is shown instead.
 
-### Motion durations & reduced motion
+### Motion durations
 - Status chip animations use `var(--status-chip-motion-duration, 2.1s)` for consistent pace across tool-call, subagent, and message-level status indicators.
 - The message-glow-pulse animation (running indicator beneath assistant turns) uses `var(--message-glow-duration, 4s)` for a calmer, less frantic pulse.
-- All motion respects `prefers-reduced-motion`: animations are disabled, pulse/glow effects are removed, and stable opacity is used instead.
 - Height animations are avoided inside virtualized rows; only opacity, transform, and color transitions are used.
 - Hover transitions stay under 150ms and only adjust surface, border, and lift.
 

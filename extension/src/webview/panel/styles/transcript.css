@@ -524,12 +524,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .loading-ellipsis > span {
-    animation: none;
-    opacity: 0.7;
-  }
-}
+
 
 /* ── Message recovery (retry / error detail) ─────────────────────────────── */
 /* Controls shown below failed or interrupted assistant turns */
@@ -903,39 +898,7 @@
   animation-play-state: paused;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .agent-activity-text {
-    opacity: 0.82;
-    color: color-mix(in srgb, var(--panel-foreground) 74%, var(--panel-muted) 26%);
-  }
 
-  .activity-status-bar {
-    opacity: 0.35;
-  }
-
-  .turn-activity-strip.running .turn-activity-strip-label {
-    animation: none;
-    background: none;
-    -webkit-text-fill-color: currentColor;
-    color: inherit;
-  }
-
-  .transcript-typing-dot {
-    animation: none;
-    opacity: 0.7;
-  }
-
-  .transcript-jump-latest {
-    animation: none;
-  }
-
-  /* Suppress message entrance animation in reduced-motion mode */
-  [data-role="assistant"],
-  [data-role="user"],
-  [data-role="system"] {
-    animation: none;
-  }
-}
 
 /* ── System prompt card ──────────────────────────────────────────────────── */
 

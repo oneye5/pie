@@ -552,11 +552,7 @@
   transform-origin: top left;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .block-context-menu {
-    animation: none;
-  }
-}
+
 
 .session-tab-context-menu {
   min-width: 190px;
@@ -621,12 +617,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .run-outcome-backdrop,
-  .run-outcome-dialog {
-    animation: none;
-  }
-}
+
 
 .run-outcome-header {
   display: flex;

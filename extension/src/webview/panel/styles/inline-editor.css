@@ -97,14 +97,7 @@
     var(--panel-shadow-sm);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .inline-editor-wrapper {
-    animation: none;
-  }
-  .inline-editor-actions {
-    animation: none;
-  }
-}
+
 
 @media (forced-colors: active) {
   .inline-editor-textarea {

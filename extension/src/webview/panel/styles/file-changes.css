@@ -104,11 +104,7 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .file-changes-list {
-    animation: none;
-  }
-}
+
 
 .file-change-item {
   display: flex;
