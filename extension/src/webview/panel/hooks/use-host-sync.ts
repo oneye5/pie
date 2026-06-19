@@ -4,7 +4,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'preact/hooks';
 
 import { validateViewState } from '../state-validator';
-import { clearDisclosureCache } from '../transcript/use-disclosure-open';
+import { clearCollapsibleCache } from '../transcript/use-collapsible-open';
 
 import type {
   ChatMessage,
@@ -322,7 +322,7 @@ export function useHostSync(
     setDraftRestore(null);
     setOptimisticMessages([]);
     pendingDraftRestoreRef.current.clear();
-    clearDisclosureCache();
+    clearCollapsibleCache();
   }, []);
 
   const resetPerSessionState = useCallback(() => {

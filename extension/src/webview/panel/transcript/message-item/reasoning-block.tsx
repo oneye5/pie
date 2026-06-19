@@ -5,23 +5,23 @@ import { useMemo } from 'preact/hooks';
 
 import { renderMarkdown, reasoningSummary } from '../../markdown';
 import { cx } from '../../utils/cx';
-import { Disclosure } from '../../components/disclosure';
-import { useDisclosureOpen } from '../use-disclosure-open';
+import { Collapsible } from '../../components/collapsible';
+import { useCollapsibleOpen } from '../use-collapsible-open';
 
 interface ReasoningBlockProps {
   text: string;
   autoExpand: boolean;
-  disclosureKey: string;
+  collapsibleKey: string;
   onContextMenu: (e: MouseEvent) => void;
 }
 
-export function ReasoningBlock({ text, autoExpand, disclosureKey, onContextMenu }: ReasoningBlockProps) {
-  const [open, setOpen] = useDisclosureOpen(disclosureKey, autoExpand);
+export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu }: ReasoningBlockProps) {
+  const [open, setOpen] = useCollapsibleOpen(collapsibleKey, autoExpand);
 
   const html = useMemo(() => (open ? renderMarkdown(text) : ''), [open, text]);
 
   return (
-    <Disclosure
+    <Collapsible
       open={open}
       onToggle={setOpen}
       ariaLabel="Toggle reasoning details"
@@ -43,6 +43,6 @@ export function ReasoningBlock({ text, autoExpand, disclosureKey, onContextMenu 
         dangerouslySetInnerHTML={{ __html: html }}
         aria-live="polite"
       />
-    </Disclosure>
+    </Collapsible>
   );
 }

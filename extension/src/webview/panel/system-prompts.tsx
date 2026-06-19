@@ -6,7 +6,7 @@ import { useState, useMemo } from 'preact/hooks';
 import type { SystemPromptEntry } from '../../shared/protocol';
 import { renderMarkdown, reasoningSummary } from './markdown';
 import { cx } from './utils/cx';
-import { Disclosure } from './components/disclosure';
+import { Collapsible } from './components/collapsible';
 import {
   estimateSystemPromptTokens,
   formatSystemPromptTokenLabel,
@@ -40,7 +40,7 @@ function SystemPromptCard({ prompt }: SystemPromptCardProps) {
   const showSummary = !open && !!summary;
 
   return (
-    <Disclosure
+    <Collapsible
       open={open}
       onToggle={setOpen}
       ariaLabel="Toggle system prompt"
@@ -60,7 +60,7 @@ function SystemPromptCard({ prompt }: SystemPromptCardProps) {
         class="message-body"
         dangerouslySetInnerHTML={{ __html: html }}
       />
-    </Disclosure>
+    </Collapsible>
   );
 }
 
@@ -97,7 +97,7 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
   }, [prompts]);
 
   return (
-    <Disclosure
+    <Collapsible
       open={groupOpen}
       onToggle={setGroupOpen}
       ariaLabel="Toggle system prompts group"
@@ -123,6 +123,6 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
           prompt={prompt}
         />
       ))}
-    </Disclosure>
+    </Collapsible>
   );
 }

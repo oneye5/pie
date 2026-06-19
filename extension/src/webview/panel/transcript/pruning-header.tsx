@@ -5,7 +5,7 @@ import type { JSX } from 'preact';
 
 import type { PruningDetails } from '../../../shared/protocol';
 import { PruningHeaderChipControl } from '../components/panel-chip';
-import { DisclosureChevron } from '../components/chevron';
+import { CollapsibleChevron } from '../components/chevron';
 import { AGENT_ACTIVITY_LABELS } from './activity';
 import { AgentActivityLabel } from './activity-label';
 import { PruningDiagnostics } from './pruning-details';
@@ -79,7 +79,7 @@ export function PruningHeaderButton({ details, expanded, fallbackText, onToggle 
       onClick={onToggle}
       leading={failed ? '⚠' : undefined}
       label={chipLabel}
-      trailing={<DisclosureChevron open={expanded} size={9} />}
+      trailing={<CollapsibleChevron open={expanded} size={9} />}
     />
   );
 }

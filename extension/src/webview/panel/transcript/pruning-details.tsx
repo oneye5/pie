@@ -5,7 +5,7 @@ import type { JSX } from 'preact';
 
 import type { PruningDetails } from '../../../shared/protocol';
 import { pruningTotals } from './pruning';
-import { Disclosure } from '../components/disclosure';
+import { Collapsible } from '../components/collapsible';
 import { ResizablePre } from '../components/resizable-pre';
 import { highlightToolResultText } from './highlight';
 
@@ -113,11 +113,11 @@ function PruningDiagnosticsContent({ details, rawExpanded, onRawToggle }: Omit<P
         </ResizablePre>
       </div>
       <div class="pruning-raw-toggle">
-        <Disclosure
+        <Collapsible
           open={rawExpanded}
           onToggle={() => onRawToggle()}
           ariaLabel="Toggle prepass prompts and output"
-          class="pruning-raw-toggle-disclosure"
+          class="pruning-raw-toggle-collapsible"
           headerClass="pruning-raw-toggle-button"
           bodyClass="pruning-raw-content"
           header={<span>Prepass prompts and output</span>}
@@ -125,7 +125,7 @@ function PruningDiagnosticsContent({ details, rawExpanded, onRawToggle }: Omit<P
           <RawBlock label="System prompt">{diagnosticText(details.prepassSystemPrompt, '∅ No system prompt captured')}</RawBlock>
           <RawBlock label="User prompt">{diagnosticText(details.prepassUserMessage, '∅ No user prompt captured')}</RawBlock>
           <RawBlock label="Raw LLM output">{diagnosticText(details.prepassResponse, '∅ Empty response')}</RawBlock>
-        </Disclosure>
+        </Collapsible>
       </div>
     </div>
   );

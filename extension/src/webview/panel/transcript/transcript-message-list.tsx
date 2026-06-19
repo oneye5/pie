@@ -20,11 +20,11 @@ export interface TranscriptMessageListProps {
    */
   readonly?: boolean;
   /**
-   * Suffix appended to each message key so disclosure default-open state
+   * Suffix appended to each message key so collapsible default-open state
    * recomputes when the relevant prefs change. Lets nested transcripts respond
    * to auto-expand pref toggles the same way the main transcript does.
    */
-  disclosureKey?: string;
+  collapsibleKey?: string;
 }
 
 const noop = () => {};
@@ -46,13 +46,13 @@ export function TranscriptMessageList({
   onContextMenu,
   renderToolCall,
   readonly,
-  disclosureKey,
+  collapsibleKey,
 }: TranscriptMessageListProps) {
   return (
     <>
       {messages.map((message) => (
         <MessageItem
-          key={disclosureKey ? `${message.id}-${disclosureKey}` : message.id}
+          key={collapsibleKey ? `${message.id}-${collapsibleKey}` : message.id}
           message={message}
           isStreaming={false}
           prefs={prefs}

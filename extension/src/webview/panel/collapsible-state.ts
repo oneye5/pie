@@ -1,4 +1,4 @@
-export function syncDisclosureOpenState(
+export function syncCollapsibleOpenState(
   currentOpen: boolean,
   previousDefaultOpen: boolean,
   nextDefaultOpen: boolean,

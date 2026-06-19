@@ -11,7 +11,7 @@ import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../util
 import { useEffect, useRef, useState } from 'preact/hooks';
 
 import { ClickablePathButton } from '../file-path';
-import { DisclosureChevron } from '../components/chevron';
+import { CollapsibleChevron } from '../components/chevron';
 import { ResizeHandle } from '../components/resize-handle';
 import { ResizablePre } from '../components/resizable-pre';
 import { useResizableHeight } from '../components/use-resizable-height';
@@ -24,7 +24,7 @@ import {
   textFromToolResult,
 } from './highlight';
 import { StatusChip } from './status-chip';
-import { useDisclosureOpen } from './use-disclosure-open';
+import { useCollapsibleOpen } from './use-collapsible-open';
 
 interface ToolCallCardProps {
   toolCall: ToolCall;
@@ -334,7 +334,7 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
           copyAriaLabel={errorDetail ? 'Copy tool-call error detail' : undefined}
         />
       )}
-      <DisclosureChevron open={open} class="ml-0.5 shrink-0" />
+      <CollapsibleChevron open={open} class="ml-0.5 shrink-0" />
     </div>
   );
 }
@@ -488,7 +488,7 @@ export function ToolCallCard({
   onOpenFile,
   onContextMenu,
 }: ToolCallCardProps) {
-  const [open, setOpen] = useDisclosureOpen(`tool:${toolCall.id}`, autoExpand);
+  const [open, setOpen] = useCollapsibleOpen(`tool:${toolCall.id}`, autoExpand);
   const presentation = getToolCallPresentation(toolCall, { workingDirectory });
   const isShell = isCommandSummaryTool(toolCall.name);
   const isRunning = toolCall.status === 'running';

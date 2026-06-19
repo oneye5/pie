@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'preact/hooks';
 import type { JSX } from 'preact';
 import type { ModelPickerEntry } from '../composer/model-list';
-import { DisclosureChevron } from './chevron';
+import { CollapsibleChevron } from './chevron';
 
 interface ModelPickerProps {
   /** Current selected model id. */
@@ -316,7 +316,7 @@ function ModelPickerTrigger({
       onKeyDown={onKeyDown}
     >
       <span class="model-picker-trigger-label">{label}</span>
-      <DisclosureChevron open={open} />
+      <CollapsibleChevron open={open} />
     </button>
   );
 }

@@ -5,7 +5,7 @@
  * TranscriptHost renders one TranscriptView per open tab path.
  * Only the active surface is visible/interactive; inactive surfaces remain
  * mounted but hidden via visibility:hidden + position:absolute to preserve
- * virtualizer measurements, scroll position, and disclosure state.
+ * virtualizer measurements, scroll position, and collapsible state.
  */
 
 import type {

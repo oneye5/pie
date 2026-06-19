@@ -5,7 +5,7 @@ import { useState } from 'preact/hooks';
 
 import type { PruningResult } from '../../shared/protocol';
 import { cx } from './utils/cx';
-import { Disclosure } from './components/disclosure';
+import { Collapsible } from './components/collapsible';
 import { ResizablePre } from './components/resizable-pre';
 import { highlightToolResultText } from './transcript/highlight';
 
@@ -36,7 +36,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
   // Error state
   if (error) {
     return (
-      <Disclosure
+      <Collapsible
         open={expanded}
         onToggle={setExpanded}
         ariaLabel="Toggle pruning error details"
@@ -53,7 +53,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
         <div class="pruning-banner-detail-row">
           <span class="pruning-banner-detail-text pruning-banner-error-text">{error}</span>
         </div>
-      </Disclosure>
+      </Collapsible>
     );
   }
 
@@ -68,7 +68,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
   const summaryText = `${summaryCore}${tokenSuffix}`;
 
   return (
-    <Disclosure
+    <Collapsible
       open={expanded}
       onToggle={setExpanded}
       ariaLabel="Toggle pruning details"
@@ -103,7 +103,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
             </div>
           )}
           {(details.prepassSystemPrompt || details.prepassResponse) && (
-            <Disclosure
+            <Collapsible
               open={rawExpanded}
               onToggle={setRawExpanded}
               ariaLabel="Toggle raw LLM output"
@@ -128,7 +128,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
                   </ResizablePre>
                 </div>
               )}
-            </Disclosure>
+            </Collapsible>
           )}
         </>
       ) : (
@@ -151,6 +151,6 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
           </div>
         </>
       )}
-    </Disclosure>
+    </Collapsible>
   );
 }

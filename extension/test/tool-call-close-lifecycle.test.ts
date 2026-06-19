@@ -12,13 +12,13 @@ import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 
 import { ToolCallCard } from '../src/webview/panel/transcript/tool-call-card.tsx';
-import { clearDisclosureCache } from '../src/webview/panel/transcript/use-disclosure-open';
+import { clearCollapsibleCache } from '../src/webview/panel/transcript/use-collapsible-open';
 import type { ToolCall } from '../src/shared/protocol';
 
 let container: HTMLElement;
 
 beforeEach(() => {
-  clearDisclosureCache();
+  clearCollapsibleCache();
   container = document.createElement('div');
   document.body.appendChild(container);
   return () => {

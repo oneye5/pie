@@ -3,7 +3,7 @@
 
 import { cx } from '../utils/cx';
 
-interface DisclosureChevronProps {
+interface CollapsibleChevronProps {
   /** Whether the controlled content is expanded. */
   open: boolean;
   /** Square pixel size of the chevron. */
@@ -13,16 +13,16 @@ interface DisclosureChevronProps {
 }
 
 /**
- * Single consistent disclosure chevron for dropdowns and expand/collapse
+ * Single consistent collapsible chevron for dropdowns and expand/collapse
  * affordances across the panel (model picker, settings expand buttons,
  * pruning raw-output toggles). Points right when closed and rotates 90° to
- * point down when open. Styling lives under `.disclosure-chevron` in the
+ * point down when open. Styling lives under `.collapsible-chevron` in the
  * shared stylesheet so every call site stays visually identical.
  */
-export function DisclosureChevron({ open, size = 10, class: className }: DisclosureChevronProps) {
+export function CollapsibleChevron({ open, size = 10, class: className }: CollapsibleChevronProps) {
   return (
     <svg
-      class={cx('disclosure-chevron', open && 'disclosure-chevron-open', className)}
+      class={cx('collapsible-chevron', open && 'collapsible-chevron-open', className)}
       width={size}
       height={size}
       viewBox="0 0 10 10"

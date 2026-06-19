@@ -164,7 +164,7 @@ test('rendered MessageItem covers assistant, editable user, and image-user branc
   const reasoningHtml = renderToString(h(ReasoningBlock, {
     text: 'Collapsed summary text',
     autoExpand: false,
-    disclosureKey: 'reasoning:test',
+    collapsibleKey: 'reasoning:test',
     onContextMenu: noop,
   }));
   assert.match(reasoningHtml, /Reasoning/);
@@ -1072,7 +1072,7 @@ test('rendered PruningBanner uses real buttons, shows at-a-glance counts, and hi
 
   const html = renderToString(h(PruningBanner, { pruningResult }));
 
-  // Accessible disclosure button
+  // Accessible collapsible button
   assert.match(html, /<button[^>]*pruning-banner-summary[^>]*>/);
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /role="button"/);
@@ -1135,7 +1135,7 @@ test('rendered PruningInlineCard uses real buttons and shows at-a-glance counts'
   assert.match(html, /skill-pruner/);
   assert.match(html, /via gpt-5\.4-mini 45ms/);
 
-  // Accessible disclosure button
+  // Accessible collapsible button
   assert.match(html, /<button[^>]*aria-expanded="false"[^>]*>/);
   assert.match(html, /aria-expanded="false"/);
   assert.doesNotMatch(html, /role="button"/);

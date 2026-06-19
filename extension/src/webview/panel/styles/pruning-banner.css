@@ -167,7 +167,7 @@
 }
 
 /* ── Raw LLM output toggle ───────────────────────────────────────────────── */
-/* Nested disclosure for the unprocessed LLM response */
+/* Nested collapsible for the unprocessed LLM response */
 
 .pruning-banner-raw-toggle {
   margin-top: 4px;

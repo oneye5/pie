@@ -13,7 +13,7 @@
 
 /* ── Expanded-section font size ──────────────────────────────────────────── */
 /* Applied to expanded code/data + collapsible-section prose only. Raw agent
-   message prose (.message-body outside a disclosure) stays at 13px. */
+   message prose (.message-body outside a collapsible) stays at 13px. */
 
 .tool-call-terminal-pre,
 .tool-call-pre,
@@ -25,13 +25,13 @@
 }
 
 /* Collapsible-section prose (reasoning, system prompts, pruning detail) uses
-   the same tweakable size. .message-body inside a disclosure inherits it
+   the same tweakable size. .message-body inside a collapsible inherits it
    instead of forcing its own 13px. */
-.disclosure-body {
+.collapsible-body {
   font-size: var(--expanded-font-size);
 }
 
-.disclosure-body .message-body {
+.collapsible-body .message-body {
   font-size: inherit;
 }
 
@@ -90,7 +90,7 @@
   color: var(--panel-foreground-soft);
 }
 
-/* ── Generic disclosure affordance ───────────────────────────────────────── */
+/* ── Generic collapsible affordance ───────────────────────────────────────── */
 /* Consistent expand/collapse affordance for transcript sections. The header
    is a real `<button>` (native keyboard + a11y) carrying a trailing rotating
    chevron, hover/focus states, and `aria-expanded`; the body is a sibling.
@@ -102,13 +102,13 @@
    `.pruning-banner-summary`) can override the button reset. */
 
 @layer base {
-  .disclosure {
+  .collapsible {
     display: flex;
     flex-direction: column;
     min-width: 0;
   }
 
-  .disclosure-header {
+  .collapsible-header {
     /* <button> reset so it behaves like a plain flex row */
     appearance: none;
     background: none;
@@ -129,16 +129,16 @@
     transition: background var(--panel-transition-fast);
   }
 
-  .disclosure-header:hover {
+  .collapsible-header:hover {
     background: var(--panel-control-hover);
   }
 
-  .disclosure-header:focus-visible {
+  .collapsible-header:focus-visible {
     outline: 1px solid var(--panel-accent);
     outline-offset: 2px;
   }
 
-  .disclosure-header-content {
+  .collapsible-header-content {
     min-width: 0;
     flex: 1 1 auto;
     overflow: hidden;
@@ -147,7 +147,7 @@
     gap: 7px;
   }
 
-  .disclosure-body {
+  .collapsible-body {
     user-select: text;
     cursor: auto;
   }

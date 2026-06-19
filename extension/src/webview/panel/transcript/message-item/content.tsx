@@ -42,7 +42,7 @@ function AssistantParts({
               key={`reasoning-${messageId}-${index}`}
               text={part.text}
               autoExpand={prefs.autoExpandReasoning}
-              disclosureKey={`reasoning:${messageId}:${index}`}
+              collapsibleKey={`reasoning:${messageId}:${index}`}
               onContextMenu={(e) => onContextMenu('reasoning', part.text, e)}
             />
           );

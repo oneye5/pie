@@ -269,18 +269,18 @@
   transform: scale(0.97);
 }
 
-/* ── Shared disclosure chevron ────────────────────────────────────────────── */
+/* ── Shared collapsible chevron ────────────────────────────────────────────── */
 /* Single rotating chevron used by dropdowns and expand/collapse affordances
    across the panel (model picker, settings expand, pruning raw toggles).
    Points right when closed; rotates 90° to point down when open. */
 
-.disclosure-chevron {
+.collapsible-chevron {
   flex-shrink: 0;
   color: var(--panel-muted);
   transition: transform var(--panel-transition-fast);
 }
 
-.disclosure-chevron-open {
+.collapsible-chevron-open {
   transform: rotate(90deg);
 }
 

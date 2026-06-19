@@ -4,14 +4,14 @@
 import type { ComponentChildren } from 'preact';
 
 import { cx } from '../utils/cx';
-import { DisclosureChevron } from './chevron';
+import { CollapsibleChevron } from './chevron';
 
-export interface DisclosureProps {
-  /** Controlled open state. Callers own this (useDisclosureOpen or useState). */
+export interface CollapsibleProps {
+  /** Controlled open state. Callers own this (useCollapsibleOpen or useState). */
   open: boolean;
   onToggle: (open: boolean) => void;
   /** Header content rendered on the leading side (label, summary, meta).
-   *  Caller controls the full layout; Disclosure appends a trailing chevron. */
+   *  Caller controls the full layout; Collapsible appends a trailing chevron. */
   header: ComponentChildren;
   /** Show the rotating chevron affordance. Default true. */
   chevron?: boolean;
@@ -33,14 +33,14 @@ export interface DisclosureProps {
  * affordance: the header is a real `<button>` (native keyboard + a11y, no
  * div-onClick) carrying a trailing rotating chevron, hover/focus states, and
  * `aria-expanded`. The body is a sibling of the button — never nested inside
- * it — so expanded content stays selectable and nested disclosures compose
+ * it — so expanded content stays selectable and nested collapsibles compose
  * without propagation hacks.
  *
  * Controlled only — callers own the open state so streaming/auto-show sites
  * (tool calls, subagents) can keep their own open/close logic and still reuse
- * the same visual affordance via `DisclosureChevron` + `.disclosure-*` classes.
+ * the same visual affordance via `CollapsibleChevron` + `.collapsible-*` classes.
  */
-export function Disclosure({
+export function Collapsible({
   open,
   onToggle,
   header,
@@ -52,27 +52,27 @@ export function Disclosure({
   onContextMenu,
   dataAttrs,
   children,
-}: DisclosureProps) {
+}: CollapsibleProps) {
   const toggle = () => onToggle(!open);
 
   return (
     <div
-      class={cx('disclosure', open && 'disclosure-open', className)}
+      class={cx('collapsible', open && 'collapsible-open', className)}
       {...(dataAttrs as Record<string, string> | undefined)}
       onContextMenu={onContextMenu ? (e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); } : undefined}
     >
       <button
         type="button"
-        class={cx('disclosure-header', headerClass)}
+        class={cx('collapsible-header', headerClass)}
         aria-expanded={open}
         aria-label={ariaLabel}
         onClick={toggle}
       >
-        <div class="disclosure-header-content">{header}</div>
-        {chevron && <DisclosureChevron open={open} />}
+        <div class="collapsible-header-content">{header}</div>
+        {chevron && <CollapsibleChevron open={open} />}
       </button>
       {open && (
-        <div class={cx('disclosure-body', bodyClass)}>
+        <div class={cx('collapsible-body', bodyClass)}>
           {children}
         </div>
       )}

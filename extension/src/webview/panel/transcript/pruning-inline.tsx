@@ -5,7 +5,7 @@ import { useState } from 'preact/hooks';
 
 import type { PruningDetails } from '../../../shared/protocol';
 import { PruningDiagnostics } from './pruning-details';
-import { Disclosure } from '../components/disclosure';
+import { Collapsible } from '../components/collapsible';
 
 interface PruningInlineCardProps {
   details: PruningDetails;
@@ -58,7 +58,7 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
         </div>
       </div>
       <div class="rounded-lg bg-accent/5 p-2.5 text-xs leading-relaxed">
-        <Disclosure
+        <Collapsible
           open={expanded}
           onToggle={setExpanded}
           ariaLabel="Toggle pruning diagnostics"
@@ -78,7 +78,7 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
             onRawToggle={() => setRawExpanded((v) => !v)}
             presentation="inline"
           />
-        </Disclosure>
+        </Collapsible>
       </div>
     </div>
   );

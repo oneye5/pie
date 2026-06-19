@@ -27,7 +27,7 @@ import { ToolCallCard } from './tool-call-card';
 import { TranscriptMessageList } from './transcript-message-list';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 import { getToolRenderer } from './registry';
-import { useDisclosureOpen } from './use-disclosure-open';
+import { useCollapsibleOpen } from './use-collapsible-open';
 import { SubagentCallContext } from './subagent-call-context';
 
 interface ToolCallItemProps {
@@ -204,7 +204,7 @@ function SubagentMessages({
     () => subagentSingleResultToChatMessages(singleResult, `${toolCall.id}-${index}`),
     [singleResult, toolCall.id, index],
   );
-  const nestedDisclosureDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
+  const nestedCollapsibleDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
   const { scrollRef, height, startResize } = useResizableHeight<HTMLDivElement>();
   const stickToBottomRef = useRef(true);
 
@@ -278,7 +278,7 @@ function SubagentMessages({
           onContextMenu={onNestedContextMenu}
           renderToolCall={renderToolCall}
           readonly
-          disclosureKey={nestedDisclosureDefaultsKey}
+          collapsibleKey={nestedCollapsibleDefaultsKey}
         />
       </div>
       <ResizeHandle edge="bottom" onMouseDown={startResize('bottom')} />
@@ -298,10 +298,10 @@ function SubagentSingleBlock({
   renderToolCall,
   multipleResults,
 }: SubagentSingleBlockProps) {
-  const disclosureKey = multipleResults
+  const collapsibleKey = multipleResults
     ? `subagent:${toolCall.id}-${index}`
     : `subagent:${toolCall.id}`;
-  const [open, setOpen] = useDisclosureOpen(disclosureKey, prefs.autoExpandSubagentCalls);
+  const [open, setOpen] = useCollapsibleOpen(collapsibleKey, prefs.autoExpandSubagentCalls);
   const summary = summarizeSingleResult(singleResult);
   const status = singleResultStatus(singleResult, toolCall.status, multipleResults);
   const errorDetail = status === 'failed' ? subagentErrorDetail(singleResult) : undefined;
