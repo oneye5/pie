@@ -58,6 +58,34 @@ function subagentToolCall(
   };
 }
 
+/**
+ * A parallel subagent call: ONE tool call with mode:'parallel' and one result
+ * per task, all sharing the same toolCallId. This is the structure the subagent
+ * extension actually emits (see extensions/subagent/src/modes.ts).
+ */
+function parallelSubagentToolCall(
+  id: string,
+  streamingCharsByResult: number[],
+  overrides: { status?: ToolCall['status']; exitCodes?: number[] } = {},
+): ToolCall {
+  return {
+    id,
+    name: 'subagent',
+    input: {},
+    status: overrides.status ?? 'running',
+    result: {
+      mode: 'parallel',
+      results: streamingCharsByResult.map((chars, index) => ({
+        agent: `agent-${index}`,
+        task: `task-${index}`,
+        exitCode: overrides.exitCodes?.[index] ?? -1,
+        messages: [],
+        streamingText: 'a'.repeat(chars),
+      })),
+    },
+  };
+}
+
 /** Drive the accumulator through a series of (transcript, nowMs) ticks. */
 function runTicks(
   ticks: Array<{ transcript: ChatMessage[]; now: number }>,
@@ -317,6 +345,46 @@ test('continuation (alias) flow does not re-count the whole message each tool ca
     `continuation re-counted: expected ~220 cumulative tokens, got ${acc.cumTokens}`,
   );
   assert.ok(peakRate < 400, `peak rate spiked to ${peakRate} tok/s during continuations`);
+});
+
+test('parallel subagents in one tool call (mode:parallel) key per-result, not per toolCallId', () => {
+  // Regression: a parallel subagent call is ONE tool call with mode:'parallel'
+  // and multiple results sharing one toolCallId. The per-subagent token snapshot
+  // was keyed by toolCallId alone, so every parallel result clobbered the same
+  // map entry each tick and the delta was computed as the difference between
+  // DIFFERENT subagents' cumulative counts. With a dominant subagent (one
+  // produces verbose reasoning while the others produce little) this inflated
+  // cumTokens far above the true aggregate — observed ~2000 tok/s for subagents
+  // totalling ~240 tok/s.
+  const m = streamingMessage();
+  const acc = createTokenRateAccumulator(BASE_NOW);
+
+  // One parallel call with four results. Per-second growth (chars/4 = tokens):
+  // result 0: 180 tok/s (720 chars/s), results 1-3: 20 tok/s (80 chars/s) each.
+  // Aggregate = 240 tok/s, but result 0 dominates — the realistic inflation case.
+  const call = (chars: [number, number, number, number]): ChatMessage => ({
+    ...m,
+    status: 'streaming' as const,
+    toolCalls: [parallelSubagentToolCall('sub1', chars)],
+  });
+
+  tickTokenRate(acc, [call([0, 0, 0, 0])], BASE_NOW);
+  tickTokenRate(acc, [call([720, 80, 80, 80])], BASE_NOW + 1000);
+  tickTokenRate(acc, [call([1440, 160, 160, 160])], BASE_NOW + 2000);
+  tickTokenRate(acc, [call([2160, 240, 240, 240])], BASE_NOW + 3000);
+  tickTokenRate(acc, [call([2880, 320, 320, 320])], BASE_NOW + 4000);
+  tickTokenRate(acc, [call([3600, 400, 400, 400])], BASE_NOW + 5000);
+  const state = tickTokenRate(acc, [call([4320, 480, 480, 480])], BASE_NOW + 6000);
+
+  assert.equal(state.state, 'generating');
+  const rate = Number.parseFloat(state.label!.replace(/[^\d.]/g, ''));
+  // True aggregate is 240 tok/s. Pre-fix this returned ~660 tok/s because the
+  // single shared snapshot key measured result 0's growth against result 3's
+  // prior count every tick.
+  assert.ok(
+    rate >= 220 && rate <= 260,
+    `expected ~240 tok/s aggregate for one parallel subagent call, got ${rate}`,
+  );
 });
 
 test('text produced while a tool call is running is counted as generation, not banked', () => {

@@ -85,13 +85,23 @@ export interface Accumulator {
    * Last estimated output tokens per streaming assistant message id. Per-id (not a
    * single value) so a continuation — the same canonical message id re-streaming
    * after a tool call — only counts its NEW output, not the whole accumulated
-   * message again. Mirrors the per-toolCallId `subagentTokens` map. A single
+   * message again. Mirrors the `subagentTokens` map (which is keyed per-result,
+   * `${toolCallId}#${resultIndex}`, so parallel results don't collide). A single
    * value would reset to 0 while the message is briefly not streaming and
    * re-count the entire message on every continuation, exploding `cumTokens`
    * across a tool-heavy turn.
    */
   lastContentTokensById: Map<string, number>;
-  /** Last estimated output tokens per running subagent tool call. */
+  /** Last estimated output tokens per running subagent result.
+   *
+   * Keyed by `${toolCallId}#${resultIndex}` rather than toolCallId alone: a
+   * *parallel* subagent call is one tool call whose `results` array holds one
+   * entry per task, all sharing the same toolCallId. Keying by toolCallId alone
+   * made every parallel result clobber the same entry each tick, so the delta
+   * was computed as the difference between different subagents' cumulative
+   * counts — inflating the rate whenever the results had disparate output. The
+   * result index is stable because the subagent extension seeds a fixed-size
+   * results array and updates entries in place by task index. */
   subagentTokens: Map<string, number>;
 }
 
@@ -178,6 +188,9 @@ function estimatedSubagentOutputTokens(result: SubagentSingleResult): number {
 
 interface RunningSubagent {
   toolCallId: string;
+  /** Position within the parent call's `results` array — disambiguates the
+   * multiple results of a parallel/chain subagent call (shared toolCallId). */
+  resultIndex: number;
   result: SubagentSingleResult;
 }
 
@@ -188,11 +201,11 @@ function findRunningSubagents(transcript: ChatMessage[]): RunningSubagent[] {
       if (toolCall.name !== 'subagent') continue;
       const subagentResult = getRenderableSubagentResultFromToolCall(toolCall as ToolCall);
       if (!subagentResult) continue;
-      for (const single of subagentResult.results) {
+      subagentResult.results.forEach((single, index) => {
         if (isSubagentRunning(single)) {
-          running.push({ toolCallId: toolCall.id, result: single });
+          running.push({ toolCallId: toolCall.id, resultIndex: index, result: single });
         }
-      }
+      });
     }
   }
   return running;
@@ -205,17 +218,20 @@ function computeSubagentDelta(
   let delta = 0;
   const seenIds = new Set<string>();
 
-  for (const { toolCallId, result } of running) {
-    seenIds.add(toolCallId);
+  for (const { toolCallId, resultIndex, result } of running) {
+    // Composite key: a parallel call shares one toolCallId across all its
+    // results, so the index is required to track each result's own growth.
+    const key = `${toolCallId}#${resultIndex}`;
+    seenIds.add(key);
     const current = estimatedSubagentOutputTokens(result);
-    const previous = acc.subagentTokens.get(toolCallId) ?? 0;
+    const previous = acc.subagentTokens.get(key) ?? 0;
     delta += Math.max(0, current - previous);
-    acc.subagentTokens.set(toolCallId, current);
+    acc.subagentTokens.set(key, current);
   }
 
-  // Drop snapshots for subagent calls that are no longer running so the map
-  // stays bounded over long sessions and a completed call doesn't anchor the
-  // snapshot if the same id were ever reused.
+  // Drop snapshots for subagent results that are no longer running so the map
+  // stays bounded over long sessions and a completed result doesn't anchor the
+  // snapshot if the same key were ever reused.
   for (const id of acc.subagentTokens.keys()) {
     if (!seenIds.has(id)) {
       acc.subagentTokens.delete(id);
