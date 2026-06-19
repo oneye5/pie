@@ -70,6 +70,22 @@ test('collapsed bash headers keep surrounding quotes separate from the emphasize
   assert.match(html, /transcript-header-path-target[^>]*>file name\.txt</);
 });
 
+test('expanded bash headers suppress the command summary while the terminal body is visible', async () => {
+  const { ToolCallHeader } = await import('../src/webview/panel/transcript/tool-call-card.tsx');
+  const html = renderToString(h(ToolCallHeader, {
+    open: false,
+    bodyVisible: true,
+    name: 'bash',
+    status: 'running',
+    summary: 'rm somepath/somefile.txt',
+    onOpenFile: () => {},
+  }));
+
+  assert.match(html, />bash</);
+  assert.doesNotMatch(html, /transcript-header-summary-command/);
+  assert.doesNotMatch(html, />rm</);
+});
+
 test('shared collapsed-header typography is defined in transcript.css', async () => {
   const css = await readTranscriptCss();
 

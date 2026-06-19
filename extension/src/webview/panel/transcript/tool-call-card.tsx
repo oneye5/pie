@@ -38,6 +38,7 @@ interface ToolCallCardProps {
 
 interface ToolCallHeaderProps {
   open: boolean;
+  bodyVisible?: boolean;
   name: string;
   nameTitle?: string;
   status: ToolCall['status'];
@@ -300,7 +301,7 @@ function ToolCallStatusGlyph({ status }: { status: ToolCall['status'] }) {
   return null;
 }
 
-export function ToolCallHeader({ open, name, nameTitle, status, summary, summaryPath, summaryModel, sizeHint, errorDetail, durationMs, onOpenFile }: ToolCallHeaderProps) {
+export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, summary, summaryPath, summaryModel, sizeHint, errorDetail, durationMs, onOpenFile }: ToolCallHeaderProps) {
   const statusTone =
     status === 'failed' ? 'failed'
     : null;
@@ -308,7 +309,10 @@ export function ToolCallHeader({ open, name, nameTitle, status, summary, summary
     status === 'failed' ? 'Failed'
     : null;
   const collapsedSummaryModel = summaryModel ?? buildToolCallHeaderSummaryModel(name, summary, summaryPath);
-  const showSummary = !open && !!collapsedSummaryModel;
+  // Hide the header summary while the tool body is already visible (e.g.
+  // shell tools that auto-expand while running). The body renders its own
+  // command line / details, so showing the summary in the header duplicates it.
+  const showSummary = !bodyVisible && !open && !!collapsedSummaryModel;
   const showSizeHint = !open && !!sizeHint;
   const durationLabel =
     status !== 'running' && typeof durationMs === 'number' && durationMs >= 0
@@ -688,6 +692,7 @@ export function ToolCallCard({
     >
       <ToolCallHeader
         open={open}
+        bodyVisible={isShell && renderBody}
         name={presentation.name}
         status={toolCall.status}
         summary={presentation.summary}
