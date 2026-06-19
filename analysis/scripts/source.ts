@@ -7,9 +7,11 @@ import {
   RUN_ANALYTICS_SCHEMA_VERSION,
   type FileExtensionRollup,
   type FileMutationRollup,
+  type FunctionalSettingsSnapshot,
   type InputKind,
   type LoadedSourceAnalytics,
   type OutcomeHistoryLogEntry,
+  type PruningMode,
   type PruningSourceDecision,
   type RunFinalizationReason,
   type RunOutcome,
@@ -35,6 +37,7 @@ export const DEFAULT_SITE_DIST_DIR = fileURLToPath(new URL('../site/dist', impor
 
 const INPUT_KINDS = new Set<InputKind>(['filesystemPathRef', 'imageBlob', 'fileBlob']);
 const THINKING_LEVELS = new Set<ThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const PRUNING_MODES = new Set<PruningMode>(['auto', 'shadow', 'off', 'custom']);
 const FINALIZATION_REASONS = new Set<RunFinalizationReason>(['scored', 'closed_unscored', 'new_task']);
 const TREATMENT_CHANGE_KINDS = new Set<TreatmentChangeKind>([
   'model',
@@ -387,6 +390,38 @@ function coerceSessionAnalyticsFactors(value: unknown): SessionAnalyticsFactors 
   };
 }
 
+function coerceBooleanRecord(value: unknown): Record<string, boolean> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const result: Record<string, boolean> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof key === 'string' && typeof entry === 'boolean') {
+      result[key] = entry;
+    }
+  }
+  return result;
+}
+
+function coerceFunctionalSettings(value: unknown): FunctionalSettingsSnapshot | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const pruningModeCandidate = value.pruningMode;
+  const pruningMode =
+    typeof pruningModeCandidate === 'string' && PRUNING_MODES.has(pruningModeCandidate as PruningMode)
+      ? (pruningModeCandidate as PruningMode)
+      : null;
+  if (pruningMode === null) {
+    return null;
+  }
+  return {
+    subagentAlwaysParentModel: value.subagentAlwaysParentModel === true,
+    pruningMode,
+    extensionToggles: coerceBooleanRecord(value.extensionToggles),
+  };
+}
+
 function coerceRunOutcome(value: unknown): RunOutcome | null {
   if (!isRecord(value)) {
     return null;
@@ -487,6 +522,7 @@ export function coerceRunSnapshot(value: unknown): RunSnapshot | null {
       ? value.experimentAssignment
       : null,
     analyticsFactors: coerceSessionAnalyticsFactors(value.analyticsFactors),
+    functionalSettings: coerceFunctionalSettings(value.functionalSettings),
     sendCount: toNonNegativeInteger(value.sendCount),
     assistantTurnCount: toNonNegativeInteger(value.assistantTurnCount),
     assistantTurnDurationMs: toNonNegativeInteger(value.assistantTurnDurationMs),

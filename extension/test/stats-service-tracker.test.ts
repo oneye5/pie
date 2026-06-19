@@ -5,7 +5,7 @@ import { SessionRunTracker } from '../src/host/stats-service/tracker';
 import { createInitialArchState } from '../src/host/core/arch-state';
 import { reducer } from '../src/host/core/reducer';
 import type { Event } from '../src/host/core/events';
-import type { ArchState } from '../src/host/core/arch-state';
+import type { ArchState, SettingsState } from '../src/host/core/arch-state';
 import type { ComposerInput, RunOutcome, SessionAnalyticsFactors } from '../src/shared/protocol';
 import { produce } from 'immer';
 
@@ -72,6 +72,9 @@ function createHarness() {
     setAnalyticsFactors(sessionPath: string, factors: SessionAnalyticsFactors) {
       dispatchArchEvent({ kind: 'AnalyticsFactorsChanged', sessionPath, factors });
     },
+    mutateSettings(mutator: (settings: SettingsState) => void) {
+      archState = produce(archState, (draft) => mutator(draft.settings));
+    },
   };
 }
 
@@ -122,6 +125,37 @@ test('prepareForSend carries queued unsupported inputs and startNewTask closes t
   assert.equal(currentRun?.filesystemPathRefCount, 0);
   assert.equal(harness.archState.composer.activeRunSummaryBySession[harness.sessionPath]?.runId, 'id-3');
   assert.ok(harness.renderCount >= 3);
+});
+
+test('prepareForSend captures functional settings from ArchState.settings at run start', () => {
+  const harness = createHarness();
+  harness.mutateSettings((settings) => {
+    settings.pruningSettings.mode = 'shadow';
+    settings.prefs.subagentAlwaysParentModel = true;
+    settings.prefs.extensionToggles = { subagent: true, safeguard: false };
+  });
+
+  harness.tracker.prepareForSend(harness.sessionPath, []);
+  const currentRun = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun;
+
+  assert.deepEqual(currentRun?.functionalSettings, {
+    subagentAlwaysParentModel: true,
+    pruningMode: 'shadow',
+    extensionToggles: { subagent: true, safeguard: false },
+  });
+
+  // The snapshot must not alias reducer state: later changes to prefs must not leak into the captured copy.
+  harness.mutateSettings((settings) => {
+    settings.prefs.extensionToggles.cwd = true;
+    settings.prefs.subagentAlwaysParentModel = false;
+  });
+  const refetched = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun;
+  assert.equal(refetched?.functionalSettings?.extensionToggles.cwd, undefined);
+  assert.deepEqual(refetched?.functionalSettings, {
+    subagentAlwaysParentModel: true,
+    pruningMode: 'shadow',
+    extensionToggles: { subagent: true, safeguard: false },
+  });
 });
 
 test('assistant turns, busy windows, unsupported inputs, and experiment assignment changes update the active run', () => {

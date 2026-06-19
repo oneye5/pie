@@ -49,6 +49,18 @@
               <option value="">All assignments</option>
             </select>
           </label>
+          <label>
+            <span>Subagent parent model</span>
+            <select id="filter-subagent-parent">
+              <option value="">All runs</option>
+            </select>
+          </label>
+          <label>
+            <span>Pruning mode</span>
+            <select id="filter-pruning-mode">
+              <option value="">All modes</option>
+            </select>
+          </label>
           <label class="toggle">
             <input id="filter-scored-only" type="checkbox" checked />
             <span>Scored runs only</span>
@@ -309,6 +321,23 @@
         <section class="chart">
           <h3>Image inputs by model <span class="note" id="multimodal-inputs-note">—</span></h3>
           <div id="chart-multimodal-inputs" class="chart-slot"></div>
+        </section>
+
+        <!-- ── Functional settings impact ──────────────────────────────────── -->
+
+        <section class="chart span-2">
+          <h3>Subagent parent-model impact <span class="note" id="settings-subagent-parent-note">—</span></h3>
+          <div id="chart-settings-subagent-parent" class="chart-slot"></div>
+        </section>
+
+        <section class="chart span-2">
+          <h3>Pruning mode impact <span class="note" id="settings-pruning-mode-note">—</span></h3>
+          <div id="chart-settings-pruning-mode" class="chart-slot"></div>
+        </section>
+
+        <section class="chart span-2">
+          <h3>Extension toggle impact <span class="note" id="settings-extension-toggles-note">—</span></h3>
+          <div id="chart-settings-extension-toggles" class="chart-slot"></div>
         </section>
       </div>
     </div>

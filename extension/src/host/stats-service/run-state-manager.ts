@@ -22,6 +22,7 @@ import {
   type RunFinalizationReason,
   type RunSnapshot,
   type TreatmentChangeKind,
+  type FunctionalSettingsSnapshot,
 } from '../run-analytics';
 import {
   emptySessionRunState,
@@ -117,6 +118,7 @@ export class SessionRunStateManager {
       treatmentChangeKinds: [],
       experimentAssignment: normalizeExperimentAssignment(this.getExperimentAssignment()),
       analyticsFactors: this.getCurrentAnalyticsFactors(sessionPath),
+      functionalSettings: this.getCurrentFunctionalSettings(),
       sendCount: 0,
       assistantTurnCount: 0,
       assistantTurnDurationMs: 0,
@@ -275,6 +277,22 @@ export class SessionRunStateManager {
 
   private getCurrentAnalyticsFactors(sessionPath: string): SessionAnalyticsFactors | null {
     return this.getArchState().sessions.analyticsFactorsBySession[sessionPath] ?? null;
+  }
+
+  /**
+  * Snapshot the functional (behavioral) settings in effect when the run started.
+  * `pruningSettings` and `prefs` are always present on `SettingsState` (they
+  * default via `DEFAULT_PRUNING_SETTINGS` / `resolveChatPrefs`), so this always
+  * returns a value for freshly-captured runs; `null` only appears for records
+  * loaded from disk that predate the field (handled by coercion).
+  */
+  private getCurrentFunctionalSettings(): FunctionalSettingsSnapshot {
+    const settings = this.getArchState().settings;
+    return {
+      subagentAlwaysParentModel: settings.prefs.subagentAlwaysParentModel === true,
+      pruningMode: settings.pruningSettings.mode,
+      extensionToggles: { ...(settings.prefs.extensionToggles ?? {}) },
+    };
   }
 
   syncSessionSummary(sessionPath: string): void {

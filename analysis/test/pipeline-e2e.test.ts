@@ -37,6 +37,7 @@ function createMinimalRunSnapshot(overrides: Partial<RunSnapshot> = {}): RunSnap
     treatmentChangeKinds: [],
     experimentAssignment: null,
     analyticsFactors: null,
+    functionalSettings: null,
     sendCount: 1,
     assistantTurnCount: 1,
     assistantTurnDurationMs: 5000,

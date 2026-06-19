@@ -158,6 +158,45 @@ test('prepareSourceAnalytics computes derived efficiency metrics', async () => {
   assert.equal(r6.contextUtilization, null);
 });
 
+test('prepareSourceAnalytics flattens functional settings into fs* columns', async () => {
+  const fixture = deepClone(await loadFixture());
+  const trackedRun = fixture.completedRuns[0] as any;
+  trackedRun.functionalSettings = {
+    subagentAlwaysParentModel: true,
+    pruningMode: 'shadow',
+    extensionToggles: { subagent: true, safeguard: false },
+  };
+  const offRun = fixture.completedRuns[1] as any;
+  offRun.functionalSettings = {
+    subagentAlwaysParentModel: false,
+    pruningMode: 'off',
+    extensionToggles: {},
+  };
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const byId = new Map(prepared.runs.map((r) => [r.runId, r]));
+
+  const trackedRow = byId.get(trackedRun.runId)!;
+  assert.equal(trackedRow.fsSubagentAlwaysParentModel, true);
+  assert.equal(trackedRow.fsPruningMode, 'shadow');
+  assert.equal(trackedRow.fsPruningEnabled, true);
+  assert.deepEqual(trackedRow.fsExtensionToggles, { subagent: true, safeguard: false });
+
+  const offRow = byId.get(offRun.runId)!;
+  assert.equal(offRow.fsSubagentAlwaysParentModel, false);
+  assert.equal(offRow.fsPruningMode, 'off');
+  assert.equal(offRow.fsPruningEnabled, false);
+  assert.deepEqual(offRow.fsExtensionToggles, {});
+
+  // Runs recorded before tracking existed flatten to null / empty.
+  const untrackedRun = fixture.completedRuns[2] as any;
+  const untrackedRow = byId.get(untrackedRun.runId)!;
+  assert.equal(untrackedRow.fsSubagentAlwaysParentModel, null);
+  assert.equal(untrackedRow.fsPruningMode, null);
+  assert.equal(untrackedRow.fsPruningEnabled, null);
+  assert.deepEqual(untrackedRow.fsExtensionToggles, {});
+});
+
 test('prepareSourceAnalytics sets tokenEfficiency to null when lineMutationTotal is zero', async () => {
   const fixture = deepClone(await loadFixture());
   (fixture.completedRuns[0] as any).fileMutation.lineAdditions = 0;

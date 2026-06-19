@@ -283,6 +283,30 @@ test('coerceRunSnapshot sanitizes nested rollups and optional fields', async () 
   assert.equal(fallback?.verification.totalCount, 0);
 });
 
+test('coerceRunSnapshot preserves functional settings and defaults missing ones to null', async () => {
+  const fixture = await loadFixture();
+  const run = deepClone(fixture.completedRuns[0]) as any;
+
+  // Absent on historical runs -> null (untracked).
+  assert.equal(coerceRunSnapshot(run)?.functionalSettings, null);
+
+  // Present and valid -> coerced, dropping non-boolean toggle values.
+  run.functionalSettings = {
+    subagentAlwaysParentModel: true,
+    pruningMode: 'auto',
+    extensionToggles: { subagent: true, safeguard: 'no' },
+  };
+  assert.deepEqual(coerceRunSnapshot(run)?.functionalSettings, {
+    subagentAlwaysParentModel: true,
+    pruningMode: 'auto',
+    extensionToggles: { subagent: true },
+  });
+
+  // Invalid pruningMode -> treated as untracked (null), even if other fields are present.
+  run.functionalSettings = { subagentAlwaysParentModel: true, pruningMode: 'bogus', extensionToggles: {} };
+  assert.equal(coerceRunSnapshot(run)?.functionalSettings, null);
+});
+
 test('coerceOutcomeHistoryEntry validates schema, kind, and outcome shape', async () => {
   const fixture = await loadFixture();
   const valid = coerceOutcomeHistoryEntry(fixture.outcomes[0]);

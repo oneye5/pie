@@ -2,6 +2,7 @@ import type { AssistantUsage, ThinkingLevel } from '../../shared/protocol';
 import { RUN_ANALYTICS_SCHEMA_VERSION } from './types';
 import type { OutcomeHistoryLogEntry, RunSnapshot } from './types';
 import { coerceSessionAnalyticsFactors } from './coercion-factors';
+import { coerceFunctionalSettings } from './coercion-functional-settings';
 import {
   coerceFileExtensionRollup,
   coerceFileMutationRollup,
@@ -144,6 +145,7 @@ function buildRunSnapshot(candidate: Partial<RunSnapshot>): RunSnapshot {
           ? candidate.experimentAssignment
           : null,
     analyticsFactors: coerceSessionAnalyticsFactors(candidate.analyticsFactors),
+    functionalSettings: coerceFunctionalSettings(candidate.functionalSettings),
     sendCount: Math.trunc(c.sendCount),
     assistantTurnCount: Math.trunc(c.assistantTurnCount),
     assistantTurnDurationMs: Math.trunc(c.assistantTurnDurationMs),

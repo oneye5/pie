@@ -46,6 +46,8 @@ interface FilterState {
   modelId: string;
   thinkingLevel: string;
   experimentAssignment: string;
+  subagentParentModel: string;
+  pruningMode: string;
   scoredOnly: boolean;
   pureOnly: boolean;
 }
@@ -56,6 +58,8 @@ const DEFAULT_FILTERS: FilterState = {
   modelId: '',
   thinkingLevel: '',
   experimentAssignment: '',
+  subagentParentModel: '',
+  pruningMode: '',
   scoredOnly: true,
   pureOnly: false,
 };
@@ -208,6 +212,17 @@ function applyFilters(runs: PreparedRunRow[], filters: FilterState): PreparedRun
       return false;
     }
     if (filters.experimentAssignment && (run.experimentAssignment ?? '(none)') !== filters.experimentAssignment) {
+      return false;
+    }
+    if (filters.subagentParentModel) {
+      const matches = filters.subagentParentModel === 'true'
+        ? run.fsSubagentAlwaysParentModel === true
+        : run.fsSubagentAlwaysParentModel === false;
+      if (!matches) {
+        return false;
+      }
+    }
+    if (filters.pruningMode && run.fsPruningMode !== filters.pruningMode) {
       return false;
     }
     if (filters.scoredOnly && run.satisfaction === null) {
@@ -4094,6 +4109,8 @@ function currentFilters(): FilterState {
     modelId: byId<HTMLSelectElement>('filter-model').value,
     thinkingLevel: byId<HTMLSelectElement>('filter-thinking').value,
     experimentAssignment: byId<HTMLSelectElement>('filter-experiment').value,
+    subagentParentModel: byId<HTMLSelectElement>('filter-subagent-parent').value,
+    pruningMode: byId<HTMLSelectElement>('filter-pruning-mode').value,
     scoredOnly: byId<HTMLInputElement>('filter-scored-only').checked,
     pureOnly: byId<HTMLInputElement>('filter-pure-only').checked,
   };
@@ -4105,6 +4122,8 @@ function resetFilters(): void {
   byId<HTMLSelectElement>('filter-model').value = DEFAULT_FILTERS.modelId;
   byId<HTMLSelectElement>('filter-thinking').value = DEFAULT_FILTERS.thinkingLevel;
   byId<HTMLSelectElement>('filter-experiment').value = DEFAULT_FILTERS.experimentAssignment;
+  byId<HTMLSelectElement>('filter-subagent-parent').value = DEFAULT_FILTERS.subagentParentModel;
+  byId<HTMLSelectElement>('filter-pruning-mode').value = DEFAULT_FILTERS.pruningMode;
   byId<HTMLInputElement>('filter-scored-only').checked = DEFAULT_FILTERS.scoredOnly;
   byId<HTMLInputElement>('filter-pure-only').checked = DEFAULT_FILTERS.pureOnly;
 }
@@ -4239,6 +4258,22 @@ async function main(): Promise<void> {
     'filter-experiment',
     sortNatural([...new Set(allRuns.map((run) => normalizedExperimentLabel(run.experimentAssignment)))]),
     'All assignments',
+  );
+
+  const subagentParentValues: string[] = [];
+  if (allRuns.some((run) => run.fsSubagentAlwaysParentModel === true)) {
+    subagentParentValues.push('true');
+  }
+  if (allRuns.some((run) => run.fsSubagentAlwaysParentModel === false)) {
+    subagentParentValues.push('false');
+  }
+  populateSelect('filter-subagent-parent', subagentParentValues, 'All runs', {
+    labelForValue: (value) => (value === 'true' ? 'On' : 'Off'),
+  });
+  populateSelect(
+    'filter-pruning-mode',
+    sortNatural(uniqueNonEmpty(allRuns.map((run) => run.fsPruningMode))),
+    'All modes',
   );
 
   const render = async () => {

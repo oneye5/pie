@@ -28,6 +28,8 @@ export interface FilterState {
   modelId: string;
   thinkingLevel: string;
   experimentAssignment: string;
+  subagentParentModel: string;
+  pruningMode: string;
   scoredOnly: boolean;
   pureOnly: boolean;
 }
@@ -38,6 +40,8 @@ export const DEFAULT_FILTERS: FilterState = {
   modelId: '',
   thinkingLevel: '',
   experimentAssignment: '',
+  subagentParentModel: '',
+  pruningMode: '',
   scoredOnly: true,
   pureOnly: false,
 };

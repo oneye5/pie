@@ -58,6 +58,7 @@ function createOpenRunSnapshot(sessionPath: string, runId: string): RunSnapshot 
     treatmentChangeKinds: [],
     experimentAssignment: null,
     analyticsFactors: null,
+    functionalSettings: null,
     sendCount: 0,
     assistantTurnCount: 0,
     assistantTurnDurationMs: 0,

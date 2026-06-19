@@ -2,6 +2,7 @@ import type {
   ActiveRunStatus,
   AssistantUsage,
   ComposerInput,
+  PruningMode,
   RunOutcome,
   SessionAnalyticsFactors,
   ThinkingLevel,
@@ -81,6 +82,25 @@ export interface VerificationRollup {
   countsByKind: Record<VerificationCommandKind, number>;
 }
 
+/**
+ * Snapshot of the functional (behavioral) settings in effect when a run started.
+ * Captured once at run start from `ArchState.settings` so outcomes can be
+ * compared across setting values (e.g. sub-agent parent-model toggle, pruning
+ * mode, per-extension enable/disable toggles). Mirrored on the analysis side.
+ *
+ * Intentionally a small, low-cardinality set of toggles — the dimensions most
+ * useful for A/B-style graphing. Additive/optional on `RunSnapshot`: historical
+ * runs recorded before this field existed coerce to `null` ("untracked").
+ */
+export interface FunctionalSettingsSnapshot {
+  /** When true, sub-agents always use the parent's active model (skip bucket selection). */
+  subagentAlwaysParentModel: boolean;
+  /** Pruning mode at run start. */
+  pruningMode: PruningMode;
+  /** Per-extension enabled/disabled toggles at run start (extension id -> enabled). */
+  extensionToggles: Record<string, boolean>;
+}
+
 export interface RunSnapshot {
   sessionPath: string;
   runId: string;
@@ -99,6 +119,8 @@ export interface RunSnapshot {
   treatmentChangeKinds: TreatmentChangeKind[];
   experimentAssignment: string | null;
   analyticsFactors: SessionAnalyticsFactors | null;
+  /** Functional settings snapshot captured at run start; null for runs recorded before tracking existed. */
+  functionalSettings: FunctionalSettingsSnapshot | null;
   sendCount: number;
   assistantTurnCount: number;
   assistantTurnDurationMs: number;

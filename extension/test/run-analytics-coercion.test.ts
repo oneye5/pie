@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { coerceSessionAnalyticsFactors } from '../src/host/run-analytics/coercion-factors';
+import { coerceFunctionalSettings } from '../src/host/run-analytics/coercion-functional-settings';
 import {
   coerceFileExtensionRollup,
   coerceFileMutationRollup,
@@ -39,6 +40,7 @@ function makeRunSnapshot(): RunSnapshot {
     treatmentChangeKinds: [],
     experimentAssignment: null,
     analyticsFactors: null,
+    functionalSettings: null,
     sendCount: 0,
     assistantTurnCount: 0,
     assistantTurnDurationMs: 0,
@@ -286,4 +288,22 @@ test('stats-service helpers summarize inputs, checkpoint parsing, and utility he
   assert.equal(areStringArraysEqual(['a', 'b'], ['a', 'b']), true);
   assert.equal(areStringArraysEqual(['a'], ['b']), false);
   assert.equal(areStringArraysEqual(['a'], ['a', 'b']), false);
+});
+
+test('coerceFunctionalSettings accepts valid snapshots and drops malformed ones', () => {
+  assert.equal(coerceFunctionalSettings(null), null);
+  assert.equal(coerceFunctionalSettings('invalid'), null);
+  assert.equal(coerceFunctionalSettings({ subagentAlwaysParentModel: true }), null); // missing pruningMode
+  assert.equal(coerceFunctionalSettings({ pruningMode: 'bogus' }), null); // invalid pruningMode
+
+  const coerced = coerceFunctionalSettings({
+    subagentAlwaysParentModel: 'truthy',
+    pruningMode: 'shadow',
+    extensionToggles: { subagent: true, safeguard: 'no', cwd: false },
+  });
+  assert.deepEqual(coerced, {
+    subagentAlwaysParentModel: false,
+    pruningMode: 'shadow',
+    extensionToggles: { subagent: true, cwd: false },
+  });
 });

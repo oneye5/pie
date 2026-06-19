@@ -23,6 +23,7 @@ export type SiteDataFileName = (typeof SITE_DATA_FILE_NAMES)[number];
 export type ActiveRunStatus = 'open' | 'scored' | 'closed_unscored';
 export type RunFinalizationReason = 'scored' | 'closed_unscored' | 'new_task';
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type PruningMode = 'auto' | 'shadow' | 'off' | 'custom';
 export type InputKind = 'filesystemPathRef' | 'imageBlob' | 'fileBlob';
 export type VerificationCommandKind = 'test' | 'build' | 'lint' | 'typecheck' | 'format' | 'other';
 export type ToolFailureKind =
@@ -86,6 +87,20 @@ export interface SessionAnalyticsFactors {
   skillSetHash: string | null;
   /** Names of extensions active during this run (e.g. 'subagent', 'safeguard'). */
   activeExtensions: string[];
+}
+
+/**
+ * Snapshot of the functional (behavioral) settings in effect when a run
+ * started. Mirrors `extension/src/host/run-analytics/types.ts`. Null for runs
+ * recorded before functional-settings tracking existed.
+ */
+export interface FunctionalSettingsSnapshot {
+  /** When true, sub-agents always use the parent's active model (skip bucket selection). */
+  subagentAlwaysParentModel: boolean;
+  /** Pruning mode at run start. */
+  pruningMode: PruningMode;
+  /** Per-extension enabled/disabled toggles at run start (extension id -> enabled). */
+  extensionToggles: Record<string, boolean>;
 }
 
 export interface SubagentTaskScoreRollup {
@@ -169,6 +184,8 @@ export interface RunSnapshot {
   treatmentChangeKinds: TreatmentChangeKind[];
   experimentAssignment: string | null;
   analyticsFactors: SessionAnalyticsFactors | null;
+  /** Functional settings snapshot captured at run start; null for runs recorded before tracking existed. */
+  functionalSettings: FunctionalSettingsSnapshot | null;
   sendCount: number;
   assistantTurnCount: number;
   assistantTurnDurationMs: number;
@@ -264,6 +281,14 @@ export interface PreparedRunRow {
   skillCount: number;
   contextFileCount: number;
   promptGuidelineCount: number;
+  /** Sub-agent parent-model toggle at run start (null = untracked). */
+  fsSubagentAlwaysParentModel: boolean | null;
+  /** Pruning mode at run start (null = untracked). */
+  fsPruningMode: PruningMode | null;
+  /** Derived: pruning active (mode !== 'off') at run start (null = untracked). */
+  fsPruningEnabled: boolean | null;
+  /** Per-extension enabled/disabled toggles at run start (empty when untracked). */
+  fsExtensionToggles: Record<string, boolean>;
   sendCount: number;
   assistantTurnCount: number;
   assistantTurnDurationMs: number;
