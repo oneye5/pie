@@ -115,14 +115,14 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
             <span class="transcript-header-summary min-w-0 truncate">{collapsedSummary}</span>
           )}
           {tokenLabel && (
-            <span class="ml-auto flex-none whitespace-nowrap font-mono text-[10px] text-muted/60" title={tokenTitle}>{tokenLabel}</span>
+            <span class="ml-auto flex-none whitespace-nowrap font-mono text-[11px] text-muted" title={tokenTitle}>{tokenLabel}</span>
           )}
         </>
       }
     >
       {prompts.map((prompt, index) => (
         <SystemPromptCard
-          key={`${prompt.source}:${prompt.title}:${prompt.summary}:${index}`}
+          key={`${prompt.source}:${prompt.title}`}
           prompt={prompt}
         />
       ))}

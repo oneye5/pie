@@ -43,7 +43,16 @@ export function RunOutcomeDialog({ sessionLabel, onCancel, onSubmit }: RunOutcom
     const node = dialogRef.current;
     if (!node) return;
     const previouslyFocused = document.activeElement as HTMLElement | null;
-    node.focus();
+    // Lock background scroll so a mouse user can't wheel the transcript
+    // behind the modal. Restored in the cleanup so it always reverts, even
+    // on early unmount.
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    // Focus the first meaningful control (the first rating button) rather
+    // than the dialog container itself; fall back to the container if none.
+    const firstButton = node.querySelector<HTMLElement>('button');
+    if (firstButton) firstButton.focus();
+    else node.focus();
     const handleFocusOut = () => {
       if (!node.contains(document.activeElement)) {
         node.focus();
@@ -52,6 +61,7 @@ export function RunOutcomeDialog({ sessionLabel, onCancel, onSubmit }: RunOutcom
     node.addEventListener('focusout', handleFocusOut);
     return () => {
       node.removeEventListener('focusout', handleFocusOut);
+      document.body.style.overflow = previousOverflow;
       previouslyFocused?.focus?.();
     };
   }, []);

@@ -46,5 +46,16 @@ export function restoreMessageScrollAnchor(
     return;
   }
 
-  container.scrollTop += delta;
+  // Force instant scroll: the `.transcript` rule in styles/index.css sets
+  // `scroll-behavior: smooth`, so an unguarded `scrollTop` write would animate
+  // (~300ms) instead of pinning the anchor message. Save/override/restore inline
+  // `scroll-behavior` the same way `scrollToBottom` does, wrapped in try/finally
+  // so the saved value is always restored (manual scroll keeps its smooth feel).
+  const prior = container.style.scrollBehavior;
+  try {
+    container.style.scrollBehavior = 'auto';
+    container.scrollTop += delta;
+  } finally {
+    container.style.scrollBehavior = prior;
+  }
 }

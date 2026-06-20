@@ -172,6 +172,7 @@
 }
 
 .attachment-card-remove {
+  position: relative;
   width: 24px;
   height: 24px;
   padding: 0;
@@ -187,6 +188,14 @@
     background var(--panel-transition-fast),
     color var(--panel-transition-fast),
     transform var(--panel-duration-fast) var(--panel-ease-spring);
+}
+
+/* Expand the click target past the 28px floor while keeping the visible 24px
+   glyph; the transparent pseudo-element forwards events to the button. */
+.attachment-card-remove::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .attachment-card-remove:hover,

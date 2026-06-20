@@ -49,6 +49,10 @@ interface ToolCallHeaderProps {
   errorDetail?: string;
   durationMs?: number;
   onOpenFile: (path: string) => void;
+  /** Toggle the card's expanded state. The header is the toggle target so the
+   *  card body stays a plain region (its selectable/copyable content remains
+   *  reachable to AT) instead of being nested inside a button role. */
+  onToggle: () => void;
 }
 
 interface ToolCallHeaderPathSummaryModel {
@@ -301,7 +305,7 @@ function ToolCallStatusGlyph({ status }: { status: ToolCall['status'] }) {
   return null;
 }
 
-export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, summary, summaryPath, summaryModel, sizeHint, errorDetail, durationMs, onOpenFile }: ToolCallHeaderProps) {
+export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, summary, summaryPath, summaryModel, sizeHint, errorDetail, durationMs, onOpenFile, onToggle }: ToolCallHeaderProps) {
   const statusTone =
     status === 'failed' ? 'failed'
     : null;
@@ -320,7 +324,14 @@ export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, sum
       : null;
 
   return (
-    <div class="flex items-center gap-[7px] rounded-md px-2 py-[5px]">
+    <div
+      class="flex min-h-[32px] cursor-pointer select-none items-center gap-[7px] rounded-md px-2 py-[5px]"
+      role="button"
+      aria-expanded={open}
+      tabIndex={0}
+      onClick={onToggle}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+    >
       <div class={cx('flex min-w-0 flex-1 items-center gap-2', (showSummary || showSizeHint) && 'gap-1.5')}>
         <span class="transcript-header-title-mono min-w-0 flex-[0_1_auto] truncate" title={nameTitle}>{name}</span>
         {showSummary && collapsedSummaryModel ? (
@@ -345,7 +356,7 @@ export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, sum
 }
 
 function TerminalOutput({ text, running }: { text: string; running: boolean }) {
-  const { scrollRef, height, startResize } = useResizableHeight<HTMLPreElement>();
+  const { scrollRef, height, startResize, minHeight, maxHeight, resizeBy, reset } = useResizableHeight<HTMLPreElement>();
   const stickToBottomRef = useRef(true);
 
   const handleScroll = () => {
@@ -364,7 +375,15 @@ function TerminalOutput({ text, running }: { text: string; running: boolean }) {
 
   return (
     <div class="resizable-scroll-area">
-      <ResizeHandle edge="top" onMouseDown={startResize('top')} />
+      <ResizeHandle
+        edge="top"
+        onMouseDown={startResize('top')}
+        height={height}
+        minHeight={minHeight}
+        maxHeight={maxHeight}
+        onResizeBy={resizeBy}
+        onReset={reset}
+      />
       <pre
         ref={scrollRef}
         class="tool-call-terminal-pre"
@@ -374,7 +393,15 @@ function TerminalOutput({ text, running }: { text: string; running: boolean }) {
         <code>{text}</code>
         {running && <span class="tool-call-terminal-cursor" aria-hidden="true" />}
       </pre>
-      <ResizeHandle edge="bottom" onMouseDown={startResize('bottom')} />
+      <ResizeHandle
+        edge="bottom"
+        onMouseDown={startResize('bottom')}
+        height={height}
+        minHeight={minHeight}
+        maxHeight={maxHeight}
+        onResizeBy={resizeBy}
+        onReset={reset}
+      />
     </div>
   );
 }
@@ -674,7 +701,7 @@ export function ToolCallCard({
   return (
     <div
       class={cx(
-        'cursor-pointer select-none overflow-hidden rounded-xl border-l-2 border-l-transparent bg-card shadow-sm transition-all duration-150 hover:bg-control-hover hover:shadow-md',
+        'overflow-hidden rounded-xl border-l-2 border-l-transparent bg-card shadow-sm transition-all duration-150 hover:bg-control-hover hover:shadow-md',
         'forced-colors:border forced-colors:border-[ButtonText]',
         toolCall.status === 'failed' && 'border-l-danger/50',
         toolCall.status === 'completed' && 'border-l-success/60',
@@ -682,13 +709,7 @@ export function ToolCallCard({
         presentation.variant === 'skill-load' && 'bg-accent/5 skill-load-glow',
         className,
       )}
-      role="button"
-      aria-expanded={open}
-      aria-label="Toggle tool call details"
-      tabIndex={0}
-      onClick={toggleOpen}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleOpen(); } }}
     >
       <ToolCallHeader
         open={open}
@@ -702,6 +723,7 @@ export function ToolCallCard({
         errorDetail={errorDetail}
         durationMs={toolCall.durationMs}
         onOpenFile={onOpenFile}
+        onToggle={toggleOpen}
       />
       {renderBody && (
         <div

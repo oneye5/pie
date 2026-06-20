@@ -8,6 +8,7 @@
 }
 
 .model-picker-trigger {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: space-between;
@@ -44,6 +45,13 @@
 .model-picker-trigger:focus-visible {
   outline: 1px solid var(--panel-accent);
   outline-offset: 2px;
+}
+
+/* Extend the compact 22px trigger hit area without enlarging it. */
+.model-picker-trigger::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .model-picker-trigger-label {
@@ -86,6 +94,7 @@
 .model-picker-dropdown-down {
   top: calc(100% + 4px);
   bottom: auto;
+  transform-origin: top left;
 }
 
 /* Sticky header – sits flush at the top so rows never shine through above it */

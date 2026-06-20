@@ -1,7 +1,8 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useRef } from 'preact/hooks';
+import { memo } from 'preact/compat';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import type { ActiveRunSummary, ExtensionUIRequestPayload, SessionSummary } from '../../../shared/protocol';
 import { isPendingTabPath } from '../../../shared/tab-behavior';
@@ -35,12 +36,16 @@ interface SessionTabsProps {
 
 interface DropGapProps {
   index: number;
-  dragState: SessionTabDragState | null;
+  dropIndex: number | null;
+  tabHeight: number;
   dragGapWidth: number;
 }
 
-function DropGap({ index, dragState, dragGapWidth }: DropGapProps) {
-  if (!dragState || dragState.dropIndex !== index) {
+// Memoized with primitive props so during a drag only the (at most two)
+// DropGaps whose `dropIndex` matches re-render — not all of them — when the
+// parent re-renders on each pointermove.
+const DropGap = memo(function DropGap({ index, dropIndex, tabHeight, dragGapWidth }: DropGapProps) {
+  if (dropIndex === null || dropIndex !== index) {
     return null;
   }
 
@@ -48,14 +53,14 @@ function DropGap({ index, dragState, dragGapWidth }: DropGapProps) {
     <div
       key={`drop-gap:${index}`}
       class="session-tab-drop-gap"
-      style={{ width: `${dragGapWidth}px`, height: `${dragState.tabHeight}px` }}
+      style={{ width: `${dragGapWidth}px`, height: `${tabHeight}px` }}
       aria-hidden="true"
     >
       <span class="session-tab-drop-slot" />
       <span class="session-tab-drop-marker" />
     </div>
   );
-}
+});
 
 interface SessionTabProps {
   tabPath: string;
@@ -75,7 +80,11 @@ interface SessionTabProps {
   onMarkComplete: () => void;
 }
 
-export function SessionTab({
+// Memoized so non-source tabs skip re-render during a drag (the parent
+// re-renders on every pointermove). Effectiveness depends on stable prop
+// identities: the derived Maps/Sets are memoized in SessionTabs and the drag
+// callbacks are useCallback-stabilized in the hook.
+export const SessionTab = memo(function SessionTab({
   tabPath,
   index,
   sessionByPath,
@@ -117,6 +126,7 @@ export function SessionTab({
       key={tabPath}
       class={classBits.join(' ')}
       data-drop-target-tab="true"
+      data-tab-path={tabPath}
       onContextMenu={(event) => onContextMenu(event as MouseEvent, tabPath)}
     >
       <span class="session-tab-shell" aria-hidden="true" />
@@ -125,6 +135,7 @@ export function SessionTab({
         type="button"
         role="tab"
         aria-selected={isActive}
+        tabIndex={isActive ? 0 : -1}
         title={title}
         onPointerDown={(event) => onPointerDown(event as PointerEvent, originalIndex, tabPath)}
         onClick={() => onClick(tabPath)}
@@ -178,7 +189,7 @@ export function SessionTab({
       )}
     </div>
   );
-}
+});
 
 interface FloatingSessionTabProps {
   dragState: SessionTabDragState;
@@ -213,8 +224,9 @@ function FloatingSessionTab({
       style={{
         width: `${dragState.tabWidth}px`,
         height: `${dragState.tabHeight}px`,
-        left: `${dragState.currentX - dragState.offsetX}px`,
+        left: 0,
         top: `${dragState.tabTop}px`,
+        transform: `translate3d(${dragState.currentX - dragState.offsetX}px, 0, 0)`,
       }}
       aria-hidden="true"
     >
@@ -366,11 +378,14 @@ export function SessionTabs({
     stripRef,
   });
 
-  const sessionByPath = new Map(sessions.map((session) => [session.path, session]));
-  const openIndexByPath = new Map(openTabPaths.map((path, index) => [path, index]));
-  const runningPathSet = new Set(runningSessionPaths);
-  const unreadFinishedPathSet = new Set(unreadFinishedSessionPaths);
-  const pinnedPathSet = new Set(pinnedTabPaths);
+  // Stabilize derived collections so memoized children (SessionTab, DropGap)
+  // skip re-render while their props are unchanged — essential during a drag,
+  // where the parent re-renders on every pointermove.
+  const sessionByPath = useMemo(() => new Map(sessions.map((session) => [session.path, session])), [sessions]);
+  const openIndexByPath = useMemo(() => new Map(openTabPaths.map((path, index) => [path, index])), [openTabPaths]);
+  const runningPathSet = useMemo(() => new Set(runningSessionPaths), [runningSessionPaths]);
+  const unreadFinishedPathSet = useMemo(() => new Set(unreadFinishedSessionPaths), [unreadFinishedSessionPaths]);
+  const pinnedPathSet = useMemo(() => new Set(pinnedTabPaths), [pinnedTabPaths]);
 
   // Re-resolve the dragged index from the source path each render so a tab
   // closing or being inserted elsewhere mid-drag doesn't float the wrong tab.
@@ -383,12 +398,114 @@ export function SessionTabs({
   const dragGapWidth = dragState
     ? Math.max(18, Math.min(34, Math.round(dragState.tabWidth * 0.22)))
     : 0;
+  // Primitives for the memoized DropGap: only `dropIndex` (and the static
+  // geometry) reach it, so it skips re-render until the drop target changes.
+  const activeDropIndex = dragState?.dropIndex ?? null;
+  const dropTabHeight = dragState?.tabHeight ?? 0;
+
+  // Tabs-1: scroll the active tab into view when the active session changes
+  // (host selection, closing an adjacent tab, DnD commit near an edge).
+  // `inline: 'nearest'` scrolls only the minimum needed; no-op if visible.
+  const activePath = activeSession?.path ?? null;
+  useEffect(() => {
+    if (!activePath) return;
+    const strip = stripRef.current;
+    if (!strip) return;
+    const tab = Array.from(strip.querySelectorAll<HTMLElement>('.session-tab[data-tab-path]'))
+      .find((el) => el.getAttribute('data-tab-path') === activePath);
+    tab?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+  }, [activePath]);
+
+  // Tabs-4: surface horizontal overflow with edge fades. Re-measures on strip
+  // resize (ResizeObserver), scroll position, and tab/content changes (deps).
+  const [fadeLeft, setFadeLeft] = useState(false);
+  const [fadeRight, setFadeRight] = useState(false);
+  useLayoutEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const update = () => {
+      const hasOverflow = strip.scrollWidth - strip.clientWidth > 1;
+      setFadeLeft(hasOverflow && strip.scrollLeft > 1);
+      setFadeRight(hasOverflow && strip.scrollLeft + strip.clientWidth < strip.scrollWidth - 1);
+    };
+    update();
+    strip.addEventListener('scroll', update, { passive: true });
+    const resizeObserver = new ResizeObserver(update);
+    resizeObserver.observe(strip);
+    return () => {
+      strip.removeEventListener('scroll', update);
+      resizeObserver.disconnect();
+    };
+  }, [openTabPaths, sessions]);
+
+  // Tabs-5: roving-tabindex keyboard navigation (WAI-ARIA Tabs). Arrow keys
+  // move focus and select the adjacent tab; Home/End jump to the ends; Delete
+  // closes the focused tab and restores focus to its neighbor (which the host
+  // also selects as the next active tab, keeping roving consistent). Disabled
+  // during an active pointer drag.
+  const onTabListKeyDown = useCallback((event: KeyboardEvent) => {
+    if (dragState) return;
+    const strip = stripRef.current;
+    if (!strip) return;
+    const target = event.target as HTMLElement | null;
+    const tabEl = target ? (target.closest('.session-tab[data-tab-path]') as HTMLElement | null) : null;
+    if (!tabEl) return;
+    const tabPath = tabEl.getAttribute('data-tab-path');
+    if (!tabPath) return;
+    const tabs = Array.from(strip.querySelectorAll<HTMLElement>('.session-tab[data-tab-path]'));
+    const currentIndex = tabs.indexOf(tabEl);
+    if (currentIndex === -1) return;
+
+    if (event.key === 'Delete') {
+      event.preventDefault();
+      const fallbackIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : currentIndex - 1;
+      const fallbackPath = fallbackIndex >= 0 ? tabs[fallbackIndex]?.getAttribute('data-tab-path') : null;
+      onClose(tabPath);
+      if (fallbackPath) {
+        requestAnimationFrame(() => {
+          const s = stripRef.current;
+          if (!s) return;
+          const next = Array.from(s.querySelectorAll<HTMLElement>('.session-tab[data-tab-path]'))
+            .find((el) => el.getAttribute('data-tab-path') === fallbackPath);
+          next?.querySelector<HTMLElement>('[role="tab"]')?.focus();
+        });
+      }
+      return;
+    }
+
+    let targetIndex: number | null = null;
+    if (event.key === 'ArrowRight') {
+      targetIndex = Math.min(currentIndex + 1, tabs.length - 1);
+    } else if (event.key === 'ArrowLeft') {
+      targetIndex = Math.max(currentIndex - 1, 0);
+    } else if (event.key === 'Home') {
+      targetIndex = 0;
+    } else if (event.key === 'End') {
+      targetIndex = tabs.length - 1;
+    }
+    if (targetIndex === null) return;
+    event.preventDefault();
+    const targetTab = tabs[targetIndex];
+    const targetPath = targetTab?.getAttribute('data-tab-path');
+    if (targetPath && targetPath !== tabPath) {
+      onSelect(targetPath);
+    }
+    targetTab?.querySelector<HTMLElement>('[role="tab"]')?.focus();
+  }, [dragState, onClose, onSelect]);
+
+  const stripClass = `session-tabs-strip${fadeLeft ? ' fade-left' : ''}${fadeRight ? ' fade-right' : ''}`;
 
   return (
     <div class={`session-tabs${dragState ? ' dragging' : ''}`}>
-      <div ref={stripRef} class="session-tabs-strip" role="tablist" aria-label="Sessions">
+      <div
+        ref={stripRef}
+        class={stripClass}
+        role="tablist"
+        aria-label="Sessions"
+        onKeyDown={(event) => onTabListKeyDown(event as KeyboardEvent)}
+      >
         {renderedTabPaths.map((tabPath, index) => [
-          <DropGap key={`drop-gap:${index}`} index={index} dragState={dragState} dragGapWidth={dragGapWidth} />,
+          <DropGap key={`drop-gap:${index}`} index={index} dropIndex={activeDropIndex} tabHeight={dropTabHeight} dragGapWidth={dragGapWidth} />,
           <SessionTab
             key={tabPath}
             tabPath={tabPath}
@@ -408,7 +525,9 @@ export function SessionTabs({
             onMarkComplete={onMarkComplete}
           />,
         ])}
-        <DropGap index={renderedTabPaths.length} dragState={dragState} dragGapWidth={dragGapWidth} />
+        <DropGap index={renderedTabPaths.length} dropIndex={activeDropIndex} tabHeight={dropTabHeight} dragGapWidth={dragGapWidth} />
+      </div>
+      <div class="session-tabs-actions">
         <button
           class="session-tabs-new"
           type="button"

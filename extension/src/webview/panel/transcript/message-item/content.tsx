@@ -2,6 +2,8 @@
 /** @jsxImportSource preact */
 
 import type { RefObject } from 'preact';
+import { memo } from 'preact/compat';
+import { useMemo } from 'preact/hooks';
 
 import type { ChatMessage, ChatPrefs } from '../../../../shared/protocol';
 import { renderMarkdown } from '../../markdown';
@@ -77,6 +79,30 @@ function AssistantParts({
   );
 }
 
+interface UserTextPartProps {
+  messageId: string;
+  index: number;
+  text: string;
+  messageBodyRef: RefObject<HTMLDivElement>;
+}
+
+/** Memoized user text part: parses markdown only when `text` changes, not on
+ *  every parent render (the transcript re-renders on each streaming token, so
+ *  an inline renderMarkdown call in the map would re-parse visible user
+ *  messages on every token). Only the first text part forwards the shared body
+ *  ref so the inline editor's height capture keeps working. */
+const UserTextPart = memo(function UserTextPart({ messageId, index, text, messageBodyRef }: UserTextPartProps) {
+  const html = useMemo(() => renderMarkdown(text), [text]);
+  return (
+    <div
+      key={`user-text-${messageId}-${index}`}
+      class="message-body"
+      ref={index === 0 ? messageBodyRef : undefined}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
+  );
+});
+
 interface UserPartsProps {
   messageId: string;
   parts: NonNullable<ReturnType<typeof getRenderableUserParts>>;
@@ -92,11 +118,12 @@ function UserParts({
     <>
       {parts.map((part, index) => (
         part.kind === 'text' ? (
-          <div
+          <UserTextPart
             key={`user-text-${messageId}-${index}`}
-            class="message-body"
-            ref={index === 0 ? messageBodyRef : undefined}
-            dangerouslySetInnerHTML={{ __html: renderMarkdown(part.text) }}
+            messageId={messageId}
+            index={index}
+            text={part.text}
+            messageBodyRef={messageBodyRef}
           />
         ) : (
           <figure key={`user-image-${messageId}-${index}`} class="message-user-image">

@@ -30,6 +30,7 @@ interface PanelChipSpanProps extends PanelChipBaseProps {
   as?: 'span' | 'div';
   role?: JSX.AriaRole;
   ariaLive?: 'off' | 'polite' | 'assertive';
+  tabIndex?: number;
 }
 
 interface PanelChipButtonProps extends PanelChipBaseProps {
@@ -93,6 +94,7 @@ function PanelChip(props: PanelChipProps) {
         aria-live={props.ariaLive}
         aria-label={props.ariaLabel}
         title={title}
+        tabIndex={props.tabIndex}
       >
         {content}
       </div>,
@@ -107,6 +109,7 @@ function PanelChip(props: PanelChipProps) {
       aria-live={props.ariaLive}
       aria-label={props.ariaLabel}
       title={title}
+      tabIndex={props.tabIndex}
     >
       {content}
     </span>,
@@ -151,9 +154,12 @@ function indicatorClassName(kind: ToolbarIndicatorKind, severity?: string | null
 export function ToolbarIndicatorChip({ kind, severity, state, label, title, tooltip, ariaLabel }: ToolbarIndicatorChipProps) {
   return (
     <PanelChip
+      as="div"
       variant="toolbar"
       tone="neutral"
       className={indicatorClassName(kind, severity, state)}
+      role="img"
+      tabIndex={0}
       ariaLabel={ariaLabel}
       title={title}
       tooltip={tooltip}
@@ -181,9 +187,13 @@ interface ToolbarRunStatusChipProps {
 export function ToolbarRunStatusChip({ label, title, tooltip, tone }: ToolbarRunStatusChipProps) {
   return (
     <PanelChip
+      as="div"
       variant="toolbar"
       tone={toolbarRunStatusTone(tone)}
       className="panel-chip-run-status"
+      role="status"
+      ariaLive="polite"
+      tabIndex={0}
       title={title}
       tooltip={tooltip}
       label={label}

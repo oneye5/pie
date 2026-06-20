@@ -137,18 +137,24 @@ export function Tooltip({
     };
   }, []);
 
-  // Hide on Escape or when the viewport is resized.
+  // Hide on Escape, viewport resize, or any scroll (capture phase so it
+  // catches scroll within nested scrollable containers like the transcript,
+  // which auto-scrolls during a run and would leave the fixed tooltip
+  // detached from its trigger).
   useEffect(() => {
     if (!isVisible) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setIsVisible(false);
     };
     const handleResize = () => setIsVisible(false);
+    const handleScroll = () => setIsVisible(false);
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('resize', handleResize);
+    window.addEventListener('scroll', handleScroll, true);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('resize', handleResize);
+      window.removeEventListener('scroll', handleScroll, true);
     };
   }, [isVisible]);
 

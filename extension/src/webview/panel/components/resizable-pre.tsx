@@ -27,10 +27,26 @@ interface ResizablePreProps {
  * directly so they can keep their own stick-to-bottom logic + ref.
  */
 export function ResizablePre({ class: className, minHeight, maxHeight, onScroll, onResizeStart, children }: ResizablePreProps) {
-  const { scrollRef, height, startResize } = useResizableHeight<HTMLPreElement>({ minHeight, maxHeight, onResizeStart });
+  const {
+    scrollRef,
+    height,
+    minHeight: minH,
+    maxHeight: maxH,
+    startResize,
+    resizeBy,
+    reset,
+  } = useResizableHeight<HTMLPreElement>({ minHeight, maxHeight, onResizeStart });
   return (
     <div class="resizable-scroll-area">
-      <ResizeHandle edge="top" onMouseDown={startResize('top')} />
+      <ResizeHandle
+        edge="top"
+        onMouseDown={startResize('top')}
+        height={height}
+        minHeight={minH}
+        maxHeight={maxH}
+        onResizeBy={resizeBy}
+        onReset={reset}
+      />
       <pre
         ref={scrollRef}
         class={cx('resizable-scroll-area-scroll', className)}
@@ -39,7 +55,15 @@ export function ResizablePre({ class: className, minHeight, maxHeight, onScroll,
       >
         {children}
       </pre>
-      <ResizeHandle edge="bottom" onMouseDown={startResize('bottom')} />
+      <ResizeHandle
+        edge="bottom"
+        onMouseDown={startResize('bottom')}
+        height={height}
+        minHeight={minH}
+        maxHeight={maxH}
+        onResizeBy={resizeBy}
+        onReset={reset}
+      />
     </div>
   );
 }

@@ -17,6 +17,25 @@ interface BufferedTextPartProps {
 /** Re-parse streamed markdown at most this often (ms): bounds marked+DOMPurify cost and reduces mid-token flicker. */
 const MARKDOWN_PARSE_THROTTLE_MS = 100;
 
+/** While the user has an active text selection anchored in the streaming body,
+ *  skip innerHTML updates (which would destroy the Selection). Poll this often
+ *  (ms) to apply the deferred update once the selection clears. */
+const SELECTION_DEFER_POLL_MS = 200;
+/** Maximum total defer (ms) before the pending update is force-applied even if
+ *  a selection is still active, so streaming output cannot fall behind
+ *  indefinitely. */
+const SELECTION_FORCE_APPLY_MS = 1500;
+
+/** True when the user has a non-collapsed text selection rooted inside `el`. */
+function hasSelectionInBody(el: HTMLDivElement | null): boolean {
+  if (!el) return false;
+  const sel = document.getSelection();
+  if (!sel || sel.isCollapsed || sel.rangeCount === 0) return false;
+  const anchor = sel.anchorNode;
+  if (!anchor) return false;
+  return el.contains(anchor);
+}
+
 /**
  * Renders a text part with buffered smooth streaming.
  *
@@ -28,6 +47,11 @@ const MARKDOWN_PARSE_THROTTLE_MS = 100;
  * revealed length each frame, so re-parsing every frame both wastes work
  * (marked + DOMPurify) and flickers, since mid-token slices yield malformed
  * markdown. When streaming ends the complete text is parsed immediately.
+ *
+ * While the user is selecting text inside the streaming body, innerHTML
+ * updates are deferred (re-applied once the selection clears or after a short
+ * timeout) — otherwise each distinct html string resets innerHTML, recreating
+ * DOM nodes and clearing the user's Selection up to 10x/s.
  */
 export function BufferedTextPart({ messageId, index, text, streaming, onContextMenu }: BufferedTextPartProps) {
   const visibleText = useBufferedText(text, streaming);
@@ -37,6 +61,44 @@ export function BufferedTextPart({ messageId, index, text, streaming, onContextM
   const visibleTextRef = useRef(visibleText);
   visibleTextRef.current = visibleText;
 
+  // Selection-aware update machinery: the body element, the latest desired
+  // html, and a deferred-apply timer used while a selection is active.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const pendingHtmlRef = useRef<string | null>(null);
+  const deferTimerRef = useRef<number | null>(null);
+  const deferStartedAtRef = useRef(0);
+
+  /** Apply `nextHtml` now unless the user is mid-selection in the body, in
+   *  which case defer it (re-checked on a poll, force-applied after a timeout). */
+  function applyHtml(nextHtml: string) {
+    pendingHtmlRef.current = nextHtml;
+    // A deferred apply is already scheduled — it will pick up the latest
+    // pending html when it fires, so don't schedule another.
+    if (deferTimerRef.current !== null) return;
+    if (!hasSelectionInBody(bodyRef.current)) {
+      setHtml(nextHtml);
+      pendingHtmlRef.current = null;
+      return;
+    }
+    deferStartedAtRef.current = Date.now();
+    scheduleDeferredApply();
+  }
+
+  function scheduleDeferredApply() {
+    deferTimerRef.current = window.setTimeout(() => {
+      deferTimerRef.current = null;
+      if (pendingHtmlRef.current === null) return;
+      const elapsed = Date.now() - deferStartedAtRef.current;
+      if (elapsed >= SELECTION_FORCE_APPLY_MS || !hasSelectionInBody(bodyRef.current)) {
+        setHtml(pendingHtmlRef.current);
+        pendingHtmlRef.current = null;
+        return;
+      }
+      // Still selecting — keep deferring.
+      scheduleDeferredApply();
+    }, SELECTION_DEFER_POLL_MS);
+  }
+
   useEffect(() => {
     if (!streaming) {
       // Final render: parse the complete text immediately and cancel any
@@ -45,14 +107,14 @@ export function BufferedTextPart({ messageId, index, text, streaming, onContextM
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
-      setHtml(renderMarkdown(visibleTextRef.current));
+      applyHtml(renderMarkdown(visibleTextRef.current));
       return;
     }
 
     const now = Date.now();
     if (now - lastParseAtRef.current >= MARKDOWN_PARSE_THROTTLE_MS) {
       lastParseAtRef.current = now;
-      setHtml(renderMarkdown(visibleTextRef.current));
+      applyHtml(renderMarkdown(visibleTextRef.current));
       return;
     }
 
@@ -63,16 +125,20 @@ export function BufferedTextPart({ messageId, index, text, streaming, onContextM
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null;
         lastParseAtRef.current = Date.now();
-        setHtml(renderMarkdown(visibleTextRef.current));
+        applyHtml(renderMarkdown(visibleTextRef.current));
       }, MARKDOWN_PARSE_THROTTLE_MS);
     }
   }, [visibleText, streaming]);
 
-  // Clear any pending throttled parse on unmount.
+  // Clear any pending throttled / deferred parse on unmount.
   useEffect(() => () => {
     if (timerRef.current !== null) {
       clearTimeout(timerRef.current);
       timerRef.current = null;
+    }
+    if (deferTimerRef.current !== null) {
+      clearTimeout(deferTimerRef.current);
+      deferTimerRef.current = null;
     }
   }, []);
 
@@ -80,6 +146,7 @@ export function BufferedTextPart({ messageId, index, text, streaming, onContextM
     <div
       key={`text-${messageId}-${index}`}
       class={`message-body${streaming ? ' streaming-text' : ''}`}
+      ref={bodyRef}
       dangerouslySetInnerHTML={{ __html: html }}
       onContextMenu={(e) => {
         e.preventDefault();

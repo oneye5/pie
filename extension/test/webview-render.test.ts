@@ -184,6 +184,7 @@ test('rendered tool-call components cover collapsed summaries, expanded bodies, 
     sizeHint: '+3 lines',
     errorDetail: 'boom',
     durationMs: 1500,
+    onToggle: noop,
     onOpenFile: noop,
   }));
 
@@ -975,6 +976,7 @@ test('rendered MessageItem keeps pruning pending state in the header without an 
 
 test('rendered failed assistant turn exposes copyable error detail and an edit-previous-prompt recovery action', async () => {
   const { MessageItem } = await loadWebviewModules();
+  const { useRecovery } = await import('../src/webview/panel/transcript/message-item/footer.tsx');
 
   const userMsg = userMessage({ id: 'user-99', markdown: 'Do the thing' });
   const failedAssistant = assistantMessage([{ kind: 'text', text: 'Partial' }], {
@@ -998,9 +1000,7 @@ test('rendered failed assistant turn exposes copyable error detail and an edit-p
     onContextMenu: noopContextMenu,
     renderToolCall: () => null,
     isLastAssistantMessage: false,
-    transcript,
-    transcriptIndex: 1,
-    hasOlder: false,
+    recovery: useRecovery(failedAssistant, transcript, 1, false),
   }));
 
   // Error detail is shown with a copy affordance.
@@ -1014,6 +1014,7 @@ test('rendered failed assistant turn exposes copyable error detail and an edit-p
 
 test('rendered failed assistant turn disables recovery when the previous prompt is outside the loaded window', async () => {
   const { MessageItem } = await loadWebviewModules();
+  const { useRecovery } = await import('../src/webview/panel/transcript/message-item/footer.tsx');
 
   const failedAssistant = assistantMessage([{ kind: 'text', text: 'Partial' }], {
     id: 'assistant-100',
@@ -1034,9 +1035,7 @@ test('rendered failed assistant turn disables recovery when the previous prompt 
     onContextMenu: noopContextMenu,
     renderToolCall: () => null,
     isLastAssistantMessage: false,
-    transcript: [failedAssistant],
-    transcriptIndex: 0,
-    hasOlder: true,
+    recovery: useRecovery(failedAssistant, [failedAssistant], 0, true),
   }));
 
   assert.match(html, /Load older messages to retry/);

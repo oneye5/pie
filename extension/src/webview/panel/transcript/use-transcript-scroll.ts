@@ -17,6 +17,7 @@ interface UseTranscriptScrollOptions {
   sessionKey: string | null;
   transcriptWindow: TranscriptWindow;
   transcriptLength: number;
+  busy: boolean;
   onLoadOlder: () => void;
   onLoadNewer: () => void;
   onJumpToLatest: () => void;
@@ -299,13 +300,25 @@ function usePaginationTrackingEffect(
 }
 
 /**
- * Persistent rAF loop that eases the transcript toward its bottom whenever
- * auto-follow is active, replacing the previous hard `scrollTop = scrollHeight`
- * snaps that produced visible jumps as streaming content grew. Each frame
- * advances scrollTop a bounded step toward the target (see
- * `advanceSmoothScrollTop`), so following feels continuous instead of snapping.
- * CSS `scroll-behavior` is bypassed while auto-following (each frame's set is
- * instant) and restored when idle so manual scrolling keeps its smooth feel.
+ * rAF loop that eases the transcript toward its bottom whenever auto-follow is
+ * active, replacing the previous hard `scrollTop = scrollHeight` snaps that
+ * produced visible jumps as streaming content grew. Each frame advances
+ * scrollTop a bounded step toward the target (see `advanceSmoothScrollTop`),
+ * so following feels continuous instead of snapping. CSS `scroll-behavior` is
+ * bypassed while auto-following (each frame's set is instant) and restored when
+ * idle so manual scrolling keeps its smooth feel.
+ *
+ * The loop is GATED on activity: it self-cancels (stops scheduling frames)
+ * when there is nothing to follow (`!autoFollow && !hasNewer && !busy`), so an
+ * idle transcript — e.g. the user scrolled up to read older content and nothing
+ * is streaming — no longer wakes the main thread ~60x/s. The effect's reactive
+ * deps (`busy`, `isInitialPositioning`) restart the loop when activity resumes
+ * (streaming starts, or a session-switch positioning window opens).
+ * `scrollToBottom` / `jumpToLatest` keep doing their own synchronous snaps and
+ * do not depend on this loop. While auto-follow is active but nothing is
+ * streaming the loop keeps running — cheaply (it only reads metrics and writes
+ * nothing while `scrollHeight` is stable) — so it still catches non-busy
+ * height changes such as late image/markdown loads.
  */
 function useSmoothAutoFollow(
   scrollRef: { current: HTMLDivElement | null },
@@ -314,12 +327,25 @@ function useSmoothAutoFollow(
   setIsAtBottom: (v: boolean) => void,
   hasNewer: boolean,
   isInitialPositioningRef: { current: boolean },
+  isInitialPositioning: boolean,
+  busy: boolean,
 ) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     let raf = 0;
     const tick = () => {
+      // Idle gate: stop the loop (do not schedule the next frame) when there is
+      // nothing to follow, so the main thread is not woken ~60x/s while idle —
+      // e.g. the user scrolled up to read older content and nothing is
+      // streaming. The effect's reactive deps (`busy`, `isInitialPositioning`)
+      // restart the loop when activity resumes. While stopped, restore the
+      // inline `scroll-behavior` so manual scrolling keeps its smooth feel.
+      if (!autoFollowRef.current && !hasNewer && !busy) {
+        if (el.style.scrollBehavior === 'auto') el.style.scrollBehavior = '';
+        raf = 0;
+        return;
+      }
       raf = requestAnimationFrame(tick);
       if (!autoFollowRef.current || hasNewer) {
         if (el.style.scrollBehavior === 'auto') el.style.scrollBehavior = '';
@@ -364,23 +390,25 @@ function useSmoothAutoFollow(
       cancelAnimationFrame(raf);
       el.style.scrollBehavior = '';
     };
-  }, [scrollRef, hasNewer, autoFollowRef, lastScrollTopRef, setIsAtBottom, isInitialPositioningRef]);
+  }, [scrollRef, hasNewer, autoFollowRef, lastScrollTopRef, setIsAtBottom, isInitialPositioningRef, isInitialPositioning, busy]);
 }
 
 export function useTranscriptScroll({
   sessionKey,
   transcriptWindow,
   transcriptLength,
+  busy,
   onLoadOlder,
   onLoadNewer,
   onJumpToLatest,
 }: UseTranscriptScrollOptions): UseTranscriptScrollResult {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isInitialPositioning, setIsInitialPositioning] = useState(true);
-  // Mirror of `isInitialPositioning` readable inside the persistent
-  // useSmoothAutoFollow rAF loop without restarting it on each toggle (a state
-  // dep would tear the loop down and rebuild it). Drives snap-vs-ease during the
-  // post-session-switch positioning window.
+  // Live mirror of `isInitialPositioning` readable inside the useSmoothAutoFollow
+  // rAF loop's tick (the positioning snap branch). `isInitialPositioning` (the
+  // state) is now also a dep of that effect so the loop restarts when the
+  // positioning window opens/closes; the ref still lets tick see the current
+  // value synchronously, within the same frame, before the effect re-runs.
   const isInitialPositioningRef = useRef(true);
   const previousLoadedStartRef = useRef(transcriptWindow.loadedStart);
   const previousLoadedEndRef = useRef(transcriptWindow.loadedEnd);
@@ -464,6 +492,8 @@ export function useTranscriptScroll({
     setIsAtBottom,
     transcriptWindow.hasNewer,
     isInitialPositioningRef,
+    isInitialPositioning,
+    busy,
   );
 
   return {

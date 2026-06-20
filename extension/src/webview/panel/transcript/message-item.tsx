@@ -8,7 +8,7 @@ import type { ChatMessage, ChatPrefs } from '../../../shared/protocol';
 import type { PruningHeaderState } from './pruning';
 import type { TurnActivityState } from './activity';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
-import { useCaptureHeight, useMessageItemDerived, useMessageParts } from './message-item/hooks';
+import { useCaptureHeight, useMessageEntrance, useMessageItemDerived, useMessageParts } from './message-item/hooks';
 import { MessageItemInner, MessageItemShell } from './message-item/inner';
 
 export { ReasoningBlock } from './message-item/reasoning-block';
@@ -31,12 +31,13 @@ interface MessageItemProps {
   pruningHeaderState?: PruningHeaderState;
   /** Structured in-flight activity for the current turn (last assistant row only). */
   activityState?: TurnActivityState | null;
-  /** Full transcript window, used to locate the previous user prompt for recovery. */
-  transcript?: ChatMessage[];
-  /** Index of this message within the transcript window. */
-  transcriptIndex?: number;
-  /** Whether older messages exist outside the loaded window. */
-  hasOlder?: boolean;
+  /**
+   * Precomputed recovery affordance for assistant error/interrupted messages
+   * (located via the transcript window in the row builder). Passed in — rather
+   * than the raw transcript array — so MessageItem's memo survives streaming
+   * tokens (the array reference changes every token).
+   */
+  recovery?: { kind: 'available'; userId: string } | { kind: 'unloaded' } | null;
 }
 
 export function MessageItemView({
@@ -55,9 +56,7 @@ export function MessageItemView({
   isLastAssistantMessage,
   pruningHeaderState,
   activityState,
-  transcript,
-  transcriptIndex,
-  hasOlder,
+  recovery,
 }: MessageItemProps) {
 
   const {
@@ -74,6 +73,10 @@ export function MessageItemView({
 
   const { messageBodyRef, capturedHeight } = useCaptureHeight(message.role);
 
+  // Plays the entrance animation only the first time a message id is seen,
+  // so virtualized remounts don't replay it.
+  const entered = useMessageEntrance(message.id);
+
   const derived = useMessageItemDerived({
     message,
     isStreaming,
@@ -82,9 +85,7 @@ export function MessageItemView({
     editingId,
     readonly,
     hasUserImages,
-    transcript,
-    transcriptIndex,
-    hasOlder,
+    recovery,
     combinedParts,
     combinedMarkdown,
     combinedThinking,
@@ -99,6 +100,7 @@ export function MessageItemView({
       isCurrentlyStreaming={derived.isCurrentlyStreaming}
       isClickableUserMsg={derived.isClickableUserMsg}
       isEditing={derived.isEditing}
+      entered={entered}
       handleMessageClick={derived.handleMessageClick}
     >
       <MessageItemInner

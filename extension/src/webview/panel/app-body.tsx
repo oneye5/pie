@@ -120,6 +120,12 @@ function useAppBodyDerivedState(
       : {},
   }), [activeSessionPath, postMessage, pendingExtensionUIRequestsBySession]);
 
+  // Stable notice context value: `dismiss` is fixed for the AppBody lifetime
+  // so consumers only re-render when `notice` actually changes, mirroring the
+  // memoized `askUserContextValue` above.
+  const dismiss = useCallback(() => postMessage({ type: 'dismissNotice' }), []);
+  const noticeValue = useMemo(() => ({ notice, dismiss }), [notice, dismiss]);
+
   return {
     panelSurface,
     hasActiveTabs,
@@ -131,6 +137,7 @@ function useAppBodyDerivedState(
     pendingAssistantThinkingLevel,
     isAskUserHandledInline,
     askUserContextValue,
+    noticeValue,
     transcriptHydrating,
     loadingStatus,
   };
@@ -498,7 +505,7 @@ export function AppBody({ adapter }: AppBodyProps) {
   ]);
 
   return (
-    <NoticeContext.Provider value={{ notice: viewState.notice, dismiss: () => postMessage({ type: 'dismissNotice' }) }}>
+    <NoticeContext.Provider value={derived.noticeValue}>
     <AskUserContext.Provider value={derived.askUserContextValue}>
     <div id="app">
       {viewState.showOutcomeDialog && viewState.activeSession && (

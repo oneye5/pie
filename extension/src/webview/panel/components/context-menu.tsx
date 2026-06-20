@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
 import type { ChatPrefs } from '../../../shared/protocol';
 import {
@@ -31,12 +31,75 @@ export function ContextMenu({
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
+  const [pos, setPos] = useState<{ top: number; left: number }>({ top: menu.y, left: menu.x });
+
+  // Position: measure the RENDERED menu after mount and clamp to the viewport.
+  // If it would overflow the bottom/right, flip it above/left of the cursor
+  // instead of clamping it under. Uses offsetWidth/offsetHeight so the
+  // panel-scale-in transform doesn't skew the measurement. Runs before paint
+  // (useLayoutEffect) so the corrected position is what the user first sees.
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const margin = 4;
+    const width = node.offsetWidth;
+    const height = node.offsetHeight;
+    let top = menu.y;
+    let left = menu.x;
+    if (top + height > window.innerHeight - margin) {
+      const flipped = menu.y - height;
+      top = flipped >= margin ? flipped : Math.max(margin, window.innerHeight - margin - height);
+    }
+    if (left + width > window.innerWidth - margin) {
+      const flipped = menu.x - width;
+      left = flipped >= margin ? flipped : Math.max(margin, window.innerWidth - margin - width);
+    }
+    top = Math.max(margin, top);
+    left = Math.max(margin, left);
+    setPos({ top, left });
+  }, [menu.x, menu.y]);
+
+  // Focus management: capture the trigger that opened the menu, move focus to
+  // the first item on open, and restore focus to the trigger on close. The
+  // trigger-side aria-haspopup/aria-expanded live where the menu is opened
+  // (use-app-handlers.ts); this component only owns menu-internal behavior.
+  useEffect(() => {
+    triggerRef.current = document.activeElement as HTMLElement | null;
+    const firstItem = ref.current?.querySelector<HTMLButtonElement>('button.context-menu-item');
+    firstItem?.focus();
+    return () => {
+      triggerRef.current?.focus?.();
+    };
+  }, []);
 
   useEffect(() => {
     const down = (e: MouseEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     };
-    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { onClose(); return; }
+      const node = ref.current;
+      if (!node) return;
+      const items = Array.from(node.querySelectorAll<HTMLButtonElement>('button.context-menu-item'));
+      if (items.length === 0) return;
+      const currentIndex = items.findIndex((it) => it === document.activeElement);
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = currentIndex === -1 ? 0 : (currentIndex + 1) % items.length;
+        items[next].focus();
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        const prev = currentIndex <= 0 ? items.length - 1 : currentIndex - 1;
+        items[prev].focus();
+      } else if (e.key === 'Home') {
+        e.preventDefault();
+        items[0].focus();
+      } else if (e.key === 'End') {
+        e.preventDefault();
+        items[items.length - 1].focus();
+      }
+    };
     // Don't close on scroll: the menu is position:fixed so it stays correctly
     // placed, and a capture-phase window scroll listener would dismiss the menu
     // whenever the transcript auto-scrolls during a run. Close on resize since
@@ -52,8 +115,7 @@ export function ContextMenu({
     };
   }, [onClose]);
 
-  // Keep menu inside viewport
-  const style = `position:fixed;top:${Math.min(menu.y, window.innerHeight - 120)}px;left:${Math.min(menu.x, window.innerWidth - 220)}px`;
+  const style = `position:fixed;top:${pos.top}px;left:${pos.left}px`;
 
   const prefType: ChatPrefContextType | null = menu.type === 'message' ? null : menu.type;
   const checked = prefType ? getChatPrefContextValue(prefs, prefType) : false;
@@ -61,6 +123,7 @@ export function ContextMenu({
   const expandToggle = prefType ? (
     <button
       class="context-menu-item"
+      role="menuitem"
       type="button"
       onClick={() => {
         onSetPrefs(toggleChatPrefForContext(prefs, prefType));
@@ -75,10 +138,11 @@ export function ContextMenu({
   ) : null;
 
   return (
-    <div ref={ref} class="block-context-menu" style={style} onMouseDown={(e) => e.stopPropagation()}>
+    <div ref={ref} class="block-context-menu" role="menu" style={style} onMouseDown={(e) => e.stopPropagation()}>
       {expandToggle}
       <button
         class="context-menu-item"
+        role="menuitem"
         type="button"
         onClick={() => {
           navigator.clipboard.writeText(menu.rawData);

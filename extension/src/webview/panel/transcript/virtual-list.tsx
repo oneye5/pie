@@ -335,6 +335,7 @@ export function TranscriptVirtualList({
     sessionKey,
     transcriptWindow,
     transcriptLength: transcript.length,
+    busy,
     onLoadOlder,
     onLoadNewer,
     onJumpToLatest,
@@ -354,11 +355,17 @@ export function TranscriptVirtualList({
   // changes (streaming markdown, late tables/images). A stable callback avoids
   // re-binding the observer and re-running getBoundingClientRect on every
   // visible row every render.
-  const measureRowElement = useCallback((element: HTMLDivElement | null) => {
-    if (element) {
-      virtualizer.measureElement(element);
-    }
-  }, [virtualizer]);
+  // Pass `null` through (no guard): tanstack's `measureElement(null)` is the
+  // only path that iterates `elementsCache` and unobserves/disconnects rows that
+  // virtualized out of the overscan window. The previous `if (element)` guard
+  // dropped the null call, so every scrolled-past row leaked in `elementsCache`,
+  // still observed by the shared ResizeObserver and retaining its detached DOM.
+  // The callback stays stable (deps `[virtualizer]`) so the ref is not re-bound
+  // on every render — the whole reason the stable callback exists.
+  const measureRowElement = useCallback(
+    (element: HTMLDivElement | null) => { virtualizer.measureElement(element); },
+    [virtualizer],
+  );
 
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();

@@ -7,11 +7,12 @@
   overflow-y: auto;
   overflow-x: hidden;
   overflow-anchor: none;
-  /* No CSS smooth-scroll: the auto-follow rAF loop (use-transcript-scroll) owns
-     smoothness — easing small streaming deltas and snapping large ones — and
-     explicit jumps (scrollToBottom, anchor restore) must be instant. A CSS
-     `scroll-behavior: smooth` here starts a slow animation on jumps that the
-     JS loop then interrupts and replaces with frame-by-frame easing. */
+  /* Smooth scrolling for `.transcript` is enabled in styles/index.css (base
+     layer) — see `scroll-behavior: smooth` there. The auto-follow rAF loop
+     (use-transcript-scroll) additionally owns smoothness for streaming deltas
+     and explicit jumps, interrupting/replacing the CSS animation
+     frame-by-frame when needed. This block intentionally does not re-declare
+     scroll-behavior. */
   overscroll-behavior: contain;
   padding: var(--panel-gap-md) var(--panel-gap-lg) 10px;
   display: flex;
@@ -988,11 +989,11 @@
 /* [data-editing] pauses the animation (rather than removing it) so the      */
 /* message doesn't flash back to opacity:0 when exiting edit mode.            */
 
-[data-role="assistant"],
-[data-role="user"],
-[data-role="system"] {
+/* Gated on [data-entered]: the shell only sets that attribute the first time a
+   message id is mounted (genuinely new), so virtualized remounts (overscan
+   unmount/remount) don't replay the animation as flicker. */
+[data-role][data-entered] {
   animation: panel-entrance var(--panel-duration-entrance) var(--panel-ease-out-expo) both;
-  animation-delay: 30ms;
 }
 
 /* Streaming messages should not animate (they're already visible) */

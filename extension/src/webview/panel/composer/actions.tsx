@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { getComposerRunControls } from '../session-tabs/run-state';
+import { COMPOSER_MARK_DONE_ACTION, getComposerRunControls } from '../session-tabs/run-state';
 
 export interface ComposerActionsProps {
   busy: boolean;
@@ -37,7 +37,7 @@ export function ComposerActions({
           <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
         </svg>
       </button>
-      {completionAction && (
+      {completionAction ? (
         <button
           class={`composer-run-action ${completionAction.tone}`}
           type="button"
@@ -47,6 +47,21 @@ export function ComposerActions({
           onClick={() => onMarkComplete?.()}
         >
           {completionAction.text}
+        </button>
+      ) : (
+        /* Reserve the action slot so Send/Stop don't shift when the mark-done
+           action appears or disappears. getComposerRunControls only ever
+           returns the mark-done action, so its label fixes the reserved width;
+           visibility:hidden keeps the box while removing it from paint and
+           the a11y tree. */
+        <button
+          class="composer-run-action is-placeholder"
+          type="button"
+          aria-hidden="true"
+          tabIndex={-1}
+          disabled
+        >
+          {COMPOSER_MARK_DONE_ACTION.text}
         </button>
       )}
       {busy ? (

@@ -14,7 +14,6 @@ import {
 import { shouldOpenUserMessageEditor } from '../interactions';
 import { AGENT_ACTIVITY_LABELS, type TurnActivityState } from '../activity';
 import type { StatusTone } from '../status-chip';
-import { useRecovery } from './footer';
 
 export function buildMessageRaw(
   message: ChatMessage,
@@ -94,9 +93,7 @@ export function useMessageItemDerived({
   editingId,
   readonly,
   hasUserImages,
-  transcript,
-  transcriptIndex,
-  hasOlder,
+  recovery,
   combinedParts,
   combinedMarkdown,
   combinedThinking,
@@ -110,9 +107,10 @@ export function useMessageItemDerived({
   editingId: string | null;
   readonly?: boolean;
   hasUserImages: boolean;
-  transcript?: ChatMessage[];
-  transcriptIndex?: number;
-  hasOlder?: boolean;
+  /** Precomputed recovery affordance for assistant error/interrupted messages.
+   *  Computed by the row builder (pure useRecovery) and passed in so the
+   *  transcript array never reaches this memoized component. */
+  recovery?: { kind: 'available'; userId: string } | { kind: 'unloaded' } | null;
   combinedParts: ReturnType<typeof assistantPartsFromMessage> | undefined;
   combinedMarkdown: string;
   combinedThinking: string;
@@ -121,8 +119,6 @@ export function useMessageItemDerived({
 }) {
   const isCurrentlyStreaming = isStreaming && message.status === 'streaming';
   const isEditing = editingId === message.id;
-
-  const recovery = useRecovery(message, transcript, transcriptIndex, hasOlder);
 
   const statusLabel =
     message.status === 'interrupted' ? 'Interrupted'
@@ -188,7 +184,7 @@ export function useMessageItemDerived({
   return {
     isCurrentlyStreaming,
     isEditing,
-    recovery,
+    recovery: recovery ?? null,
     statusLabel,
     statusTone,
     replyMeta,
@@ -200,4 +196,31 @@ export function useMessageItemDerived({
     hasActivityFooter,
     handleMessageClick,
   };
+}
+
+// Module-level record of message ids that have already "entered" (been mounted
+// at least once). Used by `useMessageEntrance` to play the entrance animation
+// only for genuinely new messages, not for virtualized remounts (overscan
+// unmount/remount would otherwise replay the animation as flicker). Bounded
+// growth: one id per message, cleared on webview reload.
+const enteredMessageIds = new Set<string>();
+
+/**
+ * Returns true the first time a message id is seen (genuinely new), false on
+ * any subsequent mount (virtualized remount). The decision is stable for the
+ * lifetime of a single mount — re-renders return the initial value — so the
+ * entrance animation plays once and does not replay when the virtual list
+ * remounts an already-seen row.
+ */
+export function useMessageEntrance(messageId: string): boolean {
+  const ref = useRef<{ entered: boolean } | null>(null);
+  if (ref.current === null) {
+    if (enteredMessageIds.has(messageId)) {
+      ref.current = { entered: false };
+    } else {
+      enteredMessageIds.add(messageId);
+      ref.current = { entered: true };
+    }
+  }
+  return ref.current.entered;
 }

@@ -205,6 +205,15 @@
   pointer-events: auto;
 }
 
+/* Touch-only devices have no hover state to reveal the actions, so always
+   show them. Mirrors the :hover/:focus-within reveal values. */
+@media (hover: none) {
+  .file-change-actions {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+
 /* ── Status labels (non-color indicator) ─────────────────────────────────── */
 
 .file-change-status {

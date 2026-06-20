@@ -205,7 +205,7 @@ function SubagentMessages({
     [singleResult, toolCall.id, index],
   );
   const nestedCollapsibleDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
-  const { scrollRef, height, startResize } = useResizableHeight<HTMLDivElement>();
+  const { scrollRef, height, startResize, minHeight, maxHeight, resizeBy, reset } = useResizableHeight<HTMLDivElement>();
   const stickToBottomRef = useRef(true);
 
   const handleScroll = () => {
@@ -243,7 +243,15 @@ function SubagentMessages({
       }}
       onKeyDown={(e) => e.stopPropagation()}
     >
-      <ResizeHandle edge="top" onMouseDown={startResize('top')} />
+      <ResizeHandle
+        edge="top"
+        onMouseDown={startResize('top')}
+        height={height}
+        minHeight={minHeight}
+        maxHeight={maxHeight}
+        onResizeBy={resizeBy}
+        onReset={reset}
+      />
       <div
         class="subagent-messages-scroll"
         ref={scrollRef}
@@ -281,7 +289,15 @@ function SubagentMessages({
           collapsibleKey={nestedCollapsibleDefaultsKey}
         />
       </div>
-      <ResizeHandle edge="bottom" onMouseDown={startResize('bottom')} />
+      <ResizeHandle
+        edge="bottom"
+        onMouseDown={startResize('bottom')}
+        height={height}
+        minHeight={minHeight}
+        maxHeight={maxHeight}
+        onResizeBy={resizeBy}
+        onReset={reset}
+      />
     </div>
   );
 }
@@ -315,16 +331,18 @@ function SubagentSingleBlock({
 
   return (
     <div
-      class={cx('tool-call tool-call-subagent', 'border border-border-subtle rounded-xl bg-card shadow-sm overflow-hidden cursor-pointer select-none transition-[border-color,background,box-shadow] duration-150 hover:border-border hover:bg-control-hover hover:shadow-md forced-colors:border forced-colors:border-[ButtonText]', status, hasPendingAskUser && 'pending-ask-user')}
-      role="button"
+      class={cx('tool-call tool-call-subagent', 'border border-border-subtle rounded-xl bg-card shadow-sm overflow-hidden transition-[border-color,background,box-shadow] duration-150 hover:border-border hover:bg-control-hover hover:shadow-md forced-colors:border forced-colors:border-[ButtonText]', status, hasPendingAskUser && 'pending-ask-user')}
       aria-expanded={open}
-      aria-label="Toggle subagent details"
-      tabIndex={0}
-      onClick={() => setOpen((v) => !v)}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
     >
-      <div class="subagent-header">
+      <div
+        class="subagent-header min-h-[32px] select-none"
+        role="button"
+        aria-expanded={open}
+        tabIndex={0}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
+      >
         <span class="subagent-agent-name transcript-header-title-mono">{singleResult.agent}</span>
         <PrimaryMeta result={singleResult} />
         {!open && summary && <span class="subagent-header-summary transcript-header-summary-mono">{summary}</span>}

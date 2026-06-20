@@ -22,6 +22,7 @@ test('collapsed tool-call headers use the shared path hierarchy', async () => {
     summary: 'src/example.ts',
     summaryPath: '/repo/src/example.ts',
     sizeHint: '+3 lines',
+    onToggle: () => {},
     onOpenFile: () => {},
   }));
 
@@ -44,6 +45,7 @@ test('collapsed bash headers emphasize the shell verb over the path context', as
     status: 'completed',
     summary: 'rm somepath/somefile.txt',
     sizeHint: '+3 lines',
+    onToggle: () => {},
     onOpenFile: () => {},
   }));
 
@@ -60,6 +62,7 @@ test('collapsed bash headers keep surrounding quotes separate from the emphasize
     name: 'bash',
     status: 'completed',
     summary: 'rm "some dir/file name.txt"',
+    onToggle: () => {},
     onOpenFile: () => {},
   }));
 
@@ -78,6 +81,7 @@ test('expanded bash headers suppress the command summary while the terminal body
     name: 'bash',
     status: 'running',
     summary: 'rm somepath/somefile.txt',
+    onToggle: () => {},
     onOpenFile: () => {},
   }));
 

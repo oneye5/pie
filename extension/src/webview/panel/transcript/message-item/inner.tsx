@@ -24,6 +24,9 @@ interface MessageItemShellProps {
   isCurrentlyStreaming: boolean;
   isClickableUserMsg: boolean;
   isEditing: boolean;
+  /** True only the first time a message id is mounted (genuinely new); used to
+   *  gate the entrance animation so virtualized remounts don't replay it. */
+  entered?: boolean;
   handleMessageClick: ((event: MouseEvent) => void) | undefined;
   children: ComponentChildren;
 }
@@ -34,6 +37,7 @@ export function MessageItemShell({
   isCurrentlyStreaming,
   isClickableUserMsg,
   isEditing,
+  entered,
   handleMessageClick,
   children,
 }: MessageItemShellProps) {
@@ -47,10 +51,17 @@ export function MessageItemShell({
         role === 'user' && 'self-end rounded-xl bg-accent/15 shadow-none',
         role === 'system' && 'w-auto max-w-none self-stretch bg-surface shadow-none',
         isCurrentlyStreaming && 'w-[min(var(--message-assistant-width),100%)] max-[340px]:w-[min(var(--message-assistant-width-narrow),100%)]',
+        // Completed (non-streaming) assistant messages keep a width floor so
+        // short completions don't snap from the streaming width down to
+        // content-width when streaming ends. Mirrors the streaming width
+        // classes above (as a min-width) across normal + narrow viewports. No
+        // width transition is added (avoids horizontal jitter).
+        role === 'assistant' && !isCurrentlyStreaming && 'min-w-[min(var(--message-assistant-width),100%)] max-[340px]:min-w-[min(var(--message-assistant-width-narrow),100%)]',
         isClickableUserMsg && 'cursor-pointer hover:ring-1 hover:ring-border-subtle hover:bg-accent/20',
       )}
       data-message-id={messageId}
       data-role={role}
+      data-entered={entered ? 'true' : undefined}
       data-editing={isEditing ? 'true' : undefined}
       data-streaming={isCurrentlyStreaming ? 'true' : undefined}
       onClick={handleMessageClick}

@@ -22,13 +22,29 @@
   from {
     opacity: 0;
     transform: translateY(-4px);
-    max-height: 0;
   }
   to {
     opacity: 1;
     transform: translateY(0);
-    max-height: 80px;
   }
+}
+
+/* Symmetric exit so dismissal fades out instead of snapping the node away. The
+ * entrance animates opacity+transform only — never the layout `max-height`
+ * that reflowed every frame and capped long/expanded notices at 80px. */
+@keyframes notice-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.notice.dismissing {
+  animation: notice-exit var(--panel-duration-entrance) var(--panel-ease-out-expo) forwards;
 }
 
 
@@ -129,6 +145,27 @@ body.session-tab-dragging {
   display: none;
 }
 
+/* Edge-fade overflow affordance (Tabs-4): when tabs overflow horizontally,
+   fade the clipped edge(s) so users can tell there is more content. Toggled
+   via `fade-left` / `fade-right` classes set by a useLayoutEffect in
+   SessionTabs that measures scrollWidth/scrollLeft. Masking (rather than
+   overlay divs) keeps the fade self-contained on the strip with no layout
+   impact. */
+.session-tabs-strip.fade-left:not(.fade-right) {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, black 14px);
+  mask-image: linear-gradient(to right, transparent 0, black 14px);
+}
+
+.session-tabs-strip.fade-right:not(.fade-left) {
+  -webkit-mask-image: linear-gradient(to left, transparent 0, black 14px);
+  mask-image: linear-gradient(to left, transparent 0, black 14px);
+}
+
+.session-tabs-strip.fade-left.fade-right {
+  -webkit-mask-image: linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);
+  mask-image: linear-gradient(to right, transparent 0, black 14px, black calc(100% - 14px), transparent 100%);
+}
+
 /* ── Session tab ─────────────────────────────────────────────────────────── */
 
 .session-tab {
@@ -177,7 +214,9 @@ body.session-tab-dragging {
   z-index: 0;
 }
 
-.session-tab:hover {
+/* Scoped to non-dragging so inactive tabs don't light up under the pointer
+   during a drag (Tabs-7) — only the accent drop indicator should stand out. */
+.session-tabs:not(.dragging) .session-tab:hover {
   --session-tab-surface: var(--session-tab-hover-surface);
 }
 
@@ -460,7 +499,7 @@ body.session-tab-dragging {
   transform: scale(0.88);
 }
 
-.session-tab:hover .session-tab-close,
+.session-tabs:not(.dragging) .session-tab:hover .session-tab-close,
 .session-tab:focus-within .session-tab-close,
 .session-tab.active .session-tab-close {
   opacity: 0.88;
@@ -513,6 +552,9 @@ body.session-tab-dragging {
   pointer-events: none;
   opacity: 0.98;
   z-index: 10;
+  /* Positioned via `transform: translate3d(...)` (set inline) rather than
+     `left`/`top` so movement stays on the compositor (Tabs-3). */
+  will-change: transform;
 }
 
 .session-tab-floating .session-tab-shell {
@@ -532,6 +574,12 @@ body.session-tab-dragging {
 }
 
 /* ── New tab button & connecting indicator ───────────────────────────────── */
+
+.session-tabs-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
 
 .session-tabs-new {
   width: 28px;

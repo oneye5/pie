@@ -78,6 +78,12 @@
   cursor: not-allowed;
 }
 
+/* Invisible placeholder that reserves the mark-done slot so Send/Stop don't
+   shift when the action is absent. */
+.composer-run-action.is-placeholder {
+  visibility: hidden;
+}
+
 /* Style ineligible models in the model select dropdown */
 .toolbar-settings-select option.model-option-ineligible {
   color: var(--panel-muted);
@@ -149,6 +155,7 @@
 }
 
 .toolbar-settings-trigger {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -184,6 +191,14 @@
   outline-offset: 2px;
 }
 
+/* Extend the hit area beyond the compact 26px trigger without changing its
+   visible size. */
+.toolbar-settings-trigger::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+}
+
 .toolbar-settings-menu {
   position: absolute;
   left: 0;
@@ -194,6 +209,8 @@
   gap: var(--panel-gap-sm);
   min-width: 240px;
   max-width: 300px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   padding: var(--panel-gap-md);
   border: 1px solid var(--panel-border);
   border-radius: var(--panel-radius-lg);
@@ -253,10 +270,15 @@
 }
 
 .toolbar-settings-item:hover,
-.toolbar-settings-item:focus {
+.toolbar-settings-item:focus-visible {
   background: var(--panel-control-hover);
   color: var(--panel-foreground);
-  outline: none;
+}
+
+.toolbar-settings-item:focus-visible,
+.toolbar-settings-ui-trigger:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: 2px;
 }
 
 /* Checkbox icon inside a settings item */
@@ -356,10 +378,18 @@
   border-radius: var(--panel-radius-sm);
   padding: 3px var(--panel-gap-md);
   font-size: 11px;
-  outline: none;
   min-width: 0;
   max-width: 60%;
   min-height: 24px;
+}
+
+.toolbar-settings-select:hover {
+  border-color: var(--panel-border);
+}
+
+.toolbar-settings-select:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: 2px;
 }
 
 .toolbar-settings-stepper {
@@ -373,8 +403,8 @@
   color: inherit;
   border: 1px solid var(--panel-border-subtle);
   border-radius: var(--panel-radius-sm);
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   cursor: pointer;
   font-size: 12px;
@@ -491,7 +521,6 @@
 .toolbar-settings-ui-trigger:focus-visible {
   background: var(--panel-control-hover);
   color: var(--panel-foreground);
-  outline: none;
 }
 
 .toolbar-settings-ui-trigger.open {
@@ -671,8 +700,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
+  width: 22px;
+  height: 22px;
   padding: 0;
   border: none;
   border-radius: 50%;

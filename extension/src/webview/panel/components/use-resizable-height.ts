@@ -16,8 +16,17 @@ export interface ResizableHeight<T extends HTMLElement> {
   /** Resolved height in px once the user has resized; `null` until then (the
    *  element falls back to its CSS height/max-height). */
   height: number | null;
+  /** Resolved minimum height in px (defaults to 120). */
+  minHeight: number;
+  /** Resolved maximum height in px (opts.maxHeight, else 80% of viewport).
+   *  `undefined` when `window` is unavailable (SSR) — the drag/keyboard
+   *  handlers re-read the live viewport at call time. */
+  maxHeight: number | undefined;
   /** Returns a mousedown handler bound to the given edge. */
   startResize: (edge: 'top' | 'bottom') => (e: MouseEvent) => void;
+  /** Adjust the height by `delta` px, clamped to [minHeight, maxHeight]. Used
+   *  by keyboard resize; mirrors the drag's onResizeStart side effect. */
+  resizeBy: (delta: number) => void;
   /** Clear the user-set height, reverting to the CSS default. */
   reset: () => void;
 }
@@ -37,6 +46,11 @@ export function useResizableHeight<T extends HTMLElement = HTMLElement>(
   const { minHeight = 120, maxHeight, onResizeStart } = opts;
   const [height, setHeight] = useState<number | null>(null);
   const scrollRef = useRef<T>(null);
+  // Guard `window` for SSR (preact-render-to-string has no window). In the
+  // real webview window is always defined so this is a concrete number; the
+  // drag + keyboard handlers also re-read the live viewport at call time.
+  const resolvedMaxHeight = maxHeight
+    ?? (typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.8) : undefined);
 
   // `edge` is a call-time argument (not a closure dep): each handle binds
   // `startResize('top')` / `startResize('bottom')` once, capturing its edge.
@@ -69,7 +83,23 @@ export function useResizableHeight<T extends HTMLElement = HTMLElement>(
     [minHeight, maxHeight, onResizeStart],
   );
 
+  // Keyboard resize: adjust the height by a delta, clamped to the resolved
+  // range. Reads the live clientHeight when no user height is set yet so the
+  // arrow keys work before the first drag. Mirrors the drag's onResizeStart.
+  const resizeBy = useCallback(
+    (delta: number) => {
+      const el = scrollRef.current;
+      if (!el) return;
+      onResizeStart?.();
+      const base = height ?? el.clientHeight;
+      const maxH = resolvedMaxHeight ?? Math.round(window.innerHeight * 0.8);
+      const next = Math.max(minHeight, Math.min(maxH, Math.round(base + delta)));
+      setHeight(next);
+    },
+    [minHeight, resolvedMaxHeight, height, onResizeStart],
+  );
+
   const reset = useCallback(() => setHeight(null), []);
 
-  return { scrollRef, height, startResize, reset };
+  return { scrollRef, height, minHeight, maxHeight: resolvedMaxHeight, startResize, resizeBy, reset };
 }

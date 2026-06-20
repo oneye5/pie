@@ -38,12 +38,24 @@
 }
 
 .panel-chip-toolbar {
+  position: relative;
+  overflow: visible;
   height: 22px;
   min-width: 80px;
   max-width: 180px;
   padding: 0 8px;
   font-size: 11px;
   line-height: 1;
+}
+
+/* Extend the compact toolbar chip hit area without enlarging the visible
+   22px chip. overflow: visible (above) lets the pseudo-element extend past
+   the border box that .panel-chip would otherwise clip. Native <select>
+   chips ignore ::before, so their hit area is unchanged. */
+.panel-chip-toolbar::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
 }
 
 .panel-chip-reasoning-select {
