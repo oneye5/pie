@@ -73,6 +73,8 @@ export interface ViewState {
   availableExtensions: ExtensionInfo[];
   /** File changes tracked from tool calls in the active session. */
   fileChanges: FileChangeEntry[];
+  /** Whether the file-changes rail drawer is expanded for the active session. */
+  fileChangesExpanded: boolean;
   /** Pruning result extracted from transcript (skill-pruner extension). */
   pruningResult: PruningResult | null;
   /** Current pruning configuration from settings.json. */
@@ -185,5 +187,6 @@ export type WebviewToHostMessage =
   | { type: 'openFileInEditor'; sessionPath: string; filePath: string }
   | { type: 'revertFile'; sessionPath: string; filePath: string }
   | { type: 'stateApplied'; payload: StateAppliedPayload }
-  | { type: 'extensionUiResponse'; sessionPath: string; response: ExtensionUIResponsePayload };
+  | { type: 'extensionUiResponse'; sessionPath: string; response: ExtensionUIResponsePayload }
+  | { type: 'setFileChangesExpanded'; sessionPath: string; expanded: boolean };
 

@@ -6,7 +6,8 @@ export type BooleanPrefKey =
   | 'autoExpandSubagentCalls'
   | 'suppressCompletionNotifications'
   | 'showPruningMessages'
-  | 'subagentAlwaysParentModel';
+  | 'subagentAlwaysParentModel'
+  | 'autoOpenFileChangesRail';
 
 export type ChatPrefKey = keyof ChatPrefs;
 export type ChatPrefContextType = 'reasoning' | 'toolCalls' | 'subagentCalls';
@@ -60,6 +61,16 @@ export const CHAT_PREF_MENU_SECTIONS: readonly ChatPrefMenuSection[] = [
       {
         key: 'suppressCompletionNotifications',
         label: 'Suppress completion alerts',
+      },
+    ],
+  },
+  {
+    id: 'files',
+    label: 'Files',
+    items: [
+      {
+        key: 'autoOpenFileChangesRail',
+        label: 'Auto-open file changes rail',
       },
     ],
   },

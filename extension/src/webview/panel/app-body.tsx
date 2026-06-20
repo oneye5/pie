@@ -238,6 +238,7 @@ function PanelMain({
       </div>
       {showSessionChrome && fileChanges.length > 0 && (
         <FileChangesPanel
+          key={activeSessionPath ?? 'none'}
           fileChanges={fileChanges}
           expanded={fileChangesExpanded}
           onToggleExpanded={handlers.handleSetFileChangesExpanded}

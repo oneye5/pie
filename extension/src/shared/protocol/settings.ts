@@ -184,7 +184,7 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   uiDensity: 'comfortable',
   extensionToggles: {},
   providerToggles: {},
-  autoOpenFileChangesRail: false,
+  autoOpenFileChangesRail: true,
 };
 
 export const DEFAULT_PRUNING_SETTINGS: PruningSettings = {

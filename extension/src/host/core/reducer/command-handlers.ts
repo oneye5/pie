@@ -55,6 +55,7 @@ import {
   handleOpenFileDiff,
   handleRevertFile,
   handleAddFilesystemPaths,
+  handleSetFileChangesExpanded,
 } from './command-file-handlers.js';
 
 export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
@@ -109,6 +110,10 @@ export function handleCommand(state: ArchState, cmd: Command): ReducerResult {
 
     case 'RevertFile': {
       return handleRevertFile(state, cmd);
+    }
+
+    case 'SetFileChangesExpanded': {
+      return handleSetFileChangesExpanded(state, cmd);
     }
 
     case 'CloseSession': {

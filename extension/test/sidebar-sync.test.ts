@@ -43,6 +43,7 @@ const baseViewState: ViewState = {
   prefs: DEFAULT_CHAT_PREFS,
   availableExtensions: [],
   fileChanges: [],
+  fileChangesExpanded: false,
   pruningResult: null,
   pruningSettings: {
     mode: 'auto' as const,

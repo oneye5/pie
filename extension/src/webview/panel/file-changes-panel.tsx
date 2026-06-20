@@ -8,15 +8,17 @@ import { FileTypeIcon } from './components/file-type-icon';
 
 interface FileChangesPanelProps {
   fileChanges: FileChangeEntry[];
+  expanded: boolean;
+  onToggleExpanded: (expanded: boolean) => void;
   onOpenDiff: (filePath: string) => void;
   onOpenInEditor: (filePath: string) => void;
   onRevertFile: (filePath: string) => void;
 }
 
-const CHANGE_LABELS: Record<FileChangeEntry['kind'], string> = {
-  created: 'Created',
-  modified: 'Modified',
-  deleted: 'Deleted',
+const STATUS_LABELS: Record<FileChangeEntry['kind'], string> = {
+  created: 'A',
+  modified: 'M',
+  deleted: 'D',
 };
 
 function LineStats({ additions, deletions }: { additions?: number; deletions?: number }) {
@@ -29,19 +31,33 @@ function LineStats({ additions, deletions }: { additions?: number; deletions?: n
   );
 }
 
+function FilePath({ path }: { path: string }) {
+  const parts = path.split(/[/\\]/);
+  const name = parts.pop() ?? path;
+  const dir = parts.join('/') || '.';
+  return (
+    <span class="file-change-path-text">
+      <span class="file-change-name">{name}</span>
+      <span class="file-change-dir">{dir}</span>
+    </span>
+  );
+}
+
 function CopyPathButton({ path }: { path: string }) {
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
 
-  const onCopy = (e: MouseEvent) => {
+  const onClick = (e: MouseEvent) => {
     e.stopPropagation();
-    const clipboard = navigator.clipboard;
-    if (!clipboard?.writeText) return;
-    void clipboard
+    if (!navigator.clipboard?.writeText) return;
+    void navigator.clipboard
       .writeText(path)
       .then(() => {
         setCopied(true);
@@ -49,17 +65,17 @@ function CopyPathButton({ path }: { path: string }) {
         timerRef.current = setTimeout(() => setCopied(false), 1100);
       })
       .catch(() => {
-        /* ignore — clipboard might be unavailable (e.g. insecure context) */
+        /* ignore */
       });
   };
 
   return (
     <button
-      class={`file-change-copy${copied ? ' is-copied' : ''}`}
+      class={`action-btn icon-only file-change-copy${copied ? ' is-copied' : ''}`}
       type="button"
       title={copied ? 'Copied!' : `Copy path: ${path}`}
       aria-label={copied ? 'Path copied' : `Copy path of ${path}`}
-      onClick={onCopy}
+      onClick={onClick}
     >
       {copied ? (
         <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -75,78 +91,183 @@ function CopyPathButton({ path }: { path: string }) {
   );
 }
 
+function RevertButton({ path, onRevert }: { path: string; onRevert: (path: string) => void }) {
+  const [confirming, setConfirming] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+    },
+    [],
+  );
+
+  const onClick = (e: MouseEvent) => {
+    e.stopPropagation();
+    if (confirming) {
+      onRevert(path);
+      setConfirming(false);
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    } else {
+      setConfirming(true);
+      if (timerRef.current) clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setConfirming(false), 3000);
+    }
+  };
+
+  if (confirming) {
+    return (
+      <button
+        class="action-btn danger file-change-revert file-change-revert-confirm"
+        type="button"
+        title="Click again to confirm revert"
+        aria-label={`Confirm revert of ${path}`}
+        onClick={onClick}
+      >
+        Confirm?
+      </button>
+    );
+  }
+
+  return (
+    <button
+      class="action-btn icon-only file-change-revert"
+      type="button"
+      title={`Revert changes to ${path}`}
+      aria-label={`Revert ${path}`}
+      onClick={onClick}
+    >
+      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M3 6.5 a4.5 4.5 0 1 1 1.5 3" />
+        <path d="M3 6.5 L3 3 L6 4" />
+      </svg>
+    </button>
+  );
+}
+
+function StatusLabel({ kind }: { kind: FileChangeEntry['kind'] }) {
+  return (
+    <span class={`file-change-status file-change-status-${kind}`} aria-label={kind}>
+      {STATUS_LABELS[kind]}
+    </span>
+  );
+}
+
 export function FileChangesPanel({
   fileChanges,
+  expanded,
+  onToggleExpanded,
   onOpenDiff,
   onOpenInEditor,
   onRevertFile,
 }: FileChangesPanelProps) {
-  const [isExpanded, setIsExpanded] = useState(false);
+  const [hasNewChanges, setHasNewChanges] = useState(false);
+  const prevCountRef = useRef(fileChanges.length);
+
+  useEffect(() => {
+    const prev = prevCountRef.current;
+    const curr = fileChanges.length;
+    if (curr > prev && !expanded) {
+      setHasNewChanges(true);
+    }
+    prevCountRef.current = curr;
+    if (curr === 0) {
+      setHasNewChanges(false);
+    }
+  }, [fileChanges.length, expanded]);
+
+  useEffect(() => {
+    if (expanded) setHasNewChanges(false);
+  }, [expanded]);
 
   if (fileChanges.length === 0) return null;
-
-  const toggle = () => setIsExpanded((v) => !v);
 
   const totalAdditions = fileChanges.reduce((sum, f) => sum + (f.additions ?? 0), 0);
   const totalDeletions = fileChanges.reduce((sum, f) => sum + (f.deletions ?? 0), 0);
 
   return (
-    <div class={`file-changes-panel${isExpanded ? ' expanded' : ''}`}>
+    <div class={`file-changes-rail${expanded ? ' is-expanded' : ''}`}>
       <button
-        class="file-changes-header"
+        class="file-changes-handle"
         type="button"
-        onClick={toggle}
-        aria-expanded={isExpanded}
+        onClick={() => onToggleExpanded(!expanded)}
+        aria-expanded={expanded}
+        aria-label={`File changes: ${fileChanges.length}. ${expanded ? 'Collapse' : 'Expand'}`}
+        title={`${fileChanges.length} changed file${fileChanges.length === 1 ? '' : 's'}`}
       >
-        <span class="file-changes-title">Files Changed</span>
-        <span class="file-changes-count">{fileChanges.length}</span>
-        {(totalAdditions > 0 || totalDeletions > 0) && (
-          <span class="file-changes-aggregate-stats">
-            {totalAdditions > 0 && <span class="stat-additions">+{totalAdditions}</span>}
-            {totalDeletions > 0 && <span class="stat-deletions">-{totalDeletions}</span>}
-          </span>
-        )}
+        <svg width="14" height="14" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M2 3.5 H11" />
+          <path d="M2 6.5 H11" />
+          <path d="M2 9.5 H7.5" />
+        </svg>
+        <span class="file-changes-handle-count">{fileChanges.length}</span>
+        {hasNewChanges && <span class="file-changes-new-dot" aria-hidden="true" />}
+        <svg
+          class="file-changes-handle-chevron"
+          width="12"
+          height="12"
+          viewBox="0 0 12 12"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="1.6"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <polyline points={expanded ? '9,3 6,6 9,9' : '3,3 6,6 3,9'} />
+        </svg>
       </button>
-      {isExpanded && (
-        <div class="file-changes-list">
+      <div class="file-changes-drawer" aria-hidden={!expanded} inert={!expanded}>
+        <div class="file-changes-header">
+          <span class="file-changes-title">File changes</span>
+          <span class="file-changes-count">{fileChanges.length}</span>
+          {(totalAdditions > 0 || totalDeletions > 0) && (
+            <span class="file-changes-aggregate-stats">
+              {totalAdditions > 0 && <span class="stat-additions">+{totalAdditions}</span>}
+              {totalDeletions > 0 && <span class="stat-deletions">-{totalDeletions}</span>}
+            </span>
+          )}
+          <button
+            class="action-btn icon-only file-changes-close"
+            type="button"
+            aria-label="Collapse file changes"
+            title="Collapse file changes"
+            onClick={() => onToggleExpanded(false)}
+          >
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <polyline points="9,3 6,6 9,9" />
+            </svg>
+          </button>
+        </div>
+        <div class="file-changes-list" role="list">
           {fileChanges.map((change) => (
-            <div key={change.path} class={`file-change-item kind-${change.kind}`}>
+            <div key={change.path} class={`file-change-item kind-${change.kind}`} role="listitem">
               <div class="file-change-main">
-                <FileTypeIcon path={change.path} className={`kind-${change.kind}`} />
+                <StatusLabel kind={change.kind} />
+                <FileTypeIcon path={change.path} className="file-change-kind-icon" />
                 <button
                   class="file-change-path"
                   type="button"
-                  title={`${CHANGE_LABELS[change.kind]}: ${change.path}\n${change.description}`}
+                  title={`${change.kind}: ${change.path}\n${change.description}`}
                   onClick={() => onOpenDiff(change.path)}
                 >
-                  <span class="file-change-name">
-                    {change.path.split(/[/\\]/).pop()}
-                  </span>
-                  <span class="file-change-dir">
-                    {change.path.split(/[/\\]/).slice(0, -1).join('/') || '.'}
-                  </span>
+                  <FilePath path={change.path} />
                 </button>
                 <LineStats additions={change.additions} deletions={change.deletions} />
               </div>
               <div class="file-change-actions">
                 <button
-                  class="file-change-open"
+                  class="action-btn icon-only file-change-open"
                   type="button"
-                  title={
-                    change.kind === 'deleted'
-                      ? `${change.path} was deleted by the agent`
-                      : `Open ${change.path} in the editor`
-                  }
-                  aria-label={
-                    change.kind === 'deleted'
-                      ? `${change.path} was deleted by the agent`
-                      : `Open ${change.path} in the editor`
-                  }
+                  title={change.kind === 'deleted' ? `${change.path} was deleted` : `Open ${change.path} in the editor`}
+                  aria-label={change.kind === 'deleted' ? `${change.path} was deleted` : `Open ${change.path} in the editor`}
                   disabled={change.kind === 'deleted'}
                   onClick={(e) => {
                     e.stopPropagation();
-                    if (change.kind === 'deleted') return;
-                    onOpenInEditor(change.path);
+                    if (change.kind !== 'deleted') onOpenInEditor(change.path);
                   }}
                 >
                   <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -156,23 +277,12 @@ export function FileChangesPanel({
                   </svg>
                 </button>
                 <CopyPathButton path={change.path} />
-                <button
-                  class="file-change-revert"
-                  type="button"
-                  title={`Revert changes to ${change.path}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onRevertFile(change.path);
-                  }}
-                  aria-label={`Revert ${change.path}`}
-                >
-                  {'\u21A9'}
-                </button>
+                <RevertButton path={change.path} onRevert={onRevertFile} />
               </div>
             </div>
           ))}
         </div>
-      )}
+      </div>
     </div>
   );
 }

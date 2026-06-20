@@ -188,6 +188,9 @@ export class MessageRouter {
       case 'extensionUiResponse':
         return await this.onExtensionUiResponse(msg as Extract<WebviewToHostMessage, { type: 'extensionUiResponse' }>);
 
+      case 'setFileChangesExpanded':
+        return this.onSetFileChangesExpanded(msg as Extract<WebviewToHostMessage, { type: 'setFileChangesExpanded' }>);
+
       default:
         return;
     }
@@ -604,6 +607,14 @@ export class MessageRouter {
 
   private onStateApplied(msg: Extract<WebviewToHostMessage, { type: 'stateApplied' }>): void {
     bootLog('webview', 'state.applied', { ...msg.payload });
+  }
+
+  private onSetFileChangesExpanded(msg: Extract<WebviewToHostMessage, { type: 'setFileChangesExpanded' }>): void {
+    const corrId = crypto.randomUUID();
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'SetFileChangesExpanded', corrId, sessionPath: msg.sessionPath, expanded: msg.expanded },
+    });
   }
 
   private async onExtensionUiResponse(msg: Extract<WebviewToHostMessage, { type: 'extensionUiResponse' }>): Promise<void> {

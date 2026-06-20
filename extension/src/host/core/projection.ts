@@ -158,6 +158,9 @@ export function selectViewState(state: ArchState): ViewState {
   const activeFileChanges: FileChangeEntry[] =
     activePath ? fileChanges.bySession[activePath] ?? EMPTY_FILE_CHANGES : EMPTY_FILE_CHANGES;
 
+  const activeFileChangesExpanded: boolean =
+    activePath ? fileChanges.expandedBySession[activePath] ?? false : false;
+
   // ── Derived busy flag ──
   const busy = !!activePath && sessions.runningSessionPaths.includes(activePath);
 
@@ -189,6 +192,7 @@ export function selectViewState(state: ArchState): ViewState {
     contextUsage: activeContextUsage,
     prefs: settings.prefs,
     fileChanges: activeFileChanges,
+    fileChangesExpanded: activeFileChangesExpanded,
     availableExtensions: settings.availableExtensions,
     pruningResult,
     pruningSettings: settings.pruningSettings,

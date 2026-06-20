@@ -38,6 +38,7 @@ export interface AppHandlers {
   handleOpenFileDiff: (filePath: string) => void;
   handleOpenFileInEditor: (filePath: string) => void;
   handleRevertFile: (filePath: string) => void;
+  handleSetFileChangesExpanded: (expanded: boolean) => void;
   handleOpenContextMenu: (type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => void;
 }
 
@@ -173,6 +174,12 @@ export function useAppHandlers(
     postMessage({ type: 'revertFile', sessionPath, filePath });
   }, [postMessage, activeSessionPathRef]);
 
+  const handleSetFileChangesExpanded = useCallback((expanded: boolean) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'setFileChangesExpanded', sessionPath, expanded });
+  }, [postMessage, activeSessionPathRef]);
+
   const handleOpenContextMenu = useCallback((type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => {
     setContextMenu({ type, rawData, x: e.clientX, y: e.clientY });
   }, [setContextMenu]);
@@ -203,6 +210,7 @@ export function useAppHandlers(
     handleOpenFileDiff,
     handleOpenFileInEditor,
     handleRevertFile,
+    handleSetFileChangesExpanded,
     handleOpenContextMenu,
   };
 }

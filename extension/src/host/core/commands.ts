@@ -215,6 +215,12 @@ export interface SetPruningSettingsCommand extends CommandBase {
   settings: Partial<import('../../shared/protocol').PruningSettings>;
 }
 
+export interface SetFileChangesExpandedCommand extends CommandBase {
+  kind: 'SetFileChangesExpanded';
+  sessionPath: string;
+  expanded: boolean;
+}
+
 export type Command =
   | SendCommand
   | EditCommand
@@ -250,7 +256,8 @@ export type Command =
   | SetPruningSettingsCommand
   | DuplicateSessionCommand
   | MoveSessionTabCommand
-  | TogglePinTabCommand;
+  | TogglePinTabCommand
+  | SetFileChangesExpandedCommand;
 export interface SetModelCommand extends CommandBase {
   kind: 'SetModel';
   sessionPath: string;

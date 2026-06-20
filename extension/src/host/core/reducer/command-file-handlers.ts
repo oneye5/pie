@@ -1,5 +1,7 @@
 import * as path from 'node:path';
 
+import { produce } from 'immer';
+
 import type { ArchState } from '../arch-state.js';
 import type { Command } from '../commands.js';
 import type { ReducerResult } from './helpers.js';
@@ -57,6 +59,15 @@ export function handleRevertFile(state: ArchState, cmd: Extract<Command, { kind:
         filePath: cmd.filePath,
       },
     ],
+  };
+}
+
+export function handleSetFileChangesExpanded(state: ArchState, cmd: Extract<Command, { kind: 'SetFileChangesExpanded' }>): ReducerResult {
+  return {
+    state: produce(state, (draft) => {
+      draft.fileChanges.expandedBySession[cmd.sessionPath] = cmd.expanded;
+    }),
+    effects: [],
   };
 }
 

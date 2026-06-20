@@ -77,6 +77,7 @@ export const EMPTY_VIEW_STATE: ViewState = {
   prefs: { ...DEFAULT_CHAT_PREFS },
   availableExtensions: [],
   fileChanges: [],
+  fileChangesExpanded: false,
   pruningResult: null,
   pruningSettings: { ...DEFAULT_PRUNING_SETTINGS },
   pruningCatalog: {
