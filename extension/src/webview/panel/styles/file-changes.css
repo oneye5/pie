@@ -1,8 +1,8 @@
 /* ── Right-side file-changes rail ────────────────────────────────────────── */
 
 .file-changes-rail {
-  --file-changes-handle-width: 34px;
-  --file-changes-drawer-width: 260px;
+  --file-changes-handle-width: 30px;
+  --file-changes-drawer-width: 290px;
 
   position: relative;
   display: flex;
@@ -28,9 +28,9 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: var(--panel-gap-sm);
+  gap: var(--panel-gap-xs);
   width: var(--file-changes-handle-width);
-  padding: var(--panel-gap-sm) 0;
+  padding: var(--panel-gap-xs) 0;
   border: none;
   background: var(--panel-control-surface);
   color: var(--panel-foreground-soft);
@@ -63,8 +63,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 17px;
-  height: 17px;
+  min-width: 16px;
+  height: 16px;
   padding: 0 4px;
   border-radius: 999px;
   background: var(--panel-ink-4);
@@ -76,8 +76,8 @@
 }
 
 .file-changes-new-dot {
-  width: 7px;
-  height: 7px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   background: var(--panel-accent);
   box-shadow: 0 0 0 2px var(--panel-card-surface);
@@ -139,24 +139,7 @@
 .file-changes-title {
   font-size: 12px;
   font-weight: 600;
-  letter-spacing: 0.01em;
   color: var(--panel-foreground);
-}
-
-.file-changes-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--panel-ink-4);
-  border: 1px solid var(--panel-border-subtle);
-  font-size: 10px;
-  font-weight: 650;
-  line-height: 1;
-  color: var(--panel-foreground-soft);
 }
 
 .file-changes-close {
@@ -166,10 +149,11 @@
 .file-changes-aggregate-stats {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
-  font-weight: 600;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
+  opacity: 0.85;
 }
 
 /* ── File list ──────────────────────────────────────────────────────────── */
@@ -184,13 +168,13 @@
 .file-change-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 5px var(--panel-gap-md);
+  gap: 3px;
+  padding: 3px var(--panel-gap-sm);
   transition: background var(--panel-transition-fast);
 }
 
-.file-change-item + .file-change-item {
-  border-top: 1px solid var(--panel-border-subtle);
+.file-change-item:not(:last-child) {
+  border-bottom: 1px solid var(--panel-border-subtle);
 }
 
 .file-change-item:hover {
@@ -200,7 +184,7 @@
 .file-change-main {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex: 1;
   min-width: 0;
 }
@@ -208,8 +192,17 @@
 .file-change-actions {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   flex-shrink: 0;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--panel-transition-fast);
+}
+
+.file-change-item:hover .file-change-actions,
+.file-change-item:focus-within .file-change-actions {
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* ── Status labels (non-color indicator) ─────────────────────────────────── */
@@ -218,42 +211,29 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 14px;
-  height: 14px;
-  border-radius: 3px;
-  font-size: 8px;
-  font-weight: 700;
+  width: 12px;
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 600;
   line-height: 1;
   font-family: var(--panel-font-mono);
-  background: var(--panel-control-surface);
-  border: 1px solid var(--panel-border-subtle);
-  color: var(--panel-foreground-soft);
+  color: var(--panel-muted);
 }
 
 .file-change-status-created {
-  border-color: color-mix(in srgb, var(--panel-success) 35%, var(--panel-border-subtle));
+  color: var(--panel-success);
 }
 
 .file-change-status-modified {
-  border-color: color-mix(in srgb, var(--panel-warning) 35%, var(--panel-border-subtle));
+  color: var(--panel-warning);
 }
 
 .file-change-status-deleted {
-  border-color: color-mix(in srgb, var(--panel-danger) 35%, var(--panel-border-subtle));
-  opacity: 0.75;
+  color: var(--panel-danger);
+  opacity: 0.8;
 }
 
-/* ── File icon and path ──────────────────────────────────────────────────── */
-
-.file-change-kind-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border-radius: 4px;
-  flex-shrink: 0;
-}
+/* ── File path ───────────────────────────────────────────────────────────── */
 
 .file-change-path {
   display: flex;
@@ -266,7 +246,7 @@
   padding: 0;
   color: inherit;
   font-size: 12px;
-  line-height: 1.3;
+  line-height: 1.25;
   text-align: left;
   cursor: pointer;
 }
@@ -297,12 +277,18 @@
   text-overflow: ellipsis;
 }
 
-/* ── Action buttons (always visible) ─────────────────────────────────────── */
+/* ── Action buttons ───────────────────────────────────────────────────────── */
 
-.file-change-open,
-.file-change-copy,
-.file-change-revert {
-  opacity: 1;
+.file-change-actions .action-btn.icon-only {
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border-radius: var(--panel-radius-sm);
+}
+
+.file-change-actions .action-btn svg {
+  width: 12px;
+  height: 12px;
 }
 
 .file-change-copy.is-copied {
@@ -317,22 +303,26 @@
 
 .file-change-revert-confirm {
   width: auto;
-  min-width: 60px;
+  min-width: 54px;
+  height: 24px;
+  min-height: 24px;
   padding: 0 6px;
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 600;
+  border-radius: var(--panel-radius-sm);
 }
 
-/* ── Line stats ──────────────────────────────────────────────────────────── */
+/* ── Line stats ───────────────────────────────────────────────────────────── */
 
 .file-change-stats {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 4px;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+  opacity: 0.85;
 }
 
 .stat-additions {
@@ -353,7 +343,6 @@
     border-color: ButtonText;
   }
   .file-change-status {
-    border-color: ButtonText;
     color: ButtonText;
   }
   .file-change-open,

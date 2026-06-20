@@ -4,8 +4,6 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { FileChangeEntry } from '../../shared/protocol';
 
-import { FileTypeIcon } from './components/file-type-icon';
-
 interface FileChangesPanelProps {
   fileChanges: FileChangeEntry[];
   expanded: boolean;
@@ -223,8 +221,7 @@ export function FileChangesPanel({
       <div class="file-changes-drawer" aria-hidden={!expanded} inert={!expanded}>
         <div class="file-changes-drawer-inner">
         <div class="file-changes-header">
-          <span class="file-changes-title">File changes</span>
-          <span class="file-changes-count">{fileChanges.length}</span>
+          <span class="file-changes-title">File changes · {fileChanges.length}</span>
           {(totalAdditions > 0 || totalDeletions > 0) && (
             <span class="file-changes-aggregate-stats">
               {totalAdditions > 0 && <span class="stat-additions">+{totalAdditions}</span>}
@@ -248,7 +245,6 @@ export function FileChangesPanel({
             <div key={change.path} class={`file-change-item kind-${change.kind}`} role="listitem">
               <div class="file-change-main">
                 <StatusLabel kind={change.kind} />
-                <FileTypeIcon path={change.path} className="file-change-kind-icon" />
                 <button
                   class="file-change-path"
                   type="button"
