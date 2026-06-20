@@ -465,6 +465,18 @@ export class PieExtension implements vscode.Disposable {
       return;
     }
 
+    const volume = this.archState.settings.prefs.completionSoundVolume;
+    if (volume > 0) {
+      // Pair the completion chime with the window-flash alert. Fire-and-
+      // forget: a dropped delivery (webview hidden/not ready) is acceptable.
+      // The webview warms its AudioContext on the first user click so this
+      // plays from the non-gesture postMessage context.
+      this.sidebarProvider.postImperative({
+        type: 'playCompletionSound',
+        volume,
+      });
+    }
+
     requestWindowAttention(
       vscode.env.appName,
       vscode.workspace.name ?? vscode.workspace.workspaceFolders?.[0]?.name,

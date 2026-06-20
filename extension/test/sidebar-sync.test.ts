@@ -127,3 +127,14 @@ test('reconcilePostedMessageDelivery marks globalDirty for sendRejected when del
 
   assert.equal(next.globalDirty, true, 'sendRejected failure should mark globalDirty');
 });
+
+test('reconcilePostedMessageDelivery does NOT mark globalDirty for playCompletionSound when delivery fails', () => {
+  const syncState = createSidebarSyncState('host-1');
+
+  const next = reconcilePostedMessageDelivery(syncState, {
+    type: 'playCompletionSound',
+    volume: 50,
+  }, false);
+
+  assert.equal(next.globalDirty, false, 'fire-and-forget imperative failure should NOT mark globalDirty');
+});

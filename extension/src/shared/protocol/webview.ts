@@ -112,6 +112,15 @@ export type HostToWebviewMessage =
       /** Local ID of the rejected optimistic message, so the webview can
        * remove it from its local overlay. */
       localId?: string;
+    }
+  | {
+      /** Posted by the host when a session completes under the completion-
+       *  notification policy (paired with the window-flash alert). Fire-and-
+       *  forget: a dropped delivery (e.g. webview not ready) does not force a
+       *  state re-post. The webview's AudioContext warmup lets this play from
+       *  the non-gesture postMessage context. */
+      type: 'playCompletionSound';
+      volume: number;
     };
 
 /** Messages the webview can send back to the host. */
