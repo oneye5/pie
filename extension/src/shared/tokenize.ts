@@ -11,6 +11,27 @@ import { countTokens as bpeCountTokens } from 'gpt-tokenizer/encoding/cl100k_bas
  * (see `src/backend/context-usage.ts`). Callers that previously divided
  * character counts by 4 should call this instead.
  */
+/**
+ * Estimate output tokens for a chunk of model-produced text: a real BPE
+ * (cl100k_base) count of the trimmed text, with the same guards as
+ * {@link countTextTokens}. Shared between the webview (context-window / token
+ * breakdowns) and the host (token-rate measurement), so the host-side rate
+ * measurement uses the exact same token magnitudes as the webview did.
+ */
+export function estimateTextTokens(text: string): number {
+  if (typeof text !== 'string') {
+    return 0;
+  }
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return 0;
+  }
+  // Real BPE count (cl100k_base); approximate for the active model but far
+  // closer than the chars/4 heuristic. Exact attribution comes from provider
+  // usage (see backend/context-usage.ts), so these rows stay "estimated".
+  return bpeCountTokens(trimmed);
+}
+
 export function countTextTokens(text: string): number {
   if (typeof text !== 'string' || text.length === 0) return 0;
   return bpeCountTokens(text);

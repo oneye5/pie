@@ -1,7 +1,6 @@
 import { useMemo } from 'preact/hooks';
 
 import type {
-  ActiveRunSummary,
   ChatMessage,
   ContextWindowUsage,
   ModelInfo,
@@ -12,6 +11,7 @@ import type {
   ThinkingLevel,
   TranscriptWindow,
 } from '../../../shared/protocol';
+import type { TokenRateIndicatorState } from '../../../shared/token-rate';
 import { buildContextWindowBreakdown } from '../context-window/breakdown';
 import { buildContextWindowIndicatorState } from '../context-window/indicator';
 import {
@@ -36,7 +36,7 @@ export function useComposerIndicators({
   pruningResult,
   busy,
   sessionPath,
-  activeRunSummary,
+  tokenRateBySession,
 }: {
   activeModelId?: string;
   activeThinkingLevel?: ThinkingLevel;
@@ -49,7 +49,7 @@ export function useComposerIndicators({
   pruningResult: PruningResult | null;
   busy: boolean;
   sessionPath: string | null;
-  activeRunSummary?: ActiveRunSummary | null;
+  tokenRateBySession: Record<string, TokenRateIndicatorState>;
 }) {
   const {
     selectedModel,
@@ -113,7 +113,7 @@ export function useComposerIndicators({
     [sessionTokenUsage, selectedModelInfo, transcript, pruningResult, pricingByModelId, liveCostEstimate],
   );
 
-  const tokenRateIndicator = useTokenRateIndicator({ transcript, busy, sessionPath, activeRunSummary });
+  const tokenRateIndicator = useTokenRateIndicator({ sessionPath, tokenRateBySession });
 
   return {
     selectedModel,

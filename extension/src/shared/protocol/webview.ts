@@ -2,6 +2,7 @@ import type { ThinkingLevel, ModelSettings, ModelInfo, ContextWindowUsage } from
 import type { ComposerInput, ComposerInputDraft, ChatMessage } from './messages.js';
 import type { SessionSummary, TranscriptWindow, SystemPromptEntry, FileChangeEntry } from './sessions.js';
 import type { ExtensionInfo, PruningResult, PruningSettings, PruningCatalog, ChatPrefs, ActiveRunSummary, RunOutcome } from './settings.js';
+import type { TokenRateIndicatorState } from '../token-rate.js';
 
 /** Base fields shared by all extension UI request variants. */
 export interface ExtensionUIRequestBase {
@@ -57,6 +58,14 @@ export interface ViewState {
   activeRunSummary: ActiveRunSummary | null;
   /** Per-session run summaries used for tab affordances and context menus. */
   runSummariesBySession: Record<string, ActiveRunSummary | null>;
+  /**
+   * Per-session live token-rate indicator state, measured host-side for every
+   * running session (including ones that are not the active/selected tab) so
+   * the average keeps collecting while a session is in the background. The
+   * webview displays `tokenRateBySession[activeSession.path]`. Sessions
+   * without an entry fall back to the idle state.
+   */
+  tokenRateBySession: Record<string, TokenRateIndicatorState>;
   /** Persisted composer draft text for the active session. */
   draftText: string;
   busy: boolean;

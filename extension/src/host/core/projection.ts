@@ -181,6 +181,10 @@ export function selectViewState(state: ArchState): ViewState {
     pendingComposerInputs: activePendingComposerInputs,
     activeRunSummary,
     runSummariesBySession: composer.activeRunSummaryBySession,
+    // Placeholder: the live per-session rates are measured host-side by
+    // `TokenRateService` and merged in by `PieExtension.buildViewState`
+    // (this pure projection must not call the service).
+    tokenRateBySession: {},
     draftText: activeDraftText,
     busy,
     notice: settings.notice,

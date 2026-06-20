@@ -1,25 +1,16 @@
 import type { SystemPromptEntry } from '../../shared/protocol';
-import { countTextTokens } from '../../shared/tokenize';
+import { estimateTextTokens } from '../../shared/tokenize';
+
+// `estimateTextTokens` now lives in shared/tokenize.ts (it is reused by the
+// host-side token-rate measurement). Re-export it here so the existing webview
+// importers (context-window breakdown, token usage, system-prompt rows) keep
+// their `from '../system-prompt-tokens'` imports unchanged.
+export { estimateTextTokens };
 
 const compactTokenFormatter = new Intl.NumberFormat(undefined, {
   notation: 'compact',
   maximumFractionDigits: 1,
 });
-
-export function estimateTextTokens(text: string): number {
-  if (typeof text !== 'string') {
-    return 0;
-  }
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return 0;
-  }
-
-  // Real BPE count (cl100k_base); approximate for the active model but far
-  // closer than the chars/4 heuristic. Exact attribution comes from provider
-  // usage (see backend/context-usage.ts), so these rows stay "estimated".
-  return countTextTokens(trimmed);
-}
 
 export function estimateSystemPromptTokens(prompts: readonly SystemPromptEntry[]): number {
   return prompts.reduce((total, prompt) => {

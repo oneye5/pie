@@ -284,6 +284,7 @@ interface BottomSectionProps {
   draftText: string;
   pendingComposerInputs: ViewState['pendingComposerInputs'];
   activeRunSummary: ViewState['activeRunSummary'];
+  tokenRateBySession: ViewState['tokenRateBySession'];
   handlers: Pick<AppHandlers, 'handleSend' | 'handleInterrupt' | 'handleOpenFilePicker' | 'handleAddComposerInput' | 'handleRemoveComposerInput' | 'handleModelChange' | 'handleSetPrefs' | 'handleSetPruningSettings' | 'handleMarkComplete'>;
 }
 
@@ -311,6 +312,7 @@ function BottomSection({
   draftText,
   pendingComposerInputs,
   activeRunSummary,
+  tokenRateBySession,
   handlers,
 }: BottomSectionProps) {
   if (!hasActiveTabs || needsSessionRecovery) return null;
@@ -341,6 +343,7 @@ function BottomSection({
         draftRestore={draftRestore}
         pendingComposerInputs={pendingComposerInputs}
         activeRunSummary={activeRunSummary}
+        tokenRateBySession={tokenRateBySession}
         focusTrigger={activeSession?.path}
         onSend={handlers.handleSend}
         onInterrupt={handlers.handleInterrupt}
@@ -602,6 +605,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         draftText={viewState.draftText}
         pendingComposerInputs={viewState.pendingComposerInputs}
         activeRunSummary={viewState.activeRunSummary}
+        tokenRateBySession={viewState.tokenRateBySession}
         handlers={handlers}
       />
     </div>

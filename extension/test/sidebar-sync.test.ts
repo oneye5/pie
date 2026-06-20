@@ -31,6 +31,7 @@ const baseViewState: ViewState = {
   pendingComposerInputs: [],
   activeRunSummary: null,
   runSummariesBySession: {},
+  tokenRateBySession: {},
   draftText: '',
   busy: false,
   notice: null,

@@ -66,6 +66,7 @@ export const EMPTY_VIEW_STATE: ViewState = {
   pendingComposerInputs: [],
   activeRunSummary: null,
   runSummariesBySession: {},
+  tokenRateBySession: {},
   busy: false,
   notice: null,
   backendReady: false,

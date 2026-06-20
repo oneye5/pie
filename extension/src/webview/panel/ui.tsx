@@ -22,6 +22,7 @@ import type {
   TranscriptWindow,
   WebviewToHostMessage,
 } from '../../shared/protocol';
+import type { TokenRateIndicatorState } from '../../shared/token-rate';
 import { describeComposerInputSummary } from './composer/inputs';
 import { ComposerAttachments } from './composer/attachments';
 import { ComposerToolbar } from './composer/toolbar';
@@ -57,6 +58,7 @@ interface ComposerProps {
   transcriptWindow: TranscriptWindow;
   pendingComposerInputs: ComposerInput[];
   activeRunSummary?: ActiveRunSummary | null;
+  tokenRateBySession: Record<string, TokenRateIndicatorState>;
   focusTrigger?: string;
   postMessage: (msg: WebviewToHostMessage) => void;
   onSend: (text: string) => void;
@@ -90,6 +92,7 @@ function ComposerView({
   transcriptWindow,
   pendingComposerInputs,
   activeRunSummary,
+  tokenRateBySession,
   focusTrigger,
   postMessage,
   onSend,
@@ -126,7 +129,7 @@ function ComposerView({
     pruningResult,
     busy,
     sessionPath,
-    activeRunSummary,
+    tokenRateBySession,
   });
 
   const {

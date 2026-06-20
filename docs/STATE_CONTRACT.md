@@ -66,7 +66,7 @@ The webview must not hold logic state in local `useState`/`useReducer`. Only the
 - **drag state** — transient tab drag-and-drop position
 - **animation / transition state** — CSS transition tracking
 - **protocol-sync bookkeeping** — `lastRevisionRef`, `awaitingSnapshotRef`, `hostInstanceIdRef`, pending-draft-restore tracking, in-flight `corrId` set for UI gating
-- **derived UI telemetry** — token-rate measurement state (incl. the averaged turn-latency breakdown surfaced in the speed chip tooltip), FPS counters, render-timing buffers
+- **derived UI telemetry** — FPS counters, render-timing buffers. (Token-rate measurement is no longer webview-local: it runs host-side in `TokenRateService`, which ticks every running session — including ones that are not the active/selected tab — using the transcripts the host already holds, and posts the per-session states as `ViewState.tokenRateBySession`. The webview just displays the active session's pre-computed state.)
 - **per-keystroke draft buffer** inside an active input (the committed draft on blur/send/tab-switch is host state; the live keystroke buffer is not)
 - **optimistic user message overlay** — pending user messages shown instantly before the host confirms them. The webview generates a `localId`, sends it with the `send` protocol message, and displays the message in the transcript immediately. When the host state arrives containing a message with that `localId`, the optimistic overlay entry is reconciled away. On `sendRejected`, the overlay entry is removed and the draft is restored.
 

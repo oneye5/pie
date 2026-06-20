@@ -21,9 +21,10 @@ import {
 import { type RunAnalyticsExportPayload } from './run-analytics/query';
 import { SidebarViewProvider } from './sidebar/provider';
 import { SessionService } from './session-service';
+import { TokenRateService } from './token-rate-service';
 import { OPEN_TABS_STORAGE_KEY, ACTIVE_SESSION_STORAGE_KEY, PINNED_TABS_STORAGE_KEY } from './session-service/state';
 import { StatsService } from './stats-service';
-import type { WebviewToHostMessage } from '../shared/protocol';
+import type { WebviewToHostMessage, ViewState } from '../shared/protocol';
 import { EffectRunner } from './core/effect-runner';
 import { dispatch } from './core/dispatch';
 import { initialArchState, type ArchState } from './core/reducer';
@@ -82,6 +83,7 @@ function getLegacyWorkspaceAnalyticsIds(): string[] {
 export class PieExtension implements vscode.Disposable {
   private readonly statusBar = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
   private readonly sidebarProvider: SidebarViewProvider;
+  private readonly tokenRateService: TokenRateService;
   private readonly statsService: StatsService;
   private readonly service: SessionService;
   private shutdownPromise: Promise<void> | null = null;
@@ -126,9 +128,14 @@ export class PieExtension implements vscode.Disposable {
       this.statsService,
     );
 
+    this.tokenRateService = new TokenRateService({
+      getArchState: () => this.archState,
+      onActiveRateChanged: () => this.sidebarProvider.scheduleState(),
+    });
+
     this.sidebarProvider = new SidebarViewProvider(
       context,
-      () => selectViewState(this.archState),
+      () => this.buildViewState(),
       (message) => {
         void this.handleWebviewMessage(message);
       },
@@ -215,6 +222,7 @@ export class PieExtension implements vscode.Disposable {
 
   async start(): Promise<void> {
     this.updateStatusBar('Starting');
+    this.tokenRateService.start();
     await this.statsService.start();
     await this.service.start();
   }
@@ -374,12 +382,26 @@ export class PieExtension implements vscode.Disposable {
     const payload = {
       capturedAt: new Date().toISOString(),
       sidebar: this.sidebarProvider.getDebugState(),
-      viewState: selectViewState(this.archState),
+      viewState: this.buildViewState(),
     };
 
     await fs.mkdir(path.dirname(dumpPath), { recursive: true });
     await fs.writeFile(dumpPath, JSON.stringify(payload, null, 2), 'utf8');
     return dumpPath;
+  }
+
+  /**
+   * Project the CQRS `ArchState` into the `ViewState` consumed by the webview,
+   * then merge in the host-side token-rate measurements for every running
+   * session. The rate map is measured continuously by `TokenRateService`
+   * (including for sessions that are not the active/selected tab); merging it
+   * here keeps `selectViewState` itself pure (no service reads inside the
+   * pure projection).
+   */
+  private buildViewState(): ViewState {
+    const viewState = selectViewState(this.archState);
+    viewState.tokenRateBySession = this.tokenRateService.getRates();
+    return viewState;
   }
 
   private scheduleRender(): void {
@@ -500,6 +522,7 @@ export class PieExtension implements vscode.Disposable {
       // Clear any pending timers first so they cannot fire into a torn-down
       // store / sidebar provider after dispose.
       this.effectRunner.dispose();
+      this.tokenRateService.dispose();
       await this.statsService.shutdown();
       this.service.dispose();
       this.sidebarProvider.dispose();
