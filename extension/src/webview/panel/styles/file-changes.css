@@ -91,31 +91,37 @@
 }
 
 /* ── Expanded drawer ─────────────────────────────────────────────────────── */
+/* The drawer is a flex sibling of the handle (not an overlay), so when it
+   expands the transcript reserves space and shrinks rather than being
+   covered. The drawer animates its own width from 0 → drawer-width with
+   overflow:hidden; the inner wrapper holds the fixed-width content so the
+   contents never reflow during the animation (only the clip widens). */
 
 .file-changes-drawer {
-  position: absolute;
-  top: 0;
-  right: 100%;
-  bottom: 0;
-  width: var(--file-changes-drawer-width);
-  display: flex;
-  flex-direction: column;
-  background: var(--panel-card-surface);
-  border: 1px solid var(--panel-border);
-  border-right: none;
-  box-shadow: var(--panel-shadow-md);
-  transform: translateX(10px);
+  flex: 0 0 auto;
+  width: 0;
+  overflow: hidden;
   opacity: 0;
   pointer-events: none;
+  border-left: 1px solid var(--panel-border);
+  background: var(--panel-card-surface);
   transition:
-    transform var(--panel-duration-normal) var(--panel-ease-out-expo),
+    width var(--panel-duration-normal) var(--panel-ease-out-expo),
     opacity var(--panel-duration-normal) var(--panel-ease-out-expo);
 }
 
 .file-changes-rail.is-expanded .file-changes-drawer {
-  transform: translateX(0);
+  width: var(--file-changes-drawer-width);
   opacity: 1;
   pointer-events: auto;
+}
+
+/* Fixed-width content so the drawer's widening clip doesn't reflow text. */
+.file-changes-drawer-inner {
+  width: var(--file-changes-drawer-width);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ── Drawer header ────────────────────────────────────────────────────────── */

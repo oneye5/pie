@@ -221,6 +221,7 @@ export function FileChangesPanel({
         </svg>
       </button>
       <div class="file-changes-drawer" aria-hidden={!expanded} inert={!expanded}>
+        <div class="file-changes-drawer-inner">
         <div class="file-changes-header">
           <span class="file-changes-title">File changes</span>
           <span class="file-changes-count">{fileChanges.length}</span>
@@ -281,6 +282,7 @@ export function FileChangesPanel({
               </div>
             </div>
           ))}
+        </div>
         </div>
       </div>
     </div>
