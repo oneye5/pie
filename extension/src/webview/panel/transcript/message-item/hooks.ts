@@ -199,20 +199,31 @@ export function useMessageItemDerived({
 }
 
 // Module-level record of message ids that have already "entered" (been mounted
-// at least once). Used by `useMessageEntrance` to play the entrance animation
-// only for genuinely new messages, not for virtualized remounts (overscan
-// unmount/remount would otherwise replay the animation as flicker). Bounded
-// growth: one id per message, cleared on webview reload.
+// at least once) in the CURRENT session. Used by `useMessageEntrance` to play
+// the entrance animation only for genuinely new messages, not for virtualized
+// remounts (overscan unmount/remount would otherwise replay the animation as
+// flicker). Scoped per session: when `sessionKey` changes the set is dropped so
+// old sessions' ids are released (bounded to the current session's ids, cleared
+// on webview reload).
 const enteredMessageIds = new Set<string>();
+let enteredSessionKey: string | null | undefined;
 
 /**
  * Returns true the first time a message id is seen (genuinely new), false on
  * any subsequent mount (virtualized remount). The decision is stable for the
  * lifetime of a single mount — re-renders return the initial value — so the
  * entrance animation plays once and does not replay when the virtual list
- * remounts an already-seen row.
+ * remounts an already-seen row. The seen-id set is scoped to `sessionKey`:
+ * switching sessions drops the previous session's ids so the set stays bounded
+ * (the new session's messages animate in as genuinely new).
  */
-export function useMessageEntrance(messageId: string): boolean {
+export function useMessageEntrance(messageId: string, sessionKey?: string | null): boolean {
+  // Drop the previous session's ids when the session changes so the set only
+  // tracks the current session (bounded; old sessions are released).
+  if (enteredSessionKey !== sessionKey) {
+    enteredSessionKey = sessionKey;
+    enteredMessageIds.clear();
+  }
   const ref = useRef<{ entered: boolean } | null>(null);
   if (ref.current === null) {
     if (enteredMessageIds.has(messageId)) {

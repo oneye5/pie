@@ -49,6 +49,7 @@ export function useTabDragAndDrop({
   const dragCandidateRef = useRef<TabDragCandidate | null>(null);
   const dragStateRef = useRef<SessionTabDragState | null>(null);
   const pointerPositionRef = useRef<{ x: number; y: number } | null>(null);
+  const ghostElementRef = useRef<HTMLDivElement>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
   const suppressClickTimerRef = useRef<number | null>(null);
   const suppressNextClickRef = useRef(false);
@@ -102,6 +103,18 @@ export function useTabDragAndDrop({
     runSyncDragFromPointer(clientX, clientY, dragStateRef, stripRef, setDragState, pinnedTabPathsRef);
   }, []);
 
+  // Drive the floating ghost's transform imperatively from the pointermove
+  // path so React state (and the parent re-render) stays untouched between
+  // dropIndex changes. Reads live refs only, so it needs no deps.
+  const syncGhostPosition = useCallback((clientX: number) => {
+    const ghost = ghostElementRef.current;
+    const current = dragStateRef.current;
+    if (!ghost || !current) {
+      return;
+    }
+    ghost.style.transform = `translate3d(${clientX - current.offsetX}px, 0, 0)`;
+  }, []);
+
   const ensureAutoScrollLoop = useCallback(() => {
     runEnsureAutoScrollLoop(autoScrollFrameRef, autoScrollRunner);
   }, [autoScrollRunner]);
@@ -134,6 +147,7 @@ export function useTabDragAndDrop({
       setDragState,
       syncDragFromPointer,
       ensureAutoScrollLoop,
+      syncGhostPosition,
     );
   };
 
@@ -166,6 +180,7 @@ export function useTabDragAndDrop({
     endTracking,
     resetDrag,
     syncDragFromPointer,
+    syncGhostPosition,
   });
 
   const { tabContextMenu, setTabContextMenu, onContextMenu, onContextAction } = useTabContextMenu({
@@ -194,5 +209,6 @@ export function useTabDragAndDrop({
     autoScrollTickRef,
     dragCandidateRef,
     dragStateRef,
+    ghostElementRef,
   };
 }

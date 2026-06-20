@@ -807,7 +807,12 @@ export function AlwaysKeepPicker({ label, selected, catalog, category, onChange 
                 class="toolbar-settings-keep-chip-remove"
                 aria-label={`Remove ${name}`}
                 onClick={() => removeName(name)}
-              >×</button>
+              >
+                <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="3" y1="3" x2="10" y2="10" />
+                  <line x1="10" y1="3" x2="3" y2="10" />
+                </svg>
+              </button>
             </span>
           ))}
         </div>

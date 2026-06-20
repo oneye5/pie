@@ -77,18 +77,15 @@ export function runSyncDragFromPointer(
     sourcePath: current.sourcePath,
     pinnedTabPaths: pinnedTabPathsRef.current,
   });
-  if (
-    current.currentX === clientX &&
-    current.currentY === clientY &&
-    current.dropIndex === nextDropIndex
-  ) {
+  // Live pointer position is NOT carried in React state (it would re-render
+  // the parent every pointermove). The floating ghost transform is driven
+  // imperatively; only a dropIndex change warrants a state update here.
+  if (current.dropIndex === nextDropIndex) {
     return;
   }
 
   const nextState: SessionTabDragState = {
     ...current,
-    currentX: clientX,
-    currentY: clientY,
     dropIndex: nextDropIndex,
   };
   dragStateRef.current = nextState;

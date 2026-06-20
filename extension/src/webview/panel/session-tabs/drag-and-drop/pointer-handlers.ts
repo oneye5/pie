@@ -46,6 +46,7 @@ export function runPointerMove(
   setDragState: (state: SessionTabDragState | null) => void,
   syncDragFromPointer: (clientX: number, clientY: number) => void,
   ensureAutoScrollLoop: () => void,
+  syncGhostPosition: (clientX: number) => void,
 ): void {
   const candidate = dragCandidateRef.current;
   if (!candidate || event.pointerId !== candidate.pointerId) {
@@ -53,6 +54,11 @@ export function runPointerMove(
   }
 
   pointerPositionRef.current = { x: event.clientX, y: event.clientY };
+  // Drive the floating ghost transform imperatively (compositor-friendly,
+  // no React state). No-op until the ghost mounts at drag start; subsequent
+  // moves hit the live element. The initial transform is also seeded via a
+  // useLayoutEffect keyed on dragState so the ghost never paints at left:0.
+  syncGhostPosition(event.clientX);
 
   if (!dragStateRef.current) {
     const deltaX = event.clientX - candidate.startX;
@@ -65,8 +71,6 @@ export function runPointerMove(
       pointerId: candidate.pointerId,
       sourceIndex: candidate.sourceIndex,
       sourcePath: candidate.sourcePath,
-      currentX: event.clientX,
-      currentY: event.clientY,
       offsetX: candidate.offsetX,
       tabWidth: candidate.tabWidth,
       tabHeight: candidate.tabHeight,

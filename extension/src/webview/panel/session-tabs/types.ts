@@ -19,8 +19,6 @@ export type SessionTabDragState = {
   pointerId: number;
   sourceIndex: number;
   sourcePath: string;
-  currentX: number;
-  currentY: number;
   offsetX: number;
   tabWidth: number;
   tabHeight: number;
@@ -54,4 +52,5 @@ export interface UseTabDragAndDropResult {
   autoScrollTickRef: RefObject<() => void>;
   dragCandidateRef: RefObject<TabDragCandidate | null>;
   dragStateRef: RefObject<SessionTabDragState | null>;
+  ghostElementRef: RefObject<HTMLDivElement>;
 }

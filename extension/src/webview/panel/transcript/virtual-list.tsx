@@ -214,6 +214,7 @@ interface VirtualRowProps {
   renderToolCall: RenderToolCall;
   transcript: ChatMessage[];
   transcriptWindow: TranscriptWindow;
+  sessionKey: string | null;
   measureRowElement: (element: HTMLDivElement | null) => void;
 }
 
@@ -239,6 +240,7 @@ function VirtualRow({
   renderToolCall,
   transcript,
   transcriptWindow,
+  sessionKey,
   measureRowElement,
 }: VirtualRowProps) {
   const row = rows[virtualRow.index];
@@ -282,6 +284,7 @@ function VirtualRow({
         transcript={transcript}
         transcriptIndex={row.kind === 'message' ? row.transcriptIndex : undefined}
         hasOlder={transcriptWindow.hasOlder}
+        sessionKey={sessionKey}
       />
     </div>
   );
@@ -416,6 +419,7 @@ export function TranscriptVirtualList({
             transcript={transcript}
             transcriptWindow={transcriptWindow}
             measureRowElement={measureRowElement}
+            sessionKey={sessionKey}
           />
         ))}
       </div>

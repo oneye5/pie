@@ -39,8 +39,30 @@ interface UseTranscriptScrollResult {
 
 function useScrollState(scrollRef: { current: HTMLDivElement | null }) {
   const [isAtBottom, setIsAtBottom] = useState(true);
+  // Reactive mirror of `autoFollowRef.current`. The ref gives synchronous
+  // reads inside the rAF loop / scroll handlers; this state is the reactive
+  // signal that lets `useSmoothAutoFollow`'s effect re-run (rebuilding the rAF
+  // loop) when auto-follow transitions false->true while fully idle — without
+  // it, scrolling back to the bottom (autoFollow false->true) while not
+  // streaming/positioning changes no reactive dep, so the stopped loop never
+  // restarts and a late non-busy height change (image/markdown load) drifts
+  // the view off the bottom. `setAutoFollow` only transitions the state on an
+  // actual boundary change, so per-scroll-event callers do not churn the state
+  // (and thus the effect) every frame.
+  const [autoFollow, setAutoFollowState] = useState(true);
   const autoFollowRef = useRef(true);
   const lastScrollTopRef = useRef(0);
+
+  // Co-located setter: updates the ref (synchronous reads in the rAF loop's
+  // idle gate) AND the reactive state together, so the two never diverge.
+  // Gated on an actual value change: scroll events fire every frame, but
+  // `follow` only differs from the current value on a bottom-boundary
+  // crossing, so this never re-renders / rebuilds the rAF effect per-frame.
+  const setAutoFollow = useCallback((next: boolean) => {
+    if (autoFollowRef.current === next) return;
+    autoFollowRef.current = next;
+    setAutoFollowState(next);
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -58,7 +80,7 @@ function useScrollState(scrollRef: { current: HTMLDivElement | null }) {
     setIsAtBottom(true);
   }, [scrollRef]);
 
-  return { isAtBottom, setIsAtBottom, autoFollowRef, lastScrollTopRef, scrollToBottom };
+  return { isAtBottom, setIsAtBottom, autoFollow, setAutoFollow, autoFollowRef, lastScrollTopRef, scrollToBottom };
 }
 
 function usePaginationState(
@@ -103,21 +125,21 @@ function usePaginationState(
 
 function useJumpToLatest(
   scrollRef: { current: HTMLDivElement | null },
-  autoFollowRef: { current: boolean },
+  setAutoFollow: (v: boolean) => void,
   hasNewer: boolean,
   onJumpToLatest: () => void,
   scrollToBottom: () => void,
   pendingJumpToLatestSnapRef: { current: boolean },
 ) {
   return useCallback(() => {
-    autoFollowRef.current = true;
+    setAutoFollow(true);
     if (hasNewer) {
       pendingJumpToLatestSnapRef.current = true;
       onJumpToLatest();
       return;
     }
     scrollToBottom();
-  }, [hasNewer, onJumpToLatest, scrollToBottom]);
+  }, [hasNewer, onJumpToLatest, scrollToBottom, setAutoFollow]);
 }
 
 function useSessionResetEffect(
@@ -131,6 +153,7 @@ function useSessionResetEffect(
   loadedStart: number,
   loadedEnd: number,
   autoFollowRef: { current: boolean },
+  setAutoFollow: (v: boolean) => void,
   lastScrollTopRef: { current: number },
   pendingJumpToLatestSnapRef: { current: boolean },
   pendingOlderAnchorRef: { current: MessageScrollAnchor | null },
@@ -140,7 +163,7 @@ function useSessionResetEffect(
   previousLoadedEndRef: { current: number },
 ) {
   useLayoutEffect(() => {
-    autoFollowRef.current = true;
+    setAutoFollow(true);
     lastScrollTopRef.current = 0;
     pendingJumpToLatestSnapRef.current = false;
     pendingOlderAnchorRef.current = null;
@@ -213,6 +236,7 @@ function useScrollEventsEffect(
   autoFollowRef: { current: boolean },
   lastScrollTopRef: { current: number },
   setIsAtBottom: (v: boolean) => void,
+  setAutoFollow: (v: boolean) => void,
   hasOlder: boolean,
   requestOlderPage: () => void,
   sessionKey: string | null,
@@ -230,7 +254,7 @@ function useScrollEventsEffect(
         nextScrollTop: next,
         metrics,
       });
-      autoFollowRef.current = follow;
+      setAutoFollow(follow);
       lastScrollTopRef.current = next;
       setIsAtBottom(follow || isNearBottom(metrics));
       if (el.scrollTop <= 120 && hasOlder) requestOlderPage();
@@ -241,7 +265,7 @@ function useScrollEventsEffect(
     return () => {
       el.removeEventListener('scroll', onScroll);
     };
-  }, [scrollRef, requestOlderPage, sessionKey, hasOlder, autoFollowRef, lastScrollTopRef, setIsAtBottom]);
+  }, [scrollRef, requestOlderPage, sessionKey, hasOlder, autoFollowRef, lastScrollTopRef, setIsAtBottom, setAutoFollow]);
 }
 
 function usePaginationTrackingEffect(
@@ -260,7 +284,7 @@ function usePaginationTrackingEffect(
   previousLoadedStartRef: { current: number },
   previousLoadedEndRef: { current: number },
   pendingJumpToLatestSnapRef: { current: boolean },
-  autoFollowRef: { current: boolean },
+  setAutoFollow: (v: boolean) => void,
 ) {
   useLayoutEffect(() => {
     const prevStart = previousLoadedStartRef.current;
@@ -293,7 +317,7 @@ function usePaginationTrackingEffect(
 
     if (pendingJumpToLatestSnapRef.current && !hasNewer) {
       pendingJumpToLatestSnapRef.current = false;
-      autoFollowRef.current = true;
+      setAutoFollow(true);
       scrollToBottom();
     }
   }, [scrollToBottom, transcriptLength, hasNewer, hasOlder, loadedEnd, loadedStart]);
@@ -312,8 +336,11 @@ function usePaginationTrackingEffect(
  * when there is nothing to follow (`!autoFollow && !hasNewer && !busy`), so an
  * idle transcript — e.g. the user scrolled up to read older content and nothing
  * is streaming — no longer wakes the main thread ~60x/s. The effect's reactive
- * deps (`busy`, `isInitialPositioning`) restart the loop when activity resumes
- * (streaming starts, or a session-switch positioning window opens).
+ * deps (`busy`, `isInitialPositioning`, `autoFollow`) restart the loop when
+ * activity resumes (streaming starts, a session-switch positioning window
+ * opens, or — the case `autoFollow` alone covers — the user scrolls back to the
+ * bottom while fully idle, re-engaging follow so a later non-busy height change
+ * is again caught).
  * `scrollToBottom` / `jumpToLatest` keep doing their own synchronous snaps and
  * do not depend on this loop. While auto-follow is active but nothing is
  * streaming the loop keeps running — cheaply (it only reads metrics and writes
@@ -323,6 +350,7 @@ function usePaginationTrackingEffect(
 function useSmoothAutoFollow(
   scrollRef: { current: HTMLDivElement | null },
   autoFollowRef: { current: boolean },
+  autoFollow: boolean,
   lastScrollTopRef: { current: number },
   setIsAtBottom: (v: boolean) => void,
   hasNewer: boolean,
@@ -338,9 +366,11 @@ function useSmoothAutoFollow(
       // Idle gate: stop the loop (do not schedule the next frame) when there is
       // nothing to follow, so the main thread is not woken ~60x/s while idle —
       // e.g. the user scrolled up to read older content and nothing is
-      // streaming. The effect's reactive deps (`busy`, `isInitialPositioning`)
-      // restart the loop when activity resumes. While stopped, restore the
-      // inline `scroll-behavior` so manual scrolling keeps its smooth feel.
+      // streaming. The effect's reactive deps (`busy`, `isInitialPositioning`,
+      // `autoFollow`) restart the loop when activity resumes — notably
+      // `autoFollow` re-engaging when the user scrolls back to the bottom while
+      // idle. While stopped, restore the inline `scroll-behavior` so manual
+      // scrolling keeps its smooth feel.
       if (!autoFollowRef.current && !hasNewer && !busy) {
         if (el.style.scrollBehavior === 'auto') el.style.scrollBehavior = '';
         raf = 0;
@@ -390,7 +420,7 @@ function useSmoothAutoFollow(
       cancelAnimationFrame(raf);
       el.style.scrollBehavior = '';
     };
-  }, [scrollRef, hasNewer, autoFollowRef, lastScrollTopRef, setIsAtBottom, isInitialPositioningRef, isInitialPositioning, busy]);
+  }, [scrollRef, hasNewer, autoFollowRef, autoFollow, lastScrollTopRef, setIsAtBottom, isInitialPositioningRef, isInitialPositioning, busy]);
 }
 
 export function useTranscriptScroll({
@@ -414,7 +444,7 @@ export function useTranscriptScroll({
   const previousLoadedEndRef = useRef(transcriptWindow.loadedEnd);
   const pendingJumpToLatestSnapRef = useRef(false);
 
-  const { isAtBottom, setIsAtBottom, autoFollowRef, lastScrollTopRef, scrollToBottom } = useScrollState(scrollRef);
+  const { isAtBottom, setIsAtBottom, autoFollow, setAutoFollow, autoFollowRef, lastScrollTopRef, scrollToBottom } = useScrollState(scrollRef);
   const {
     isLoadingOlder,
     setIsLoadingOlder,
@@ -429,7 +459,7 @@ export function useTranscriptScroll({
 
   const jumpToLatest = useJumpToLatest(
     scrollRef,
-    autoFollowRef,
+    setAutoFollow,
     transcriptWindow.hasNewer,
     onJumpToLatest,
     scrollToBottom,
@@ -447,6 +477,7 @@ export function useTranscriptScroll({
     transcriptWindow.loadedStart,
     transcriptWindow.loadedEnd,
     autoFollowRef,
+    setAutoFollow,
     lastScrollTopRef,
     pendingJumpToLatestSnapRef,
     pendingOlderAnchorRef,
@@ -461,6 +492,7 @@ export function useTranscriptScroll({
     autoFollowRef,
     lastScrollTopRef,
     setIsAtBottom,
+    setAutoFollow,
     transcriptWindow.hasOlder,
     requestOlderPage,
     sessionKey,
@@ -482,12 +514,13 @@ export function useTranscriptScroll({
     previousLoadedStartRef,
     previousLoadedEndRef,
     pendingJumpToLatestSnapRef,
-    autoFollowRef,
+    setAutoFollow,
   );
 
   useSmoothAutoFollow(
     scrollRef,
     autoFollowRef,
+    autoFollow,
     lastScrollTopRef,
     setIsAtBottom,
     transcriptWindow.hasNewer,

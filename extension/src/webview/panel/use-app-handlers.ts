@@ -181,7 +181,18 @@ export function useAppHandlers(
   }, [postMessage, activeSessionPathRef]);
 
   const handleOpenContextMenu = useCallback((type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => {
-    setContextMenu({ type, rawData, x: e.clientX, y: e.clientY });
+    // Capture the trigger element (the onContextMenu target) so the menu can
+    // mirror its open state back onto the trigger via aria-haspopup/
+    // aria-expanded (see components/context-menu.tsx). e.currentTarget is the
+    // element the handler is bound to; read synchronously here, before the
+    // event finishes dispatching.
+    setContextMenu({
+      type,
+      rawData,
+      x: e.clientX,
+      y: e.clientY,
+      triggerEl: e.currentTarget as HTMLElement | null,
+    });
   }, [setContextMenu]);
 
   return {

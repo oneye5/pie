@@ -335,17 +335,19 @@ function SubagentSingleBlock({
       aria-expanded={open}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
     >
-      <div
-        class="subagent-header min-h-[32px] select-none"
-        role="button"
-        aria-expanded={open}
-        tabIndex={0}
-        onClick={() => setOpen((v) => !v)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
-      >
-        <span class="subagent-agent-name transcript-header-title-mono">{singleResult.agent}</span>
-        <PrimaryMeta result={singleResult} />
-        {!open && summary && <span class="subagent-header-summary transcript-header-summary-mono">{summary}</span>}
+      <div class="subagent-header min-h-[32px] select-none">
+        <div
+          class="flex min-w-0 flex-1 items-center gap-[7px]"
+          role="button"
+          aria-expanded={open}
+          tabIndex={0}
+          onClick={() => setOpen((v) => !v)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
+        >
+          <span class="subagent-agent-name transcript-header-title-mono">{singleResult.agent}</span>
+          <PrimaryMeta result={singleResult} />
+          {!open && summary && <span class="subagent-header-summary transcript-header-summary-mono">{summary}</span>}
+        </div>
         <StatusIndicator status={status} errorDetail={errorDetail} />
       </div>
       {open && (

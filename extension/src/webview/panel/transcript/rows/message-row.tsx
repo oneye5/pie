@@ -21,6 +21,7 @@ function renderMessage({
   transcript,
   transcriptIndex,
   hasOlder,
+  sessionKey,
 }: RowRendererProps) {
   if (row.kind !== 'message') return null;
 
@@ -52,6 +53,7 @@ function renderMessage({
       pruningHeaderState={row.pruningHeaderState}
       activityState={row.activityState}
       recovery={recovery}
+      sessionKey={sessionKey}
     />
   );
 }

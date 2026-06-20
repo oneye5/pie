@@ -33,6 +33,9 @@ export interface RowRendererProps {
   transcriptIndex?: number;
   /** Whether there are older messages available to load. */
   hasOlder?: boolean;
+  /** Stable per-session key used to scope per-message entrance tracking so
+   *  old sessions' ids are released when the session changes. */
+  sessionKey?: string | null;
 }
 
 export type RowRenderer = (props: RowRendererProps) => ComponentChildren;

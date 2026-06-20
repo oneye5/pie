@@ -2,6 +2,7 @@
 /** @jsxImportSource preact */
 
 import { memo } from 'preact/compat';
+import type { RefObject } from 'preact';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import type { ActiveRunSummary, ExtensionUIRequestPayload, SessionSummary } from '../../../shared/protocol';
@@ -198,6 +199,7 @@ interface FloatingSessionTabProps {
   runningPathSet: Set<string>;
   activeSession: SessionSummary | null;
   isPinned: boolean;
+  ghostRef: RefObject<HTMLDivElement>;
 }
 
 function FloatingSessionTab({
@@ -207,6 +209,7 @@ function FloatingSessionTab({
   runningPathSet,
   activeSession,
   isPinned,
+  ghostRef,
 }: FloatingSessionTabProps) {
   const floatingSession = sessionByPath.get(draggedPath);
   const floatingLabel = floatingSession?.name ?? 'New Session';
@@ -220,13 +223,13 @@ function FloatingSessionTab({
 
   return (
     <div
+      ref={ghostRef}
       class={classBits.join(' ')}
       style={{
         width: `${dragState.tabWidth}px`,
         height: `${dragState.tabHeight}px`,
         left: 0,
         top: `${dragState.tabTop}px`,
-        transform: `translate3d(${dragState.currentX - dragState.offsetX}px, 0, 0)`,
       }}
       aria-hidden="true"
     >
@@ -366,6 +369,7 @@ export function SessionTabs({
     onClick,
     onContextMenu,
     onContextAction,
+    ghostElementRef,
   } = useTabDragAndDrop({
     openTabPaths,
     pinnedTabPaths,
@@ -551,6 +555,7 @@ export function SessionTabs({
           runningPathSet={runningPathSet}
           activeSession={activeSession}
           isPinned={pinnedPathSet.has(draggedPath)}
+          ghostRef={ghostElementRef}
         />
       )}
       {tabContextMenu && (

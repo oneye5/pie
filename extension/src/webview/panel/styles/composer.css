@@ -707,8 +707,6 @@
   border-radius: 50%;
   background: transparent;
   color: var(--panel-muted);
-  font-size: 12px;
-  line-height: 1;
   cursor: pointer;
   transition: background var(--panel-transition-fast), color var(--panel-transition-fast);
 }

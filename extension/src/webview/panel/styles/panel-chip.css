@@ -58,6 +58,16 @@
   inset: -4px;
 }
 
+/* Native <select> chips can't use the ::before hit-area trick above (replaced
+   elements don't generate pseudo-elements), so their hit box is just their
+   own border box. Bump the select's height to clear the 28px hitbox floor.
+   The toolbar row uses align-items:center, so the shorter 22px siblings stay
+   vertically centered, and the composer area's vertical padding absorbs the
+   6px row-height growth. */
+.panel-chip-toolbar.panel-chip-select {
+  height: 28px;
+}
+
 .panel-chip-reasoning-select {
   min-width: 64px;
   max-width: 110px;

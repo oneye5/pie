@@ -17,6 +17,11 @@ export interface ContextMenuState {
   rawData: string;
   x: number;
   y: number;
+  /** The trigger element that opened the menu (the onContextMenu target),
+   * used to mirror the menu's open state back onto the trigger via
+   * aria-haspopup/aria-expanded. Captured from the contextmenu event's
+   * currentTarget in handleOpenContextMenu (use-app-handlers.ts). */
+  triggerEl: HTMLElement | null;
 }
 
 export function ContextMenu({
@@ -61,9 +66,9 @@ export function ContextMenu({
   }, [menu.x, menu.y]);
 
   // Focus management: capture the trigger that opened the menu, move focus to
-  // the first item on open, and restore focus to the trigger on close. The
-  // trigger-side aria-haspopup/aria-expanded live where the menu is opened
-  // (use-app-handlers.ts); this component only owns menu-internal behavior.
+  // the first item on open, and restore focus to the trigger on close. Trigger-
+  // side aria-haspopup/aria-expanded are toggled separately below, keyed on
+  // menu.triggerEl (the element that opened the menu).
   useEffect(() => {
     triggerRef.current = document.activeElement as HTMLElement | null;
     const firstItem = ref.current?.querySelector<HTMLButtonElement>('button.context-menu-item');
@@ -72,6 +77,25 @@ export function ContextMenu({
       triggerRef.current?.focus?.();
     };
   }, []);
+
+  // Trigger-side ARIA (Overlays-3): mirror the menu's open state onto the
+  // trigger that opened it. aria-haspopup="menu" declares the trigger opens a
+  // menu (left in place even after close, since the element still opens a menu);
+  // aria-expanded toggles true while the menu is open for this trigger and
+  // false otherwise. Keyed on the trigger element so a menu switch (a second
+  // trigger opening while the first is still mounted) resets the previous
+  // trigger before marking the new one, and unmount resets the last open
+  // trigger. Complements round-1's menu-internal roles/focus work without
+  // changing it.
+  useEffect(() => {
+    const trigger = menu.triggerEl;
+    if (!trigger) return;
+    trigger.setAttribute('aria-haspopup', 'menu');
+    trigger.setAttribute('aria-expanded', 'true');
+    return () => {
+      trigger.setAttribute('aria-expanded', 'false');
+    };
+  }, [menu.triggerEl]);
 
   useEffect(() => {
     const down = (e: MouseEvent) => {

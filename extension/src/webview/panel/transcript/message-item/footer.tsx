@@ -64,6 +64,19 @@ export function MessageFooter({
   );
 }
 
+// Referentially-stable recovery results. `useRecovery` is a pure function
+// (despite the `use` prefix) called once per render in `renderMessage`
+// (message-row.tsx); its result is passed as the `recovery` prop to the memo'd
+// <MessageItem>. Returning a fresh object each call would defeat the shallow
+// compare for error/interrupted assistant rows on every transcript re-render
+// (e.g. every streaming token), re-rendering those rows for nothing. The
+// `unloaded` case is a single shared constant; the `available` case is interned
+// by `userId` so the same previous-user-message id always resolves to the same
+// object reference. Bounded growth: one entry per distinct user message id,
+// cleared on webview reload.
+const RECOVERY_UNLOADED = { kind: 'unloaded' as const };
+const availableRecoveryByUserId = new Map<string, { kind: 'available'; userId: string }>();
+
 export function useRecovery(
   message: ChatMessage,
   transcript: ChatMessage[] | undefined,
@@ -75,9 +88,15 @@ export function useRecovery(
   if (transcript && typeof transcriptIndex === 'number') {
     for (let i = transcriptIndex - 1; i >= 0; i -= 1) {
       if (transcript[i]?.role === 'user') {
-        return { kind: 'available' as const, userId: transcript[i]!.id };
+        const userId = transcript[i]!.id;
+        let cached = availableRecoveryByUserId.get(userId);
+        if (!cached) {
+          cached = { kind: 'available' as const, userId };
+          availableRecoveryByUserId.set(userId, cached);
+        }
+        return cached;
       }
     }
   }
-  return hasOlder ? { kind: 'unloaded' as const } : null;
+  return hasOlder ? RECOVERY_UNLOADED : null;
 }

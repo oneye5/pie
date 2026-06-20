@@ -1,4 +1,4 @@
-import { useEffect } from 'preact/hooks';
+import { useEffect, useLayoutEffect } from 'preact/hooks';
 
 import type { SessionTabDragState } from '../types';
 
@@ -11,6 +11,7 @@ export function useDragEffects({
   endTracking,
   resetDrag,
   syncDragFromPointer,
+  syncGhostPosition,
 }: {
   dragState: SessionTabDragState | null;
   dragStateRef: { current: SessionTabDragState | null };
@@ -20,6 +21,7 @@ export function useDragEffects({
   endTracking: () => void;
   resetDrag: (suppressClick: boolean) => void;
   syncDragFromPointer: (clientX: number, clientY: number) => void;
+  syncGhostPosition: (clientX: number) => void;
 }) {
   useEffect(() => {
     return () => {
@@ -56,4 +58,19 @@ export function useDragEffects({
 
     syncDragFromPointer(pointerPositionRef.current.x, pointerPositionRef.current.y);
   }, [openTabPaths, resetDrag, syncDragFromPointer, dragStateRef, pointerPositionRef]);
+
+  // Seed the floating ghost's initial transform once it mounts at drag start.
+  // Per-move updates are written imperatively from runPointerMove (no React
+  // state); this only bridges the gap between dragState creation (ghost not
+  // yet mounted) and the first pointermove, so the ghost never paints at
+  // left:0. Runs after commit, so ghostElementRef is already attached.
+  useLayoutEffect(() => {
+    if (!dragStateRef.current) {
+      return;
+    }
+    const pointer = pointerPositionRef.current;
+    if (pointer) {
+      syncGhostPosition(pointer.x);
+    }
+  }, [dragState?.pointerId, syncGhostPosition, dragStateRef, pointerPositionRef]);
 }

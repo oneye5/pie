@@ -324,23 +324,26 @@ export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, sum
       : null;
 
   return (
-    <div
-      class="flex min-h-[32px] cursor-pointer select-none items-center gap-[7px] rounded-md px-2 py-[5px]"
-      role="button"
-      aria-expanded={open}
-      tabIndex={0}
-      onClick={onToggle}
-      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
-    >
-      <div class={cx('flex min-w-0 flex-1 items-center gap-2', (showSummary || showSizeHint) && 'gap-1.5')}>
-        <span class="transcript-header-title-mono min-w-0 flex-[0_1_auto] truncate" title={nameTitle}>{name}</span>
-        {showSummary && collapsedSummaryModel ? (
-          <CollapsedSummary model={collapsedSummaryModel} summaryPath={summaryPath} onOpenFile={onOpenFile} />
-        ) : null}
-        {showSizeHint && <span class="ml-auto block min-w-0 max-w-[var(--tool-call-size-column-width)] flex-[0_0_var(--tool-call-size-column-width)] truncate text-right font-mono text-[10px] text-muted/50">{sizeHint}</span>}
+    <div class="flex min-h-[32px] cursor-pointer select-none items-center gap-[7px] rounded-md px-2 py-[5px]">
+      <div
+        class="flex min-w-0 flex-1 items-center gap-[7px]"
+        role="button"
+        aria-expanded={open}
+        tabIndex={0}
+        onClick={onToggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+      >
+        <div class={cx('flex min-w-0 flex-1 items-center gap-2', (showSummary || showSizeHint) && 'gap-1.5')}>
+          <span class="transcript-header-title-mono min-w-0 flex-[0_1_auto] truncate" title={nameTitle}>{name}</span>
+          {showSummary && collapsedSummaryModel ? (
+            <CollapsedSummary model={collapsedSummaryModel} summaryPath={summaryPath} onOpenFile={onOpenFile} />
+          ) : null}
+          {showSizeHint && <span class="ml-auto block min-w-0 max-w-[var(--tool-call-size-column-width)] flex-[0_0_var(--tool-call-size-column-width)] truncate text-right font-mono text-[10px] text-muted/50">{sizeHint}</span>}
+        </div>
+        {durationLabel && <span class="ml-auto flex-none whitespace-nowrap font-mono text-[10px] text-muted/60 [font-variant-numeric:tabular-nums]" title="Tool execution time">{durationLabel}</span>}
+        {status !== 'failed' && <ToolCallStatusGlyph status={status} />}
+        <CollapsibleChevron open={open} class="ml-0.5 shrink-0" />
       </div>
-      {durationLabel && <span class="ml-auto flex-none whitespace-nowrap font-mono text-[10px] text-muted/60 [font-variant-numeric:tabular-nums]" title="Tool execution time">{durationLabel}</span>}
-      {status !== 'failed' && <ToolCallStatusGlyph status={status} />}
       {statusTone && statusLabel && (
         <StatusChip
           tone={statusTone}
@@ -350,7 +353,6 @@ export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, sum
           copyAriaLabel={errorDetail ? 'Copy tool-call error detail' : undefined}
         />
       )}
-      <CollapsibleChevron open={open} class="ml-0.5 shrink-0" />
     </div>
   );
 }

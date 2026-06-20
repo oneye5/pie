@@ -38,6 +38,9 @@ interface MessageItemProps {
    * tokens (the array reference changes every token).
    */
   recovery?: { kind: 'available'; userId: string } | { kind: 'unloaded' } | null;
+  /** Stable per-session key used to scope the message entrance tracker so old
+   *  sessions' ids are released when the session changes. */
+  sessionKey?: string | null;
 }
 
 export function MessageItemView({
@@ -57,6 +60,7 @@ export function MessageItemView({
   pruningHeaderState,
   activityState,
   recovery,
+  sessionKey,
 }: MessageItemProps) {
 
   const {
@@ -75,7 +79,7 @@ export function MessageItemView({
 
   // Plays the entrance animation only the first time a message id is seen,
   // so virtualized remounts don't replay it.
-  const entered = useMessageEntrance(message.id);
+  const entered = useMessageEntrance(message.id, sessionKey);
 
   const derived = useMessageItemDerived({
     message,
