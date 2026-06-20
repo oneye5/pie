@@ -110,7 +110,7 @@ test('deriveStreamingTail marks truncated when a single segment exceeds the char
   assert.ok(result);
   assert.equal(result.tail.truncated, true);
   assert.equal(result.tail.lines.length, 1);
-  assert.equal(result.tail.lines[0]!.length, 260);
+  assert.equal(result.tail.lines[0]!.length, 140);
 });
 
 // ── deriveToolTail ───────────────────────────────────────────────────────────
@@ -130,8 +130,8 @@ test('deriveToolTail shows the bash command plus the tail of streaming output', 
   assert.equal(result.tail.kind, 'tool');
   assert.equal(result.tail.inputLine, 'npm run test');
   assert.equal(result.tail.cursor, true);
-  assert.deepEqual(result.tail.lines, ['running...', 'somefile.py pass', 'somefile2.py pass']);
-  assert.equal(result.tail.truncated, false);
+  assert.deepEqual(result.tail.lines, ['somefile.py pass', 'somefile2.py pass']);
+  assert.equal(result.tail.truncated, true);
 });
 
 test('deriveToolTail renders the command + a lone cursor before any output arrives', () => {
@@ -277,8 +277,8 @@ test('estimateActivityTailHeight scales with rendered rows and is zero without a
   )!;
   const height = estimateActivityTailHeight(withRows.tail);
   assert.ok(height > 0);
-  // inputLine + 3 lines + cursor = 5 rows.
-  assert.equal(height, 5 * 14 + 4);
+  // inputLine + up to 2 lines + cursor = 4 rows.
+  assert.equal(height, 4 * 13 + 4);
 });
 
 // ── deriveTurnActivityState integration ─────────────────────────────────────

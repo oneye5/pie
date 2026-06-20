@@ -455,10 +455,25 @@
   align-items: stretch;
   width: 100%;
   min-width: 0;
+  margin: 2px 0 4px;
+  padding: 5px 8px;
+  border-radius: var(--panel-radius-md);
+  background: var(--panel-subtle-surface);
+  border: 1px solid var(--panel-border-subtle);
+  border-left: 3px solid transparent;
+  box-shadow: var(--panel-shadow-sm);
+}
+
+/* Running monitor strip: left accent border and slightly lifted surface. */
+.turn-activity-block:has(.turn-activity-strip.running) {
+  border-left-color: var(--panel-accent);
+  background: color-mix(in srgb, var(--panel-subtle-surface) 92%, var(--panel-accent) 8%);
 }
 
 .turn-activity-block .turn-activity-strip {
   margin-bottom: 1px;
+  padding: 0;
+  min-height: auto;
 }
 
 .turn-activity-tail {
@@ -467,10 +482,10 @@
   min-width: 0;
   padding: 1px 0 0;
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 11px;
-  line-height: 14px;
+  font-size: 10px;
+  line-height: 13px;
   color: color-mix(in srgb, var(--panel-foreground) 58%, var(--panel-muted) 42%);
-  opacity: 0.85;
+  opacity: 0.9;
 }
 
 .turn-activity-tail-row {

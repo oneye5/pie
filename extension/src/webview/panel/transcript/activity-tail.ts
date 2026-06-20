@@ -25,13 +25,13 @@ import {
 } from './subagent';
 
 /** Maximum number of tail content lines rendered in the compact activity block. */
-export const ACTIVITY_TAIL_MAX_LINES = 5;
+export const ACTIVITY_TAIL_MAX_LINES = 2;
 /** Maximum characters of streaming text/reasoning considered for the tail. */
-export const ACTIVITY_TAIL_MAX_CHARS = 260;
+export const ACTIVITY_TAIL_MAX_CHARS = 140;
 /** Soft cap for a single rendered line before CSS ellipsis takes over. */
-export const ACTIVITY_TAIL_LINE_MAX_CHARS = 140;
-/** Estimated rendered height of a single tail row, in px (matches CSS). */
-export const ACTIVITY_TAIL_ROW_HEIGHT_PX = 14;
+export const ACTIVITY_TAIL_LINE_MAX_CHARS = 90;
+/** Estimated rendered height of a single tail row, in px (matches CSS line-height). */
+export const ACTIVITY_TAIL_ROW_HEIGHT_PX = 13;
 
 export interface TurnActivityTail {
   /** Semantic kind; drives styling (e.g. reasoning renders muted/italic). */
@@ -254,12 +254,11 @@ export function deriveMultiToolTail(toolCalls: readonly ToolCall[]): DerivedActi
 /**
  * Rough rendered height of a tail, used by the virtualizer's size estimate so
  * initial layout is close before ResizeObserver re-measures the real height.
+ * The compact layout keeps the input line + up to two content lines + a
+ * blinking cursor; the truncation separator is a CSS fade, not a row.
  */
 export function estimateActivityTailHeight(tail: TurnActivityTail | null | undefined): number {
   if (!tail) return 0;
-  // The dedicated `…` truncation separator row is gone (truncation is now
-  // conveyed by a CSS top fade on the content block), so it no longer
-  // contributes a row to the estimate.
   const rows =
     tail.lines.length +
     (tail.inputLine ? 1 : 0) +
