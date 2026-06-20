@@ -18,6 +18,11 @@ Historical migration and planning documents were removed from the tree after com
 - `PLAN-llm-pruner-rewrite.md` — LLM-based skill pruning implementation
 - `PLAN-skill-tool-pruning.md` — skill/tool pruning design and implementation.
 - `model-token-pricing-implementation-plan.md` — token-pricing migration; **completed**. Pricing now lives in `extensions/subagent/pricing.ts` + `extension/src/backend/pricing.ts`; authoritative price evidence in `internal/model-token-pricing-sources.md`.
+- `ui-ux-review.md` — pie webview UI/UX engineering review (41 findings across hitboxes, a11y, streaming jank, virtualization, tabs, overlays). **Completed** across two rounds (commits `b1a0107` + `5a1804c`); the code is the authoritative record.
+- `audit-ui-subagent-prompt.md` — UI & subagent systems audit (integrity / duplication / architecture findings with P0–P2 remediation steps). Historical report; remediations landed in code.
+- `model-scoring-methodology.md` — superseded fitness-based model-scoring methodology; replaced by the data-driven stratified leaderboard (`analysis/scripts/stratified-ranker.ts`).
+- `subagent-ask-user-design.md` — subagent `ask_user` support design (multi-entry pending requests, parent-bridge proxy, subagent-scoped webview rendering). **Implemented**.
+- `subagent-model-selection-v2.md` — subagent model-selection v2 (bucket system). **Implemented** in `extensions/subagent/bucket-selector.ts` + `bridge.ts`.
 
 ## Reference / informational
 
