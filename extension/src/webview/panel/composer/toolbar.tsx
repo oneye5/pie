@@ -121,6 +121,7 @@ export function ComposerToolbar({
             ariaLabel={tokenRateIndicator.ariaLabel}
             tooltip={tokenRateIndicator.tooltip}
             label={tokenRateIndicator.label}
+            freezeWhileVisible
           />
         )}
 

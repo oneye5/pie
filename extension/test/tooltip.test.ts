@@ -67,3 +67,73 @@ test('Tooltip creates a distinct host for each instance', () => {
   const ids = new Set(newHosts.map((h) => h.id));
   assert.equal(ids.size, newHosts.length, 'Hosts should have unique ids');
 });
+
+test('freezeWhileVisible keeps the show-time text while content updates mid-hover', async () => {
+  // A live indicator (e.g. tokens/sec) rebuilds its tooltip many times per
+  // second. Without freezing the visible tooltip jumps on every rebuild;
+  // freezeWhileVisible snapshots the text at show time and ignores further
+  // updates until the pointer leaves and re-enters.
+  // Prior tests' tooltip hosts accumulate in document.body (this file's
+  // beforeEach teardown is a no-op under node:test), so clear them to isolate
+  // this test's host.
+  document.querySelectorAll('.pie-tooltip-host').forEach((el) => el.remove());
+  const props = (content: string) => ({
+    content,
+    freezeWhileVisible: true,
+    delayShow: 0,
+    delayHide: 0,
+  });
+
+  act(() => {
+    render(h(Tooltip, props('v1'), h('span', { class: 'trigger' }, 'target')), container);
+  });
+  const host = () => document.querySelector('.pie-tooltip-host') as HTMLElement;
+  const trigger = () => container.querySelector('.pie-tooltip-trigger') as HTMLElement;
+
+  // Show the tooltip (delayShow: 0 fires on the next macrotask).
+  await act(async () => {
+    trigger().dispatchEvent(new MouseEvent('mouseenter'));
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  assert.equal(host().textContent, 'v1');
+
+  // Live content updates while still hovering must NOT change the frozen text.
+  await act(async () => {
+    render(h(Tooltip, props('v2'), h('span', { class: 'trigger' }, 'target')), container);
+  });
+  assert.equal(host().textContent, 'v1', 'frozen tooltip should keep the show-time text');
+
+  // Re-hovering (leave + re-enter) refreshes the snapshot. The leave and
+  // re-enter are separate act() blocks so the hide flushes (clearing the
+  // frozen snapshot) before the show re-snapshots — a single act would batch
+  // the false->true transitions and skip the hide render.
+  await act(async () => {
+    trigger().dispatchEvent(new MouseEvent('mouseleave'));
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  await act(async () => {
+    trigger().dispatchEvent(new MouseEvent('mouseenter'));
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  assert.equal(host().textContent, 'v2', 're-hover should refresh the snapshot');
+});
+
+test('without freezeWhileVisible the tooltip text follows live content updates', async () => {
+  document.querySelectorAll('.pie-tooltip-host').forEach((el) => el.remove());
+  act(() => {
+    render(h(Tooltip, { content: 'v1', delayShow: 0, delayHide: 0 }, h('span', { class: 'trigger' }, 'target')), container);
+  });
+  const host = () => document.querySelector('.pie-tooltip-host') as HTMLElement;
+  const trigger = () => container.querySelector('.pie-tooltip-trigger') as HTMLElement;
+
+  await act(async () => {
+    trigger().dispatchEvent(new MouseEvent('mouseenter'));
+    await new Promise((r) => setTimeout(r, 30));
+  });
+  assert.equal(host().textContent, 'v1');
+
+  await act(async () => {
+    render(h(Tooltip, { content: 'v2', delayShow: 0, delayHide: 0 }, h('span', { class: 'trigger' }, 'target')), container);
+  });
+  assert.equal(host().textContent, 'v2', 'non-frozen tooltip should follow live content');
+});

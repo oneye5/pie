@@ -28,6 +28,16 @@ export interface TooltipProps {
   delayHide?: number;
   /** Preferred placement relative to the trigger. */
   placement?: 'top' | 'bottom';
+  /**
+   * When true, snapshot the tooltip text the moment it becomes visible and keep
+   * showing that snapshot for the rest of the hover, ignoring updates to
+   * `content` while visible. Live indicators (e.g. tokens/sec) rebuild their
+   * tooltip many times per second; without freezing, each rebuild re-centers
+   * the tooltip on its new width and it jumps — unreadable during fast
+   * generation. Freezing yields a stable, readable snapshot; the visible chip
+   * label keeps updating live, and re-hovering refreshes the snapshot.
+   */
+  freezeWhileVisible?: boolean;
 }
 
 /**
@@ -45,12 +55,21 @@ export function Tooltip({
   delayShow = 350,
   delayHide = 50,
   placement = 'bottom',
+  freezeWhileVisible = false,
 }: TooltipProps): JSX.Element {
   const [isVisible, setIsVisible] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
   const hostRef = useRef<HTMLDivElement | null>(null);
   const hostIdRef = useRef<string>(nextTooltipId());
   const timersRef = useRef<{ show?: number; hide?: number }>({});
+  /**
+   * Frozen tooltip snapshot (only used when `freezeWhileVisible` is set).
+   * `undefined` = no snapshot yet (not hovering, or freeze disabled); a
+   * string/null = the value captured at show time, displayed for the rest of
+   * the hover so live `content` updates are ignored. Captured once per show
+   * (the `=== undefined` guard) and cleared on hide.
+   */
+  const frozenContentRef = useRef<string | null | undefined>(undefined);
 
   const showTooltip = useCallback(() => {
     clearTimer(timersRef.current.hide);
@@ -72,8 +91,31 @@ export function Tooltip({
     }, delayHide);
   }, [delayHide]);
 
+  // Snapshot the tooltip text when it becomes visible (and clear it on hide)
+  // so a frozen tooltip ignores further `content` updates for the rest of the
+  // hover. `content` is in the deps so we read the latest text at show time,
+  // but the `=== undefined` guard captures it only once per hover — subsequent
+  // live updates re-run this effect but skip the assignment, leaving the
+  // snapshot intact.
+  useEffect(() => {
+    if (!freezeWhileVisible) return;
+    if (isVisible) {
+      if (frozenContentRef.current === undefined) {
+        frozenContentRef.current = content ?? null;
+      }
+    } else {
+      frozenContentRef.current = undefined;
+    }
+  }, [isVisible, content, freezeWhileVisible]);
+
+  // The text actually displayed: the frozen snapshot while a frozen tooltip is
+  // visible, otherwise the live `content`.
+  const effectiveContent = freezeWhileVisible && frozenContentRef.current !== undefined
+    ? frozenContentRef.current
+    : content;
+
   // Create host lazily and update its content/position whenever visibility or
-  // the tooltip text changes. Keeping the host outside the React tree means
+  // the displayed text changes. Keeping the host outside the React tree means
   // parent re-renders never unmount or recreate the tooltip while the pointer
   // is hovering, and re-using the same DOM node while visible avoids flicker
   // when live values update frequently (e.g. the tokens/sec indicator).
@@ -93,14 +135,14 @@ export function Tooltip({
 
     const trigger = triggerRef.current;
 
-    if (!isVisible || !content || !trigger) {
+    if (!isVisible || !effectiveContent || !trigger) {
       host.style.display = 'none';
       host.textContent = '';
       return;
     }
 
     host.style.display = 'block';
-    host.textContent = content;
+    host.textContent = effectiveContent;
 
     const rect = trigger.getBoundingClientRect();
     const hostRect = host.getBoundingClientRect();
@@ -122,7 +164,7 @@ export function Tooltip({
 
     host.style.top = `${top}px`;
     host.style.left = `${left}px`;
-  }, [isVisible, content, placement]);
+  }, [isVisible, effectiveContent, placement]);
 
   // Remove the host when the component unmounts, and tear down any pending timers.
   useEffect(() => {

@@ -23,6 +23,12 @@ interface PanelChipBaseProps {
   title?: string;
   /** Custom tooltip text; when present it replaces the native title. */
   tooltip?: string;
+  /**
+   * When true, freeze the tooltip text at show time for the duration of the
+   * hover (see `Tooltip.freezeWhileVisible`). Use for live-updating indicator
+   * tooltips that would otherwise resize/jump on every update.
+   */
+  freezeWhileVisible?: boolean;
   ariaLabel?: string;
 }
 
@@ -60,9 +66,9 @@ function chipContent({ label, children, leading, trailing }: Pick<PanelChipBaseP
   );
 }
 
-function wrapTooltip(node: JSX.Element, tooltip: string | undefined): JSX.Element {
+function wrapTooltip(node: JSX.Element, tooltip: string | undefined, freezeWhileVisible?: boolean): JSX.Element {
   if (!tooltip) return node;
-  return <Tooltip content={tooltip}>{node}</Tooltip>;
+  return <Tooltip content={tooltip} freezeWhileVisible={freezeWhileVisible}>{node}</Tooltip>;
 }
 
 function PanelChip(props: PanelChipProps) {
@@ -83,6 +89,7 @@ function PanelChip(props: PanelChipProps) {
         {content}
       </button>,
       props.tooltip,
+      props.freezeWhileVisible,
     );
   }
 
@@ -99,6 +106,7 @@ function PanelChip(props: PanelChipProps) {
         {content}
       </div>,
       props.tooltip,
+      props.freezeWhileVisible,
     );
   }
 
@@ -114,6 +122,7 @@ function PanelChip(props: PanelChipProps) {
       {content}
     </span>,
     props.tooltip,
+    props.freezeWhileVisible,
   );
 }
 
@@ -137,6 +146,8 @@ interface ToolbarIndicatorChipProps extends ToolbarChipProps {
   severity?: 'warning' | 'critical' | string | null;
   /** Visual pause marker for indicators whose underlying measurement is frozen (e.g. the speed chip while a tool runs). */
   state?: 'paused' | null;
+  /** Freeze the tooltip text at show time for the duration of the hover (for live-updating tooltips). */
+  freezeWhileVisible?: boolean;
 }
 
 function indicatorClassName(kind: ToolbarIndicatorKind, severity?: string | null, state?: 'paused' | null): string {
@@ -151,7 +162,7 @@ function indicatorClassName(kind: ToolbarIndicatorKind, severity?: string | null
   ].filter(Boolean).join(' ');
 }
 
-export function ToolbarIndicatorChip({ kind, severity, state, label, title, tooltip, ariaLabel }: ToolbarIndicatorChipProps) {
+export function ToolbarIndicatorChip({ kind, severity, state, label, title, tooltip, ariaLabel, freezeWhileVisible }: ToolbarIndicatorChipProps) {
   return (
     <PanelChip
       as="div"
@@ -163,6 +174,7 @@ export function ToolbarIndicatorChip({ kind, severity, state, label, title, tool
       ariaLabel={ariaLabel}
       title={title}
       tooltip={tooltip}
+      freezeWhileVisible={freezeWhileVisible}
       label={label}
     />
   );
