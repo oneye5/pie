@@ -153,6 +153,7 @@ function createOverview(prepared: PreparedAnalyticsData): OverviewData {
 
   const totalToolCalls = completedRuns.reduce((sum, run) => sum + run.toolCallCount, 0);
   const totalToolFailures = completedRuns.reduce((sum, run) => sum + run.toolFailureCount, 0);
+  const totalResultIssues = completedRuns.reduce((sum, run) => sum + run.resultIssueCount, 0);
   const latestRunTimestamp = [...completedRuns]
     .map((run) => run.updatedAt)
     .sort((left, right) => left.localeCompare(right))
@@ -172,6 +173,7 @@ function createOverview(prepared: PreparedAnalyticsData): OverviewData {
       ? null
       : round(completedRuns.filter((run) => run.verificationTotalCount > 0).length / completedRuns.length, 3),
     toolFailureRate: totalToolCalls === 0 ? null : round(totalToolFailures / totalToolCalls, 3),
+    resultIssueRate: totalToolCalls === 0 ? null : round(totalResultIssues / totalToolCalls, 3),
     medianTokenEfficiency: percentile(completedRuns.map((r) => r.tokenEfficiency).filter((v): v is number => v !== null), 50, 1),
     averageContextUtilization: average(completedRuns.map((r) => r.contextUtilization).filter((v): v is number => v !== null), 3),
     averageCacheHitRatio: average(completedRuns.map((r) => r.cacheHitRatio).filter((v): v is number => v !== null), 3),
@@ -349,6 +351,7 @@ function createToolUsage(prepared: PreparedAnalyticsData): ToolUsageData {
       executionFailureCount: toolRows.reduce((sum, row) => sum + row.executionFailureCount, 0),
       verificationProjectFailureCount: toolRows.reduce((sum, row) => sum + row.verificationProjectFailureCount, 0),
       probeFailureCount: toolRows.reduce((sum, row) => sum + row.probeFailureCount, 0),
+      resultIssueCount: toolRows.reduce((sum, row) => sum + row.resultIssueCount, 0),
       affectedRunCount: usedRunIds.size,
       averageSatisfactionWhenUsed: average(usedRuns.map((run) => run.satisfaction!), 2),
       averageSatisfactionWhenUnused: average(unusedRuns.map((run) => run.satisfaction!), 2),

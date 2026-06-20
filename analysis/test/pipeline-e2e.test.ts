@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import type { ToolFailureKind } from '../scripts/contracts.js';
+import type { ToolFailureKind, ToolResultIssueKind } from '../scripts/contracts.js';
 
 import { prepareSourceAnalytics } from '../scripts/prepare.ts';
 import { buildSiteDataBundle, validateSiteDataBundle, writeSiteData, readSiteDataBundle } from '../scripts/site-data.ts';
@@ -74,6 +74,11 @@ function createMinimalRunSnapshot(overrides: Partial<RunSnapshot> = {}): RunSnap
       failureCountsByKind: {} as Record<ToolFailureKind, number>,
       failureCountsByNameAndKind: {},
       failureSamples: [],
+      resultIssueCount: 0,
+      resultIssueCountsByName: {},
+      resultIssueCountsByKind: {} as Record<ToolResultIssueKind, number>,
+      resultIssueCountsByNameAndKind: {},
+      resultIssueSamples: [],
       subagentCallCount: 0,
       subagentTaskCount: 0,
       subagentAgentNames: [],
@@ -414,6 +419,7 @@ test('numerical: overview rates are in [0, 1] or null', async () => {
   const rates = [
     { name: 'verificationRunRate', value: bundle.overview.verificationRunRate },
     { name: 'toolFailureRate', value: bundle.overview.toolFailureRate },
+    { name: 'resultIssueRate', value: bundle.overview.resultIssueRate },
     { name: 'firstAttemptSuccessRate', value: bundle.overview.firstAttemptSuccessRate },
   ];
 

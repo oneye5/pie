@@ -1,5 +1,6 @@
--- Tool failure trends by cause. Verification-project failures are kept distinct
--- from agent/tool-use issues such as unavailable tools or invalid arguments.
+-- Execution tool-failure trends by cause (the tool could not do its job).
+-- Non-success results (verification failures / empty probes) are measured as
+-- result issues, not failures — see tool_usage.sql for result_issue_count.
 SELECT
   failure_kind,
   tool_name,

@@ -231,9 +231,11 @@ test('coerceRunSnapshot sanitizes nested rollups and optional fields', async () 
   assert.equal(coerced?.tokenReportedTurnCount, 4);
 
   assert.equal(coerced?.toolUsage.totalCount, 5);
-  assert.equal(coerced?.toolUsage.failureCount, 0);
-  assert.equal(coerced?.toolUsage.executionFailureCount, 0);
+  assert.equal(coerced?.toolUsage.failureCount, 3);
+  assert.equal(coerced?.toolUsage.executionFailureCount, 3);
   assert.equal(coerced?.toolUsage.verificationProjectFailureCount, 1);
+  assert.equal(coerced?.toolUsage.probeFailureCount, 2);
+  assert.equal(coerced?.toolUsage.resultIssueCount, 3);
   assert.deepEqual(coerced?.toolUsage.countsByName, { read: 2 });
   assert.deepEqual(coerced?.toolUsage.failureCountsByName, { read: 1 });
   assert.equal(coerced?.toolUsage.failureSamples.length, 1);
@@ -281,6 +283,76 @@ test('coerceRunSnapshot sanitizes nested rollups and optional fields', async () 
   assert.equal(fallback?.fileMutation.editCount, 0);
   assert.deepEqual(fallback?.fileExtensions.readCountsByExtension, {});
   assert.equal(fallback?.verification.totalCount, 0);
+});
+
+test('coerceRunSnapshot remaps legacy failure kinds into result-issue rollups', async () => {
+  // Pre-split data: verification_project_failure and probe_no_match were counted
+  // under the failure rollups, and no resultIssue* fields existed.
+  const fixture = await loadFixture();
+  const run = deepClone(fixture.completedRuns[0]) as any;
+  run.toolUsage = {
+    totalCount: 5,
+    failureCount: 4,
+    executionFailureCount: 2,
+    verificationProjectFailureCount: 1,
+    probeFailureCount: 1,
+    countsByName: { bash: 3, read: 2 },
+    failureCountsByName: { bash: 3, read: 1 },
+    failureCountsByKind: {
+      timeout: 1,
+      nonzero_exit: 1,
+      verification_project_failure: 1,
+      probe_no_match: 1,
+    },
+    failureCountsByNameAndKind: {
+      bash: { timeout: 1, verification_project_failure: 1, probe_no_match: 1 },
+      read: { nonzero_exit: 1 },
+    },
+    failureSamples: [
+      { toolName: 'bash', failureKind: 'timeout', exitCode: 124, errorExcerpt: 'timed out', verificationKinds: [], occurredAt: '2026-01-01T00:00:00.000Z' },
+      { toolName: 'bash', failureKind: 'verification_project_failure', exitCode: 1, errorExcerpt: 'tests failed', verificationKinds: ['test'], occurredAt: '2026-01-02T00:00:00.000Z' },
+      { toolName: 'bash', failureKind: 'probe_no_match', exitCode: 1, errorExcerpt: '', verificationKinds: [], occurredAt: '2026-01-03T00:00:00.000Z' },
+    ],
+  };
+
+  const coerced = coerceRunSnapshot(run);
+  assert.ok(coerced);
+  const tu = coerced!.toolUsage;
+
+  // Execution-only failure counts (verification/probe no longer counted as failures).
+  assert.equal(tu.failureCount, 2);
+  assert.equal(tu.executionFailureCount, 2);
+  assert.equal(tu.verificationProjectFailureCount, 1);
+  assert.equal(tu.probeFailureCount, 1);
+  assert.equal(tu.resultIssueCount, 2);
+
+  // Legacy kinds removed from the failure by-kind rollup...
+  assert.equal(tu.failureCountsByKind.timeout, 1);
+  assert.equal(tu.failureCountsByKind.nonzero_exit, 1);
+  assert.equal(('verification_project_failure' in tu.failureCountsByKind), false);
+  assert.equal(('probe_no_match' in tu.failureCountsByKind), false);
+
+  // ...and remapped into the result-issue by-kind rollup.
+  assert.equal(tu.resultIssueCountsByKind.verification_failure, 1);
+  assert.equal(tu.resultIssueCountsByKind.probe_no_match, 1);
+
+  // Per-tool split: bash keeps execution kinds, gains result-issue kinds.
+  assert.equal(tu.failureCountsByNameAndKind.bash?.timeout, 1);
+  assert.equal(('verification_project_failure' in (tu.failureCountsByNameAndKind.bash ?? {})), false);
+  assert.equal(tu.resultIssueCountsByNameAndKind.bash?.verification_failure, 1);
+  assert.equal(tu.resultIssueCountsByNameAndKind.bash?.probe_no_match, 1);
+
+  // Per-tool failure counts recomputed to execution-only (bash: 3 legacy − 2 result issues).
+  assert.equal(tu.failureCountsByName.bash, 1);
+  assert.equal(tu.failureCountsByName.read, 1);
+
+  // Samples split: execution sample stays; verification/probe move to result-issue samples.
+  assert.equal(tu.failureSamples.length, 1);
+  assert.equal(tu.failureSamples[0]?.failureKind, 'timeout');
+  assert.equal(tu.resultIssueSamples.length, 2);
+  assert.equal(tu.resultIssueSamples[0]?.resultIssueKind, 'verification_failure');
+  assert.deepEqual(tu.resultIssueSamples[0]?.verificationKinds, ['test']);
+  assert.equal(tu.resultIssueSamples[1]?.resultIssueKind, 'probe_no_match');
 });
 
 test('coerceRunSnapshot preserves functional settings and defaults missing ones to null', async () => {

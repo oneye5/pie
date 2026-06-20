@@ -27,16 +27,28 @@ export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhi
 export type PruningMode = 'auto' | 'shadow' | 'off' | 'custom';
 export type InputKind = 'filesystemPathRef' | 'imageBlob' | 'fileBlob';
 export type VerificationCommandKind = 'test' | 'build' | 'lint' | 'typecheck' | 'format' | 'other';
+/**
+ * Execution failures: the tool could not complete its job. Counted under
+ * `failureCount` / `failureCountsByKind`. Non-success results (failing
+ * tests/builds, empty searches) are tracked under `ToolResultIssueKind`.
+ */
 export type ToolFailureKind =
   | 'unavailable_tool'
   | 'invalid_tool_arguments'
   | 'missing_file_or_path'
   | 'shell_command_error'
-  | 'probe_no_match'
-  | 'verification_project_failure'
   | 'timeout'
   | 'nonzero_exit'
   | 'unknown';
+
+/**
+ * Non-success results: the tool ran to completion but reported a non-success
+ * outcome. Counted under `resultIssueCount` / `resultIssueCountsByKind` —
+ * measured signal, NOT tool failures.
+ */
+export type ToolResultIssueKind =
+  | 'verification_failure'
+  | 'probe_no_match';
 export type TreatmentChangeKind =
   | 'model'
   | 'thinking'
@@ -120,6 +132,16 @@ export interface ToolFailureSample {
   occurredAt: string;
 }
 
+export interface ToolResultIssueSample {
+  toolName: string;
+  /** Non-success result kind: a verification command that exposed project failures, or an empty probe/search. */
+  resultIssueKind: ToolResultIssueKind;
+  exitCode: number | null;
+  errorExcerpt: string;
+  verificationKinds: VerificationCommandKind[];
+  occurredAt: string;
+}
+
 /** Terminal status of a single assistant turn, mirrored on throughput samples. */
 export type TurnThroughputStatus = 'completed' | 'error' | 'interrupted';
 
@@ -143,15 +165,25 @@ export interface TurnThroughputSample {
 
 export interface ToolUsageRollup {
   totalCount: number;
+  /** Execution failures only (the tool could not do its job). Non-success results are under `resultIssueCount`. */
   failureCount: number;
+  /** Failed tool calls excluding verification-project failures and probe/no-match outcomes. */
   executionFailureCount: number;
+  /** Failed tool calls where the command was verification and exposed project failures. */
   verificationProjectFailureCount: number;
+  /** Failed probe/search commands that likely mean "no matches" rather than a broken tool. */
   probeFailureCount: number;
+  /** Non-success results: tool ran to completion but reported a non-success outcome (verification failure or empty probe). */
+  resultIssueCount: number;
   countsByName: Record<string, number>;
   failureCountsByName: Record<string, number>;
   failureCountsByKind: Record<ToolFailureKind, number>;
   failureCountsByNameAndKind: Record<string, Record<ToolFailureKind, number>>;
   failureSamples: ToolFailureSample[];
+  resultIssueCountsByName: Record<string, number>;
+  resultIssueCountsByKind: Record<ToolResultIssueKind, number>;
+  resultIssueCountsByNameAndKind: Record<string, Record<ToolResultIssueKind, number>>;
+  resultIssueSamples: ToolResultIssueSample[];
   /** Cumulative wall-clock execution time (ms) across all timed tool calls. */
   totalDurationMs: number;
   /** Number of completed/failed tool calls that reported an execution duration. */
@@ -336,6 +368,7 @@ export interface PreparedRunRow {
   inputKindsUsed: InputKind[];
   toolCallCount: number;
   toolFailureCount: number;
+  resultIssueCount: number;
   subagentCallCount: number;
   subagentTaskCount: number;
   subagentAgentCount: number;
@@ -379,6 +412,7 @@ export interface PreparedToolUsageRow {
   executionFailureCount: number;
   verificationProjectFailureCount: number;
   probeFailureCount: number;
+  resultIssueCount: number;
   /** Cumulative execution duration (ms) for this tool across the run (0 when unreported). */
   totalDurationMs: number;
   /** Mean execution duration (ms) per call (= totalDurationMs / callCount); null when callCount is 0. */
@@ -569,6 +603,7 @@ export interface OverviewData {
   p99BusyDurationMs: number | null;
   verificationRunRate: number | null;
   toolFailureRate: number | null;
+  resultIssueRate: number | null;
   medianTokenEfficiency: number | null;
   averageContextUtilization: number | null;
   averageCacheHitRatio: number | null;
@@ -641,6 +676,7 @@ export interface ToolUsageAggregateRow {
   executionFailureCount: number;
   verificationProjectFailureCount: number;
   probeFailureCount: number;
+  resultIssueCount: number;
   affectedRunCount: number;
   averageSatisfactionWhenUsed: number | null;
   averageSatisfactionWhenUnused: number | null;

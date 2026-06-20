@@ -80,6 +80,7 @@ interface DuckDbRunRow {
   input_kinds_used: string[];
   tool_call_count: number;
   tool_failure_count: number;
+  result_issue_count: number;
   subagent_call_count: number;
   subagent_task_count: number;
   subagent_agent_count: number;
@@ -127,6 +128,7 @@ interface DuckDbToolUsageRow {
   execution_failure_count: number;
   verification_project_failure_count: number;
   probe_failure_count: number;
+  result_issue_count: number;
   total_duration_ms: number;
   mean_duration_ms: number | null;
   started_at: string;
@@ -302,6 +304,7 @@ function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
     input_kinds_used: row.inputKindsUsed,
     tool_call_count: row.toolCallCount,
     tool_failure_count: row.toolFailureCount,
+    result_issue_count: row.resultIssueCount,
     subagent_call_count: row.subagentCallCount,
     subagent_task_count: row.subagentTaskCount,
     subagent_agent_count: row.subagentAgentCount,
@@ -351,6 +354,7 @@ function toDuckDbToolUsageRow(row: PreparedToolUsageRow): DuckDbToolUsageRow {
     execution_failure_count: row.executionFailureCount,
     verification_project_failure_count: row.verificationProjectFailureCount,
     probe_failure_count: row.probeFailureCount,
+    result_issue_count: row.resultIssueCount,
     total_duration_ms: row.totalDurationMs,
     mean_duration_ms: row.meanDurationMs,
     started_at: row.startedAt,
@@ -594,6 +598,7 @@ CREATE TABLE runs (
   input_kinds_used VARCHAR[],
   tool_call_count INTEGER,
   tool_failure_count INTEGER,
+  result_issue_count INTEGER,
   subagent_call_count INTEGER,
   subagent_task_count INTEGER,
   subagent_agent_count INTEGER,
@@ -645,6 +650,7 @@ CREATE TABLE tool_usage (
   execution_failure_count INTEGER,
   verification_project_failure_count INTEGER,
   probe_failure_count INTEGER,
+  result_issue_count INTEGER,
   total_duration_ms DOUBLE,
   mean_duration_ms DOUBLE,
   started_at TIMESTAMP,

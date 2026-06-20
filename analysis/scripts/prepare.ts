@@ -201,6 +201,7 @@ function prepareRun(
     inputKindsUsed: [...run.inputKindsUsed],
     toolCallCount: run.toolUsage.totalCount,
     toolFailureCount: run.toolUsage.failureCount,
+    resultIssueCount: run.toolUsage.resultIssueCount,
     subagentCallCount: run.toolUsage.subagentCallCount,
     subagentTaskCount: run.toolUsage.subagentTaskCount,
     subagentAgentCount: run.toolUsage.subagentAgentNames.length,
@@ -260,11 +261,17 @@ function prepareToolUsage(run: RunSnapshot, outcome: RunOutcome | null): Prepare
   return Object.entries(run.toolUsage.countsByName)
     .filter(([, callCount]) => callCount > 0)
     .map(([toolName, callCount]) => {
-      const failureCountsByKind = run.toolUsage.failureCountsByNameAndKind[toolName] ?? {};
-      const verificationProjectFailureCount = failureCountsByKind.verification_project_failure ?? 0;
-      const probeFailureCount = failureCountsByKind.probe_no_match ?? 0;
+      // Result-issue breakdown (verification failure / empty probe) now lives in
+      // the result-issue rollup after the legacy remap; failureCountsByNameAndKind
+      // is execution-only. failureCount is execution-only, so executionFailureCount
+      // equals failureCount (the old failureCount − verification − probe subtraction
+      // no longer applies).
+      const resultIssueByKind = run.toolUsage.resultIssueCountsByNameAndKind[toolName];
+      const verificationProjectFailureCount = resultIssueByKind?.verification_failure ?? 0;
+      const probeFailureCount = resultIssueByKind?.probe_no_match ?? 0;
       const failureCount = run.toolUsage.failureCountsByName[toolName] ?? 0;
-      const classifiedFailureCount = Object.values(failureCountsByKind).reduce((sum, count) => sum + count, 0);
+      const resultIssueCount = run.toolUsage.resultIssueCountsByName[toolName]
+        ?? (verificationProjectFailureCount + probeFailureCount);
       const totalDurationMs = run.toolUsage.durationMsByName[toolName] ?? 0;
       const meanDurationMs = callCount > 0 ? round3(totalDurationMs / callCount) : null;
       return {
@@ -272,11 +279,10 @@ function prepareToolUsage(run: RunSnapshot, outcome: RunOutcome | null): Prepare
         toolName,
         callCount,
         failureCount,
-        executionFailureCount: classifiedFailureCount > 0
-          ? Math.max(0, failureCount - verificationProjectFailureCount - probeFailureCount)
-          : 0,
+        executionFailureCount: failureCount,
         verificationProjectFailureCount,
         probeFailureCount,
+        resultIssueCount,
         totalDurationMs,
         meanDurationMs,
         startedAt: run.startedAt,

@@ -20,7 +20,7 @@ test('prepareSourceAnalytics exposes tool failure reason rows', async () => {
   const run = fixture.completedRuns[0] as any;
   run.toolUsage.failureCountsByNameAndKind = {
     edit: { invalid_tool_arguments: 2 },
-    bash: { verification_project_failure: 1 },
+    bash: { shell_command_error: 1 },
   };
   run.toolUsage.failureSamples = [{
     toolName: 'edit',
@@ -43,7 +43,7 @@ test('prepareSourceAnalytics exposes tool failure reason rows', async () => {
   assert.ok(prepared.toolFailures.some((row) => (
     row.runId === run.runId
     && row.toolName === 'bash'
-    && row.failureKind === 'verification_project_failure'
+    && row.failureKind === 'shell_command_error'
     && row.count === 1
   )));
 });
@@ -93,11 +93,17 @@ test('prepareSourceAnalytics uses failureCountsByKind fallback when per-tool bre
   assert.ok(nonzeroExit, 'should classify nonzero_exit from aggregate counts');
   assert.equal(nonzeroExit.count, 1);
 
-  // Also verify that classified failures from runs WITH per-tool breakdown are still correct
+  // Also verify that classified failures from runs WITH per-tool breakdown are still correct.
+  // After the legacy remap, run-002's verification_project_failure is a non-success
+  // result issue (verification_failure) surfaced in tool-usage — not an execution
+  // tool-failure row.
   const run002FailureRows = prepared.toolFailures.filter((row) => row.runId === 'run-002');
-  const verifProject = run002FailureRows.find((r) => r.failureKind === 'verification_project_failure');
-  assert.ok(verifProject, 'run-002 should have verification_project_failure');
-  assert.equal(verifProject.count, 1);
+  assert.equal(run002FailureRows.length, 0, 'run-002 has no execution tool failures');
+  const run002BashUsage = prepared.toolUsage.find((row) => row.runId === 'run-002' && row.toolName === 'bash');
+  assert.equal(run002BashUsage?.failureCount, 0);
+  assert.equal(run002BashUsage?.executionFailureCount, 0);
+  assert.equal(run002BashUsage?.verificationProjectFailureCount, 1);
+  assert.equal(run002BashUsage?.resultIssueCount, 1);
 });
 
 test('prepareSourceAnalytics extracts file extension rows from run data', async () => {
@@ -326,14 +332,15 @@ test('prepareSourceAnalytics computes execution failures and unknown fallback fa
   const fixture = deepClone(await loadFixture());
   const classifiedRun = fixture.completedRuns[0] as any;
   classifiedRun.toolUsage.countsByName = { bash: 5, edit: 2 };
-  classifiedRun.toolUsage.failureCountsByName = { bash: 5, edit: 2 };
+  classifiedRun.toolUsage.failureCountsByName = { bash: 2, edit: 0 };
   classifiedRun.toolUsage.failureCountsByNameAndKind = {
-    bash: {
-      verification_project_failure: 2,
-      probe_no_match: 1,
-      shell_command_error: 2,
-    },
+    bash: { shell_command_error: 2 },
   };
+  classifiedRun.toolUsage.resultIssueCountsByNameAndKind = {
+    bash: { verification_failure: 2, probe_no_match: 1 },
+  };
+  classifiedRun.toolUsage.resultIssueCountsByName = { bash: 3 };
+  classifiedRun.toolUsage.resultIssueCount = 3;
 
   const fallbackRun = fixture.completedRuns[1] as any;
   fallbackRun.toolUsage.failureCount = 3;
@@ -350,8 +357,13 @@ test('prepareSourceAnalytics computes execution failures and unknown fallback fa
     .map((row) => [row.toolName, row.count] as const)
     .sort(([left], [right]) => left.localeCompare(right));
 
+  assert.equal(classifiedBashUsage?.failureCount, 2);
   assert.equal(classifiedBashUsage?.executionFailureCount, 2);
+  assert.equal(classifiedBashUsage?.verificationProjectFailureCount, 2);
+  assert.equal(classifiedBashUsage?.probeFailureCount, 1);
+  assert.equal(classifiedBashUsage?.resultIssueCount, 3);
   assert.equal(classifiedEditUsage?.executionFailureCount, 0);
+  assert.equal(classifiedEditUsage?.resultIssueCount, 0);
   assert.deepEqual(fallbackUnknownRows, [['bash', 2], ['read', 1]]);
 });
 

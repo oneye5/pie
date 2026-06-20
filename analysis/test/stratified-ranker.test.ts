@@ -92,6 +92,7 @@ function makeRun(overrides: Partial<PreparedRunRow> & { runId: string }): Prepar
     inputKindsUsed: [],
     toolCallCount: 5,
     toolFailureCount: 0,
+    resultIssueCount: 0,
     subagentCallCount: 0,
     subagentTaskCount: 0,
     subagentAgentCount: 0,
