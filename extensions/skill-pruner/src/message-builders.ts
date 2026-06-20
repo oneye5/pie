@@ -12,6 +12,7 @@
 import type { ToolInfo } from "@mariozechner/pi-coding-agent";
 
 import { estimateTokens } from "../logger.js";
+import { countTokens } from "../tokenize.js";
 import type { PruningConfig, PruningDecision, PruningResult } from "../types.js";
 
 import type { SkillPruningResult, ToolPruningResult } from "./pruning-types.js";
@@ -103,8 +104,9 @@ export function buildReplacement(newBlock: string, hint: string): string {
 }
 
 /**
- * Capture a PruningDecision for the audit log. Token counts use the
- * 4-chars-per-token estimator shared with the logger.
+ * Capture a PruningDecision for the audit log. Token counts come from the
+ * real cl100k_base BPE tokenizer shared with the logger (chars/4 fallback
+ * only when the tokenizer cannot be resolved in the current runtime).
  */
 export function buildDecision(input: {
 	sessionId: string;
@@ -141,20 +143,23 @@ export function buildDecision(input: {
 	};
 }
 
+/** Per-tool JSON framing overhead (name + description wrapper): ~50 chars ≈ 13 tokens. */
+const TOOL_FRAMING_TOKENS = 13;
+
 /**
- * Coarse token estimate for tool descriptions that the pruner
- * suppressed. Assumes ~4 chars per token plus a small per-tool framing
- * constant; accurate enough for "tokens saved" reporting.
+ * Token count for tool descriptions that the pruner suppressed, used for
+ * "tokens saved" reporting. Counts name + description via the real BPE
+ * tokenizer plus a small per-tool framing constant for the JSON wrapper.
  */
 export function estimateToolTokens(allTools: ToolInfo[], excludedToolNames: string[]): number {
 	const excludedSet = new Set(excludedToolNames);
-	let chars = 0;
+	let tokens = 0;
 	for (const tool of allTools) {
 		if (excludedSet.has(tool.name)) {
-			chars += tool.name.length + (tool.description?.length ?? 0) + 50;
+			tokens += countTokens(tool.name) + countTokens(tool.description ?? "") + TOOL_FRAMING_TOKENS;
 		}
 	}
-	return Math.ceil(chars / 4);
+	return tokens;
 }
 
 /**

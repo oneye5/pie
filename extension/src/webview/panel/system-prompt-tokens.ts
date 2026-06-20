@@ -1,4 +1,5 @@
 import type { SystemPromptEntry } from '../../shared/protocol';
+import { countTextTokens } from '../../shared/tokenize';
 
 const compactTokenFormatter = new Intl.NumberFormat(undefined, {
   notation: 'compact',
@@ -14,8 +15,10 @@ export function estimateTextTokens(text: string): number {
     return 0;
   }
 
-  // Mirror the PI SDK's chars/4 heuristic used for context token estimates.
-  return Math.ceil(trimmed.length / 4);
+  // Real BPE count (cl100k_base); approximate for the active model but far
+  // closer than the chars/4 heuristic. Exact attribution comes from provider
+  // usage (see backend/context-usage.ts), so these rows stay "estimated".
+  return countTextTokens(trimmed);
 }
 
 export function estimateSystemPromptTokens(prompts: readonly SystemPromptEntry[]): number {

@@ -318,7 +318,7 @@ function buildFullNotes(
     notes.push('Used and remaining values are estimated until PI reports a live context-window snapshot.');
   }
   if (entries.some((entry) => entry.kind === 'estimated')) {
-    notes.push('Estimated rows use the chars/4 heuristic where exact attribution is unavailable.');
+    notes.push('Estimated rows are tokenized with cl100k_base where exact attribution is unavailable.');
   }
   if (entries.some((entry) => entry.kind === 'derived')) {
     notes.push('Derived rows are the PI-reported remainder after subtracting explicit rows.');

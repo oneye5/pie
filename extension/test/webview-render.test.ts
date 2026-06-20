@@ -687,7 +687,7 @@ test('rendered SystemPromptMessage covers summary fallbacks, suppressed summarie
   assert.match(html, /Harness system prompt/);
   assert.doesNotMatch(html, /Configured elsewhere\.<\/span>/);
   assert.doesNotMatch(html, />Unavailable<\/span>/);
-  assert.match(html, /~12 tokens/);
+  assert.match(html, /~10 tokens/);
   assert.match(html, /not included/i);
 
   const zeroTokenHtml = renderToString(h(SystemPromptMessage, {

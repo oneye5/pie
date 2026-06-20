@@ -11,6 +11,7 @@ import {
 	recordSkillRead,
 	setLogPathForTesting,
 } from "../logger.js";
+import { tokenizerAvailable } from "../tokenize.js";
 import type { PruningDecision } from "../types.js";
 
 function tempLogPath(): string {
@@ -116,8 +117,15 @@ test("appendJsonLine warning path is handled when log path is invalid for append
 	}
 });
 
-test("estimateTokens rounds up by rough 4-char chunks", () => {
+test("estimateTokens counts real BPE tokens via cl100k_base (falls back to chars/4 if unavailable)", () => {
 	assert.equal(estimateTokens(""), 0);
 	assert.equal(estimateTokens("abcd"), 1);
 	assert.equal(estimateTokens("abcde"), 2);
+	if (tokenizerAvailable()) {
+		// "hello world" is 2 cl100k tokens; the chars/4 heuristic would give 3.
+		assert.equal(estimateTokens("hello world"), 2);
+		assert.equal(estimateTokens("The quick brown fox"), 4);
+	} else {
+		assert.equal(estimateTokens("hello world"), Math.ceil("hello world".length / 4));
+	}
 });

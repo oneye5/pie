@@ -69,7 +69,7 @@ export function applySetModelOptimistic(
     // Keep the last context-usage reading across the switch. The backend
     // re-emits a fresh ContextUsageChanged immediately after setModel (with the
     // new model's window and the same conversation's prompt footprint), so
-    // nulling here would only flash a chars/4 transcript estimate before the
+    // nulling here would only flash a tokenizer-based transcript estimate before the
     // real reading lands. Holding the previous value keeps the indicator
     // stable across the switch.
 

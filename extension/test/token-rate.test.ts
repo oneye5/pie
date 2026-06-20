@@ -7,6 +7,8 @@ import {
   tickTokenRate,
   WINDOW_MS,
 } from '../src/webview/panel/composer/use-token-rate';
+import { countTextTokens } from '../src/shared/tokenize';
+import { encode as bpeEncode, decode as bpeDecode } from 'gpt-tokenizer/encoding/cl100k_base';
 
 const BASE_NOW = 1_700_000_0000;
 
@@ -22,9 +24,22 @@ function streamingMessage(overrides: Partial<ChatMessage> = {}): ChatMessage {
   };
 }
 
+// A varied base string tokenized once; tokenText slices + decodes it to produce
+// exactly N tokens. Realistic text encodes ~30M chars/s, whereas a run of a
+// single repeated character is a BPE-merge worst case (super-linear), so this
+// keeps the rate tests fast while staying deterministic.
+const TOKEN_BASE = bpeEncode('The quick brown fox jumps over the lazy dog. '.repeat(1000));
+
+/** Build text that tokenizes to exactly `tokens` cl100k_base tokens. */
+function tokenText(tokens: number): string {
+  if (tokens <= 0) return '';
+  return bpeDecode(TOKEN_BASE.slice(0, Math.min(tokens, TOKEN_BASE.length)));
+}
+
 function setContent(message: ChatMessage, chars: number): ChatMessage {
-  // chars/4 token heuristic -> use repeated chars so token count is deterministic.
-  return { ...message, markdown: 'a'.repeat(chars) };
+  // Calibrate output as chars/4 tokens, counted with the real cl100k_base
+  // tokenizer so token magnitudes match the historical chars/4 calibration.
+  return { ...message, markdown: tokenText(Math.round(chars / 4)) };
 }
 
 function subagentToolCall(
@@ -80,7 +95,7 @@ function parallelSubagentToolCall(
         task: `task-${index}`,
         exitCode: overrides.exitCodes?.[index] ?? -1,
         messages: [],
-        streamingText: 'a'.repeat(chars),
+        streamingText: tokenText(Math.round(chars / 4)),
       })),
     },
   };
@@ -97,6 +112,12 @@ function runTicks(
   }
   return { acc, state };
 }
+
+test('tokenText produces exactly N cl100k_base tokens (calibration guard)', () => {
+  for (const n of [0, 1, 2, 10, 100, 200, 1080]) {
+    assert.equal(countTextTokens(tokenText(n)), n, `tokenText(${n})`);
+  }
+});
 
 test('idle: no streaming message shows a paused "measuring" placeholder with no rate', () => {
   const { state } = runTicks([{ transcript: [], now: BASE_NOW }]);
@@ -245,7 +266,7 @@ test('subagent streaming output is counted while the main session is paused on a
   tickTokenRate(acc, [blocked], BASE_NOW + 2000);
 
   // Subagent streams 50 tokens/s for 2s while main is blocked.
-  const subagentText = (chars: number) => subagentToolCall('sub1', { streamingText: 'a'.repeat(chars) });
+  const subagentText = (chars: number) => subagentToolCall('sub1', { streamingText: tokenText(Math.round(chars / 4)) });
   const transcript1: ChatMessage[] = [setContent(
     { ...m, toolCalls: [subagentText(200)] },
     400,
@@ -274,8 +295,8 @@ test('parallel subagents aggregate their output into a single session rate', () 
       ...m,
       status: 'streaming' as const,
       toolCalls: [
-        subagentToolCall('sub1', { streamingText: 'a'.repeat(charsEach) }),
-        subagentToolCall('sub2', { streamingText: 'a'.repeat(charsEach) }),
+        subagentToolCall('sub1', { streamingText: tokenText(Math.round(charsEach / 4)) }),
+        subagentToolCall('sub2', { streamingText: tokenText(Math.round(charsEach / 4)) }),
       ],
     };
   };

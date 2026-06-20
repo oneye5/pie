@@ -82,7 +82,7 @@ test('buildContextWindowBreakdown sorts top contributors first, uses derived Oth
 
   assert.match(breakdown.title, /Used: 20/m);
   assert.match(breakdown.title, /Remaining: 80/m);
-  assert.match(breakdown.title, /System prompt: ~5 estimated/m);
+  assert.match(breakdown.title, /System prompt: ~4 estimated/m);
 });
 
 test('buildContextWindowBreakdown classifies read_file tool calls individually', () => {

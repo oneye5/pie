@@ -1,6 +1,7 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import type { PruningDecision, PruningMode } from "./types.js";
+import { countTokens } from "./tokenize.js";
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
 const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..");
@@ -100,7 +101,7 @@ export function recordSkillRead(sessionId: string, readPath: string): void {
 }
 
 export function estimateTokens(text: string): number {
-	return Math.ceil(text.length / 4);
+	return countTokens(text);
 }
 
 function deriveSkillName(readPath: string): string {

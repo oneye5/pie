@@ -432,7 +432,7 @@ async function handleSettingsSet(
       // Re-emit a fresh context-usage reading immediately so the indicator
       // reflects the new model's context window with the same conversation,
       // instead of blanking to null (which previously made the indicator flip
-      // to a chars/4 transcript estimate until the next turn).
+      // to a tokenizer-based transcript estimate until the next turn).
       // emitContextUsageChanged resolves the new model's window and the last
       // assistant prompt footprint, and no-ops via change-detection when
       // nothing differs.

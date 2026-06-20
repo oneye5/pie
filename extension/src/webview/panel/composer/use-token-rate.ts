@@ -150,7 +150,7 @@ function hasRunningToolCall(message: ChatMessage | null): boolean {
   return message.toolCalls.some((tc) => tc.status === 'running');
 }
 
-/** Estimated output tokens for a message: text + reasoning, via the chars/4 heuristic. */
+/** Estimated output tokens for a message: text + reasoning, via the cl100k_base tokenizer. */
 function estimatedOutputTokens(message: ChatMessage | null): number {
   if (!message) return 0;
   return estimateTextTokens(message.markdown ?? '') + estimateTextTokens(message.thinking ?? '');
