@@ -4,6 +4,7 @@ import {
   mergeFileMutationDelta,
   normalizeToolCallName,
   type ToolFailureKind,
+  type ToolResultIssueKind,
 } from '../../shared/tool-call-analysis';
 import type {
   AssistantUsage,
@@ -217,32 +218,52 @@ export class SessionRunTracker {
     }
 
     if (toolCall.status === 'failed') {
-      run.toolUsage.failureCount += 1;
-      incrementNamedCount(run.toolUsage.failureCountsByName, normalizedName);
-
-      const failureKind = analysis.failure?.kind ?? 'unknown';
-      incrementNamedCount(run.toolUsage.failureCountsByKind, failureKind);
-      const countsForTool = run.toolUsage.failureCountsByNameAndKind[normalizedName] ?? {} as Record<ToolFailureKind, number>;
-      run.toolUsage.failureCountsByNameAndKind[normalizedName] = countsForTool;
-      incrementNamedCount(countsForTool, failureKind);
-
-      if (failureKind === 'verification_project_failure') {
-        run.toolUsage.verificationProjectFailureCount += 1;
-      } else if (failureKind === 'probe_no_match') {
-        run.toolUsage.probeFailureCount += 1;
-      } else {
+      if (analysis.failure) {
+        // Execution failure: the tool could not complete its job.
+        run.toolUsage.failureCount += 1;
         run.toolUsage.executionFailureCount += 1;
-      }
+        incrementNamedCount(run.toolUsage.failureCountsByName, normalizedName);
+        incrementNamedCount(run.toolUsage.failureCountsByKind, analysis.failure.kind);
+        const countsForTool = run.toolUsage.failureCountsByNameAndKind[normalizedName] ?? {} as Record<ToolFailureKind, number>;
+        run.toolUsage.failureCountsByNameAndKind[normalizedName] = countsForTool;
+        incrementNamedCount(countsForTool, analysis.failure.kind);
 
-      if (run.toolUsage.failureSamples.length < TOOL_FAILURE_SAMPLE_LIMIT) {
-        run.toolUsage.failureSamples.push({
-          toolName: normalizedName,
-          failureKind,
-          exitCode: analysis.failure?.exitCode ?? null,
-          errorExcerpt: analysis.failure?.errorExcerpt ?? '',
-          verificationKinds: analysis.verificationKinds,
-          occurredAt: this.runState.isoNow(),
-        });
+        if (run.toolUsage.failureSamples.length < TOOL_FAILURE_SAMPLE_LIMIT) {
+          run.toolUsage.failureSamples.push({
+            toolName: normalizedName,
+            failureKind: analysis.failure.kind,
+            exitCode: analysis.failure.exitCode,
+            errorExcerpt: analysis.failure.errorExcerpt,
+            verificationKinds: analysis.verificationKinds,
+            occurredAt: this.runState.isoNow(),
+          });
+        }
+      } else if (analysis.resultIssue) {
+        // Non-success result: the tool ran fine but reported a non-success outcome
+        // (a failing test/build/lint, or an empty probe/search). Measured, not a failure.
+        run.toolUsage.resultIssueCount += 1;
+        incrementNamedCount(run.toolUsage.resultIssueCountsByName, normalizedName);
+        incrementNamedCount(run.toolUsage.resultIssueCountsByKind, analysis.resultIssue.kind);
+        const issueCountsForTool = run.toolUsage.resultIssueCountsByNameAndKind[normalizedName] ?? {} as Record<ToolResultIssueKind, number>;
+        run.toolUsage.resultIssueCountsByNameAndKind[normalizedName] = issueCountsForTool;
+        incrementNamedCount(issueCountsForTool, analysis.resultIssue.kind);
+
+        if (analysis.resultIssue.kind === 'verification_failure') {
+          run.toolUsage.verificationProjectFailureCount += 1;
+        } else {
+          run.toolUsage.probeFailureCount += 1;
+        }
+
+        if (run.toolUsage.resultIssueSamples.length < TOOL_FAILURE_SAMPLE_LIMIT) {
+          run.toolUsage.resultIssueSamples.push({
+            toolName: normalizedName,
+            resultIssueKind: analysis.resultIssue.kind,
+            exitCode: analysis.resultIssue.exitCode,
+            errorExcerpt: analysis.resultIssue.errorExcerpt,
+            verificationKinds: analysis.resultIssue.verificationKinds,
+            occurredAt: this.runState.isoNow(),
+          });
+        }
       }
     }
 

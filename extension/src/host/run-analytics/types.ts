@@ -7,7 +7,7 @@ import type {
   SessionAnalyticsFactors,
   ThinkingLevel,
 } from '../../shared/protocol';
-import type { VerificationCommandKind, SubagentTaskScoreRollup, ToolFailureKind } from '../../shared/tool-call-analysis';
+import type { VerificationCommandKind, SubagentTaskScoreRollup, ToolFailureKind, ToolResultIssueKind } from '../../shared/tool-call-analysis';
 
 export const RUN_ANALYTICS_SCHEMA_VERSION = 1;
 
@@ -26,6 +26,16 @@ export type TreatmentChangeKind =
 export interface ToolFailureSample {
   toolName: string;
   failureKind: ToolFailureKind;
+  exitCode: number | null;
+  errorExcerpt: string;
+  verificationKinds: VerificationCommandKind[];
+  occurredAt: string;
+}
+
+export interface ToolResultIssueSample {
+  toolName: string;
+  /** Non-success result kind: a verification command that exposed project failures, or an empty probe/search. */
+  resultIssueKind: ToolResultIssueKind;
   exitCode: number | null;
   errorExcerpt: string;
   verificationKinds: VerificationCommandKind[];
@@ -105,6 +115,12 @@ export interface TurnLatencyMeasurement {
 
 export interface ToolUsageRollup {
   totalCount: number;
+  /**
+   * Execution failures only: tool calls where the tool could not complete its
+   * job (timeout, invalid arguments, missing file, shell error, nonzero exit on
+   * a non-verification command, ...). Non-success results (failing tests/builds,
+   * empty searches) are tracked under `resultIssueCount`, not here.
+   */
   failureCount: number;
   /** Failed tool calls excluding verification-project failures and probe/no-match outcomes. */
   executionFailureCount: number;
@@ -112,11 +128,17 @@ export interface ToolUsageRollup {
   verificationProjectFailureCount: number;
   /** Failed probe/search commands that likely mean "no matches" rather than a broken tool. */
   probeFailureCount: number;
+  /** Non-success results: tool ran to completion but reported a non-success outcome (verification failure or empty probe). */
+  resultIssueCount: number;
   countsByName: Record<string, number>;
   failureCountsByName: Record<string, number>;
   failureCountsByKind: Record<ToolFailureKind, number>;
   failureCountsByNameAndKind: Record<string, Record<ToolFailureKind, number>>;
   failureSamples: ToolFailureSample[];
+  resultIssueCountsByName: Record<string, number>;
+  resultIssueCountsByKind: Record<ToolResultIssueKind, number>;
+  resultIssueCountsByNameAndKind: Record<string, Record<ToolResultIssueKind, number>>;
+  resultIssueSamples: ToolResultIssueSample[];
   /** Cumulative wall-clock execution time (ms) across all timed tool calls. */
   totalDurationMs: number;
   /** Number of completed/failed tool calls that reported an execution duration. */

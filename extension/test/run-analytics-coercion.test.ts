@@ -162,10 +162,11 @@ test('rollup coercers normalize invalid nested records and preserve valid values
   });
 
   assert.equal(toolUsage.totalCount, 3);
-  assert.equal(toolUsage.failureCount, 0);
+  assert.equal(toolUsage.failureCount, 2);
   assert.equal(toolUsage.executionFailureCount, 2);
   assert.equal(toolUsage.verificationProjectFailureCount, 1);
   assert.equal(toolUsage.probeFailureCount, 0);
+  assert.equal(toolUsage.resultIssueCount, 1);
   assert.deepEqual(toolUsage.countsByName, { bash: 2 });
   assert.deepEqual(toolUsage.failureCountsByName, { bash: 1 });
   assert.equal(toolUsage.failureCountsByKind.timeout, 2);
@@ -359,4 +360,66 @@ test('coerceRunSnapshot coerces turn-latency fields on throughput samples, defau
   assert.equal(c.turnLatencyMs, null, 'negative coerces to null');
   assert.equal(c.overheadMs, null, 'non-number coerces to null');
   assert.equal(c.providerLatencyMs, null);
+});
+
+test('coerceToolUsageRollup remaps legacy failure kinds into result-issue rollups', () => {
+  // Pre-split data: verification_project_failure and probe_no_match were counted
+  // under the failure rollups, and no resultIssue* fields existed.
+  const legacy = {
+    totalCount: 5,
+    failureCount: 4,
+    executionFailureCount: 2,
+    verificationProjectFailureCount: 1,
+    probeFailureCount: 1,
+    countsByName: { bash: 3, read: 2 },
+    failureCountsByName: { bash: 3, read: 1 },
+    failureCountsByKind: {
+      timeout: 1,
+      nonzero_exit: 1,
+      verification_project_failure: 1,
+      probe_no_match: 1,
+    },
+    failureCountsByNameAndKind: {
+      bash: { timeout: 1, verification_project_failure: 1, probe_no_match: 1 },
+      read: { nonzero_exit: 1 },
+    },
+    failureSamples: [
+      { toolName: 'bash', failureKind: 'timeout', exitCode: 124, errorExcerpt: 'timed out', verificationKinds: [], occurredAt: '2026-01-01T00:00:00.000Z' },
+      { toolName: 'bash', failureKind: 'verification_project_failure', exitCode: 1, errorExcerpt: 'tests failed', verificationKinds: ['test'], occurredAt: '2026-01-02T00:00:00.000Z' },
+      { toolName: 'bash', failureKind: 'probe_no_match', exitCode: 1, errorExcerpt: '', verificationKinds: [], occurredAt: '2026-01-03T00:00:00.000Z' },
+    ],
+  } as unknown as Parameters<typeof coerceToolUsageRollup>[0];
+
+  const toolUsage = coerceToolUsageRollup(legacy);
+
+  // Execution-only failure counts (verification/probe no longer counted as failures).
+  assert.equal(toolUsage.failureCount, 2);
+  assert.equal(toolUsage.executionFailureCount, 2);
+  assert.equal(toolUsage.verificationProjectFailureCount, 1);
+  assert.equal(toolUsage.probeFailureCount, 1);
+  assert.equal(toolUsage.resultIssueCount, 2);
+
+  // Legacy kinds removed from the failure by-kind rollup...
+  assert.equal(toolUsage.failureCountsByKind.timeout, 1);
+  assert.equal(toolUsage.failureCountsByKind.nonzero_exit, 1);
+  assert.equal(('verification_project_failure' in toolUsage.failureCountsByKind), false);
+  assert.equal(('probe_no_match' in toolUsage.failureCountsByKind), false);
+
+  // ...and remapped into the result-issue by-kind rollup.
+  assert.equal(toolUsage.resultIssueCountsByKind.verification_failure, 1);
+  assert.equal(toolUsage.resultIssueCountsByKind.probe_no_match, 1);
+
+  // Per-tool split: bash keeps execution kinds, gains result-issue kinds.
+  assert.equal(toolUsage.failureCountsByNameAndKind.bash?.timeout, 1);
+  assert.equal(('verification_project_failure' in (toolUsage.failureCountsByNameAndKind.bash ?? {})), false);
+  assert.equal(toolUsage.resultIssueCountsByNameAndKind.bash?.verification_failure, 1);
+  assert.equal(toolUsage.resultIssueCountsByNameAndKind.bash?.probe_no_match, 1);
+
+  // Samples split: execution sample stays; verification/probe move to result-issue samples.
+  assert.equal(toolUsage.failureSamples.length, 1);
+  assert.equal(toolUsage.failureSamples[0]?.failureKind, 'timeout');
+  assert.equal(toolUsage.resultIssueSamples.length, 2);
+  assert.equal(toolUsage.resultIssueSamples[0]?.resultIssueKind, 'verification_failure');
+  assert.deepEqual(toolUsage.resultIssueSamples[0]?.verificationKinds, ['test']);
+  assert.equal(toolUsage.resultIssueSamples[1]?.resultIssueKind, 'probe_no_match');
 });

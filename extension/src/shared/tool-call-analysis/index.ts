@@ -42,21 +42,41 @@ export {
   createEmptySubagentTaskScoreRollup,
 };
 
+/**
+ * Execution failures: the tool could not complete its job. These are genuine
+ * tool failures (the tool itself is at fault) and are counted under
+ * `failureCount` / `failureCountsByKind`.
+ */
 export type ToolFailureKind =
   | 'unavailable_tool'
   | 'invalid_tool_arguments'
   | 'missing_file_or_path'
   | 'shell_command_error'
-  | 'probe_no_match'
-  | 'verification_project_failure'
   | 'timeout'
   | 'nonzero_exit'
   | 'unknown';
+
+/**
+ * Non-success results: the tool ran to completion and did its job correctly,
+ * but the outcome it reported was not "success". These are measured signal
+ * (a failing test, a breaking build, an empty search) — NOT tool failures —
+ * and are counted under `resultIssueCount` / `resultIssueCountsByKind`.
+ */
+export type ToolResultIssueKind =
+  | 'verification_failure'
+  | 'probe_no_match';
 
 export interface ToolFailureDetails {
   kind: ToolFailureKind;
   exitCode: number | null;
   errorExcerpt: string;
+}
+
+export interface ToolResultIssueDetails {
+  kind: ToolResultIssueKind;
+  exitCode: number | null;
+  errorExcerpt: string;
+  verificationKinds: VerificationCommandKind[];
 }
 
 export interface ToolCallAnalysis {
@@ -70,7 +90,10 @@ export interface ToolCallAnalysis {
   verificationKinds: VerificationCommandKind[];
   fileMutation: FileMutationDelta;
   fileExtension: FileExtensionAnalysis | null;
+  /** Execution failure (the tool could not do its job), or null. */
   failure: ToolFailureDetails | null;
+  /** Non-success result (tool ran fine, outcome was not success), or null. */
+  resultIssue: ToolResultIssueDetails | null;
 }
 
 function incrementCount(record: Record<string, number>, key: string): void {
@@ -162,12 +185,24 @@ function isProbeNoMatch(command: string, text: string, exitCode: number | null):
   return normalizedText.length === 0;
 }
 
-function classifyToolFailure(
+/**
+ * Classify a failed tool call into exactly one of:
+ *  - an execution `failure` (the tool could not do its job), or
+ *  - a `resultIssue` (the tool ran fine but reported a non-success result:
+ *    a failing test/build/lint, or an empty search).
+ *
+ * A failed call is never both. `timeout` is treated as an execution failure
+ * even for verification commands, because a killed command did not produce a
+ * usable result. Verification commands that ran and exited non-zero become a
+ * `verification_failure` result issue; empty probe/search results become a
+ * `probe_no_match` result issue.
+ */
+function classifyToolOutcome(
   toolCall: ToolCall,
   verificationKinds: VerificationCommandKind[],
-): ToolFailureDetails | null {
+): { failure: ToolFailureDetails | null; resultIssue: ToolResultIssueDetails | null } {
   if (toolCall.status !== 'failed') {
-    return null;
+    return { failure: null, resultIssue: null };
   }
 
   const normalizedToolName = normalizeToolCallName(toolCall.name) || toolCall.name;
@@ -176,36 +211,50 @@ function classifyToolFailure(
   const combinedText = `${command}\n${resultText}`;
   const exitCode = extractExitCode(toolCall.result, resultText);
   const lower = combinedText.toLowerCase();
+  const errorExcerpt = formatErrorExcerpt(resultText);
 
-  let kind: ToolFailureKind = 'unknown';
+  // Execution failures — the tool could not complete its job.
   if (/tool\s+[^\s]+\s+not found/i.test(resultText)) {
-    kind = 'unavailable_tool';
-  } else if (/command timed out|timed out after|timeout/i.test(resultText)) {
-    kind = 'timeout';
-  } else if (verificationKinds.length > 0) {
-    kind = 'verification_project_failure';
-  } else if (isProbeNoMatch(command, resultText, exitCode)) {
-    kind = 'probe_no_match';
-  } else if (/enoent|no such file or directory|cannot find path|cannot access|filenotfounderror/.test(lower)) {
-    kind = 'missing_file_or_path';
-  } else if (
+    return { failure: { kind: 'unavailable_tool', exitCode, errorExcerpt }, resultIssue: null };
+  }
+  if (/command timed out|timed out after|timeout/i.test(resultText)) {
+    return { failure: { kind: 'timeout', exitCode, errorExcerpt }, resultIssue: null };
+  }
+
+  // Non-success results — the tool ran fine but the outcome was not success.
+  if (verificationKinds.length > 0) {
+    return {
+      failure: null,
+      resultIssue: { kind: 'verification_failure', exitCode, errorExcerpt, verificationKinds },
+    };
+  }
+  if (isProbeNoMatch(command, resultText, exitCode)) {
+    return {
+      failure: null,
+      resultIssue: { kind: 'probe_no_match', exitCode, errorExcerpt, verificationKinds: [] },
+    };
+  }
+
+  // Remaining execution failures.
+  if (/enoent|no such file or directory|cannot find path|cannot access|filenotfounderror/.test(lower)) {
+    return { failure: { kind: 'missing_file_or_path', exitCode, errorExcerpt }, resultIssue: null };
+  }
+  if (
     normalizedToolName === 'edit'
     && /validation failed|oldtext|old text|exact text|occurrences|unique|overlap|must not be empty|must be object/.test(lower)
   ) {
-    kind = 'invalid_tool_arguments';
-  } else if (normalizedToolName === 'read' && /offset .* beyond end of file|invalid|must be/.test(lower)) {
-    kind = 'invalid_tool_arguments';
-  } else if (/syntax error|unexpected token|command not found|not recognized|parsererror|parsefile/.test(lower)) {
-    kind = 'shell_command_error';
-  } else if (exitCode !== null) {
-    kind = 'nonzero_exit';
+    return { failure: { kind: 'invalid_tool_arguments', exitCode, errorExcerpt }, resultIssue: null };
   }
-
-  return {
-    kind,
-    exitCode,
-    errorExcerpt: formatErrorExcerpt(resultText),
-  };
+  if (normalizedToolName === 'read' && /offset .* beyond end of file|invalid|must be/.test(lower)) {
+    return { failure: { kind: 'invalid_tool_arguments', exitCode, errorExcerpt }, resultIssue: null };
+  }
+  if (/syntax error|unexpected token|command not found|not recognized|parsererror|parsefile/.test(lower)) {
+    return { failure: { kind: 'shell_command_error', exitCode, errorExcerpt }, resultIssue: null };
+  }
+  if (exitCode !== null) {
+    return { failure: { kind: 'nonzero_exit', exitCode, errorExcerpt }, resultIssue: null };
+  }
+  return { failure: { kind: 'unknown', exitCode, errorExcerpt }, resultIssue: null };
 }
 
 export function analyzeToolCall(toolCall: ToolCall): ToolCallAnalysis {
@@ -217,6 +266,7 @@ export function analyzeToolCall(toolCall: ToolCall): ToolCallAnalysis {
     : { taskCount: 0, agents: [] as string[], scoredTaskCount: 0, taskScores: createEmptySubagentTaskScoreRollup() };
   const fileMutation = getFileMutationFromToolCall(toolCall);
   const fileExtension = getFileExtensionFromToolCall(toolCall);
+  const { failure, resultIssue } = classifyToolOutcome(toolCall, verificationKinds);
 
   return {
     normalizedToolName,
@@ -229,7 +279,8 @@ export function analyzeToolCall(toolCall: ToolCall): ToolCallAnalysis {
     verificationKinds,
     fileMutation,
     fileExtension,
-    failure: classifyToolFailure(toolCall, verificationKinds),
+    failure,
+    resultIssue,
   };
 }
 

@@ -853,6 +853,16 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
             errorExcerpt: string;
             verificationKinds: string[];
           }>;
+          resultIssueCount: number;
+          resultIssueCountsByKind: Record<string, number>;
+          resultIssueCountsByNameAndKind: Record<string, Record<string, number>>;
+          resultIssueSamples: Array<{
+            toolName: string;
+            resultIssueKind: string;
+            exitCode: number | null;
+            errorExcerpt: string;
+            verificationKinds: string[];
+          }>;
           subagentCallCount: number;
           subagentTaskCount: number;
           subagentAgentNames: string[];
@@ -881,17 +891,19 @@ test('StatsService rolls up tool usage, verification commands, subagents, and fi
 
     assert.equal(snapshotEntries.length, 1);
     assert.equal(snapshotEntries[0].run.toolUsage.totalCount, 3);
-    assert.equal(snapshotEntries[0].run.toolUsage.failureCount, 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.failureCount, 0);
     assert.equal(snapshotEntries[0].run.toolUsage.executionFailureCount, 0);
     assert.equal(snapshotEntries[0].run.toolUsage.verificationProjectFailureCount, 1);
     assert.equal(snapshotEntries[0].run.toolUsage.probeFailureCount, 0);
+    assert.equal(snapshotEntries[0].run.toolUsage.resultIssueCount, 1);
     assert.equal(snapshotEntries[0].run.toolUsage.countsByName['bash'], 1);
-    assert.equal(snapshotEntries[0].run.toolUsage.failureCountsByKind['verification_project_failure'], 1);
-    assert.equal(snapshotEntries[0].run.toolUsage.failureCountsByNameAndKind['bash']?.['verification_project_failure'], 1);
-    assert.equal(snapshotEntries[0].run.toolUsage.failureSamples[0]?.toolName, 'bash');
-    assert.equal(snapshotEntries[0].run.toolUsage.failureSamples[0]?.failureKind, 'verification_project_failure');
-    assert.equal(snapshotEntries[0].run.toolUsage.failureSamples[0]?.exitCode, 1);
-    assert.deepEqual(snapshotEntries[0].run.toolUsage.failureSamples[0]?.verificationKinds, ['test']);
+    assert.equal(snapshotEntries[0].run.toolUsage.resultIssueCountsByKind['verification_failure'], 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.resultIssueCountsByNameAndKind['bash']?.['verification_failure'], 1);
+    assert.equal(snapshotEntries[0].run.toolUsage.failureSamples.length, 0);
+    assert.equal(snapshotEntries[0].run.toolUsage.resultIssueSamples[0]?.toolName, 'bash');
+    assert.equal(snapshotEntries[0].run.toolUsage.resultIssueSamples[0]?.resultIssueKind, 'verification_failure');
+    assert.equal(snapshotEntries[0].run.toolUsage.resultIssueSamples[0]?.exitCode, 1);
+    assert.deepEqual(snapshotEntries[0].run.toolUsage.resultIssueSamples[0]?.verificationKinds, ['test']);
     assert.equal(snapshotEntries[0].run.toolUsage.subagentCallCount, 1);
     assert.equal(snapshotEntries[0].run.toolUsage.subagentTaskCount, 2);
     assert.deepEqual(snapshotEntries[0].run.toolUsage.subagentAgentNames, ['scout', 'reviewer']);

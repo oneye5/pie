@@ -1,8 +1,9 @@
-import type { VerificationCommandKind, SubagentTaskScoreRollup, ToolFailureKind } from '../../shared/tool-call-analysis';
+import type { VerificationCommandKind, SubagentTaskScoreRollup, ToolFailureKind, ToolResultIssueKind } from '../../shared/tool-call-analysis';
 import type {
   FileExtensionRollup,
   FileMutationRollup,
   ToolFailureSample,
+  ToolResultIssueSample,
   ToolUsageRollup,
   TreatmentChangeKind,
   VerificationRollup,
@@ -35,12 +36,23 @@ const TOOL_FAILURE_KINDS: ToolFailureKind[] = [
   'invalid_tool_arguments',
   'missing_file_or_path',
   'shell_command_error',
-  'probe_no_match',
-  'verification_project_failure',
   'timeout',
   'nonzero_exit',
   'unknown',
 ];
+
+const TOOL_RESULT_ISSUE_KINDS: ToolResultIssueKind[] = ['verification_failure', 'probe_no_match'];
+
+/**
+ * Legacy failure-kind names (pre-split) that are now classified as non-success
+ * results rather than tool failures, mapped to their new `ToolResultIssueKind`.
+ * Used to remap historical run-analytics data on read so old dashboards stay
+ * consistent with the execution-only failure semantics.
+ */
+const LEGACY_RESULT_ISSUE_KIND_MAP: Record<string, ToolResultIssueKind> = {
+  verification_project_failure: 'verification_failure',
+  probe_no_match: 'probe_no_match',
+};
 
 const TREATMENT_CHANGE_KINDS: TreatmentChangeKind[] = [
   'model',
@@ -95,12 +107,61 @@ function createEmptyToolFailureKindRecord(): Record<ToolFailureKind, number> {
     invalid_tool_arguments: 0,
     missing_file_or_path: 0,
     shell_command_error: 0,
-    probe_no_match: 0,
-    verification_project_failure: 0,
     timeout: 0,
     nonzero_exit: 0,
     unknown: 0,
   };
+}
+
+function createEmptyToolResultIssueKindRecord(): Record<ToolResultIssueKind, number> {
+  return {
+    verification_failure: 0,
+    probe_no_match: 0,
+  };
+}
+
+/**
+ * Split a raw by-kind failure record into execution failures and non-success
+ * results. Handles both new-format data (execution kinds only) and legacy data
+ * (which also embedded `verification_project_failure` / `probe_no_match`). Legacy
+ * result-issue kinds are remapped to their new `ToolResultIssueKind`.
+ */
+interface SplitFailureKinds {
+  execution: Record<ToolFailureKind, number>;
+  resultIssue: Record<ToolResultIssueKind, number>;
+  executionTotal: number;
+  verificationTotal: number;
+  probeTotal: number;
+}
+
+function splitRawFailureKindRecord(value: unknown): SplitFailureKinds {
+  const execution = createEmptyToolFailureKindRecord();
+  const resultIssue = createEmptyToolResultIssueKindRecord();
+  let executionTotal = 0;
+  let verificationTotal = 0;
+  let probeTotal = 0;
+  if (!isObjectRecord(value)) {
+    return { execution, resultIssue, executionTotal, verificationTotal, probeTotal };
+  }
+  for (const [kind, rawCount] of Object.entries(value)) {
+    if (typeof rawCount !== 'number' || !Number.isFinite(rawCount) || rawCount < 0) {
+      continue;
+    }
+    const count = Math.trunc(rawCount);
+    if ((TOOL_FAILURE_KINDS as string[]).includes(kind)) {
+      execution[kind as ToolFailureKind] = count;
+      executionTotal += count;
+    } else if (kind in LEGACY_RESULT_ISSUE_KIND_MAP) {
+      const mapped = LEGACY_RESULT_ISSUE_KIND_MAP[kind]!;
+      resultIssue[mapped] += count;
+      if (mapped === 'verification_failure') {
+        verificationTotal += count;
+      } else {
+        probeTotal += count;
+      }
+    }
+  }
+  return { execution, resultIssue, executionTotal, verificationTotal, probeTotal };
 }
 
 export function createEmptyToolUsageRollup(): ToolUsageRollup {
@@ -110,11 +171,16 @@ export function createEmptyToolUsageRollup(): ToolUsageRollup {
     executionFailureCount: 0,
     verificationProjectFailureCount: 0,
     probeFailureCount: 0,
+    resultIssueCount: 0,
     countsByName: {},
     failureCountsByName: {},
     failureCountsByKind: createEmptyToolFailureKindRecord(),
     failureCountsByNameAndKind: {},
     failureSamples: [],
+    resultIssueCountsByName: {},
+    resultIssueCountsByKind: createEmptyToolResultIssueKindRecord(),
+    resultIssueCountsByNameAndKind: {},
+    resultIssueSamples: [],
     totalDurationMs: 0,
     timedCallCount: 0,
     durationMsByName: {},
@@ -167,12 +233,12 @@ export function createEmptyVerificationRollup(): VerificationRollup {
   };
 }
 
-function coerceToolFailureKindRecord(value: unknown): Record<ToolFailureKind, number> {
-  const result = createEmptyToolFailureKindRecord();
+function coerceToolResultIssueKindRecord(value: unknown): Record<ToolResultIssueKind, number> {
+  const result = createEmptyToolResultIssueKindRecord();
   if (!isObjectRecord(value)) {
     return result;
   }
-  for (const kind of TOOL_FAILURE_KINDS) {
+  for (const kind of TOOL_RESULT_ISSUE_KINDS) {
     const count = value[kind];
     if (typeof count === 'number' && Number.isFinite(count) && count >= 0) {
       result[kind] = Math.trunc(count);
@@ -181,14 +247,15 @@ function coerceToolFailureKindRecord(value: unknown): Record<ToolFailureKind, nu
   return result;
 }
 
-function coerceToolFailureSample(value: unknown): ToolFailureSample | null {
+function coerceResultIssueSample(value: unknown): ToolResultIssueSample | null {
   if (!isObjectRecord(value)) {
     return null;
   }
-  const failureKind = typeof value.failureKind === 'string' && TOOL_FAILURE_KINDS.includes(value.failureKind as ToolFailureKind)
-    ? value.failureKind as ToolFailureKind
+  const resultIssueKind = typeof value.resultIssueKind === 'string'
+    && (TOOL_RESULT_ISSUE_KINDS as string[]).includes(value.resultIssueKind)
+    ? value.resultIssueKind as ToolResultIssueKind
     : null;
-  if (typeof value.toolName !== 'string' || !failureKind || typeof value.occurredAt !== 'string') {
+  if (typeof value.toolName !== 'string' || !resultIssueKind || typeof value.occurredAt !== 'string') {
     return null;
   }
   const exitCode = typeof value.exitCode === 'number' && Number.isFinite(value.exitCode)
@@ -196,7 +263,7 @@ function coerceToolFailureSample(value: unknown): ToolFailureSample | null {
     : null;
   return {
     toolName: value.toolName,
-    failureKind,
+    resultIssueKind,
     exitCode,
     errorExcerpt: typeof value.errorExcerpt === 'string' ? value.errorExcerpt : '',
     verificationKinds: coerceStringArray(value.verificationKinds)
@@ -205,45 +272,150 @@ function coerceToolFailureSample(value: unknown): ToolFailureSample | null {
   };
 }
 
+/**
+ * Coerce a raw sample, splitting legacy samples that carry a
+ * `verification_project_failure` or `probe_no_match` kind (pre-split these were
+ * stored under `failureSamples`) into a `ToolResultIssueSample`.
+ */
+function coerceSampleSplit(value: unknown): { failure: ToolFailureSample | null; resultIssue: ToolResultIssueSample | null } {
+  if (!isObjectRecord(value)) {
+    return { failure: null, resultIssue: null };
+  }
+  if (typeof value.toolName !== 'string' || typeof value.occurredAt !== 'string') {
+    return { failure: null, resultIssue: null };
+  }
+  const exitCode = typeof value.exitCode === 'number' && Number.isFinite(value.exitCode)
+    ? Math.trunc(value.exitCode)
+    : null;
+  const errorExcerpt = typeof value.errorExcerpt === 'string' ? value.errorExcerpt : '';
+  const verificationKinds = coerceStringArray(value.verificationKinds)
+    .filter((kind): kind is VerificationCommandKind => VERIFICATION_COMMAND_KINDS.includes(kind as VerificationCommandKind));
+  const base = { toolName: value.toolName, exitCode, errorExcerpt, verificationKinds, occurredAt: value.occurredAt };
+  const rawKind = typeof value.failureKind === 'string' ? value.failureKind : null;
+  if (rawKind && (TOOL_FAILURE_KINDS as string[]).includes(rawKind)) {
+    return { failure: { ...base, failureKind: rawKind as ToolFailureKind }, resultIssue: null };
+  }
+  if (rawKind && rawKind in LEGACY_RESULT_ISSUE_KIND_MAP) {
+    return { failure: null, resultIssue: { ...base, resultIssueKind: LEGACY_RESULT_ISSUE_KIND_MAP[rawKind]! } };
+  }
+  return { failure: null, resultIssue: null };
+}
+
 export function coerceToolUsageRollup(value: unknown): ToolUsageRollup {
   if (!isObjectRecord(value)) {
     return createEmptyToolUsageRollup();
   }
 
-  const countsByName = isObjectRecord(value.countsByName)
-    ? Object.fromEntries(
-      Object.entries(value.countsByName)
-        .filter(([, count]) => typeof count === 'number' && Number.isFinite(count) && count >= 0)
-        .map(([name, count]) => [name, Math.trunc(count as number)]),
-    )
-    : {};
-  const failureCountsByName = isObjectRecord(value.failureCountsByName)
-    ? Object.fromEntries(
-      Object.entries(value.failureCountsByName)
-        .filter(([, count]) => typeof count === 'number' && Number.isFinite(count) && count >= 0)
-        .map(([name, count]) => [name, Math.trunc(count as number)]),
-    )
-    : {};
+  const coerceNameCountRecord = (v: unknown): Record<string, number> =>
+    isObjectRecord(v)
+      ? Object.fromEntries(
+        Object.entries(v)
+          .filter(([, count]) => typeof count === 'number' && Number.isFinite(count) && count >= 0)
+          .map(([name, count]) => [name, Math.trunc(count as number)]),
+      )
+      : {};
+  const countsByName = coerceNameCountRecord(value.countsByName);
+  const failureCountsByName = coerceNameCountRecord(value.failureCountsByName);
+
+  // Split aggregate by-kind (handles legacy embedded verification/probe kinds).
+  const failureByKindSplit = splitRawFailureKindRecord(value.failureCountsByKind);
+
+  // Split per-tool by-name-and-kind; collect derived result-issue-by-name for legacy data.
   const failureCountsByNameAndKind: Record<string, Record<ToolFailureKind, number>> = {};
+  const derivedResultIssueByNameAndKind: Record<string, Record<ToolResultIssueKind, number>> = {};
   if (isObjectRecord(value.failureCountsByNameAndKind)) {
     for (const [toolName, counts] of Object.entries(value.failureCountsByNameAndKind)) {
-      failureCountsByNameAndKind[toolName] = coerceToolFailureKindRecord(counts);
+      const split = splitRawFailureKindRecord(counts);
+      if (Object.values(split.execution).some((c) => c > 0)) {
+        failureCountsByNameAndKind[toolName] = split.execution;
+      }
+      if (split.verificationTotal > 0 || split.probeTotal > 0) {
+        derivedResultIssueByNameAndKind[toolName] = split.resultIssue;
+      }
+    }
+  }
+
+  // result-issue rollups: prefer explicit new-format fields, else derive from the legacy split.
+  const hasResultIssueField = typeof value.resultIssueCount === 'number' || isObjectRecord(value.resultIssueCountsByKind);
+  const resultIssueCountsByKind = isObjectRecord(value.resultIssueCountsByKind)
+    ? coerceToolResultIssueKindRecord(value.resultIssueCountsByKind)
+    : failureByKindSplit.resultIssue;
+  const resultIssueCountsByNameAndKind = isObjectRecord(value.resultIssueCountsByNameAndKind)
+    ? Object.fromEntries(
+      Object.entries(value.resultIssueCountsByNameAndKind)
+        .map(([toolName, counts]) => [toolName, coerceToolResultIssueKindRecord(counts)]),
+    )
+    : derivedResultIssueByNameAndKind;
+  const resultIssueCountsByName = coerceNameCountRecord(value.resultIssueCountsByName);
+
+  // Counts: new-format data carries execution-only failureCount + resultIssueCount;
+  // legacy data carries a total failureCount with verification/probe embedded, so recompute.
+  let failureCount: number;
+  let resultIssueCount: number;
+  let executionFailureCount: number;
+  let verificationProjectFailureCount: number;
+  let probeFailureCount: number;
+  if (hasResultIssueField) {
+    failureCount = toNonNegativeInteger(value.failureCount);
+    resultIssueCount = toNonNegativeInteger(value.resultIssueCount);
+    executionFailureCount = toNonNegativeInteger(value.executionFailureCount) || failureCount;
+    verificationProjectFailureCount = toNonNegativeInteger(value.verificationProjectFailureCount);
+    probeFailureCount = toNonNegativeInteger(value.probeFailureCount);
+  } else {
+    verificationProjectFailureCount = toNonNegativeInteger(value.verificationProjectFailureCount)
+      || failureByKindSplit.verificationTotal;
+    probeFailureCount = toNonNegativeInteger(value.probeFailureCount)
+      || failureByKindSplit.probeTotal;
+    resultIssueCount = verificationProjectFailureCount + probeFailureCount;
+    executionFailureCount = toNonNegativeInteger(value.executionFailureCount)
+      || failureByKindSplit.executionTotal;
+    // Attribute the legacy total minus classified result-issues to execution
+    // failures. Falls back to the full legacy total for ancient data that
+    // predates by-kind classification (no execution kinds to split out).
+    failureCount = executionFailureCount > 0
+      ? executionFailureCount
+      : Math.max(0, toNonNegativeInteger(value.failureCount) - resultIssueCount);
+  }
+
+  // Samples: split legacy samples (which may carry verification/probe kinds) into result-issue samples.
+  const failureSamples: ToolFailureSample[] = [];
+  const resultIssueSamples: ToolResultIssueSample[] = [];
+  if (Array.isArray(value.failureSamples)) {
+    for (const sample of value.failureSamples) {
+      const split = coerceSampleSplit(sample);
+      if (split.failure) {
+        failureSamples.push(split.failure);
+      }
+      if (split.resultIssue) {
+        resultIssueSamples.push(split.resultIssue);
+      }
+    }
+  }
+  if (Array.isArray(value.resultIssueSamples)) {
+    for (const sample of value.resultIssueSamples) {
+      const coerced = coerceResultIssueSample(sample);
+      if (coerced) {
+        resultIssueSamples.push(coerced);
+      }
     }
   }
 
   return {
     totalCount: toNonNegativeInteger(value.totalCount),
-    failureCount: toNonNegativeInteger(value.failureCount),
-    executionFailureCount: toNonNegativeInteger(value.executionFailureCount),
-    verificationProjectFailureCount: toNonNegativeInteger(value.verificationProjectFailureCount),
-    probeFailureCount: toNonNegativeInteger(value.probeFailureCount),
+    failureCount,
+    executionFailureCount,
+    verificationProjectFailureCount,
+    probeFailureCount,
+    resultIssueCount,
     countsByName,
     failureCountsByName,
-    failureCountsByKind: coerceToolFailureKindRecord(value.failureCountsByKind),
+    failureCountsByKind: failureByKindSplit.execution,
     failureCountsByNameAndKind,
-    failureSamples: Array.isArray(value.failureSamples)
-      ? value.failureSamples.map(coerceToolFailureSample).filter((sample): sample is ToolFailureSample => sample !== null)
-      : [],
+    failureSamples,
+    resultIssueCountsByName,
+    resultIssueCountsByKind,
+    resultIssueCountsByNameAndKind,
+    resultIssueSamples,
     totalDurationMs: toNonNegativeInteger(value.totalDurationMs),
     timedCallCount: toNonNegativeInteger(value.timedCallCount),
     durationMsByName: coerceNonNegativeIntegerRecord(value.durationMsByName),

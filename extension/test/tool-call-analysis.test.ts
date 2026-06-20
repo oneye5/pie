@@ -79,8 +79,10 @@ test('analyzeToolCall classifies failed verification separately from tool-use er
     status: 'failed',
   }));
 
-  assert.equal(verification.failure?.kind, 'verification_project_failure');
-  assert.equal(verification.failure?.exitCode, 1);
+  assert.equal(verification.failure, null);
+  assert.equal(verification.resultIssue?.kind, 'verification_failure');
+  assert.equal(verification.resultIssue?.exitCode, 1);
+  assert.deepEqual(verification.resultIssue?.verificationKinds, ['test']);
   assert.equal(unavailable.failure?.kind, 'unavailable_tool');
   assert.equal(badEdit.failure?.kind, 'invalid_tool_arguments');
   assert.match(badEdit.failure?.errorExcerpt ?? '', /D:\/Users\/example\/project\/src\/app\.ts/);
@@ -98,7 +100,8 @@ test('analyzeToolCall classifies probe no-match and shell errors', () => {
     status: 'failed',
   }));
 
-  assert.equal(probe.failure?.kind, 'probe_no_match');
+  assert.equal(probe.failure, null);
+  assert.equal(probe.resultIssue?.kind, 'probe_no_match');
   assert.equal(shell.failure?.kind, 'shell_command_error');
   assert.equal(shell.failure?.exitCode, 127);
 });
