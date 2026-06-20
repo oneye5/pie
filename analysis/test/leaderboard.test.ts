@@ -14,7 +14,7 @@ test('leaderboard produces ranked rows from fixture data', async () => {
   assert.ok(leaderboard.rows.length > 0, 'should produce at least one row');
   assert.equal(leaderboard.minimumScoredRuns, 3);
   assert.deepEqual(Object.keys(leaderboard.weights).sort(), [
-    'firstAttemptSuccess', 'resolutionRate', 'satisfaction', 'tokenEfficiency', 'toolReliability', 'verificationAdoption',
+    'firstAttemptSuccess', 'resolutionRate', 'satisfaction', 'tokenEfficiency', 'toolReliability', 'verificationPassRate',
   ]);
 
   // Every row has required fields
@@ -134,7 +134,7 @@ test('leaderboard dimension values are within expected bounds', async () => {
   const leaderboard = createModelLeaderboard(prepared);
 
   for (const row of leaderboard.rows) {
-    const { satisfaction, resolutionRate, firstAttemptSuccess, toolReliability, verificationAdoption, tokenEfficiency } = row.dimensions;
+    const { satisfaction, resolutionRate, firstAttemptSuccess, toolReliability, verificationPassRate, tokenEfficiency } = row.dimensions;
 
     if (satisfaction.value !== null) {
       assert.ok(satisfaction.value >= 1 && satisfaction.value <= 5, `satisfaction value ${satisfaction.value} out of [1,5]`);
@@ -143,7 +143,7 @@ test('leaderboard dimension values are within expected bounds', async () => {
       assert.ok(satisfaction.lowerBound >= 1 && satisfaction.lowerBound <= 5, `satisfaction lowerBound ${satisfaction.lowerBound} out of [1,5]`);
     }
 
-    for (const dim of [resolutionRate, firstAttemptSuccess, toolReliability, verificationAdoption]) {
+    for (const dim of [resolutionRate, firstAttemptSuccess, toolReliability, verificationPassRate]) {
       if (dim.value !== null) {
         assert.ok(dim.value >= 0 && dim.value <= 1, `dimension value ${dim.value} out of [0,1]`);
       }
@@ -189,7 +189,7 @@ test('leaderboard weights sum to 1.0', async () => {
   assert.ok(Math.abs(sum - 1.0) < 0.001, `weights sum to ${sum}, expected 1.0`);
 });
 
-test('leaderboard reliability penalty scales with scored run count', async () => {
+test('leaderboard reliability factor reports sample confidence n/(n+k)', async () => {
   const fixture = deepClone(await loadFixture());
   // Create two models: one with 3 scored runs, one with 10+
   const baseRun = fixture.completedRuns[0]!;
@@ -251,21 +251,20 @@ test('leaderboard reliability penalty scales with scored run count', async () =>
   assert.ok(fewRow, 'few-scored-model should appear');
   assert.ok(manyRow, 'many-scored-model should appear');
 
-  // Few-scored model should have reliability factor of 0.3 (3/10)
+  // reliabilityFactor now reports sample confidence = scoredRunCount / (scoredRunCount + SHRINKAGE_K),
+  // with SHRINKAGE_K = 4. It is a display-only indicator and is NOT a multiplicative score penalty.
   assert.ok(fewRow!.reliabilityFactor !== null, 'reliabilityFactor should not be null for scored model');
-  assert.equal(fewRow!.reliabilityFactor, 0.3, '3 scored runs should give 0.3 reliability factor');
+  assert.equal(fewRow!.reliabilityFactor, 0.4286, '3 scored runs → confidence 3/(3+4) = 0.4286');
 
-  // Many-scored model should have reliability factor capped at 1.0 (12/10 = 1.2, clamped to 1.0)
   assert.ok(manyRow!.reliabilityFactor !== null, 'reliabilityFactor should not be null for scored model');
-  assert.equal(manyRow!.reliabilityFactor, 1, '12 scored runs should give reliability factor of 1.0');
+  assert.equal(manyRow!.reliabilityFactor, 0.75, '12 scored runs → confidence 12/(12+4) = 0.75');
 
-  // Even though few-scored has perfect satisfaction (5) vs many (4),
-  // the reliability penalty means many-scored should rank higher
-  assert.ok(manyRow!.rank !== null && fewRow!.rank !== null, 'both should be ranked');
-  assert.ok(manyRow!.rank! < fewRow!.rank!, `many-scored (rank ${manyRow!.rank}) should outrank few-scored (rank ${fewRow!.rank}) thanks to reliability penalty`);
+  // Confidence rises with sample size but no longer hard-cliffs the composite (no multiplicative penalty).
+  assert.ok(manyRow!.reliabilityFactor! > fewRow!.reliabilityFactor!, 'more runs → higher confidence');
+  assert.ok(fewRow!.rank !== null && manyRow!.rank !== null, 'both should be ranked');
 });
 
-test('leaderboard reliability penalty prevents cherry-picked runs from dominating', async () => {
+test('leaderboard shrinkage curbs cherry-picked extremes without burying stronger models', async () => {
   const fixture = deepClone(await loadFixture());
   const baseRun = fixture.completedRuns[0]!;
 
@@ -326,10 +325,21 @@ test('leaderboard reliability penalty prevents cherry-picked runs from dominatin
   assert.ok(cherryRow, 'cherry-model should appear');
   assert.ok(mediocreRow, 'mediocre-model should appear');
 
-  // Cherry-picked model should have 0.4 reliability (4/10)
-  assert.equal(cherryRow!.reliabilityFactor, 0.4, '4 scored runs → 0.4 reliability');
-  // Mediocre model should have 1.0 reliability (10/10)
-  assert.equal(mediocreRow!.reliabilityFactor, 1.0, '10 scored runs → 1.0 reliability');
+  // reliabilityFactor = scoredRunCount / (scoredRunCount + SHRINKAGE_K), SHRINKAGE_K = 4.
+  assert.equal(cherryRow!.reliabilityFactor, 0.5, '4 scored runs → confidence 4/(4+4) = 0.5');
+  assert.equal(mediocreRow!.reliabilityFactor, 0.7143, '10 scored runs → confidence 10/(10+4) = 0.7143');
+
+  // Empirical-Bayes shrinkage pulls the cherry-picked model's perfect estimates toward the grand
+  // mean (which the mediocre model drags below 1.0), so shrunk < observed perfection ...
+  assert.ok(cherryRow!.dimensions.satisfaction.shrunk !== null && cherryRow!.dimensions.satisfaction.shrunk! < 1,
+    'cherry satisfaction shrunk below perfect 1.0 toward the grand mean');
+  assert.ok(cherryRow!.dimensions.resolutionRate.shrunk !== null && cherryRow!.dimensions.resolutionRate.shrunk! < 1,
+    'cherry resolution shrunk below perfect 1.0 toward the grand mean');
+  // ... while preserving that the genuinely stronger model still scores higher on each dimension.
+  assert.ok(cherryRow!.dimensions.satisfaction.shrunk! > mediocreRow!.dimensions.satisfaction.shrunk!,
+    'cherry (sat 5) still shrinks above mediocre (sat 3)');
+  assert.ok(cherryRow!.dimensions.resolutionRate.shrunk! > mediocreRow!.dimensions.resolutionRate.shrunk!,
+    'cherry (resolved) still shrinks above mediocre (partially_resolved)');
 });
 
 test('leaderboard proportion dimensions use scored runs only', async () => {
@@ -384,8 +394,9 @@ test('leaderboard proportion dimensions use scored runs only', async () => {
   assert.equal(row!.dimensions.firstAttemptSuccess.n, 3, 'firstAttemptSuccess dimension should use scored runs only (n=3)');
   // toolReliability n should also be scored-only
   assert.equal(row!.dimensions.toolReliability.n, 3, 'toolReliability dimension should use scored runs only (n=3)');
-  // verificationAdoption n should also be scored-only
-  assert.equal(row!.dimensions.verificationAdoption.n, 3, 'verificationAdoption dimension should use scored runs only (n=3)');
+  // verificationPassRate counts scored runs that performed verification (a subset of scored),
+  // never the full total of 10.
+  assert.ok(row!.dimensions.verificationPassRate.n <= 3, 'verificationPassRate dimension should use scored runs only (n <= 3, not total)');
   // runCount should still reflect total (10)
   assert.equal(row!.runCount, 10, 'runCount should reflect all runs, not just scored');
   assert.equal(row!.scoredRunCount, 3, 'scoredRunCount should be 3');
@@ -584,7 +595,8 @@ test('leaderboard handles large scored samples and ranked rows without token eff
   for (const modelId of ['df-35-model', 'df-55-model', 'df-121-model', 'df-122-model']) {
     const row = leaderboard.rows.find((candidate) => candidate.modelId === modelId);
     assert.ok(row?.rank !== null, `${modelId} should be ranked`);
-    assert.equal(row?.reliabilityFactor, 1, `${modelId} should receive full reliability factor`);
+    // Large samples yield high sample confidence n/(n+4), approaching (but never hard-capping at) 1.
+    assert.ok(row?.reliabilityFactor !== null && row!.reliabilityFactor! > 0.85, `${modelId} should have high confidence`);
   }
 
   const clampedRow = leaderboard.rows.find((row) => row.modelId === 'df-122-model');
@@ -597,4 +609,56 @@ test('leaderboard handles large scored samples and ranked rows without token eff
   assert.equal(noTokenRow.dimensions.tokenEfficiency.value, null);
   assert.equal(noTokenRow.dimensions.tokenEfficiency.lowerBound, null);
   assert.ok(noTokenRow.rank !== null, 'models without token efficiency data should still be rankable');
+});
+
+test('leaderboard ranks the genuinely stronger model #1 by expected strength', async () => {
+  const source = await loadFixture();
+  const baseRun = deepClone(source.completedRuns[0]!);
+  const fixture = deepClone(source);
+  fixture.completedRuns = [];
+  fixture.openRuns = [];
+  fixture.outcomes = [];
+
+  function addModelRuns(modelId: string, count: number, resolution: 'resolved' | 'unresolved', satisfaction: number): void {
+    for (let i = 0; i < count; i++) {
+      const run = deepClone(baseRun);
+      run.runId = `${modelId}-run-${i}`;
+      run.taskGroupId = `${modelId}-task-${i}`;
+      run.modelId = modelId;
+      run.thinkingLevel = 'high';
+      run.status = 'scored';
+      run.scored = true;
+      run.finalizationReason = 'scored';
+      run.finalizedAt = '2026-05-10T14:19:00.000Z';
+      run.outcome = { resolution, satisfaction };
+      fixture.completedRuns.push(run);
+      fixture.outcomes.push({
+        schemaVersion: 1,
+        kind: 'run_outcome',
+        recordedAt: '2026-05-10T14:19:00.000Z',
+        sessionPath: baseRun.sessionPath,
+        runId: run.runId,
+        taskGroupId: run.taskGroupId,
+        outcome: run.outcome,
+      });
+    }
+  }
+
+  // Strong model: resolved, top satisfaction. Weak model: unresolved, low satisfaction.
+  // Both have enough scored runs to rank; other dimensions are inherited identically from the
+  // same base run and cancel out, so the ranking reflects genuine outcome strength.
+  addModelRuns('strong-model', 6, 'resolved', 5);
+  addModelRuns('weak-model', 6, 'unresolved', 2);
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const leaderboard = createModelLeaderboard(prepared);
+
+  const strong = leaderboard.rows.find((row) => row.modelId === 'strong-model');
+  const weak = leaderboard.rows.find((row) => row.modelId === 'weak-model');
+  assert.ok(strong && weak, 'both models should appear');
+  assert.equal(strong!.rank, 1, 'strong model should rank #1');
+  assert.equal(weak!.rank, 2, 'weak model should rank #2');
+  assert.ok(strong!.compositeScore! > weak!.compositeScore!, 'strong composite should exceed weak');
+  // Cost is surfaced separately and does not affect the ranking.
+  assert.ok(strong!.medianCostUsd === null || typeof strong!.medianCostUsd === 'number');
 });

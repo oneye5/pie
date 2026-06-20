@@ -687,8 +687,12 @@ export interface TimelineData {
 }
 
 export interface LeaderboardDimension {
+  /** Observed point estimate (mean / rate / normalized efficiency). */
   value: number | null;
+  /** 95% confidence-interval lower bound, surfaced as an uncertainty indicator (not used for ranking). */
   lowerBound: number | null;
+  /** Empirical-Bayes shrunk estimate toward the cross-model grand mean; this is the value used in the composite. */
+  shrunk: number | null;
   n: number;
 }
 
@@ -705,9 +709,11 @@ export interface ModelLeaderboardRow {
     resolutionRate: LeaderboardDimension;
     firstAttemptSuccess: LeaderboardDimension;
     toolReliability: LeaderboardDimension;
-    verificationAdoption: LeaderboardDimension;
+    verificationPassRate: LeaderboardDimension;
     tokenEfficiency: LeaderboardDimension;
   };
+  /** Median estimated USD cost per run (over completed runs with known pricing); shown separately, not in the composite. */
+  medianCostUsd: number | null;
   subagentRunCount: number;
   subagentUsageRate: number | null;
   avgSubagentTasksPerRun: number | null;
@@ -723,7 +729,7 @@ export interface ModelLeaderboardData {
     resolutionRate: number;
     firstAttemptSuccess: number;
     toolReliability: number;
-    verificationAdoption: number;
+    verificationPassRate: number;
     tokenEfficiency: number;
   };
   minimumScoredRuns: number;

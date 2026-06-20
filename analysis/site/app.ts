@@ -2,7 +2,7 @@ import embed from 'vega-embed';
 
 import {
   LEADERBOARD_MINIMUM_SCORED_RUNS as LEADERBOARD_MIN_SCORED,
-  LEADERBOARD_TARGET_SAMPLE,
+  LEADERBOARD_SHRINKAGE_K,
   LEADERBOARD_TOKEN_EFFICIENCY_MAX,
   LEADERBOARD_WEIGHTS,
 } from '../scripts/leaderboard-scoring.ts';
@@ -1899,8 +1899,9 @@ interface LeaderboardCompositeRow {
   resolutionRate: string;
   firstAttemptRate: string;
   toolReliabilityRate: string;
-  verificationRate: string;
+  verificationPassRate: string;
   tokenEfficiencyRate: string;
+  medianCostUsd: string;
   subagentRate: string;
 }
 
@@ -1909,7 +1910,7 @@ interface LeaderboardDimensionRow {
   axisLabel: string;
   sortOrder: number;
   dimension: string;
-  lowerBound: number;
+  score: number;
   rawLabel: string;
 }
 
@@ -1929,91 +1930,130 @@ function leaderboardRows(runs: PreparedRunRow[]): {
     groups.set(key, existing);
   }
 
+  type DimKey = 'satisfaction' | 'resolutionRate' | 'firstAttemptSuccess' | 'toolReliability' | 'verificationPassRate' | 'tokenEfficiency';
+  const DIM_KEYS: DimKey[] = ['satisfaction', 'resolutionRate', 'firstAttemptSuccess', 'toolReliability', 'verificationPassRate', 'tokenEfficiency'];
+
+  // Pass 1: per-group observed (normalized) point estimates, sample sizes, and display values.
   const entries = [...groups.entries()].map(([key, groupRuns]) => {
     const [modelId, thinkingLevel] = key.split('::');
     const label = `${modelId} / ${formatThinkingLevelLabel(thinkingLevel!)}`;
     const scored = groupRuns.filter((r) => r.scored && r.satisfaction !== null);
 
     const satValues = scored.map((r) => r.satisfaction!);
-    const satCI = meanInterval(satValues, { min: 1, max: 5 });
-    const satLBNorm = satCI ? Math.max(0, Math.min(1, (satCI.lower - 1) / 4)) : null;
+    const satMean = satValues.length > 0 ? satValues.reduce((s, v) => s + v, 0) / satValues.length : null;
 
     const resValues = scored.map((r) => r.resolution === 'resolved' ? 1 : r.resolution === 'partially_resolved' ? 0.5 : 0);
-    const resCI = meanInterval(resValues, { min: 0, max: 1 });
+    const resMean = resValues.length > 0 ? resValues.reduce<number>((s, v) => s + v, 0) / resValues.length : null;
 
-    const fasCI = wilsonInterval(scored.filter((r) => r.firstAttemptSuccess).length, scored.length);
-    const toolCI = wilsonInterval(scored.filter((r) => r.toolFailureCount === 0).length, scored.length);
-    const verCI = wilsonInterval(scored.filter((r) => r.verificationTotalCount > 0).length, scored.length);
+    const fasSuccesses = scored.filter((r) => r.firstAttemptSuccess).length;
+    const toolSuccesses = scored.filter((r) => r.toolFailureCount === 0).length;
+    const verifying = scored.filter((r) => r.verificationTotalCount > 0);
+    const verPass = verifying.filter((r) => r.verificationState === 'passing').length;
 
     const tokenEffValues = scored.map((r) => r.tokenEfficiency).filter((v): v is number => v !== null);
-    const tokenEffCI = tokenEffValues.length >= 2 ? meanInterval(tokenEffValues, { min: 0, max: LEADERBOARD_TOKEN_EFFICIENCY_MAX }) : null;
-    const tokenEffLBNorm = tokenEffCI ? Math.max(0, Math.min(1, 1 - tokenEffCI.lower / LEADERBOARD_TOKEN_EFFICIENCY_MAX)) : null;
+    const tokenEffMedian = tokenEffValues.length > 0
+      ? Math.max(0, Math.min(LEADERBOARD_TOKEN_EFFICIENCY_MAX, median(tokenEffValues) ?? 0))
+      : null;
 
-    let compositeScore: number | null = null;
-    let reliabilityFactor: number | null = null;
-    if (scored.length >= LEADERBOARD_MIN_SCORED) {
-      let sum = 0;
-      if (satLBNorm !== null) sum += LEADERBOARD_WEIGHTS.satisfaction * satLBNorm;
-      if (resCI) sum += LEADERBOARD_WEIGHTS.resolutionRate * Math.max(0, Math.min(1, resCI.lower));
-      if (fasCI) sum += LEADERBOARD_WEIGHTS.firstAttemptSuccess * Math.max(0, Math.min(1, fasCI.lower));
-      if (toolCI) sum += LEADERBOARD_WEIGHTS.toolReliability * Math.max(0, Math.min(1, toolCI.lower));
-      if (verCI) sum += LEADERBOARD_WEIGHTS.verificationAdoption * Math.max(0, Math.min(1, verCI.lower));
-      if (tokenEffLBNorm !== null) sum += LEADERBOARD_WEIGHTS.tokenEfficiency * tokenEffLBNorm;
-      reliabilityFactor = Math.min(1, Math.max(0, scored.length / LEADERBOARD_TARGET_SAMPLE));
-      compositeScore = Math.round(sum * reliabilityFactor * 10000) / 10000;
-    }
+    const observed: Record<DimKey, number | null> = {
+      satisfaction: satMean !== null ? Math.max(0, Math.min(1, (satMean - 1) / 4)) : null,
+      resolutionRate: resMean,
+      firstAttemptSuccess: scored.length > 0 ? fasSuccesses / scored.length : null,
+      toolReliability: scored.length > 0 ? toolSuccesses / scored.length : null,
+      verificationPassRate: verifying.length > 0 ? verPass / verifying.length : null,
+      tokenEfficiency: tokenEffMedian !== null ? Math.max(0, Math.min(1, 1 - tokenEffMedian / LEADERBOARD_TOKEN_EFFICIENCY_MAX)) : null,
+    };
+    const n: Record<DimKey, number> = {
+      satisfaction: scored.length,
+      resolutionRate: scored.length,
+      firstAttemptSuccess: scored.length,
+      toolReliability: scored.length,
+      verificationPassRate: verifying.length,
+      tokenEfficiency: tokenEffValues.length,
+    };
 
-    const subagentRuns = groupRuns.filter((r) => r.subagentCallCount > 0).length;
     return {
       label, modelId: modelId!, thinkingLevel: formatThinkingLevelLabel(thinkingLevel!),
-      runCount: groupRuns.length, scoredRunCount: scored.length, compositeScore, reliabilityFactor,
-      satCI, satLBNorm, resCI, fasCI, toolCI, verCI, tokenEffCI, tokenEffLBNorm,
-      subagentUsageRate: groupRuns.length > 0 ? subagentRuns / groupRuns.length : 0,
+      runCount: groupRuns.length, scoredRunCount: scored.length, observed, n,
+      satMean, resMean, fasSuccesses, toolSuccesses, verifying, verPass, tokenEffMedian,
+      subagentUsageRate: groupRuns.length > 0 ? groupRuns.filter((r) => r.subagentCallCount > 0).length / groupRuns.length : 0,
+      costValues: groupRuns.map((r) => r.estimatedCostUsd).filter((v): v is number => v !== null && Number.isFinite(v)),
     };
   });
 
+  // Pass 2: grand mean per dimension (empirical-Bayes prior) over groups with data.
+  const grandMean: Record<DimKey, number | null> = {} as Record<DimKey, number | null>;
+  for (const dim of DIM_KEYS) {
+    const vals = entries.map((e) => e.observed[dim]).filter((v): v is number => v !== null);
+    grandMean[dim] = vals.length > 0 ? vals.reduce((s, v) => s + v, 0) / vals.length : null;
+  }
+
+  // Pass 3: shrink each estimate toward the grand mean and assemble ranked rows.
   const ranked = entries
-    .filter((e) => e.compositeScore !== null)
+    .map((e) => {
+      let compositeScore: number | null = null;
+      let reliabilityFactor: number | null = null;
+      const shrunk: Record<DimKey, number | null> = {} as Record<DimKey, number | null>;
+      if (e.scoredRunCount >= LEADERBOARD_MIN_SCORED) {
+        let sum = 0;
+        for (const dim of DIM_KEYS) {
+          const obs = e.observed[dim];
+          const gm = grandMean[dim];
+          if (obs === null || gm === null) { shrunk[dim] = null; continue; }
+          const s = Math.max(0, Math.min(1, (e.n[dim] * obs + LEADERBOARD_SHRINKAGE_K * gm) / (e.n[dim] + LEADERBOARD_SHRINKAGE_K)));
+          shrunk[dim] = s;
+          sum += LEADERBOARD_WEIGHTS[dim] * s;
+        }
+        reliabilityFactor = Math.min(1, Math.max(0, e.scoredRunCount / (e.scoredRunCount + LEADERBOARD_SHRINKAGE_K)));
+        compositeScore = Math.round(sum * 10000) / 10000;
+      }
+      return { e, compositeScore, reliabilityFactor, shrunk };
+    })
+    .filter((r) => r.compositeScore !== null)
     .sort((a, b) => (
       b.compositeScore! - a.compositeScore!
-      || b.scoredRunCount - a.scoredRunCount
-      || b.runCount - a.runCount
-      || a.label.localeCompare(b.label, undefined, { numeric: true, sensitivity: 'base' })
+      || b.e.scoredRunCount - a.e.scoredRunCount
+      || b.e.runCount - a.e.runCount
+      || a.e.label.localeCompare(b.e.label, undefined, { numeric: true, sensitivity: 'base' })
     ));
 
   const fmtPct = (v: number | null | undefined) => v != null ? `${(v * 100).toFixed(0)}%` : '—';
-  const rankedAxisLabel = (entry: (typeof ranked)[number], index: number) => `#${index + 1} · ${entry.label}`;
+  const axisLabel = (label: string, index: number) => `#${index + 1} · ${label}`;
 
-  const composite: LeaderboardCompositeRow[] = ranked.map((e, idx) => {
+  const composite: LeaderboardCompositeRow[] = ranked.map(({ e, compositeScore, reliabilityFactor }, idx) => {
     const rankLabel = `#${idx + 1}`;
-    const scoreLabel = `${(e.compositeScore! * 100).toFixed(1)}%`;
+    const scoreLabel = `${(compositeScore! * 100).toFixed(1)}%`;
+    const costMedian = e.costValues.length > 0 ? median(e.costValues) : null;
     return {
-      label: e.label, axisLabel: rankedAxisLabel(e, idx), modelId: e.modelId, thinkingLevel: e.thinkingLevel,
-      sortOrder: idx, compositeScore: e.compositeScore!,
+      label: e.label, axisLabel: axisLabel(e.label, idx), modelId: e.modelId, thinkingLevel: e.thinkingLevel,
+      sortOrder: idx, compositeScore: compositeScore!,
       rank: idx + 1, rankLabel, scoreLabel, barLabel: `${rankLabel} · ${scoreLabel}`,
-      reliabilityLabel: e.reliabilityFactor != null ? `${(e.reliabilityFactor * 100).toFixed(0)}%` : '—',
+      reliabilityLabel: reliabilityFactor != null ? `${(reliabilityFactor * 100).toFixed(0)}%` : '—',
       runCount: e.runCount, scoredRunCount: e.scoredRunCount,
       nLabel: `${e.scoredRunCount} scored / ${e.runCount} total`,
-      avgSatisfaction: e.satCI ? e.satCI.mean.toFixed(2) : '—',
-      resolutionRate: fmtPct(e.resCI?.mean), firstAttemptRate: fmtPct(e.fasCI?.rate),
-      toolReliabilityRate: fmtPct(e.toolCI?.rate), verificationRate: fmtPct(e.verCI?.rate),
-      tokenEfficiencyRate: e.tokenEffCI ? `${e.tokenEffCI.lower.toFixed(1)} tok/line` : '—',
+      avgSatisfaction: e.satMean != null ? e.satMean.toFixed(2) : '—',
+      resolutionRate: fmtPct(e.resMean),
+      firstAttemptRate: fmtPct(e.scoredRunCount > 0 ? e.fasSuccesses / e.scoredRunCount : null),
+      toolReliabilityRate: fmtPct(e.scoredRunCount > 0 ? e.toolSuccesses / e.scoredRunCount : null),
+      verificationPassRate: fmtPct(e.verifying.length > 0 ? e.verPass / e.verifying.length : null),
+      tokenEfficiencyRate: e.tokenEffMedian != null ? `${e.tokenEffMedian.toFixed(1)} tok/line` : '—',
+      medianCostUsd: costMedian != null ? `$${costMedian.toFixed(4)}` : '—',
       subagentRate: fmtPct(e.subagentUsageRate),
     };
   });
 
   const dimensions: LeaderboardDimensionRow[] = [];
-  ranked.forEach((e, idx) => {
-    const axisLabel = rankedAxisLabel(e, idx);
-    const add = (dim: string, lb: number | null | undefined, raw: string) => {
-      if (lb != null) dimensions.push({ label: e.label, axisLabel, sortOrder: idx, dimension: dim, lowerBound: lb, rawLabel: raw });
+  ranked.forEach(({ e, shrunk }, idx) => {
+    const lbl = axisLabel(e.label, idx);
+    const add = (dim: string, score: number | null | undefined, raw: string) => {
+      if (score != null) dimensions.push({ label: e.label, axisLabel: lbl, sortOrder: idx, dimension: dim, score, rawLabel: raw });
     };
-    add('Satisfaction', e.satLBNorm, `${e.satCI?.mean.toFixed(2) ?? '—'} avg`);
-    add('Resolution', e.resCI?.lower, `${fmtPct(e.resCI?.mean)} rate`);
-    add('First attempt', e.fasCI?.lower, `${fmtPct(e.fasCI?.rate)} rate`);
-    add('Tool reliability', e.toolCI?.lower, `${fmtPct(e.toolCI?.rate)} clean`);
-    add('Verification', e.verCI?.lower, `${fmtPct(e.verCI?.rate)} using`);
-    add('Token efficiency', e.tokenEffLBNorm, `${e.tokenEffCI?.lower.toFixed(1) ?? '—'} tok/line`);
+    add('Satisfaction', shrunk.satisfaction, `${e.satMean != null ? e.satMean.toFixed(2) : '—'} avg`);
+    add('Resolution', shrunk.resolutionRate, `${fmtPct(e.resMean)} rate`);
+    add('First attempt', shrunk.firstAttemptSuccess, `${fmtPct(e.scoredRunCount > 0 ? e.fasSuccesses / e.scoredRunCount : null)} rate`);
+    add('Tool reliability', shrunk.toolReliability, `${fmtPct(e.scoredRunCount > 0 ? e.toolSuccesses / e.scoredRunCount : null)} clean`);
+    add('Verification', shrunk.verificationPassRate, `${fmtPct(e.verifying.length > 0 ? e.verPass / e.verifying.length : null)} pass`);
+    add('Token efficiency', shrunk.tokenEfficiency, `${e.tokenEffMedian != null ? e.tokenEffMedian.toFixed(1) : '—'} tok/line`);
   });
 
   return { composite, dimensions, unrankedCount: entries.length - ranked.length };
@@ -2032,7 +2072,7 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
 
   target.innerHTML = `
     <table class="data-table leaderboard-table">
-      <caption>Ranked first to last. Scores are conservative weighted confidence-bound composites.</caption>
+      <caption>Ranked first to last by expected strength. Composite = weighted empirical-Bayes shrunk point estimates; cost shown separately.</caption>
       <thead>
         <tr>
           <th scope="col">Rank</th>
@@ -2043,8 +2083,9 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
           <th scope="col">Resolved</th>
           <th scope="col">1st try</th>
           <th scope="col">Tool clean</th>
-          <th scope="col">Verified</th>
+          <th scope="col">Ver. pass</th>
           <th scope="col">Tok/line</th>
+          <th scope="col">Med. cost</th>
           <th scope="col">Subagents</th>
         </tr>
       </thead>
@@ -2062,8 +2103,9 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
             <td class="numeric">${escapeHtml(row.resolutionRate)}</td>
             <td class="numeric">${escapeHtml(row.firstAttemptRate)}</td>
             <td class="numeric">${escapeHtml(row.toolReliabilityRate)}</td>
-            <td class="numeric">${escapeHtml(row.verificationRate)}</td>
+            <td class="numeric">${escapeHtml(row.verificationPassRate)}</td>
             <td class="numeric">${escapeHtml(row.tokenEfficiencyRate)}</td>
+            <td class="numeric">${escapeHtml(row.medianCostUsd)}</td>
             <td class="numeric">${escapeHtml(row.subagentRate)}</td>
           </tr>
         `).join('')}
@@ -2362,7 +2404,7 @@ async function renderCharts(
     'leaderboard-note',
     lb.composite.length === 0
       ? `No models with ≥${LEADERBOARD_MIN_SCORED} scored runs.`
-      : `${lb.composite.length} ranked models ordered #1 → #${lb.composite.length}; ${lb.unrankedCount} unranked. Composite = weighted CI lower bounds × reliability factor.`,
+      : `${lb.composite.length} ranked models ordered #1 → #${lb.composite.length}; ${lb.unrankedCount} unranked. Composite = weighted empirical-Bayes shrunk point estimates (expected strength); cost shown separately, not in score.`,
     renderToken,
   );
   renderLeaderboardTable(lb.composite, renderToken);
@@ -2377,7 +2419,7 @@ async function renderCharts(
         mark: { type: 'bar', cornerRadiusEnd: 3, opacity: 0.82 },
         encoding: {
           y: { field: 'axisLabel', type: 'nominal', sort: leaderboardOrder, title: null, axis: { labelLimit: 320, labelPadding: 8 } },
-          x: { field: 'compositeScore', type: 'quantitative', title: 'Composite score (CI lower bounds)', scale: { domain: [0, 1] }, axis: { format: '.0%', tickCount: 6 } },
+          x: { field: 'compositeScore', type: 'quantitative', title: 'Composite score (expected, shrunk)', scale: { domain: [0, 1] }, axis: { format: '.0%', tickCount: 6 } },
           color: {
             field: 'thinkingLevel', type: 'nominal', title: 'Reasoning',
             scale: { domain: THINKING_LEVEL_DOMAIN, range: THINKING_LEVEL_RANGE },
@@ -2387,14 +2429,15 @@ async function renderCharts(
             { field: 'rankLabel', type: 'nominal', title: 'Rank' },
             { field: 'label', type: 'nominal', title: 'Model' },
             { field: 'scoreLabel', type: 'nominal', title: 'Composite score' },
-            { field: 'reliabilityLabel', type: 'nominal', title: 'Reliability' },
+            { field: 'reliabilityLabel', type: 'nominal', title: 'Confidence' },
             { field: 'nLabel', type: 'nominal', title: 'Runs' },
             { field: 'avgSatisfaction', type: 'nominal', title: 'Avg satisfaction' },
             { field: 'resolutionRate', type: 'nominal', title: 'Resolution rate' },
             { field: 'firstAttemptRate', type: 'nominal', title: 'First attempt' },
             { field: 'toolReliabilityRate', type: 'nominal', title: 'Tool reliability' },
-            { field: 'verificationRate', type: 'nominal', title: 'Verification' },
+            { field: 'verificationPassRate', type: 'nominal', title: 'Verification pass' },
             { field: 'tokenEfficiencyRate', type: 'nominal', title: 'Token efficiency' },
+            { field: 'medianCostUsd', type: 'nominal', title: 'Median cost / run' },
             { field: 'subagentRate', type: 'nominal', title: 'Subagent usage' },
           ],
         },
@@ -2417,7 +2460,7 @@ async function renderCharts(
     'leaderboard-dimension-note',
     lb.dimensions.length === 0
       ? 'No ranked models to show.'
-      : `6 dimensions per model; dot = 95% CI lower bound (conservative estimate). Weights: sat ${(LEADERBOARD_WEIGHTS.satisfaction * 100).toFixed(0)}%, res ${(LEADERBOARD_WEIGHTS.resolutionRate * 100).toFixed(0)}%, 1st ${(LEADERBOARD_WEIGHTS.firstAttemptSuccess * 100).toFixed(0)}%, tool ${(LEADERBOARD_WEIGHTS.toolReliability * 100).toFixed(0)}%, ver ${(LEADERBOARD_WEIGHTS.verificationAdoption * 100).toFixed(0)}%, tok ${(LEADERBOARD_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%. Scores × reliability (scored/${LEADERBOARD_TARGET_SAMPLE}).`,
+      : `6 dimensions per model; dot = empirical-Bayes shrunk estimate (0–1), the value used in the composite. Weights: sat ${(LEADERBOARD_WEIGHTS.satisfaction * 100).toFixed(0)}%, res ${(LEADERBOARD_WEIGHTS.resolutionRate * 100).toFixed(0)}%, 1st ${(LEADERBOARD_WEIGHTS.firstAttemptSuccess * 100).toFixed(0)}%, tool ${(LEADERBOARD_WEIGHTS.toolReliability * 100).toFixed(0)}%, ver ${(LEADERBOARD_WEIGHTS.verificationPassRate * 100).toFixed(0)}%, tok ${(LEADERBOARD_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%. Estimates shrink toward the grand mean by n/(n+${LEADERBOARD_SHRINKAGE_K}).`,
     renderToken,
   );
 
@@ -2428,7 +2471,7 @@ async function renderCharts(
     mark: { type: 'point', filled: true, size: 180, opacity: 0.88, strokeWidth: 0.6 },
     encoding: {
       y: { field: 'axisLabel', type: 'nominal', sort: leaderboardOrder, title: null, axis: { labelLimit: 320, labelPadding: 8 } },
-      x: { field: 'lowerBound', type: 'quantitative', title: 'CI lower bound (normalized 0–1)', scale: { domain: [0, 1] }, axis: { format: '.0%', tickCount: 6 } },
+      x: { field: 'score', type: 'quantitative', title: 'Shrunk score (0–1)', scale: { domain: [0, 1] }, axis: { format: '.0%', tickCount: 6 } },
       color: {
         field: 'dimension', type: 'nominal', title: 'Dimension',
         scale: { domain: DIMENSION_NAMES, range: DIMENSION_COLORS },
@@ -2437,7 +2480,7 @@ async function renderCharts(
       tooltip: [
         { field: 'label', type: 'nominal', title: 'Model' },
         { field: 'dimension', type: 'nominal', title: 'Dimension' },
-        { field: 'lowerBound', type: 'quantitative', title: 'CI lower bound', format: '.3f' },
+        { field: 'score', type: 'quantitative', title: 'Shrunk score', format: '.3f' },
         { field: 'rawLabel', type: 'nominal', title: 'Raw value' },
       ],
     },
