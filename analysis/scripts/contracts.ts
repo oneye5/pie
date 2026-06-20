@@ -752,8 +752,8 @@ export interface ModelLeaderboardRow {
   medianCostUsd: number | null;
   /** Mean task complexity (0–1) of the model's scored runs; transparency only, not part of the composite. */
   meanTaskComplexity: number | null;
-  /** Whether the composite was difficulty-adjusted for this row (population had complexity variance). */
-  difficultyAdjusted: boolean;
+  /** Whether the outcome dimensions were complexity-weighted (mastery) for this row — true when the scored population has task-complexity variance, so difficulty-emphasis actually differentiates runs. */
+  difficultyEmphasized: boolean;
   subagentRunCount: number;
   subagentUsageRate: number | null;
   avgSubagentTasksPerRun: number | null;

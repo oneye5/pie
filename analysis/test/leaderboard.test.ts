@@ -663,7 +663,7 @@ test('leaderboard ranks the genuinely stronger model #1 by expected strength', a
   assert.ok(strong!.medianCostUsd === null || typeof strong!.medianCostUsd === 'number');
 });
 
-test('leaderboard difficulty-adjusts so easy-task models do not outrank hard-task performers', async () => {
+test('leaderboard difficulty-emphasizes so easy-task models do not outrank hard-task performers', async () => {
   const source = await loadFixture();
   const baseRun = deepClone(source.completedRuns[0]!);
   const fixture = deepClone(source);
@@ -717,21 +717,30 @@ test('leaderboard difficulty-adjusts so easy-task models do not outrank hard-tas
   const strong = leaderboard.rows.find((r) => r.modelId === 'strong-model')!;
   const weak = leaderboard.rows.find((r) => r.modelId === 'weak-model')!;
 
-  // Adjustment is enabled (the population has task-complexity variance).
-  assert.equal(mini.difficultyAdjusted, true, 'population has complexity variance → adjustment enabled');
-  assert.equal(strong.difficultyAdjusted, true);
+  // Emphasis is enabled (the population has task-complexity variance).
+  assert.equal(mini.difficultyEmphasized, true, 'population has complexity variance → emphasis enabled');
+  assert.equal(strong.difficultyEmphasized, true);
 
-  // Headline: the hard-task performer outranks the easy-task model despite worse raw rates.
-  assert.ok(strong.rank! < mini.rank!, `strong (rank ${strong.rank}) should outrank mini (rank ${mini.rank}) after difficulty adjustment`);
-  assert.ok(strong.compositeScore! > mini.compositeScore!, 'adjusted strong composite should exceed mini');
+  // Headline: the hard-task performer outranks the easy-task model despite worse raw rates —
+  // completing complex tasks is the hallmark of strength under difficulty emphasis.
+  assert.ok(strong.rank! < mini.rank!, `strong (rank ${strong.rank}) should outrank mini (rank ${mini.rank}) under difficulty emphasis`);
+  assert.ok(strong.compositeScore! > mini.compositeScore!, 'emphasized strong composite should exceed mini');
   // A model that fails hard tasks lands below the easy-task model (failing hard work is not rewarded).
   assert.ok(weak.rank! > mini.rank!, `weak (rank ${weak.rank}) should rank below mini (rank ${mini.rank})`);
 
-  // Isolation of the adjustment: raw mini > strong on resolution, but adjusted strong > mini.
+  // Isolation of the emphasis: raw mini > strong on resolution, but complexity-weighted strong > mini.
   assert.ok(mini.dimensions.resolutionRate.value! > strong.dimensions.resolutionRate.value!,
     'mini raw resolution (1.0) should exceed strong (~0.83)');
   assert.ok(strong.dimensions.resolutionRate.shrunk! > mini.dimensions.resolutionRate.shrunk!,
-    'strong adjusted resolution should exceed mini after residual control');
+    'strong complexity-weighted resolution mastery should exceed mini after difficulty emphasis');
+
+  // Verification pass rate is also complexity-weighted (regression guard): mini and strong share an
+  // equal 100% raw pass rate (inherited from the base run), but strong verifies on harder tasks so
+  // its mastery estimate must exceed mini's. A raw-proportion bug would tie these at the grand mean.
+  assert.equal(mini.dimensions.verificationPassRate.value, strong.dimensions.verificationPassRate.value,
+    'mini and strong share an equal raw verification pass rate (both 100%)');
+  assert.ok(strong.dimensions.verificationPassRate.shrunk! > mini.dimensions.verificationPassRate.shrunk!,
+    'strong verification pass mastery should exceed mini after difficulty emphasis');
 
   // meanTaskComplexity is exposed, bounded, and reflects task mix (mini easier than strong).
   for (const row of [mini, strong, weak]) {
@@ -741,7 +750,7 @@ test('leaderboard difficulty-adjusts so easy-task models do not outrank hard-tas
   assert.ok(mini.meanTaskComplexity! < strong.meanTaskComplexity!, 'mini tasks should be lower-complexity than strong');
 });
 
-test('leaderboard difficulty adjustment is a no-op when the population has no complexity variance', async () => {
+test('leaderboard difficulty emphasis is a no-op when the population has no complexity variance', async () => {
   const source = await loadFixture();
   const baseRun = deepClone(source.completedRuns[0]!);
   const fixture = deepClone(source);
@@ -781,9 +790,10 @@ test('leaderboard difficulty adjustment is a no-op when the population has no co
   const prepared = prepareSourceAnalytics(fixture);
   const leaderboard = createModelLeaderboard(prepared);
 
-  // All runs share identical complexity → adjustment disabled for every row.
+  // All runs share identical complexity → no variance → emphasis disabled for every row
+  // (mastery collapses to a uniform rescaling of raw outcomes, so ordering is preserved).
   for (const row of leaderboard.rows) {
-    assert.equal(row.difficultyAdjusted, false, `${row.modelId} should not be difficulty-adjusted (zero variance)`);
+    assert.equal(row.difficultyEmphasized, false, `${row.modelId} should not be difficulty-emphasized (zero variance)`);
   }
   // model-x (sat 5) still outranks model-y (sat 4) via the unadjusted expected-strength composite.
   const x = leaderboard.rows.find((r) => r.modelId === 'model-x')!;

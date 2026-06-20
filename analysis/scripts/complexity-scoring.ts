@@ -1,5 +1,5 @@
 /**
- * Dependency-free task-complexity scoring and difficulty-adjustment helpers.
+ * Dependency-free task-complexity scoring helpers.
  *
  * Shared by the global leaderboard (`scripts/leaderboard.ts`) and the browser
  * dashboard (`site/app.ts`) so the two implementations cannot drift. The
@@ -81,97 +81,46 @@ export function computeComplexityScores(runs: PreparedRunRow[]): Map<string, num
   return scores;
 }
 
-// --- Difficulty adjustment (residual control) ---
+// --- Difficulty emphasis (complexity-weighted mastery) ---
 //
-// Selection bias: stronger models are assigned harder tasks, so their raw
-// outcome rates look worse than they are while easy-task models look better.
-// To control for this, each outcome dimension's observed estimate is replaced
-// by `grandMean + mean_residual`, where `residual_i = outcome_i − baseline(c_i)`
-// and `baseline` is the population's mean outcome at that task complexity.
-// A model that only aces easy tasks gets ~0 residual (the easy-task baseline is
-// already high) → it lands at the grand mean (mid-pack); a model that beats the
-// hard-task baseline lifts above it. This *controls for* difficulty rather than
-// *rewarding* being assigned hard tasks (failing hard tasks yields negative
-// residuals → below mid-pack).
+// The leaderboard's outcome dimensions are weighted by task complexity so that
+// completing the hardest tasks dominates the composite. Each run's outcome
+// contributes `complexity × outcome` to the dimension mean: a model succeeds on
+// complex tasks ⇒ high mastery (big weight × high outcome); a model only ever
+// aces easy tasks ⇒ low mastery (small weights cap its score even at perfect
+// outcomes). This *emphasizes* difficulty rather than controlling for it, so the
+// top of the board is the model that demonstrably completes the most complex work.
 
-/** Minimum population size to fit a complexity baseline (else adjustment is a no-op). */
-export const COMPLEXITY_BASELINE_MIN_RUNS = 10;
-
-export interface ComplexityBaseline {
-  enabled: boolean;
-  /** Population mean outcome for the bin containing `complexity` (0 when disabled). */
-  baselineAt: (complexity: number) => number;
-}
-
-function baselineBinCount(n: number): number {
-  return Math.min(10, Math.max(1, Math.floor(n / 5)));
-}
-
-interface BaselineBin {
-  lo: number;
-  hi: number;
-  mean: number;
+/**
+ * Mean of `complexity × outcome` over the given (complexity, outcome) pairs.
+ * This is the per-dimension mastery estimate used in the difficulty-emphasized
+ * composite. Returns null when there are no pairs (caller should treat the
+ * dimension as unobserved).
+ */
+export function complexityWeightedMean(
+  pairs: { complexity: number; outcome: number }[],
+): number | null {
+  if (pairs.length === 0) return null;
+  let sum = 0;
+  for (const p of pairs) sum += p.complexity * p.outcome;
+  return sum / pairs.length;
 }
 
 /**
- * Fit a nonparametric population baseline of outcome vs complexity using
- * equal-frequency bins (each bin holds ~n/k runs, so no bin is ever empty).
- *
- * Returns `enabled: false` (a no-op) when there is no complexity variance, the
- * population is too small, or fewer than 2 bins would form — in which case
- * callers fall back to raw observed estimates, byte-identical to pre-adjustment.
- * This no-op guard keeps every fixture that clones a single base run (identical
- * complexity ⇒ zero variance) unchanged.
+ * Whether the scored population has task-complexity variance, i.e. whether
+ * complexity-weighting actually differentiates runs by difficulty. With no
+ * variance every run shares the same complexity, so mastery collapses to a
+ * uniform rescaling of raw outcomes (no genuine difficulty emphasis). Mirrors the
+ * pre-emphasis "adjustment enabled" guard so identical-task fixtures stay a
+ * no-op for the difficultyEmphasized flag.
  */
-export function fitComplexityBaseline(pairs: { complexity: number; outcome: number }[]): ComplexityBaseline {
-  const n = pairs.length;
-  const k = baselineBinCount(n);
-  if (n < COMPLEXITY_BASELINE_MIN_RUNS || k < 2) return { enabled: false, baselineAt: () => 0 };
-
+export function hasComplexityVariance(complexityScores: number[]): boolean {
+  if (complexityScores.length === 0) return false;
   let min = Infinity;
   let max = -Infinity;
-  for (const p of pairs) {
-    if (p.complexity < min) min = p.complexity;
-    if (p.complexity > max) max = p.complexity;
+  for (const c of complexityScores) {
+    if (c < min) min = c;
+    if (c > max) max = c;
   }
-  if (!Number.isFinite(min) || !Number.isFinite(max) || max - min < 1e-9) {
-    return { enabled: false, baselineAt: () => 0 };
-  }
-
-  // Stable sort by complexity (Array.prototype.sort is stable, so ties keep
-  // insertion order — which is the deterministic run iteration order).
-  const sorted = [...pairs].sort((a, b) => a.complexity - b.complexity);
-  const bins: BaselineBin[] = [];
-  const size = n / k;
-  for (let b = 0; b < k; b++) {
-    const start = Math.floor(b * size);
-    const end = b === k - 1 ? n : Math.floor((b + 1) * size);
-    let sum = 0;
-    for (let i = start; i < end; i++) sum += sorted[i]!.outcome;
-    const sliceMean = sum / (end - start);
-    bins.push({ lo: sorted[start]!.complexity, hi: sorted[end - 1]!.complexity, mean: sliceMean });
-  }
-
-  const baselineAt = (complexity: number): number => {
-    for (let i = 0; i < bins.length; i++) {
-      if (complexity <= bins[i]!.hi || i === bins.length - 1) return bins[i]!.mean;
-    }
-    return bins[bins.length - 1]!.mean;
-  };
-  return { enabled: true, baselineAt };
-}
-
-/**
- * Mean of (outcome − baseline(complexity)) over the given pairs. Returns null
- * when the baseline is disabled (caller should use the raw observed estimate)
- * or when there are no pairs.
- */
-export function meanResidual(
-  pairs: { complexity: number; outcome: number }[],
-  baseline: ComplexityBaseline,
-): number | null {
-  if (pairs.length === 0 || !baseline.enabled) return null;
-  let sum = 0;
-  for (const p of pairs) sum += p.outcome - baseline.baselineAt(p.complexity);
-  return sum / pairs.length;
+  return Number.isFinite(min) && Number.isFinite(max) && max - min > 1e-9;
 }
