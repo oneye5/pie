@@ -492,9 +492,23 @@
   color: color-mix(in srgb, var(--panel-foreground) 74%, var(--panel-muted) 26%);
 }
 
-.turn-activity-tail-sep .turn-activity-tail-text {
-  opacity: 0.5;
-  letter-spacing: 2px;
+.turn-activity-tail-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+/* Truncation indicator: a gentle top fade replaces the old dedicated `…`
+   separator row, signalling that more output exists above without spending a
+   whole line. Only the oldest visible line (top) fades in; the newest content
+   and the blinking caret (bottom) stay fully opaque so the live tail reads
+   cleanly. Applies with ≥2 content lines; a single clipped line relies on its
+   own `text-overflow` ellipsis. */
+.turn-activity-tail-content.truncated {
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 11px);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 11px);
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
 }
 
 .turn-activity-tail.reasoning {

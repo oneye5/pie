@@ -257,10 +257,12 @@ export function deriveMultiToolTail(toolCalls: readonly ToolCall[]): DerivedActi
  */
 export function estimateActivityTailHeight(tail: TurnActivityTail | null | undefined): number {
   if (!tail) return 0;
+  // The dedicated `…` truncation separator row is gone (truncation is now
+  // conveyed by a CSS top fade on the content block), so it no longer
+  // contributes a row to the estimate.
   const rows =
     tail.lines.length +
     (tail.inputLine ? 1 : 0) +
-    (tail.truncated ? 1 : 0) +
     (tail.cursor ? 1 : 0);
   return rows * ACTIVITY_TAIL_ROW_HEIGHT_PX + 4;
 }

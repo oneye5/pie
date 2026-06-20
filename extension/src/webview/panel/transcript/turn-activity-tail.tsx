@@ -16,56 +16,51 @@ interface TurnActivityBlockProps {
   standalone?: boolean;
 }
 
-interface TailRow {
-  text: string;
-  cls: string;
-  sep?: boolean;
-}
-
 /**
- * Collect the ordered content rows for a tail: input line, the `…` truncation
- * separator, then the tail content lines. The blinking cursor is attached
- * inline to the last non-separator row so it reads like a live terminal caret;
- * if there is no content row at all it renders on its own line.
+ * Render the live-activity tail. The input line (tool command / subagent task)
+ * sits on its own row, followed by a content block holding the tail lines. The
+ * blinking cursor attaches inline to whichever row is last — the input row
+ * when no output has arrived yet, otherwise the newest content line — so it
+ * reads like a live terminal caret; if there is no row at all it gets its own.
+ *
+ * Truncation ("more output exists above") used to cost a dedicated `…` row
+ * wedged between the strip and the content — a wasted line that broke the
+ * flow. It is now conveyed by a gentle top fade on the content block (see
+ * `.turn-activity-tail-content.truncated`), so the preview reads seamlessly.
+ * The fade only applies with ≥2 content lines; a single clipped line already
+ * surfaces its own trailing ellipsis via `text-overflow`.
  */
-function collectTailRows(tail: TurnActivityTail): TailRow[] {
-  const rows: TailRow[] = [];
-  if (tail.inputLine) {
-    rows.push({ text: tail.inputLine, cls: 'turn-activity-tail-input' });
-  }
-  if (tail.truncated) {
-    rows.push({ text: '…', cls: 'turn-activity-tail-sep', sep: true });
-  }
-  for (const line of tail.lines) {
-    rows.push({ text: line, cls: 'turn-activity-tail-line' });
-  }
-  return rows;
-}
-
-function lastContentRowIndex(rows: readonly TailRow[]): number {
-  for (let i = rows.length - 1; i >= 0; i -= 1) {
-    if (!rows[i]!.sep) return i;
-  }
-  return -1;
-}
-
 export function TurnActivityTailBody({ tail }: { tail: TurnActivityTail }) {
-  const rows = collectTailRows(tail);
-  const cursorIdx = tail.cursor ? lastContentRowIndex(rows) : -1;
+  const lines = tail.lines;
+  const hasContent = lines.length > 0;
+  const cursor = tail.cursor;
+  const showFade = tail.truncated && hasContent && lines.length >= 2;
 
   return (
     <div class={cx('turn-activity-tail', tail.kind)} data-kind={tail.kind} aria-hidden="true">
-      {rows.map((row, i) => (
-        <div class={cx('turn-activity-tail-row', row.cls)} key={i}>
-          <span class="turn-activity-tail-text" title={row.sep ? undefined : row.text}>
-            {row.text}
-          </span>
-          {i === cursorIdx && <span class="turn-activity-tail-cursor" aria-hidden="true" />}
+      {tail.inputLine && (
+        <div class="turn-activity-tail-row turn-activity-tail-input">
+          <span class="turn-activity-tail-text" title={tail.inputLine}>{tail.inputLine}</span>
+          {cursor && !hasContent && <span class="turn-activity-tail-cursor" aria-hidden="true" />}
         </div>
-      ))}
-      {tail.cursor && cursorIdx === -1 && (
-        <div class="turn-activity-tail-row">
-          <span class="turn-activity-tail-cursor" aria-hidden="true" />
+      )}
+      {(hasContent || (cursor && !tail.inputLine)) && (
+        <div class={cx('turn-activity-tail-content', showFade && 'truncated')}>
+          {hasContent ? (
+            lines.map((line, i) => {
+              const last = i === lines.length - 1;
+              return (
+                <div class="turn-activity-tail-row turn-activity-tail-line" key={i}>
+                  <span class="turn-activity-tail-text" title={line}>{line}</span>
+                  {cursor && last && <span class="turn-activity-tail-cursor" aria-hidden="true" />}
+                </div>
+              );
+            })
+          ) : (
+            <div class="turn-activity-tail-row">
+              <span class="turn-activity-tail-cursor" aria-hidden="true" />
+            </div>
+          )}
         </div>
       )}
     </div>
