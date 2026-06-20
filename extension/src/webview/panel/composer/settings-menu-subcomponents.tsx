@@ -5,12 +5,12 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { playCompletionSound, warmupCompletionSoundContext } from '../completion-sound';
 
-import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningSettings, PruningMode, ThinkingLevel } from '../../../shared/protocol';
+import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningSettings, PruningMode, ThinkingLevel, UiDensity } from '../../../shared/protocol';
 import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
 import { orderModelsForPicker } from './model-list';
 import { ModelPicker } from '../components/model-picker';
 import { CollapsibleChevron } from '../components/chevron';
-import { EXTENSIONS_WITH_SETTINGS, PRUNING_MODE_OPTIONS, THINKING_LEVEL_OPTIONS, filterKeepCatalog } from './settings-menu-helpers';
+import { EXTENSIONS_WITH_SETTINGS, PRUNING_MODE_OPTIONS, THINKING_LEVEL_OPTIONS, DENSITY_OPTIONS, UI_THEME_PRESETS, matchUiThemePreset, uiThemePresetToPrefs, filterKeepCatalog } from './settings-menu-helpers';
 
 type OnSetPrefs = (prefs: Partial<ChatPrefs>) => void;
 type OnSetPruningSettings = (settings: Partial<PruningSettings>) => void;
@@ -184,27 +184,83 @@ function UiSubmenuTrigger({ open, onToggle }: UiSubmenuTriggerProps) {
   );
 }
 
-interface UiToggleProps {
-  checked: boolean;
-  ariaLabel: string;
-  onChange: (next: boolean) => void;
+interface UiGroupLabelProps {
+  label: string;
 }
 
-/** Compact sliding switch for boolean UI prefs inside the flyout. Mirrors the
- *  accent color so the on state reads as active; the thumb uses the accent's
- *  readable foreground for contrast. */
-function UiToggle({ checked, ariaLabel, onChange }: UiToggleProps) {
+/** Small uppercase divider heading used to group related controls in the flyout
+ *  now that it holds many settings. Styled like the flyout title. */
+function UiGroupLabel({ label }: UiGroupLabelProps) {
+  return <div class="toolbar-settings-ui-group-label">{label}</div>;
+}
+
+interface ColorRowProps {
+  label: string;
+  /** Current pref value; '' means "use bundled default". */
+  value: string;
+  /** Solid swatch shown when value is '' (the bundled default is often
+   *  semi-transparent and <input type="color"> can't render alpha, so we show
+   *  its solid RGB). */
+  defaultValue: string;
+  hint: string;
+  ariaLabel: string;
+  onChange: (next: string) => void;
+}
+
+/** Reusable color-picker + Reset row. The bundled default swatch is shown when
+ *  no override is set so the control always displays a meaningful color; Reset
+ *  clears the override so the stylesheet default wins. */
+function ColorRow({ label, value, defaultValue, hint, ariaLabel, onChange }: ColorRowProps) {
   return (
-    <button
-      type="button"
-      class={`toolbar-settings-ui-toggle${checked ? ' on' : ''}`}
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      onClick={() => onChange(!checked)}
-    >
-      <span class="toolbar-settings-ui-toggle-thumb" aria-hidden="true" />
-    </button>
+    <div class="toolbar-settings-ui-control">
+      <span class="toolbar-settings-ui-control-label">{label}</span>
+      <div class="toolbar-settings-color-controls">
+        <input
+          type="color"
+          class="toolbar-settings-color-input"
+          value={value || defaultValue}
+          onInput={(e) => onChange((e.target as HTMLInputElement).value)}
+          aria-label={ariaLabel}
+        />
+        <button
+          type="button"
+          class="toolbar-settings-color-reset"
+          disabled={!value}
+          onClick={() => onChange('')}
+          aria-label={`Reset ${ariaLabel}`}
+        >Reset</button>
+      </div>
+      <div class="toolbar-settings-item-hint">{hint}</div>
+    </div>
+  );
+}
+
+/** Theme preset picker. Shows the active preset when the four color prefs
+ *  exactly match one, else "Custom". Selecting a preset writes all four color
+ *  prefs as a batch; the user can then tweak individually (which flips back to
+ *  Custom). */
+function ThemeSelect({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnSetPrefs }) {
+  const active = matchUiThemePreset(prefs);
+  return (
+    <div class="toolbar-settings-ui-control">
+      <span class="toolbar-settings-ui-control-label">Theme</span>
+      <select
+        class="toolbar-settings-select toolbar-settings-ui-font-select"
+        value={active}
+        aria-label="Color theme"
+        onChange={(e) => {
+          const id = (e.target as HTMLSelectElement).value;
+          const preset = UI_THEME_PRESETS.find((p) => p.id === id);
+          if (preset) onSetPrefs(uiThemePresetToPrefs(preset));
+        }}
+      >
+        {!active && <option value="">Custom</option>}
+        {UI_THEME_PRESETS.map((p) => (
+          <option key={p.id} value={p.id}>{p.label}</option>
+        ))}
+      </select>
+      <div class="toolbar-settings-item-hint">Apply a coordinated palette. Tweak any color below to make it custom.</div>
+    </div>
   );
 }
 
@@ -259,67 +315,76 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
     <div ref={flyoutRef} class="toolbar-settings-ui-flyout" role="dialog" aria-label="UI settings">
       <div class="toolbar-settings-ui-flyout-title">UI</div>
 
+      <ThemeSelect prefs={prefs} onSetPrefs={onSetPrefs} />
+
+      <UiGroupLabel label="Colors" />
+      <ColorRow
+        label="Background"
+        value={prefs.uiBackground}
+        defaultValue="#050506"
+        hint="Base surface color; lighter shades for cards and inputs derive from it."
+        ariaLabel="Background color"
+        onChange={(next) => onSetPrefs({ uiBackground: next })}
+      />
+      <ColorRow
+        label="Text"
+        value={prefs.uiForeground}
+        defaultValue="#f2eee4"
+        hint="Primary text color; muted shades derive toward the background."
+        ariaLabel="Text color"
+        onChange={(next) => onSetPrefs({ uiForeground: next })}
+      />
+      <ColorRow
+        label="Border"
+        value={prefs.uiBorder}
+        defaultValue="#f2eee4"
+        hint="Separators and outlines. The default is a faint cream line."
+        ariaLabel="Border color"
+        onChange={(next) => onSetPrefs({ uiBorder: next })}
+      />
+      <ColorRow
+        label="Accent"
+        value={prefs.uiAccentColor}
+        defaultValue="#d7a942"
+        hint="Buttons, highlights, and active states."
+        ariaLabel="Accent color"
+        onChange={(next) => onSetPrefs({ uiAccentColor: next })}
+      />
+
+      <UiGroupLabel label="Shape" />
       <div class="toolbar-settings-ui-control">
         <div class="toolbar-settings-ui-control-head">
-          <span class="toolbar-settings-ui-control-label">Expanded text</span>
-          <span class="toolbar-settings-ui-control-value">{prefs.expandedSectionFontSize}px</span>
+          <span class="toolbar-settings-ui-control-label">Corner radius</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.uiCornerRadius}px</span>
         </div>
         <input
           type="range"
           class="toolbar-settings-slider toolbar-settings-ui-slider"
-          min="9"
-          max="18"
+          min="0"
+          max="16"
           step="1"
-          value={prefs.expandedSectionFontSize}
-          onInput={(e) => onSetPrefs({ expandedSectionFontSize: Number((e.target as HTMLInputElement).value) })}
-          aria-label="Expanded section font size"
+          value={prefs.uiCornerRadius}
+          onInput={(e) => onSetPrefs({ uiCornerRadius: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Corner radius"
         />
-        <div class="toolbar-settings-item-hint">Tool-call output, reasoning, system prompts, and code blocks.</div>
+        <div class="toolbar-settings-item-hint">Roundness of cards, buttons, and inputs across the panel.</div>
       </div>
-
       <div class="toolbar-settings-ui-control">
-        <span class="toolbar-settings-ui-control-label">Sans font</span>
-        <FontSelect
-          value={prefs.uiFontSans}
-          options={SANS_FONT_OPTIONS}
-          ariaLabel="Sans-serif font family"
-          onChange={(next) => onSetPrefs({ uiFontSans: next })}
-        />
-        <div class="toolbar-settings-item-hint">Body and UI text. "Default" uses the bundled stack.</div>
+        <span class="toolbar-settings-ui-control-label">Density</span>
+        <select
+          class="toolbar-settings-select toolbar-settings-ui-font-select"
+          value={prefs.uiDensity}
+          aria-label="Spacing density"
+          onChange={(e) => onSetPrefs({ uiDensity: (e.target as HTMLSelectElement).value as UiDensity })}
+        >
+          {DENSITY_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+        <div class="toolbar-settings-item-hint">Spacing between elements. Compact tightens, spacious loosens.</div>
       </div>
 
-      <div class="toolbar-settings-ui-control">
-        <span class="toolbar-settings-ui-control-label">Mono font</span>
-        <FontSelect
-          value={prefs.uiFontMono}
-          options={MONO_FONT_OPTIONS}
-          ariaLabel="Monospace font family"
-          onChange={(next) => onSetPrefs({ uiFontMono: next })}
-        />
-        <div class="toolbar-settings-item-hint">Code and tool output. "Default" uses the bundled stack.</div>
-      </div>
-
-      <div class="toolbar-settings-ui-control">
-        <span class="toolbar-settings-ui-control-label">Accent color</span>
-        <div class="toolbar-settings-color-controls">
-          <input
-            type="color"
-            class="toolbar-settings-color-input"
-            value={prefs.uiAccentColor || '#d7a942'}
-            onInput={(e) => onSetPrefs({ uiAccentColor: (e.target as HTMLInputElement).value })}
-            aria-label="Accent color"
-          />
-          <button
-            type="button"
-            class="toolbar-settings-color-reset"
-            disabled={!prefs.uiAccentColor}
-            onClick={() => onSetPrefs({ uiAccentColor: '' })}
-            aria-label="Reset accent color"
-          >Reset</button>
-        </div>
-        <div class="toolbar-settings-item-hint">Buttons, highlights, and active states. Reset restores the default.</div>
-      </div>
-
+      <UiGroupLabel label="Layout" />
       <div class="toolbar-settings-ui-control">
         <div class="toolbar-settings-ui-control-head">
           <span class="toolbar-settings-ui-control-label">Message width</span>
@@ -338,16 +403,43 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
         <div class="toolbar-settings-item-hint">Max width of chat bubbles. Narrow view scales up to keep content readable.</div>
       </div>
 
-      <div class="toolbar-settings-ui-control toolbar-settings-ui-toggle-row">
-        <div class="toolbar-settings-ui-toggle-text">
-          <span class="toolbar-settings-ui-control-label">Reduce motion</span>
-          <div class="toolbar-settings-item-hint">Disable animations and transitions.</div>
+      <UiGroupLabel label="Typography" />
+      <div class="toolbar-settings-ui-control">
+        <div class="toolbar-settings-ui-control-head">
+          <span class="toolbar-settings-ui-control-label">Expanded text</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.expandedSectionFontSize}px</span>
         </div>
-        <UiToggle
-          checked={prefs.uiReduceMotion}
-          ariaLabel="Reduce motion"
-          onChange={(next) => onSetPrefs({ uiReduceMotion: next })}
+        <input
+          type="range"
+          class="toolbar-settings-slider toolbar-settings-ui-slider"
+          min="9"
+          max="18"
+          step="1"
+          value={prefs.expandedSectionFontSize}
+          onInput={(e) => onSetPrefs({ expandedSectionFontSize: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Expanded section font size"
         />
+        <div class="toolbar-settings-item-hint">Tool-call output, reasoning, system prompts, and code blocks.</div>
+      </div>
+      <div class="toolbar-settings-ui-control">
+        <span class="toolbar-settings-ui-control-label">Sans font</span>
+        <FontSelect
+          value={prefs.uiFontSans}
+          options={SANS_FONT_OPTIONS}
+          ariaLabel="Sans-serif font family"
+          onChange={(next) => onSetPrefs({ uiFontSans: next })}
+        />
+        <div class="toolbar-settings-item-hint">Body and UI text. "Default" uses the bundled stack.</div>
+      </div>
+      <div class="toolbar-settings-ui-control">
+        <span class="toolbar-settings-ui-control-label">Mono font</span>
+        <FontSelect
+          value={prefs.uiFontMono}
+          options={MONO_FONT_OPTIONS}
+          ariaLabel="Monospace font family"
+          onChange={(next) => onSetPrefs({ uiFontMono: next })}
+        />
+        <div class="toolbar-settings-item-hint">Code and tool output. "Default" uses the bundled stack.</div>
       </div>
     </div>
   );

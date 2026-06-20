@@ -136,7 +136,7 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     'suppressCompletionNotifications',
     'showPruningMessages',
     'subagentAlwaysParentModel',
-    'uiReduceMotion',
+    'autoOpenFileChangesRail',
   ];
   const toggleKeys: Array<keyof ChatPrefs> = [
     'extensionToggles',
@@ -146,14 +146,23 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     completionSoundVolume: [0, 100],
     expandedSectionFontSize: [8, 24],
     uiMessageWidth: [60, 100],
+    uiCornerRadius: [0, 20],
   };
   const stringKeys: Array<keyof ChatPrefs> = [
     'uiFontSans',
     'uiFontMono',
     'uiAccentColor',
+    'uiBackground',
+    'uiForeground',
+    'uiBorder',
   ];
+  const validDensities = new Set(['compact', 'comfortable', 'spacious']);
   for (const key of Object.keys(value)) {
     const v = (value as Record<string, unknown>)[key];
+    if (key === 'uiDensity') {
+      if (v !== undefined && !validDensities.has(v as string)) return false;
+      continue;
+    }
     if ((booleanKeys as string[]).includes(key)) {
       if (v !== undefined && typeof v !== 'boolean') return false;
     } else if ((toggleKeys as string[]).includes(key)) {

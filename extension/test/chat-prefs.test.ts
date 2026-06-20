@@ -25,13 +25,18 @@ const prefs: ChatPrefs = {
   uiFontMono: '',
   uiAccentColor: '',
   uiMessageWidth: 88,
-  uiReduceMotion: false,
+  uiBackground: '',
+  uiForeground: '',
+  uiBorder: '',
+  uiCornerRadius: 8,
+  uiDensity: 'comfortable',
   extensionToggles: {},
   providerToggles: {},
+  autoOpenFileChangesRail: true,
 };
 
-test('chat pref menu sections expose transcript and notification toggles', () => {
-  assert.equal(CHAT_PREF_MENU_SECTIONS.length, 2);
+test('chat pref menu sections expose transcript, notifications, and files toggles', () => {
+  assert.equal(CHAT_PREF_MENU_SECTIONS.length, 3);
   assert.equal(CHAT_PREF_MENU_SECTIONS[0]?.id, 'transcript');
   assert.deepEqual(
     CHAT_PREF_MENU_SECTIONS[0]?.items.map((item) => item.key),
@@ -41,6 +46,11 @@ test('chat pref menu sections expose transcript and notification toggles', () =>
   assert.deepEqual(
     CHAT_PREF_MENU_SECTIONS[1]?.items.map((item) => item.key),
     ['suppressCompletionNotifications'],
+  );
+  assert.equal(CHAT_PREF_MENU_SECTIONS[2]?.id, 'files');
+  assert.deepEqual(
+    CHAT_PREF_MENU_SECTIONS[2]?.items.map((item) => item.key),
+    ['autoOpenFileChangesRail'],
   );
 });
 
@@ -63,6 +73,9 @@ test('toggle helpers return partial pref patches without mutating source prefs',
   assert.deepEqual(toggleChatPref(prefs, 'suppressCompletionNotifications'), {
     suppressCompletionNotifications: true,
   });
+  assert.deepEqual(toggleChatPref(prefs, 'autoOpenFileChangesRail'), {
+    autoOpenFileChangesRail: false,
+  });
   assert.deepEqual(toggleChatPrefForContext(prefs, 'toolCalls'), { autoExpandToolCalls: false });
   assert.deepEqual(toggleChatPrefForContext(prefs, 'subagentCalls'), { autoExpandSubagentCalls: true });
   assert.deepEqual(prefs, {
@@ -78,8 +91,13 @@ test('toggle helpers return partial pref patches without mutating source prefs',
     uiFontMono: '',
     uiAccentColor: '',
     uiMessageWidth: 88,
-    uiReduceMotion: false,
+    uiBackground: '',
+    uiForeground: '',
+    uiBorder: '',
+    uiCornerRadius: 8,
+    uiDensity: 'comfortable',
     extensionToggles: {},
     providerToggles: {},
+    autoOpenFileChangesRail: true,
   });
 });

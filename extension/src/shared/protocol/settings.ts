@@ -87,6 +87,8 @@ export interface PruningCatalog {
   tools: string[];
 }
 
+export type UiDensity = 'compact' | 'comfortable' | 'spacious';
+
 export interface ChatPrefs {
   autoExpandReasoning: boolean;
   autoExpandToolCalls: boolean;
@@ -113,15 +115,29 @@ export interface ChatPrefs {
    *  scales the narrow variant up by 4 points (clamped to 100). The bundled
    *  default is 88. */
   uiMessageWidth: number;
-  /** When true, collapse every animation/transition to ~instant. Implemented
-   *  via a data-reduce-motion attribute on <html> that the index stylesheet
-   *  uses to set animation-iteration-count:1 + ~0 durations globally (also
-   *  honored automatically when the OS requests prefers-reduced-motion). */
-  uiReduceMotion: boolean;
+  /** Base background color. Drives the whole --panel-ink ramp that every
+   *  surface token (cards, inputs, hover, overlays) derives from. Empty string
+   *  falls back to the bundled night palette. */
+  uiBackground: string;
+  /** Foreground text color (sets --panel-foreground; --panel-foreground-soft
+   *  and --panel-muted are derived toward the background). Empty = default. */
+  uiForeground: string;
+  /** Border color (sets --panel-border; --panel-border-subtle is derived).
+   *  Empty = bundled default. */
+  uiBorder: string;
+  /** Base corner radius in px. Drives the --panel-radius-* scale as r-2 / r /
+   *  r+2 / r+4. Default 8 reproduces the bundled 6/8/10/12 ramp. */
+  uiCornerRadius: number;
+  /** Spacing density. Drives the --panel-gap-* scale. 'comfortable' reproduces
+   *  the bundled defaults. */
+  uiDensity: UiDensity;
   /** Per-extension enabled/disabled toggles. Keys are extension IDs. */
   extensionToggles: Record<string, boolean>;
   /** Per-provider enabled/disabled toggles. Keys are provider names. */
   providerToggles: Record<string, boolean>;
+  /** When true, the file-changes rail auto-opens when the first change is
+   *  reported for a session. Reset when the user sends a new message. */
+  autoOpenFileChangesRail: boolean;
 }
 
 /** Environment key used to expose pie provider toggles to in-process pi extensions. */
@@ -161,9 +177,14 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   uiFontMono: '',
   uiAccentColor: '',
   uiMessageWidth: 88,
-  uiReduceMotion: false,
+  uiBackground: '',
+  uiForeground: '',
+  uiBorder: '',
+  uiCornerRadius: 8,
+  uiDensity: 'comfortable',
   extensionToggles: {},
   providerToggles: {},
+  autoOpenFileChangesRail: false,
 };
 
 export const DEFAULT_PRUNING_SETTINGS: PruningSettings = {

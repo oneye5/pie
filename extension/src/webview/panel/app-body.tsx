@@ -8,6 +8,7 @@ import type {
   ChatMessageToolCallPart,
   ChatMessage,
   ThinkingLevel,
+  UiDensity,
 } from '../../shared/protocol';
 import { warmupCompletionSoundContext } from './completion-sound';
 import { FileChangesPanel } from './file-changes-panel';
@@ -35,6 +36,15 @@ export interface AppBodyProps {
     initialState?: ViewState;
   };
 }
+
+/** Gap scale (px) per density. 'comfortable' reproduces the bundled defaults
+ *  (xs 4 / sm 6 / md 8 / lg 12 / xl 16) so the default leaves the layout
+ *  unchanged. Unknown densities fall back to comfortable in the effect. */
+const DENSITY_GAPS: Record<UiDensity, { xs: number; sm: number; md: number; lg: number; xl: number }> = {
+  compact: { xs: 3, sm: 5, md: 6, lg: 8, xl: 10 },
+  comfortable: { xs: 4, sm: 6, md: 8, lg: 12, xl: 16 },
+  spacious: { xs: 6, sm: 8, md: 10, lg: 14, xl: 20 },
+};
 
 // ─── Hook: derived state ───────────────────────────────────────────────────
 
@@ -137,7 +147,8 @@ interface PanelMainProps {
   activeSessionPath: string | null;
   activeSession: ViewState['activeSession'];
   fileChanges: ViewState['fileChanges'];
-  handlers: Pick<AppHandlers, 'handleOpenFileDiff' | 'handleOpenFileInEditor' | 'handleRevertFile' | 'handleEditRequest' | 'handleEditSend' | 'handleCancelEdit' | 'handleOpenFile' | 'handleOpenContextMenu' | 'handleNewSession'>;
+  fileChangesExpanded: ViewState['fileChangesExpanded'];
+  handlers: Pick<AppHandlers, 'handleOpenFileDiff' | 'handleOpenFileInEditor' | 'handleRevertFile' | 'handleSetFileChangesExpanded' | 'handleEditRequest' | 'handleEditSend' | 'handleCancelEdit' | 'handleOpenFile' | 'handleOpenContextMenu' | 'handleNewSession'>;
   postMessage: (msg: WebviewToHostMessage) => void;
   mergedTranscript: ChatMessage[];
   transcriptWindow: ViewState['transcriptWindow'];
@@ -163,6 +174,7 @@ function PanelMain({
   activeSessionPath,
   activeSession,
   fileChanges,
+  fileChangesExpanded,
   handlers,
   postMessage,
   mergedTranscript,
@@ -181,14 +193,7 @@ function PanelMain({
 }: PanelMainProps) {
   return (
     <div class="panel-main">
-      {showSessionChrome && (
-        <FileChangesPanel
-          fileChanges={fileChanges}
-          onOpenDiff={handlers.handleOpenFileDiff}
-          onOpenInEditor={handlers.handleOpenFileInEditor}
-          onRevertFile={handlers.handleRevertFile}
-        />
-      )}
+      <div class="panel-content">
       {panelSurface === 'loading' ? (
         <div class="empty-state empty-state--loading">
           <LoadingIndicator status={loadingStatus} />
@@ -228,6 +233,17 @@ function PanelMain({
           onOpenFile={handlers.handleOpenFile}
           onContextMenu={handlers.handleOpenContextMenu}
           postMessage={postMessage}
+        />
+      )}
+      </div>
+      {showSessionChrome && fileChanges.length > 0 && (
+        <FileChangesPanel
+          fileChanges={fileChanges}
+          expanded={fileChangesExpanded}
+          onToggleExpanded={handlers.handleSetFileChangesExpanded}
+          onOpenDiff={handlers.handleOpenFileDiff}
+          onOpenInEditor={handlers.handleOpenFileInEditor}
+          onRevertFile={handlers.handleRevertFile}
         />
       )}
     </div>
@@ -365,51 +381,119 @@ export function AppBody({ adapter }: AppBodyProps) {
 
   useSessionRecovery(viewState.backendReady, derived.needsSessionRecovery, derived.recoverySessionPath, viewState.notice, postMessage);
 
-  // Apply UI prefs (expanded-section font size, font stacks, accent color,
-  // message width, reduce motion) as CSS custom properties on :root so every
-  // component picks them up via var(). Empty-string font overrides are cleared
-  // so the bundled stylesheet defaults win (setProperty(key, '') removes the
-  // inline declaration). The accent color also derives its hover shade
-  // (--panel-accent-strong) and readable foreground (--panel-accent-contrast);
-  // both are cleared when no accent is set so the bundled gold defaults apply
-  // unchanged. Message width scales both the standard and narrow variants.
-  // Reduce motion toggles a data-reduce-motion attribute on <html>; the index
-  // stylesheet collapses every animation/transition to ~instant when it (or the
-  // OS prefers-reduced-motion) is set. Setting duration vars to 0.01ms would
-  // spin infinite animations (e.g. status-chip-pulse) at full CPU, so the
-  // attribute + animation-iteration-count:1 snippet is used instead.
+  // Apply UI prefs as CSS custom properties on :root so every component picks
+  // them up via var(). Overrides are removed with removeProperty() when they
+  // are empty so the bundled stylesheet defaults on :root win; setting an
+  // empty string would create an invalid custom-property value and break var()
+  // resolution instead of falling back.
+  //
+  // Color derivations: the background drives the whole --panel-ink ramp
+  // (every surface token — cards, inputs, hover, overlays — derives from it via
+  // var(), so overriding the ramp cascades automatically). Foreground reuses
+  // color-mix toward --panel-ink for the soft/muted shades; border derives its
+  // subtle variant by thinning alpha. Radius/density always apply (their
+  // defaults reproduce the bundled tokens exactly). Accent keeps its existing
+  // hover/contrast derivation.
+  const { prefs } = viewState;
   useEffect(() => {
     const root = document.documentElement.style;
-    root.setProperty('--expanded-font-size', `${viewState.prefs.expandedSectionFontSize}px`);
-    root.setProperty('--panel-font-sans', viewState.prefs.uiFontSans);
-    root.setProperty('--panel-font-mono', viewState.prefs.uiFontMono);
-    const width = viewState.prefs.uiMessageWidth;
+    root.setProperty('--expanded-font-size', `${prefs.expandedSectionFontSize}px`);
+    if (prefs.uiFontSans) {
+      root.setProperty('--panel-font-sans', prefs.uiFontSans);
+    } else {
+      root.removeProperty('--panel-font-sans');
+    }
+    if (prefs.uiFontMono) {
+      root.setProperty('--panel-font-mono', prefs.uiFontMono);
+    } else {
+      root.removeProperty('--panel-font-mono');
+    }
+    const width = prefs.uiMessageWidth;
     root.setProperty('--message-assistant-width', `${width}%`);
     root.setProperty('--message-assistant-width-narrow', `${Math.min(100, width + 4)}%`);
-    const accent = viewState.prefs.uiAccentColor;
+
+    // Background → ink ramp. ink == base; lighter shades mix toward white at
+    // small percentages so the default base (#050506) approximates the
+    // bundled ramp; black is darkened slightly to preserve the shell layering.
+    const bg = prefs.uiBackground;
+    if (bg) {
+      root.setProperty('--panel-black', `color-mix(in srgb, ${bg} 82%, black)`);
+      root.setProperty('--panel-ink', bg);
+      root.setProperty('--panel-ink-2', `color-mix(in srgb, ${bg} 98%, white)`);
+      root.setProperty('--panel-ink-3', `color-mix(in srgb, ${bg} 96%, white)`);
+      root.setProperty('--panel-ink-4', `color-mix(in srgb, ${bg} 93%, white)`);
+      root.setProperty('--panel-ink-5', `color-mix(in srgb, ${bg} 89%, white)`);
+    } else {
+      for (const t of ['--panel-black', '--panel-ink', '--panel-ink-2', '--panel-ink-3', '--panel-ink-4', '--panel-ink-5'] as const) {
+        root.removeProperty(t);
+      }
+    }
+
+    // Foreground → foreground + derived soft/muted toward the background.
+    const fg = prefs.uiForeground;
+    if (fg) {
+      root.setProperty('--panel-foreground', fg);
+      root.setProperty('--panel-foreground-soft', `color-mix(in srgb, ${fg} 90%, var(--panel-ink))`);
+      root.setProperty('--panel-muted', `color-mix(in srgb, ${fg} 60%, var(--panel-ink))`);
+    } else {
+      root.removeProperty('--panel-foreground');
+      root.removeProperty('--panel-foreground-soft');
+      root.removeProperty('--panel-muted');
+    }
+
+    // Border → border + derived subtle (thinned alpha, ~0.58× to match the
+    // bundled subtle/border ratio). Empty restores the bundled cream lines.
+    const bd = prefs.uiBorder;
+    if (bd) {
+      root.setProperty('--panel-border', bd);
+      root.setProperty('--panel-border-subtle', `color-mix(in srgb, ${bd} 58%, transparent)`);
+    } else {
+      root.removeProperty('--panel-border');
+      root.removeProperty('--panel-border-subtle');
+    }
+
+    // Accent → accent + hover shade + readable foreground.
+    const accent = prefs.uiAccentColor;
     if (accent) {
       root.setProperty('--panel-accent', accent);
       root.setProperty('--panel-accent-strong', 'color-mix(in srgb, var(--panel-accent) 82%, white)');
       const contrast = accentContrastColor(accent);
-      root.setProperty('--panel-accent-contrast', contrast ?? '');
+      if (contrast) {
+        root.setProperty('--panel-accent-contrast', contrast);
+      } else {
+        root.removeProperty('--panel-accent-contrast');
+      }
     } else {
-      root.setProperty('--panel-accent', '');
-      root.setProperty('--panel-accent-strong', '');
-      root.setProperty('--panel-accent-contrast', '');
+      root.removeProperty('--panel-accent');
+      root.removeProperty('--panel-accent-strong');
+      root.removeProperty('--panel-accent-contrast');
     }
-    const htmlEl = document.documentElement;
-    if (viewState.prefs.uiReduceMotion) {
-      htmlEl.setAttribute('data-reduce-motion', 'true');
-    } else {
-      htmlEl.removeAttribute('data-reduce-motion');
-    }
+
+    // Corner radius → sm/md/lg/xl as r-2/r/r+2/r+4 (default 8 = 6/8/10/12).
+    const r = prefs.uiCornerRadius;
+    root.setProperty('--panel-radius-sm', `${Math.max(0, r - 2)}px`);
+    root.setProperty('--panel-radius-md', `${r}px`);
+    root.setProperty('--panel-radius-lg', `${r + 2}px`);
+    root.setProperty('--panel-radius-xl', `${r + 4}px`);
+
+    // Density → gap scale. 'comfortable' reproduces the bundled defaults.
+    const gaps = DENSITY_GAPS[prefs.uiDensity] ?? DENSITY_GAPS.comfortable;
+    root.setProperty('--panel-gap-xs', `${gaps.xs}px`);
+    root.setProperty('--panel-gap-sm', `${gaps.sm}px`);
+    root.setProperty('--panel-gap-md', `${gaps.md}px`);
+    root.setProperty('--panel-gap-lg', `${gaps.lg}px`);
+    root.setProperty('--panel-gap-xl', `${gaps.xl}px`);
   }, [
-    viewState.prefs.expandedSectionFontSize,
-    viewState.prefs.uiFontSans,
-    viewState.prefs.uiFontMono,
-    viewState.prefs.uiAccentColor,
-    viewState.prefs.uiMessageWidth,
-    viewState.prefs.uiReduceMotion,
+    prefs.expandedSectionFontSize,
+    prefs.uiFontSans,
+    prefs.uiFontMono,
+    prefs.uiAccentColor,
+    prefs.uiMessageWidth,
+    prefs.uiBackground,
+    prefs.uiForeground,
+    prefs.uiBorder,
+    prefs.uiCornerRadius,
+    prefs.uiDensity,
   ]);
 
   return (
@@ -468,6 +552,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         activeSessionPath={derived.activeSessionPath}
         activeSession={viewState.activeSession}
         fileChanges={viewState.fileChanges}
+        fileChangesExpanded={viewState.fileChangesExpanded}
         handlers={handlers}
         postMessage={postMessage}
         mergedTranscript={mergedTranscript}

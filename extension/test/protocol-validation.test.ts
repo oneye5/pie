@@ -244,8 +244,29 @@ test('validateWebviewToHostMessage validates setPrefs patches and rejects unknow
     true,
   );
   assert.equal(
-    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiReduceMotion: true } }).ok,
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiBackground: '#0d1117' } }).ok,
     true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiForeground: '#c9d1d9' } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiBorder: '#30363d' } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiCornerRadius: 12 } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiDensity: 'compact' } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiDensity: 'invalid' } }).ok,
+    false,
+    'uiDensity must be one of compact/comfortable/spacious',
   );
   assert.equal(
     validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiMessageWidth: 40 } }).ok,
@@ -253,8 +274,13 @@ test('validateWebviewToHostMessage validates setPrefs patches and rejects unknow
     'uiMessageWidth below the 60 floor should be rejected',
   );
   assert.equal(
-    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiReduceMotion: 'yes' } }).ok,
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiCornerRadius: -1 } }).ok,
     false,
-    'uiReduceMotion must be a boolean',
+    'uiCornerRadius below 0 should be rejected',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiCornerRadius: 21 } }).ok,
+    false,
+    'uiCornerRadius above 20 should be rejected',
   );
 });

@@ -34,10 +34,15 @@ test('DEFAULT_CHAT_PREFS shape', () => {
   assert.equal(typeof DEFAULT_CHAT_PREFS.autoExpandSubagentCalls, 'boolean');
   assert.equal(typeof DEFAULT_CHAT_PREFS.suppressCompletionNotifications, 'boolean');
   assert.equal(typeof DEFAULT_CHAT_PREFS.subagentAlwaysParentModel, 'boolean');
-  assert.equal(typeof DEFAULT_CHAT_PREFS.uiReduceMotion, 'boolean');
   assert.equal(typeof DEFAULT_CHAT_PREFS.uiMessageWidth, 'number');
   assert.equal(DEFAULT_CHAT_PREFS.uiMessageWidth, 88);
-  assert.equal(DEFAULT_CHAT_PREFS.uiReduceMotion, false);
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiBackground, 'string');
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiForeground, 'string');
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiBorder, 'string');
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiCornerRadius, 'number');
+  assert.equal(DEFAULT_CHAT_PREFS.uiCornerRadius, 8);
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiDensity, 'string');
+  assert.equal(DEFAULT_CHAT_PREFS.uiDensity, 'comfortable');
 });
 
 test('resolveChatPrefs backfills subagent auto-expand from legacy tool-call prefs', () => {
@@ -143,6 +148,7 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
       prefs: DEFAULT_CHAT_PREFS,
       availableExtensions: [],
       fileChanges: [],
+      fileChangesExpanded: false,
       pruningResult: null,
       pruningSettings: {
         mode: 'auto' as const,
