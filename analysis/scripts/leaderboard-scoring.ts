@@ -16,6 +16,18 @@ export const LEADERBOARD_MINIMUM_SCORED_RUNS = 3;
 export const LEADERBOARD_SHRINKAGE_K = 4;
 
 export const LEADERBOARD_TOKEN_EFFICIENCY_MAX = 50;
+
+/**
+ * Outcome dimensions whose observed estimates are difficulty-adjusted (residual
+ * control) to remove task-complexity selection bias. toolReliability and
+ * tokenEfficiency are left raw (weakly complexity-linked or already efficiency-normalized).
+ */
+export const LEADERBOARD_DIFFICULTY_ADJUSTED_DIMS = new Set([
+  'satisfaction',
+  'resolutionRate',
+  'firstAttemptSuccess',
+  'verificationPassRate',
+]);
 export const LEADERBOARD_WEIGHTS = {
   satisfaction: 0.35,
   resolutionRate: 0.30,

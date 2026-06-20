@@ -662,3 +662,131 @@ test('leaderboard ranks the genuinely stronger model #1 by expected strength', a
   // Cost is surfaced separately and does not affect the ranking.
   assert.ok(strong!.medianCostUsd === null || typeof strong!.medianCostUsd === 'number');
 });
+
+test('leaderboard difficulty-adjusts so easy-task models do not outrank hard-task performers', async () => {
+  const source = await loadFixture();
+  const baseRun = deepClone(source.completedRuns[0]!);
+  const fixture = deepClone(source);
+  fixture.completedRuns = [];
+  fixture.openRuns = [];
+  fixture.outcomes = [];
+
+  let counter = 0;
+  function addRun(modelId: string, lineAdd: number, resolution: 'resolved' | 'unresolved', satisfaction: number): void {
+    const run = deepClone(baseRun);
+    counter += 1;
+    run.runId = `${modelId}-run-${counter}`;
+    run.taskGroupId = `${modelId}-task-${counter}`;
+    run.modelId = modelId;
+    run.thinkingLevel = 'high';
+    run.status = 'scored';
+    run.scored = true;
+    run.finalizationReason = 'scored';
+    run.finalizedAt = '2026-05-10T14:19:00.000Z';
+    run.outcome = { resolution, satisfaction };
+    // Vary line mutations to vary task complexity; keep token efficiency constant (~5 tok/line)
+    // so tokenEfficiency cancels across models and the ranking isolates the difficulty adjustment.
+    run.fileMutation.lineAdditions = lineAdd;
+    run.fileMutation.lineDeletions = 0;
+    run.fileMutation.lineModifications = 0;
+    run.outputTokens = lineAdd * 5;
+    fixture.completedRuns.push(run);
+    fixture.outcomes.push({
+      schemaVersion: 1,
+      kind: 'run_outcome',
+      recordedAt: '2026-05-10T14:19:00.000Z',
+      sessionPath: baseRun.sessionPath,
+      runId: run.runId,
+      taskGroupId: run.taskGroupId,
+      outcome: run.outcome,
+    });
+  }
+
+  // mini-model: aces EASY tasks (low complexity) — raw resolution/satisfaction look perfect.
+  for (const la of [2, 4, 6, 8]) addRun('mini-model', la, 'resolved', 5);
+  // strong-model: performs well on HARD tasks (high complexity) — raw rates slightly below mini.
+  // One unresolved run keeps strong's raw rate below mini's, so pre-adjustment mini would lead.
+  [30, 34, 38, 42, 46, 50].forEach((la, i) => addRun('strong-model', la, i === 5 ? 'unresolved' : 'resolved', i === 5 ? 4 : 5));
+  // weak-model: fails HARD tasks at complexities overlapping strong's — this drags the hard-task
+  // baseline down so strong earns a positive residual (the crux of the adjustment).
+  for (const la of [32, 36, 40, 44, 48, 52]) addRun('weak-model', la, 'unresolved', 2);
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const leaderboard = createModelLeaderboard(prepared);
+  const mini = leaderboard.rows.find((r) => r.modelId === 'mini-model')!;
+  const strong = leaderboard.rows.find((r) => r.modelId === 'strong-model')!;
+  const weak = leaderboard.rows.find((r) => r.modelId === 'weak-model')!;
+
+  // Adjustment is enabled (the population has task-complexity variance).
+  assert.equal(mini.difficultyAdjusted, true, 'population has complexity variance → adjustment enabled');
+  assert.equal(strong.difficultyAdjusted, true);
+
+  // Headline: the hard-task performer outranks the easy-task model despite worse raw rates.
+  assert.ok(strong.rank! < mini.rank!, `strong (rank ${strong.rank}) should outrank mini (rank ${mini.rank}) after difficulty adjustment`);
+  assert.ok(strong.compositeScore! > mini.compositeScore!, 'adjusted strong composite should exceed mini');
+  // A model that fails hard tasks lands below the easy-task model (failing hard work is not rewarded).
+  assert.ok(weak.rank! > mini.rank!, `weak (rank ${weak.rank}) should rank below mini (rank ${mini.rank})`);
+
+  // Isolation of the adjustment: raw mini > strong on resolution, but adjusted strong > mini.
+  assert.ok(mini.dimensions.resolutionRate.value! > strong.dimensions.resolutionRate.value!,
+    'mini raw resolution (1.0) should exceed strong (~0.83)');
+  assert.ok(strong.dimensions.resolutionRate.shrunk! > mini.dimensions.resolutionRate.shrunk!,
+    'strong adjusted resolution should exceed mini after residual control');
+
+  // meanTaskComplexity is exposed, bounded, and reflects task mix (mini easier than strong).
+  for (const row of [mini, strong, weak]) {
+    assert.ok(row.meanTaskComplexity !== null && row.meanTaskComplexity >= 0 && row.meanTaskComplexity <= 1,
+      `${row.modelId} meanTaskComplexity should be in [0,1]`);
+  }
+  assert.ok(mini.meanTaskComplexity! < strong.meanTaskComplexity!, 'mini tasks should be lower-complexity than strong');
+});
+
+test('leaderboard difficulty adjustment is a no-op when the population has no complexity variance', async () => {
+  const source = await loadFixture();
+  const baseRun = deepClone(source.completedRuns[0]!);
+  const fixture = deepClone(source);
+  fixture.completedRuns = [];
+  fixture.openRuns = [];
+  fixture.outcomes = [];
+
+  // Two models, 6 scored runs each, all cloned from the same base run → identical complexity signals
+  // → zero complexity variance → residual control disables (bit-identical to pre-adjustment).
+  let counter = 0;
+  function addRun(modelId: string, satisfaction: number): void {
+    const run = deepClone(baseRun);
+    counter += 1;
+    run.runId = `${modelId}-run-${counter}`;
+    run.taskGroupId = `${modelId}-task-${counter}`;
+    run.modelId = modelId;
+    run.thinkingLevel = 'high';
+    run.status = 'scored';
+    run.scored = true;
+    run.finalizationReason = 'scored';
+    run.finalizedAt = '2026-05-10T14:19:00.000Z';
+    run.outcome = { resolution: 'resolved' as const, satisfaction };
+    fixture.completedRuns.push(run);
+    fixture.outcomes.push({
+      schemaVersion: 1,
+      kind: 'run_outcome',
+      recordedAt: '2026-05-10T14:19:00.000Z',
+      sessionPath: baseRun.sessionPath,
+      runId: run.runId,
+      taskGroupId: run.taskGroupId,
+      outcome: run.outcome,
+    });
+  }
+  for (let i = 0; i < 6; i++) addRun('model-x', 5);
+  for (let i = 0; i < 6; i++) addRun('model-y', 4);
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const leaderboard = createModelLeaderboard(prepared);
+
+  // All runs share identical complexity → adjustment disabled for every row.
+  for (const row of leaderboard.rows) {
+    assert.equal(row.difficultyAdjusted, false, `${row.modelId} should not be difficulty-adjusted (zero variance)`);
+  }
+  // model-x (sat 5) still outranks model-y (sat 4) via the unadjusted expected-strength composite.
+  const x = leaderboard.rows.find((r) => r.modelId === 'model-x')!;
+  const y = leaderboard.rows.find((r) => r.modelId === 'model-y')!;
+  assert.ok(x.rank! < y.rank!, 'higher-satisfaction model should still rank higher (no-op adjustment)');
+});

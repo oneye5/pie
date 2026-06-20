@@ -714,6 +714,10 @@ export interface ModelLeaderboardRow {
   };
   /** Median estimated USD cost per run (over completed runs with known pricing); shown separately, not in the composite. */
   medianCostUsd: number | null;
+  /** Mean task complexity (0–1) of the model's scored runs; transparency only, not part of the composite. */
+  meanTaskComplexity: number | null;
+  /** Whether the composite was difficulty-adjusted for this row (population had complexity variance). */
+  difficultyAdjusted: boolean;
   subagentRunCount: number;
   subagentUsageRate: number | null;
   avgSubagentTasksPerRun: number | null;

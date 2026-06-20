@@ -5,7 +5,9 @@ import {
   LEADERBOARD_SHRINKAGE_K,
   LEADERBOARD_TOKEN_EFFICIENCY_MAX,
   LEADERBOARD_WEIGHTS,
+  LEADERBOARD_DIFFICULTY_ADJUSTED_DIMS as ADJUSTED_DIMS,
 } from '../scripts/leaderboard-scoring.ts';
+import { computeComplexityScores, fitComplexityBaseline, meanResidual, type ComplexityBaseline } from '../scripts/complexity-scoring.ts';
 import { meanDifferenceInterval, meanInterval, wilsonInterval } from './chart-stats.ts';
 import { renderChartEntries, type ChartContext } from './lib.ts';
 import { newCharts } from './charts/index.ts';
@@ -1902,6 +1904,8 @@ interface LeaderboardCompositeRow {
   verificationPassRate: string;
   tokenEfficiencyRate: string;
   medianCostUsd: string;
+  meanTaskComplexity: string;
+  difficultyAdjusted: boolean;
   subagentRate: string;
 }
 
@@ -1932,6 +1936,24 @@ function leaderboardRows(runs: PreparedRunRow[]): {
 
   type DimKey = 'satisfaction' | 'resolutionRate' | 'firstAttemptSuccess' | 'toolReliability' | 'verificationPassRate' | 'tokenEfficiency';
   const DIM_KEYS: DimKey[] = ['satisfaction', 'resolutionRate', 'firstAttemptSuccess', 'toolReliability', 'verificationPassRate', 'tokenEfficiency'];
+
+  // Pass 0: per-run complexity scores + per-dimension population baselines for residual control of
+  // task-complexity selection bias (stronger models get harder tasks).
+  const allScored = completed.filter((r) => r.scored && r.satisfaction !== null);
+  const complexityScores = computeComplexityScores(allScored);
+  const complexityOf = (r: PreparedRunRow): number => complexityScores.get(r.runId) ?? 0.5;
+  type Pair = { complexity: number; outcome: number };
+  const populationPairs: Record<DimKey, Pair[]> = {
+    satisfaction: allScored.map((r) => ({ complexity: complexityOf(r), outcome: Math.max(0, Math.min(1, (r.satisfaction! - 1) / 4)) })),
+    resolutionRate: allScored.map((r) => ({ complexity: complexityOf(r), outcome: r.resolution === 'resolved' ? 1 : r.resolution === 'partially_resolved' ? 0.5 : 0 })),
+    firstAttemptSuccess: allScored.map((r) => ({ complexity: complexityOf(r), outcome: r.firstAttemptSuccess ? 1 : 0 })),
+    verificationPassRate: allScored.filter((r) => r.verificationTotalCount > 0).map((r) => ({ complexity: complexityOf(r), outcome: r.verificationState === 'passing' ? 1 : 0 })),
+    toolReliability: [],
+    tokenEfficiency: [],
+  };
+  const baselines = new Map<DimKey, ComplexityBaseline>();
+  for (const dim of DIM_KEYS) if (ADJUSTED_DIMS.has(dim)) baselines.set(dim, fitComplexityBaseline(populationPairs[dim]));
+  const difficultyAdjusted = DIM_KEYS.some((dim) => ADJUSTED_DIMS.has(dim) && baselines.get(dim)?.enabled === true);
 
   // Pass 1: per-group observed (normalized) point estimates, sample sizes, and display values.
   const entries = [...groups.entries()].map(([key, groupRuns]) => {
@@ -1972,9 +1994,18 @@ function leaderboardRows(runs: PreparedRunRow[]): {
       tokenEfficiency: tokenEffValues.length,
     };
 
+    const pairs: Record<DimKey, Pair[]> = {
+      satisfaction: scored.map((r) => ({ complexity: complexityOf(r), outcome: Math.max(0, Math.min(1, (r.satisfaction! - 1) / 4)) })),
+      resolutionRate: scored.map((r) => ({ complexity: complexityOf(r), outcome: r.resolution === 'resolved' ? 1 : r.resolution === 'partially_resolved' ? 0.5 : 0 })),
+      firstAttemptSuccess: scored.map((r) => ({ complexity: complexityOf(r), outcome: r.firstAttemptSuccess ? 1 : 0 })),
+      verificationPassRate: verifying.map((r) => ({ complexity: complexityOf(r), outcome: r.verificationState === 'passing' ? 1 : 0 })),
+      toolReliability: [],
+      tokenEfficiency: [],
+    };
+    const meanTaskComplexity = scored.length > 0 ? scored.reduce((s, r) => s + complexityOf(r), 0) / scored.length : null;
     return {
       label, modelId: modelId!, thinkingLevel: formatThinkingLevelLabel(thinkingLevel!),
-      runCount: groupRuns.length, scoredRunCount: scored.length, observed, n,
+      runCount: groupRuns.length, scoredRunCount: scored.length, observed, n, pairs, meanTaskComplexity,
       satMean, resMean, fasSuccesses, toolSuccesses, verifying, verPass, tokenEffMedian,
       subagentUsageRate: groupRuns.length > 0 ? groupRuns.filter((r) => r.subagentCallCount > 0).length / groupRuns.length : 0,
       costValues: groupRuns.map((r) => r.estimatedCostUsd).filter((v): v is number => v !== null && Number.isFinite(v)),
@@ -2000,7 +2031,11 @@ function leaderboardRows(runs: PreparedRunRow[]): {
           const obs = e.observed[dim];
           const gm = grandMean[dim];
           if (obs === null || gm === null) { shrunk[dim] = null; continue; }
-          const s = Math.max(0, Math.min(1, (e.n[dim] * obs + LEADERBOARD_SHRINKAGE_K * gm) / (e.n[dim] + LEADERBOARD_SHRINKAGE_K)));
+          // Residual control: replace the observed estimate with grandMean + mean residual over baseline.
+          const baseline = baselines.get(dim);
+          const mr = baseline ? meanResidual(e.pairs[dim], baseline) : null;
+          const adjustedObserved = baseline?.enabled && mr !== null ? Math.max(0, Math.min(1, gm + mr)) : obs;
+          const s = Math.max(0, Math.min(1, (e.n[dim] * adjustedObserved + LEADERBOARD_SHRINKAGE_K * gm) / (e.n[dim] + LEADERBOARD_SHRINKAGE_K)));
           shrunk[dim] = s;
           sum += LEADERBOARD_WEIGHTS[dim] * s;
         }
@@ -2038,6 +2073,8 @@ function leaderboardRows(runs: PreparedRunRow[]): {
       verificationPassRate: fmtPct(e.verifying.length > 0 ? e.verPass / e.verifying.length : null),
       tokenEfficiencyRate: e.tokenEffMedian != null ? `${e.tokenEffMedian.toFixed(1)} tok/line` : '—',
       medianCostUsd: costMedian != null ? `$${costMedian.toFixed(4)}` : '—',
+      meanTaskComplexity: e.meanTaskComplexity != null ? `${(e.meanTaskComplexity * 100).toFixed(0)}%` : '—',
+      difficultyAdjusted,
       subagentRate: fmtPct(e.subagentUsageRate),
     };
   });
@@ -2072,7 +2109,7 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
 
   target.innerHTML = `
     <table class="data-table leaderboard-table">
-      <caption>Ranked first to last by expected strength. Composite = weighted empirical-Bayes shrunk point estimates; cost shown separately.</caption>
+      <caption>Ranked first to last by expected strength. Composite = difficulty-adjusted empirical-Bayes shrunk estimates (controls for task-mix bias); cost & task difficulty shown separately.</caption>
       <thead>
         <tr>
           <th scope="col">Rank</th>
@@ -2086,6 +2123,7 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
           <th scope="col">Ver. pass</th>
           <th scope="col">Tok/line</th>
           <th scope="col">Med. cost</th>
+          <th scope="col">Task diff.</th>
           <th scope="col">Subagents</th>
         </tr>
       </thead>
@@ -2106,6 +2144,7 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
             <td class="numeric">${escapeHtml(row.verificationPassRate)}</td>
             <td class="numeric">${escapeHtml(row.tokenEfficiencyRate)}</td>
             <td class="numeric">${escapeHtml(row.medianCostUsd)}</td>
+            <td class="numeric">${escapeHtml(row.meanTaskComplexity)}</td>
             <td class="numeric">${escapeHtml(row.subagentRate)}</td>
           </tr>
         `).join('')}
@@ -2404,7 +2443,7 @@ async function renderCharts(
     'leaderboard-note',
     lb.composite.length === 0
       ? `No models with ≥${LEADERBOARD_MIN_SCORED} scored runs.`
-      : `${lb.composite.length} ranked models ordered #1 → #${lb.composite.length}; ${lb.unrankedCount} unranked. Composite = weighted empirical-Bayes shrunk point estimates (expected strength); cost shown separately, not in score.`,
+      : `${lb.composite.length} ranked models ordered #1 → #${lb.composite.length}; ${lb.unrankedCount} unranked. Composite = difficulty-adjusted empirical-Bayes shrunk estimates (expected strength, controls for task-complexity selection bias); cost & task difficulty shown separately, not in score.`,
     renderToken,
   );
   renderLeaderboardTable(lb.composite, renderToken);
@@ -2438,6 +2477,7 @@ async function renderCharts(
             { field: 'verificationPassRate', type: 'nominal', title: 'Verification pass' },
             { field: 'tokenEfficiencyRate', type: 'nominal', title: 'Token efficiency' },
             { field: 'medianCostUsd', type: 'nominal', title: 'Median cost / run' },
+            { field: 'meanTaskComplexity', type: 'nominal', title: 'Mean task difficulty' },
             { field: 'subagentRate', type: 'nominal', title: 'Subagent usage' },
           ],
         },
@@ -2460,7 +2500,7 @@ async function renderCharts(
     'leaderboard-dimension-note',
     lb.dimensions.length === 0
       ? 'No ranked models to show.'
-      : `6 dimensions per model; dot = empirical-Bayes shrunk estimate (0–1), the value used in the composite. Weights: sat ${(LEADERBOARD_WEIGHTS.satisfaction * 100).toFixed(0)}%, res ${(LEADERBOARD_WEIGHTS.resolutionRate * 100).toFixed(0)}%, 1st ${(LEADERBOARD_WEIGHTS.firstAttemptSuccess * 100).toFixed(0)}%, tool ${(LEADERBOARD_WEIGHTS.toolReliability * 100).toFixed(0)}%, ver ${(LEADERBOARD_WEIGHTS.verificationPassRate * 100).toFixed(0)}%, tok ${(LEADERBOARD_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%. Estimates shrink toward the grand mean by n/(n+${LEADERBOARD_SHRINKAGE_K}).`,
+      : `6 dimensions per model; dot = difficulty-adjusted empirical-Bayes shrunk estimate (0–1), the value used in the composite. Outcome dimensions are difficulty-adjusted (residual control); tool reliability & token efficiency are not. Weights: sat ${(LEADERBOARD_WEIGHTS.satisfaction * 100).toFixed(0)}%, res ${(LEADERBOARD_WEIGHTS.resolutionRate * 100).toFixed(0)}%, 1st ${(LEADERBOARD_WEIGHTS.firstAttemptSuccess * 100).toFixed(0)}%, tool ${(LEADERBOARD_WEIGHTS.toolReliability * 100).toFixed(0)}%, ver ${(LEADERBOARD_WEIGHTS.verificationPassRate * 100).toFixed(0)}%, tok ${(LEADERBOARD_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%. Estimates shrink toward the grand mean by n/(n+${LEADERBOARD_SHRINKAGE_K}).`,
     renderToken,
   );
 
@@ -4189,6 +4229,7 @@ function emptyOverviewData(schemaVersion: number): OverviewData {
     p99BusyDurationMs: null,
     verificationRunRate: null,
     toolFailureRate: null,
+    resultIssueRate: null,
     medianTokenEfficiency: null,
     averageContextUtilization: null,
     averageCacheHitRatio: null,

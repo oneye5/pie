@@ -59,75 +59,15 @@ const BAND_TO_BUCKET: Record<BandName, keyof BucketAssignments> = {
   high: "frontier",
 };
 
-// --- Complexity scoring ---
+// --- Complexity scoring (shared via complexity-scoring.ts) ---
+// The primitives live in complexity-scoring.ts so the global leaderboard and the
+// dashboard use the exact same complexity definition. Re-exported here for the
+// subagent bucket path and its tests.
 
-export interface ComplexitySignals {
-  lineMutations: number;
-  touchedFileCount: number;
-  toolCallCount: number;
-  busyDurationMs: number;
-  verificationTotalCount: number;
-  inputTokens: number;
-}
+import { computeComplexityScores } from './complexity-scoring.ts';
 
-export function extractSignals(run: PreparedRunRow): ComplexitySignals {
-  return {
-    lineMutations: run.lineAdditions + run.lineDeletions + run.lineModifications,
-    touchedFileCount: run.touchedFileCount,
-    toolCallCount: run.toolCallCount,
-    busyDurationMs: run.busyDurationMs,
-    verificationTotalCount: run.verificationTotalCount,
-    inputTokens: run.inputTokens,
-  };
-}
-
-/**
- * Compute percentile rank (0–1) of each value against the full population.
- * Returns an array parallel to `values`.
- */
-export function percentileRanks(values: number[]): number[] {
-  const sorted = [...values].sort((a, b) => a - b);
-  const n = sorted.length;
-  if (n === 0) return values.map(() => 0);
-
-  return values.map((v) => {
-    // Count how many values are strictly less than v
-    let lt = 0;
-    let eq = 0;
-    for (const s of sorted) {
-      if (s < v) lt++;
-      else if (s === v) eq++;
-      else break;
-    }
-    // Percentile rank = (lt + 0.5 * eq) / n
-    return (lt + 0.5 * eq) / n;
-  });
-}
-
-export function computeComplexityScores(runs: PreparedRunRow[]): Map<string, number> {
-  const signals = runs.map(extractSignals);
-
-  const lineMutationRanks = percentileRanks(signals.map((s) => s.lineMutations));
-  const touchedFileRanks = percentileRanks(signals.map((s) => s.touchedFileCount));
-  const toolCallRanks = percentileRanks(signals.map((s) => s.toolCallCount));
-  const durationRanks = percentileRanks(signals.map((s) => s.busyDurationMs));
-  const verificationRanks = percentileRanks(signals.map((s) => s.verificationTotalCount));
-  const inputTokenRanks = percentileRanks(signals.map((s) => s.inputTokens));
-
-  const scores = new Map<string, number>();
-  for (let i = 0; i < runs.length; i++) {
-    const score =
-      (lineMutationRanks[i] +
-        touchedFileRanks[i] +
-        toolCallRanks[i] +
-        durationRanks[i] +
-        verificationRanks[i] +
-        inputTokenRanks[i]) /
-      6;
-    scores.set(runs[i].runId, score);
-  }
-  return scores;
-}
+export { computeComplexityScores, extractSignals, percentileRanks } from './complexity-scoring.ts';
+export type { ComplexitySignals } from './complexity-scoring.ts';
 
 // --- Band assignment ---
 

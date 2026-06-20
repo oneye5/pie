@@ -11,7 +11,14 @@ import {
   LEADERBOARD_SHRINKAGE_K as SHRINKAGE_K,
   LEADERBOARD_TOKEN_EFFICIENCY_MAX as TOKEN_EFFICIENCY_MAX,
   LEADERBOARD_WEIGHTS as WEIGHTS,
+  LEADERBOARD_DIFFICULTY_ADJUSTED_DIMS as ADJUSTED_DIMS,
 } from './leaderboard-scoring.ts';
+import {
+  computeComplexityScores,
+  fitComplexityBaseline,
+  meanResidual,
+  type ComplexityBaseline,
+} from './complexity-scoring.ts';
 
 type DimensionKey =
   | 'satisfaction'
@@ -125,6 +132,11 @@ function rankRows(rows: ModelLeaderboardRow[]): void {
   });
 }
 
+interface ComplexityOutcomePair {
+  complexity: number;
+  outcome: number;
+}
+
 interface GroupEstimate {
   modelId: string;
   thinkingLevel: string;
@@ -136,17 +148,21 @@ interface GroupEstimate {
   medianDurationMs: number | null;
   medianTokenEfficiency: number | null;
   medianCostUsd: number | null;
+  meanTaskComplexity: number | null;
   /** Observed normalized point estimate per dimension in [0,1] (null when the group has no data). */
   observed: Record<DimensionKey, number | null>;
   /** Sample size per dimension. */
   n: Record<DimensionKey, number>;
+  /** Per-run (complexity, outcome) pairs for the difficulty-adjusted dimensions (empty otherwise). */
+  pairs: Record<DimensionKey, ComplexityOutcomePair[]>;
   /** Display values: native-scale point estimate, 95% CI lower bound, and sample size per dimension. */
   dimensions: Record<DimensionKey, LeaderboardDimension>;
 }
 
 /**
  * Builds model leaderboard rows ranked by expected strength: a weighted composite of empirical-Bayes
- * shrunk point estimates. Cost is surfaced separately and is not part of the composite.
+ * shrunk point estimates, with outcome dimensions difficulty-adjusted by residual control to remove
+ * task-complexity selection bias. Cost is surfaced separately and is not part of the composite.
  */
 export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLeaderboardData {
   const completedRuns = prepared.runs.filter((run) => run.status !== 'open');
@@ -158,7 +174,29 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     grouped.set(key, existing);
   }
 
-  // Pass 1: per-group observed (normalized) point estimates, native-scale display values, and CI lower bounds.
+  // Pass 0: per-run complexity scores over the scored-run population, plus per-dimension population
+  // baselines (outcome vs complexity) used for residual control of selection bias.
+  const allScoredRuns = completedRuns.filter((run) => run.scored && run.satisfaction !== null);
+  const complexityScores = computeComplexityScores(allScoredRuns);
+  const complexityOf = (run: PreparedRunRow): number => complexityScores.get(run.runId) ?? 0.5;
+
+  const populationPairs: Record<DimensionKey, ComplexityOutcomePair[]> = {
+    satisfaction: allScoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: clamp((run.satisfaction! - 1) / 4, 0, 1) })),
+    resolutionRate: allScoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: resolutionScore(run.resolution) })),
+    firstAttemptSuccess: allScoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: run.firstAttemptSuccess ? 1 : 0 })),
+    verificationPassRate: allScoredRuns.filter((run) => run.verificationTotalCount > 0)
+      .map((run) => ({ complexity: complexityOf(run), outcome: run.verificationState === 'passing' ? 1 : 0 })),
+    toolReliability: [],
+    tokenEfficiency: [],
+  };
+  const baselines = new Map<DimensionKey, ComplexityBaseline>();
+  for (const dim of DIMENSION_KEYS) {
+    if (ADJUSTED_DIMS.has(dim)) baselines.set(dim, fitComplexityBaseline(populationPairs[dim]));
+  }
+  const difficultyAdjusted = DIMENSION_KEYS.some((dim) => ADJUSTED_DIMS.has(dim) && baselines.get(dim)?.enabled === true);
+
+  // Pass 1: per-group observed (normalized) point estimates, native-scale display values, CI lower bounds,
+  // per-run (complexity, outcome) pairs, and mean task complexity.
   const estimates: GroupEstimate[] = [...grouped.entries()].map(([key, runs]) => {
     const [modelId, thinkingLevel] = key.split('::');
     const scoredRuns = runs.filter((run) => run.scored && run.satisfaction !== null);
@@ -216,9 +254,18 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
       verificationPassRate: verifyingRuns.length,
       tokenEfficiency: tokenEfficiencyValues.length,
     };
+    const pairs: Record<DimensionKey, ComplexityOutcomePair[]> = {
+      satisfaction: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: clamp((run.satisfaction! - 1) / 4, 0, 1) })),
+      resolutionRate: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: resolutionScore(run.resolution) })),
+      firstAttemptSuccess: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: run.firstAttemptSuccess ? 1 : 0 })),
+      verificationPassRate: verifyingRuns.map((run) => ({ complexity: complexityOf(run), outcome: run.verificationState === 'passing' ? 1 : 0 })),
+      toolReliability: [],
+      tokenEfficiency: [],
+    };
 
     const subagentRuns = runs.filter((run) => run.subagentCallCount > 0);
     const costValues = runs.map((run) => run.estimatedCostUsd).filter((value): value is number => value !== null && Number.isFinite(value));
+    const meanTaskComplexity = scoredN > 0 ? round(meanOf(scoredRuns.map((run) => complexityOf(run))), 4) : null;
 
     return {
       modelId: modelId ?? '(unknown)',
@@ -231,20 +278,23 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
       medianDurationMs: median(runs.map((run) => run.busyDurationMs), 0),
       medianTokenEfficiency: median(runs.map((run) => run.tokenEfficiency).filter((value): value is number => value !== null), 3),
       medianCostUsd: costValues.length > 0 ? round(median(costValues, 4) ?? 0, 4) : null,
+      meanTaskComplexity,
       observed,
       n,
+      pairs,
       dimensions: { satisfaction, resolutionRate, firstAttemptSuccess, toolReliability, verificationPassRate, tokenEfficiency },
     };
   });
 
-  // Pass 2: grand mean per dimension = mean of the groups' observed normalized estimates (the EB prior).
+  // Pass 2: grand mean per dimension = mean of the groups' observed normalized estimates (the EB prior,
+  // and the residual-control anchor / shrinkage target).
   const grandMean: Record<DimensionKey, number | null> = {} as Record<DimensionKey, number | null>;
   for (const dim of DIMENSION_KEYS) {
     const values = estimates.map((e) => e.observed[dim]).filter((value): value is number => value !== null);
     grandMean[dim] = values.length > 0 ? meanOf(values) : null;
   }
 
-  // Pass 3: shrink each group's estimates toward the grand mean and assemble rows.
+  // Pass 3: difficulty-adjust each outcome dim (residual control), shrink toward the grand mean, assemble rows.
   const rows: ModelLeaderboardRow[] = estimates.map((e) => {
     let compositeScore: number | null = null;
     let reliabilityFactor: number | null = null;
@@ -256,7 +306,11 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
         const obs = e.observed[dim];
         const gm = grandMean[dim];
         if (obs === null || gm === null) continue;
-        const shrunkValue = clamp(shrink(obs, e.n[dim], gm), 0, 1);
+        // Residual control: replace the observed estimate with grandMean + mean residual over baseline.
+        const baseline = baselines.get(dim);
+        const mr = baseline ? meanResidual(e.pairs[dim], baseline) : null;
+        const adjustedObserved = baseline?.enabled && mr !== null ? clamp(gm + mr, 0, 1) : obs;
+        const shrunkValue = clamp(shrink(adjustedObserved, e.n[dim], gm), 0, 1);
         shrunkDimensions[dim] = { ...shrunkDimensions[dim]!, shrunk: round(shrunkValue, 4) };
         rawComposite += WEIGHTS[dim] * shrunkValue;
       }
@@ -281,6 +335,8 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
         tokenEfficiency: shrunkDimensions.tokenEfficiency!,
       },
       medianCostUsd: e.medianCostUsd,
+      meanTaskComplexity: e.meanTaskComplexity,
+      difficultyAdjusted,
       subagentRunCount: e.subagentRunCount,
       subagentUsageRate: e.subagentUsageRate,
       avgSubagentTasksPerRun: e.avgSubagentTasksPerRun,
@@ -308,9 +364,12 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     minimumScoredRuns: MINIMUM_SCORED_RUNS,
     notes: [
       `Composite ranks by expected strength: a weighted sum of empirical-Bayes shrunk point estimates (prior strength k=${SHRINKAGE_K}). Estimates are shrunk toward each dimension's cross-model grand mean by the data fraction n/(n+k), curbing small-sample cherry-picking without a harsh multiplicative penalty.`,
+      `Outcome dimensions (satisfaction, resolution, first-attempt, verification pass) are difficulty-adjusted by residual control: each run's outcome is compared to the population baseline outcome at its task complexity, residuals are averaged and re-anchored to the grand mean, then shrunk. This controls for task-complexity selection bias (stronger models get harder tasks) — an easy-task-only model gets ~0 lift and lands mid-pack; only beating the hard-task baseline lifts a model. toolReliability and tokenEfficiency are not adjusted.`,
+      `Task complexity is a per-run 0–1 score from 6 signals (line mutations, touched files, tool calls, busy duration, verification count, input tokens). Adjustment is a no-op when the population has no complexity variance or fewer than ${10} scored runs, so identical-task fixtures are unchanged.`,
       `reliabilityFactor reports sample confidence = scoredRunCount / (scoredRunCount + ${SHRINKAGE_K}); it is a display-only indicator and is NOT applied to the composite.`,
+      `meanTaskComplexity reports each model's average task difficulty (0=easy, 1=hard) for transparency ("strength of schedule"); it is not part of the composite. difficultyAdjusted flags whether the composite was difficulty-adjusted.`,
       `Dimensions: satisfaction (1–5 → 0–1), resolution rate, first-attempt success, tool reliability, verification pass rate (share of verifying runs whose checks pass — not mere adoption), and token efficiency (1 − median tok/line ÷ ${TOKEN_EFFICIENCY_MAX}). All proportions/means use scored runs only; verification pass rate and token efficiency additionally exclude runs without the relevant signal.`,
-      `Each dimension exposes value (observed point estimate), lowerBound (95% CI lower bound, an uncertainty indicator — not used for ranking), shrunk (empirical-Bayes estimate used in the composite), and n.`,
+      `Each dimension exposes value (observed point estimate), lowerBound (95% CI lower bound, an uncertainty indicator — not used for ranking), shrunk (difficulty-adjusted empirical-Bayes estimate used in the composite), and n.`,
       `Models with fewer than ${MINIMUM_SCORED_RUNS} scored runs are shown but unranked (null composite and rank).`,
       `medianCostUsd surfaces per-run cost separately; cost is not part of the composite so rank #1 reflects strength, not cheapness.`,
       'Subagent context shows co-occurrence; subagent model attribution requires pipeline enhancement.',
