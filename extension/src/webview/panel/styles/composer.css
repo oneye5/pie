@@ -617,6 +617,63 @@
   cursor: default;
 }
 
+/* ── UI flyout toggle switch ─────────────────────────────────────────────── */
+/* Sliding switch for boolean UI prefs (e.g. Reduce motion). Reads as active
+   using the accent color; the thumb uses the accent's readable foreground.   */
+
+.toolbar-settings-ui-toggle-row {
+  flex-direction: row;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--panel-gap-md);
+}
+
+.toolbar-settings-ui-toggle-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.toolbar-settings-ui-toggle {
+  position: relative;
+  flex-shrink: 0;
+  width: 30px;
+  height: 17px;
+  margin-top: 1px;
+  padding: 0;
+  border: 1px solid var(--panel-border);
+  border-radius: 999px;
+  background: var(--panel-ink-5);
+  cursor: pointer;
+  transition: background var(--panel-transition-fast), border-color var(--panel-transition-fast);
+}
+
+.toolbar-settings-ui-toggle:hover {
+  border-color: var(--panel-muted);
+}
+
+.toolbar-settings-ui-toggle.on {
+  background: var(--panel-accent);
+  border-color: var(--panel-accent);
+}
+
+.toolbar-settings-ui-toggle-thumb {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  width: 13px;
+  height: 13px;
+  border-radius: 999px;
+  background: var(--panel-foreground);
+  transition: transform var(--panel-transition-fast), background var(--panel-transition-fast);
+}
+
+.toolbar-settings-ui-toggle.on .toolbar-settings-ui-toggle-thumb {
+  transform: translateX(13px);
+  background: var(--panel-accent-contrast);
+}
+
 /* ── Always-keep picker ──────────────────────────────────────────────────── */
 /* Multi-chip select for skills/tools that are never pruned */
 

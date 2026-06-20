@@ -84,6 +84,38 @@
   --panel-transition-entrance: var(--panel-duration-entrance) var(--panel-ease-out-expo);
 }
 
+/* ── Reduce motion ───────────────────────────────────────────────────────── */
+/* Suppresses all animation/transition motion. Triggered by either:            */
+/*   (a) the user's "Reduce motion" UI toggle, which sets                      */
+/*       data-reduce-motion="true" on <html> (app-body.tsx), or               */
+/*   (b) the OS-level prefers-reduced-motion setting.                          */
+/* animation-iteration-count:1 is the key detail — it stops infinite          */
+/* animations (status-chip pulse, tab attention pulse, loading spinners)      */
+/* after one ~instant frame instead of spinning them at full CPU. The          */
+/* !important is intentional: reduce-motion must override every component's    */
+/* own animation/transition. Unlayered + !important beats both layered and     */
+/* inline component styles.                                                    */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+html[data-reduce-motion="true"] *,
+html[data-reduce-motion="true"] *::before,
+html[data-reduce-motion="true"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}
+
 /* ── Panel custom properties ────────────────────────────────────────────── */
 /* Raw CSS custom properties consumed by component stylesheets via var().    */
 /* Not Tailwind tokens — components that use Tailwind utilities use @theme.  */

@@ -239,4 +239,22 @@ test('validateWebviewToHostMessage validates setPrefs patches and rejects unknow
     }).ok,
     false,
   );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiMessageWidth: 80 } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiReduceMotion: true } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiMessageWidth: 40 } }).ok,
+    false,
+    'uiMessageWidth below the 60 floor should be rejected',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiReduceMotion: 'yes' } }).ok,
+    false,
+    'uiReduceMotion must be a boolean',
+  );
 });

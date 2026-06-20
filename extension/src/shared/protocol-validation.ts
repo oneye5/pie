@@ -136,6 +136,7 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     'suppressCompletionNotifications',
     'showPruningMessages',
     'subagentAlwaysParentModel',
+    'uiReduceMotion',
   ];
   const toggleKeys: Array<keyof ChatPrefs> = [
     'extensionToggles',
@@ -144,6 +145,7 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
   const numericRanges: Record<string, [number, number]> = {
     completionSoundVolume: [0, 100],
     expandedSectionFontSize: [8, 24],
+    uiMessageWidth: [60, 100],
   };
   const stringKeys: Array<keyof ChatPrefs> = [
     'uiFontSans',

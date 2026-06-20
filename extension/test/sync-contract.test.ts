@@ -34,6 +34,10 @@ test('DEFAULT_CHAT_PREFS shape', () => {
   assert.equal(typeof DEFAULT_CHAT_PREFS.autoExpandSubagentCalls, 'boolean');
   assert.equal(typeof DEFAULT_CHAT_PREFS.suppressCompletionNotifications, 'boolean');
   assert.equal(typeof DEFAULT_CHAT_PREFS.subagentAlwaysParentModel, 'boolean');
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiReduceMotion, 'boolean');
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiMessageWidth, 'number');
+  assert.equal(DEFAULT_CHAT_PREFS.uiMessageWidth, 88);
+  assert.equal(DEFAULT_CHAT_PREFS.uiReduceMotion, false);
 });
 
 test('resolveChatPrefs backfills subagent auto-expand from legacy tool-call prefs', () => {

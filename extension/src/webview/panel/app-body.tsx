@@ -365,18 +365,27 @@ export function AppBody({ adapter }: AppBodyProps) {
 
   useSessionRecovery(viewState.backendReady, derived.needsSessionRecovery, derived.recoverySessionPath, viewState.notice, postMessage);
 
-  // Apply UI prefs (expanded-section font size, font stacks, accent color) as
-  // CSS custom properties on :root so every component picks them up via var().
-  // Empty-string font overrides are cleared so the bundled stylesheet defaults
-  // win (setProperty(key, '') removes the inline declaration). The accent color
-  // also derives its hover shade (--panel-accent-strong) and readable foreground
-  // (--panel-accent-contrast); both are cleared when no accent is set so the
-  // bundled gold defaults apply unchanged.
+  // Apply UI prefs (expanded-section font size, font stacks, accent color,
+  // message width, reduce motion) as CSS custom properties on :root so every
+  // component picks them up via var(). Empty-string font overrides are cleared
+  // so the bundled stylesheet defaults win (setProperty(key, '') removes the
+  // inline declaration). The accent color also derives its hover shade
+  // (--panel-accent-strong) and readable foreground (--panel-accent-contrast);
+  // both are cleared when no accent is set so the bundled gold defaults apply
+  // unchanged. Message width scales both the standard and narrow variants.
+  // Reduce motion toggles a data-reduce-motion attribute on <html>; the index
+  // stylesheet collapses every animation/transition to ~instant when it (or the
+  // OS prefers-reduced-motion) is set. Setting duration vars to 0.01ms would
+  // spin infinite animations (e.g. status-chip-pulse) at full CPU, so the
+  // attribute + animation-iteration-count:1 snippet is used instead.
   useEffect(() => {
     const root = document.documentElement.style;
     root.setProperty('--expanded-font-size', `${viewState.prefs.expandedSectionFontSize}px`);
     root.setProperty('--panel-font-sans', viewState.prefs.uiFontSans);
     root.setProperty('--panel-font-mono', viewState.prefs.uiFontMono);
+    const width = viewState.prefs.uiMessageWidth;
+    root.setProperty('--message-assistant-width', `${width}%`);
+    root.setProperty('--message-assistant-width-narrow', `${Math.min(100, width + 4)}%`);
     const accent = viewState.prefs.uiAccentColor;
     if (accent) {
       root.setProperty('--panel-accent', accent);
@@ -388,11 +397,19 @@ export function AppBody({ adapter }: AppBodyProps) {
       root.setProperty('--panel-accent-strong', '');
       root.setProperty('--panel-accent-contrast', '');
     }
+    const htmlEl = document.documentElement;
+    if (viewState.prefs.uiReduceMotion) {
+      htmlEl.setAttribute('data-reduce-motion', 'true');
+    } else {
+      htmlEl.removeAttribute('data-reduce-motion');
+    }
   }, [
     viewState.prefs.expandedSectionFontSize,
     viewState.prefs.uiFontSans,
     viewState.prefs.uiFontMono,
     viewState.prefs.uiAccentColor,
+    viewState.prefs.uiMessageWidth,
+    viewState.prefs.uiReduceMotion,
   ]);
 
   return (

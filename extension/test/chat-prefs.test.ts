@@ -24,6 +24,8 @@ const prefs: ChatPrefs = {
   uiFontSans: '',
   uiFontMono: '',
   uiAccentColor: '',
+  uiMessageWidth: 88,
+  uiReduceMotion: false,
   extensionToggles: {},
   providerToggles: {},
 };
@@ -75,6 +77,8 @@ test('toggle helpers return partial pref patches without mutating source prefs',
     uiFontSans: '',
     uiFontMono: '',
     uiAccentColor: '',
+    uiMessageWidth: 88,
+    uiReduceMotion: false,
     extensionToggles: {},
     providerToggles: {},
   });

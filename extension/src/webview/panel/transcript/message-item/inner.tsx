@@ -40,7 +40,7 @@ export function MessageItemShell({
   return (
     <div
       class={cx(
-        'flex w-fit max-w-[88%] min-w-0 flex-col gap-2 rounded-xl px-3 py-2.5',
+        'flex w-fit max-w-[var(--message-assistant-width)] min-w-0 flex-col gap-2 rounded-xl px-3 py-2.5',
         'transition-[background-color,box-shadow] duration-[var(--panel-duration-normal)]',
         'forced-colors:border forced-colors:border-[ButtonText]',
         role === 'assistant' && 'self-start rounded-xl bg-card shadow-sm',

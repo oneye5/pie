@@ -184,6 +184,30 @@ function UiSubmenuTrigger({ open, onToggle }: UiSubmenuTriggerProps) {
   );
 }
 
+interface UiToggleProps {
+  checked: boolean;
+  ariaLabel: string;
+  onChange: (next: boolean) => void;
+}
+
+/** Compact sliding switch for boolean UI prefs inside the flyout. Mirrors the
+ *  accent color so the on state reads as active; the thumb uses the accent's
+ *  readable foreground for contrast. */
+function UiToggle({ checked, ariaLabel, onChange }: UiToggleProps) {
+  return (
+    <button
+      type="button"
+      class={`toolbar-settings-ui-toggle${checked ? ' on' : ''}`}
+      role="switch"
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      onClick={() => onChange(!checked)}
+    >
+      <span class="toolbar-settings-ui-toggle-thumb" aria-hidden="true" />
+    </button>
+  );
+}
+
 interface UiFlyoutProps {
   prefs: ChatPrefs;
   onSetPrefs: OnSetPrefs;
@@ -294,6 +318,36 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
           >Reset</button>
         </div>
         <div class="toolbar-settings-item-hint">Buttons, highlights, and active states. Reset restores the default.</div>
+      </div>
+
+      <div class="toolbar-settings-ui-control">
+        <div class="toolbar-settings-ui-control-head">
+          <span class="toolbar-settings-ui-control-label">Message width</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.uiMessageWidth}%</span>
+        </div>
+        <input
+          type="range"
+          class="toolbar-settings-slider toolbar-settings-ui-slider"
+          min="60"
+          max="100"
+          step="2"
+          value={prefs.uiMessageWidth}
+          onInput={(e) => onSetPrefs({ uiMessageWidth: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Message width"
+        />
+        <div class="toolbar-settings-item-hint">Max width of chat bubbles. Narrow view scales up to keep content readable.</div>
+      </div>
+
+      <div class="toolbar-settings-ui-control toolbar-settings-ui-toggle-row">
+        <div class="toolbar-settings-ui-toggle-text">
+          <span class="toolbar-settings-ui-control-label">Reduce motion</span>
+          <div class="toolbar-settings-item-hint">Disable animations and transitions.</div>
+        </div>
+        <UiToggle
+          checked={prefs.uiReduceMotion}
+          ariaLabel="Reduce motion"
+          onChange={(next) => onSetPrefs({ uiReduceMotion: next })}
+        />
       </div>
     </div>
   );

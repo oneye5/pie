@@ -109,6 +109,15 @@ export interface ChatPrefs {
   /** Override for the accent color (sets --panel-accent) as a CSS color string
    *  (e.g. '#d7a942'). Empty string falls back to the bundled default. */
   uiAccentColor: string;
+  /** Max width (%) of chat bubbles (sets --message-assistant-width). Also
+   *  scales the narrow variant up by 4 points (clamped to 100). The bundled
+   *  default is 88. */
+  uiMessageWidth: number;
+  /** When true, collapse every animation/transition to ~instant. Implemented
+   *  via a data-reduce-motion attribute on <html> that the index stylesheet
+   *  uses to set animation-iteration-count:1 + ~0 durations globally (also
+   *  honored automatically when the OS requests prefers-reduced-motion). */
+  uiReduceMotion: boolean;
   /** Per-extension enabled/disabled toggles. Keys are extension IDs. */
   extensionToggles: Record<string, boolean>;
   /** Per-provider enabled/disabled toggles. Keys are provider names. */
@@ -151,6 +160,8 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   uiFontSans: '',
   uiFontMono: '',
   uiAccentColor: '',
+  uiMessageWidth: 88,
+  uiReduceMotion: false,
   extensionToggles: {},
   providerToggles: {},
 };
