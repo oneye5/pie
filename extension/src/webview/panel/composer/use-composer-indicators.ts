@@ -23,7 +23,6 @@ import {
 } from '../session-tabs/token-usage';
 import { resolveComposerModelState } from './model-state';
 import { useTokenRateIndicator } from './use-token-rate';
-import { useTurnLatencyIndicator } from './use-turn-latency';
 
 export function useComposerIndicators({
   activeModelId,
@@ -115,7 +114,6 @@ export function useComposerIndicators({
   );
 
   const tokenRateIndicator = useTokenRateIndicator({ transcript, busy, sessionPath, activeRunSummary });
-  const turnLatencyIndicator = useTurnLatencyIndicator({ transcript });
 
   return {
     selectedModel,
@@ -128,6 +126,5 @@ export function useComposerIndicators({
     sessionTokenIndicator,
     sessionCostIndicator,
     tokenRateIndicator,
-    turnLatencyIndicator,
   };
 }

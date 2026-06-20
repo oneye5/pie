@@ -7,6 +7,7 @@ import {
   getRenderableSubagentResultFromToolCall,
   type SubagentSingleResult,
 } from '../transcript/subagent';
+import { computeTurnLatencyStats, formatTurnLatencyTooltipLines } from './turn-latency';
 
 /**
  * Live "average tokens per second" indicator.
@@ -278,6 +279,7 @@ function buildState(
   generating: boolean,
   streaming: ChatMessage | null,
   toolBlocked: boolean,
+  latencyLines: string[],
 ): TokenRateIndicatorState {
   const rate = computeRate(acc.samples);
   const genSec = Math.round(acc.genMs / 1000);
@@ -286,12 +288,18 @@ function buildState(
     : 0;
   const windowSec = Math.round(Math.min(windowSpanMs, WINDOW_MS) / 1000);
 
+  // Append the merged average turn-latency lines to whichever tooltip we build.
+  // No measured turns yet -> empty array -> the speed tooltip stays concise.
+  const withLatency = (lines: string[]): string => (
+    latencyLines.length > 0 ? [...lines, ...latencyLines].join('\n') : lines.join('\n')
+  );
+
   if (generating) {
     if (rate === null) {
       return {
         label: '—',
         ariaLabel: 'Generation rate: measuring.',
-        tooltip: 'Measuring generation rate…',
+        tooltip: withLatency(['Measuring generation rate…']),
         state: 'generating',
         paused: false,
       };
@@ -300,13 +308,13 @@ function buildState(
     return {
       label: `${num} tok/s`,
       ariaLabel: `Generation rate: ${num} tokens per second.`,
-      tooltip: [
+      tooltip: withLatency([
         `Generation rate: ${num} tok/s`,
         `Average over the last ${windowSec}s of generation.`,
         `${acc.cumTokens} output tokens in ${genSec}s of generation time.`,
         'Includes output from running subagents.',
         'Clock pauses during tool calls and output stalls.',
-      ].join('\n'),
+      ]),
       state: 'generating',
       paused: false,
     };
@@ -317,7 +325,10 @@ function buildState(
     return {
       label: '—',
       ariaLabel: `Generation paused (${reason}).`,
-      tooltip: `Generation paused (${reason}). Waiting for the model to produce output.`,
+      tooltip: withLatency([
+        `Generation paused (${reason}).`,
+        'Waiting for the model to produce output.',
+      ]),
       state: 'paused',
       paused: true,
     };
@@ -326,13 +337,13 @@ function buildState(
   return {
     label: `⏸ ${num} tok/s`,
     ariaLabel: `Generation paused (${reason}). Last rate ${num} tokens per second.`,
-    tooltip: [
+    tooltip: withLatency([
       `Generation paused (${reason}).`,
       `Last rate: ${num} tok/s`,
       `${acc.cumTokens} output tokens in ${genSec}s of generation time.`,
       'Includes output from running subagents.',
       'Clock resumes when the model produces output again.',
-    ].join('\n'),
+    ]),
     state: 'paused',
     paused: true,
   };
@@ -409,7 +420,8 @@ export function tickTokenRate(
   }
   acc.lastWall = now;
 
-  return buildState(acc, generating, streaming, toolBlocked);
+  const latencyLines = formatTurnLatencyTooltipLines(computeTurnLatencyStats(transcript));
+  return buildState(acc, generating, streaming, toolBlocked, latencyLines);
 }
 
 /** Create a fresh accumulator (for tests / explicit reset). */

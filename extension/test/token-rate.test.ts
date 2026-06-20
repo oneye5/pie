@@ -433,3 +433,60 @@ test('text produced while a tool call is running is counted as generation, not b
   assert.ok(peakRate < 400, `peak rate spiked to ${peakRate} tok/s during tool-running text`);
   assert.ok(acc.genMs >= 10_000, `generation clock should have advanced during text production, got ${acc.genMs}ms`);
 });
+
+test('merged tooltip surfaces the average turn latency alongside the live rate', () => {
+  // The turn-latency breakdown is no longer a separate chip — it is folded
+  // into the speed chip's tooltip as a session-wide average across measured
+  // turns. Verify the average lines appear in the generating-state tooltip.
+  const m = streamingMessage();
+  const finishedTurns: ChatMessage[] = [
+    { ...m, id: 'f1', status: 'completed', markdown: 'done', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 },
+    { ...m, id: 'f2', status: 'completed', markdown: 'done', turnLatencyMs: 2_000, overheadMs: 300, providerLatencyMs: 1_700 },
+  ];
+  const acc = createTokenRateAccumulator(BASE_NOW);
+  tickTokenRate(acc, [...finishedTurns, setContent(m, 0)], BASE_NOW);
+  tickTokenRate(acc, [...finishedTurns, setContent(m, 400)], BASE_NOW + 1000);
+  const state = tickTokenRate(acc, [...finishedTurns, setContent(m, 800)], BASE_NOW + 2000);
+
+  assert.equal(state.state, 'generating');
+  assert.match(state.tooltip, /Generation rate: 100 tok\/s/);
+  // avg = (1000 + 2000) / 2 = 1500ms -> 1.5s over 2 turns.
+  assert.match(state.tooltip, /Avg turn latency: 1\.5s over 2 turns/);
+  assert.match(state.tooltip, /overhead: 0\.2s/);
+  assert.match(state.tooltip, /provider: 1\.3s/);
+});
+
+test('speed tooltip stays concise when no turn has been measured yet', () => {
+  const m = streamingMessage();
+  const acc = createTokenRateAccumulator(BASE_NOW);
+  tickTokenRate(acc, [setContent(m, 0)], BASE_NOW);
+  const state = tickTokenRate(acc, [setContent(m, 400)], BASE_NOW + 1000);
+  assert.equal(state.state, 'generating');
+  assert.doesNotMatch(state.tooltip, /Avg turn latency/);
+});
+
+test('merged average latency also appears in the paused (tool running) tooltip', () => {
+  // The latency lines are appended to every tooltip variant, not just the live
+  // generating one — verify the paused-with-rate path (a tool call running)
+  // keeps the average alongside the held "Last rate".
+  const m = streamingMessage();
+  const finishedTurns: ChatMessage[] = [
+    { ...m, id: 'f1', status: 'completed', markdown: 'done', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 },
+    { ...m, id: 'f2', status: 'completed', markdown: 'done', turnLatencyMs: 2_000, overheadMs: 300, providerLatencyMs: 1_700 },
+  ];
+  const acc = createTokenRateAccumulator(BASE_NOW);
+  tickTokenRate(acc, [...finishedTurns, setContent(m, 0)], BASE_NOW);
+  tickTokenRate(acc, [...finishedTurns, setContent(m, 400)], BASE_NOW + 1000);
+  tickTokenRate(acc, [...finishedTurns, setContent(m, 800)], BASE_NOW + 2000); // ~100 tok/s
+  // A tool call starts running on the streaming message — clock pauses.
+  const blocked = setContent(
+    { ...m, toolCalls: [{ id: 't1', name: 'bash', input: {}, status: 'running' }] },
+    800,
+  );
+  const state = tickTokenRate(acc, [...finishedTurns, blocked], BASE_NOW + 7000);
+  assert.equal(state.state, 'paused');
+  assert.match(state.label!, /⏸ 100 tok\/s/);
+  assert.match(state.tooltip, /Generation paused \(tool running\)/);
+  assert.match(state.tooltip, /Last rate: 100 tok\/s/);
+  assert.match(state.tooltip, /Avg turn latency: 1\.5s over 2 turns/);
+});

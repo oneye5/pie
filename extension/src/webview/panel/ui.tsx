@@ -114,7 +114,6 @@ function ComposerView({
     sessionTokenIndicator,
     sessionCostIndicator,
     tokenRateIndicator,
-    turnLatencyIndicator,
   } = useComposerIndicators({
     activeModelId,
     activeThinkingLevel,
@@ -207,7 +206,6 @@ function ComposerView({
             }}
         sessionCostIndicator={sessionCostIndicator}
         tokenRateIndicator={tokenRateIndicator}
-        turnLatencyIndicator={turnLatencyIndicator}
         runStatus={runControls.status}
         onModelChange={onModelChange}
       />

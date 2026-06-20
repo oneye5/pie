@@ -127,7 +127,7 @@ export function ToolbarChip({ label, title, tooltip, ariaLabel, tone = 'muted' }
   return <PanelChip variant="toolbar" tone={tone} label={label} title={title} tooltip={tooltip} ariaLabel={ariaLabel} />;
 }
 
-export type ToolbarIndicatorKind = 'tokens' | 'cost' | 'context' | 'speed' | 'latency';
+export type ToolbarIndicatorKind = 'tokens' | 'cost' | 'context' | 'speed';
 
 interface ToolbarIndicatorChipProps extends ToolbarChipProps {
   kind: ToolbarIndicatorKind;
