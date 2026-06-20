@@ -63,16 +63,29 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
   border-radius: 999px;
-  background: var(--panel-ink-4);
+  background: var(--panel-ink-5);
   border: 1px solid var(--panel-border-subtle);
   font-size: 9px;
   font-weight: 650;
   line-height: 1;
+  font-variant-numeric: tabular-nums;
   color: var(--panel-foreground-soft);
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    color var(--panel-transition-fast);
+}
+
+/* Promote the count to an accent pill when there are unseen changes, so the
+   collapsed handle signals activity at a glance (pairs with the pulse dot). */
+.file-changes-rail:has(.file-changes-new-dot) .file-changes-handle-count {
+  background: color-mix(in srgb, var(--panel-accent) 18%, var(--panel-ink-4));
+  border-color: color-mix(in srgb, var(--panel-accent) 32%, transparent);
+  color: var(--panel-accent-strong);
 }
 
 .file-changes-new-dot {
@@ -162,19 +175,21 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--panel-gap-xs) 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: var(--panel-gap-xs);
 }
 
+/* Flat modern rows: generous vertical rhythm, rounded hover surface, no
+   divider lines — spacing + hover fill carry the list structure. */
 .file-change-item {
   display: flex;
   align-items: center;
-  gap: 3px;
-  padding: 3px var(--panel-gap-sm);
+  gap: var(--panel-gap-xs);
+  padding: var(--panel-gap-sm) var(--panel-gap-sm);
+  border-radius: var(--panel-radius-sm);
   transition: background var(--panel-transition-fast);
-}
-
-.file-change-item:not(:last-child) {
-  border-bottom: 1px solid var(--panel-border-subtle);
 }
 
 .file-change-item:hover {
@@ -192,7 +207,7 @@
 .file-change-actions {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--panel-gap-xs);
   flex-shrink: 0;
   opacity: 0;
   pointer-events: none;
@@ -216,30 +231,42 @@
 
 /* ── Status labels (non-color indicator) ─────────────────────────────────── */
 
+/* Status badge: a tinted pill (semantic surface + inset border + colored
+   glyph) reusing the panel's chip language, so kind is legible by shape and
+   color — not color alone. */
 .file-change-status {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 12px;
+  min-width: 18px;
+  height: 16px;
+  padding: 0 4px;
   flex-shrink: 0;
+  border-radius: var(--panel-radius-sm);
+  border: 1px solid transparent;
   font-size: 9px;
-  font-weight: 600;
+  font-weight: 650;
   line-height: 1;
   font-family: var(--panel-font-mono);
-  color: var(--panel-muted);
+  letter-spacing: 0.02em;
 }
 
 .file-change-status-created {
   color: var(--panel-success);
+  background: color-mix(in srgb, var(--panel-success) 10%, transparent);
+  border-color: color-mix(in srgb, var(--panel-success) 30%, transparent);
 }
 
 .file-change-status-modified {
   color: var(--panel-warning);
+  background: color-mix(in srgb, var(--panel-warning) 10%, transparent);
+  border-color: color-mix(in srgb, var(--panel-warning) 30%, transparent);
 }
 
 .file-change-status-deleted {
   color: var(--panel-danger);
-  opacity: 0.8;
+  background: color-mix(in srgb, var(--panel-danger) 10%, transparent);
+  border-color: color-mix(in srgb, var(--panel-danger) 30%, transparent);
 }
 
 /* ── File path ───────────────────────────────────────────────────────────── */
@@ -289,10 +316,22 @@
 /* ── Action buttons ───────────────────────────────────────────────────────── */
 
 .file-change-actions .action-btn.icon-only {
+  position: relative;
   width: 24px;
   height: 24px;
   min-height: 24px;
   border-radius: var(--panel-radius-sm);
+}
+
+/* Expand the click target without enlarging the visible glyph: the dense rail
+   keeps compact 24px icons while still meeting the ~28px hitbox floor.
+   Vertical has headroom inside the row padding; horizontal stays clear of
+   neighbouring buttons, so there's no hit-area overlap. */
+.file-change-actions .action-btn.icon-only::after {
+  content: '';
+  position: absolute;
+  inset: -4px -2px;
+  border-radius: inherit;
 }
 
 .file-change-actions .action-btn svg {
@@ -353,6 +392,8 @@
   }
   .file-change-status {
     color: ButtonText;
+    background: transparent;
+    border-color: ButtonText;
   }
   .file-change-open,
   .file-change-copy,
