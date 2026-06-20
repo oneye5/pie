@@ -76,6 +76,23 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Prompt icon (visual identity / lifecycle continuity with ask_user) ──── */
+
+.ext-prompt-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--panel-accent) 16%, transparent);
+  color: var(--panel-accent);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
 /* ── Action buttons ──────────────────────────────────────────────────────── */
 
 .ext-prompt-actions {
@@ -264,6 +281,23 @@
   from {
     opacity: 0;
     transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* ── Custom input row entrance (select "Custom…" flow) ───────────────────── */
+
+.ext-prompt-custom-row {
+  animation: ext-prompt-fade-in var(--panel-duration-entrance) var(--panel-ease-out-expo);
+}
+
+@keyframes ext-prompt-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
   }
   to {
     opacity: 1;
