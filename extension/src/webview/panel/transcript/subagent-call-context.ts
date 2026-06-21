@@ -4,11 +4,27 @@
 import { createContext } from 'preact';
 
 /**
- * Context that carries the parent subagent's tool call ID through nested
- * transcript rendering. When a subagent's nested ask_user tool call needs
- * to find its matching ExtensionUIRequestPayload, it reads this context
- * to get the `subagentCallId` to match against.
+ * Context that carries the enclosing subagent's identity through nested
+ * transcript rendering. When a nested ask_user tool call needs to find its
+ * matching ExtensionUIRequestPayload, it reads `id` from this context to
+ * match against `subagentCallId`.
  *
- * `undefined` means we're at the top level (main agent transcript).
+ * - `id` — the subagentCallId to match pending requests against. For a
+ *   single-result subagent this is the bare tool-call id; for a multi-result
+ *   (parallel/chain) subagent it is `${toolCallId}:${index}`, mirroring the
+ *   stamping applied by the subagent extension's `ParentExtensionUIBridgeProxy`.
+ * - `agent` — the subagent's name (e.g. "worker"), surfaced as a source label
+ *   on ask_user prompts so the user knows who is asking.
+ * - `depth` — nesting depth (1 = top-level subagent, 2 = subagent-of-subagent,
+ *   …), shown on nested-subagent prompts to make the call stack legible.
+ *
+ * `undefined` means we're at the top level (main agent transcript) — no
+ * enclosing subagent, so ask_user prompts render without a source label.
  */
-export const SubagentCallContext = createContext<string | undefined>(undefined);
+export interface SubagentCallContextValue {
+  id: string;
+  agent: string;
+  depth: number;
+}
+
+export const SubagentCallContext = createContext<SubagentCallContextValue | undefined>(undefined);

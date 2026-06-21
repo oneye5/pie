@@ -252,7 +252,7 @@ const MOCK_SDK_SOURCE = [
 	"  let release;",
 	"  const session = {",
 	"    agent: { state: { model: { id: 'session-model' } } },",
-	"    extensionRunner: { setUIContext(){} },",
+	"    extensionRunner: { setUIContext(ctx){ (globalThis.__MOCK_PROXIES__ = globalThis.__MOCK_PROXIES__ || []).push(ctx); } },",
 	"    subscribe(cb){ listeners.push(cb); return () => {}; },",
 	"    async prompt(p){",
 	"      const b = globalThis.__MOCK_SDK_BEHAVIOR__;",
@@ -314,8 +314,9 @@ function setMockBehavior(b: any): void {
 }
 // Prevent behavior from leaking across tests: every test currently sets its own
 // behavior, but resetting here means a future test that forgets to call
-// setMockBehavior cannot inherit a previous test's SDK behavior.
-afterEach(() => setMockBehavior(undefined));
+// setMockBehavior cannot inherit a previous test's SDK behavior. Also reset the
+// captured-proxy sink used by the subagentCallId-stamping regression tests.
+afterEach(() => { setMockBehavior(undefined); (globalThis as any).__MOCK_PROXIES__ = []; });
 
 function messageEnd(text: string, stopReason: string): any {
 	return {
@@ -558,4 +559,83 @@ test("executeChainMode: onUpdate mirrors partial results into the chain view", a
 	);
 	assert.ok(updates.length >= 1, "onUpdate fired");
 	assert.equal(updates[0].details.mode, "chain");
+});
+
+// --- subagentCallId stamping (mirrors the webview SubagentCallContext) --------
+// The webview renders a subagent's ask_user inline by matching the request's
+// subagentCallId against the enclosing tool-call id: bare `id` when a single
+// result renders (results.length <= 1), `${id}:${index}` when multiple results
+// render (results.length > 1). modes.ts must stamp the SAME id or the inline
+// prompt never matches and the subagent hangs. These tests pin the stamping by
+// capturing the ParentExtensionUIBridgeProxy each runSingleAgent constructs
+// (via the mock SDK's setUIContext sink) and reading the stamped id back through
+// a mock parent bridge.
+
+function createStampCaptureBridge() {
+	const calls: { select: { opts: any }[] } = { select: [] };
+	return {
+		calls,
+		async select(_title: string, _options: string[], opts?: any) { calls.select.push({ opts }); return "x"; },
+		async confirm() { return true; },
+		async input() { return "x"; },
+		notify() {},
+		cancelAll() {},
+	} as any;
+}
+
+async function capturedSubagentCallIds(bridge: ReturnType<typeof createStampCaptureBridge>): Promise<string[]> {
+	const proxies: any[] = (globalThis as any).__MOCK_PROXIES__ || [];
+	const ids: string[] = [];
+	for (const p of proxies) {
+		// proxy.select delegates to bridge.select, recording opts.subagentCallId.
+		await p.select("q", ["a"]);
+		ids.push(bridge.calls.select[bridge.calls.select.length - 1].opts.subagentCallId);
+	}
+	return ids;
+}
+
+test("executeSingleMode stamps the bare tool-call id (single result -> bare id)", async () => {
+	setMockBehavior(successBehavior("ok"));
+	const bridge = createStampCaptureBridge();
+	await execSingle(
+		{ agent: "worker", task: "s" }, makeCtx(), makeAgents(),
+		() => undefined, { depth: 0, trail: [] }, noOpDetails, undefined, noSignal(), selCtx(), "callD", bridge,
+	);
+	const ids = await capturedSubagentCallIds(bridge);
+	assert.deepEqual(ids, ["callD"]);
+});
+
+test("executeChainMode stamps bare id for step 0 and `${id}:${i}` for later steps", async () => {
+	setMockBehavior(successBehavior("ok"));
+	const bridge = createStampCaptureBridge();
+	await execChain(
+		{ chain: [{ agent: "worker", task: "s0" }, { agent: "worker", task: "s1" }, { agent: "worker", task: "s2" }] },
+		makeCtx(), makeAgents(), () => undefined, { depth: 0, trail: [] }, noOpDetails, undefined, noSignal(), selCtx(), "callA", bridge,
+	);
+	// Chain steps run sequentially; each constructs one proxy in order.
+	const ids = await capturedSubagentCallIds(bridge);
+	assert.deepEqual(ids, ["callA", "callA:1", "callA:2"]);
+});
+
+test("executeParallelMode stamps `${id}:${index}` for multi-task and bare id for single-task", async () => {
+	setMockBehavior(successBehavior("ok"));
+
+	// Multi-task (results.length > 1) -> webview uses `${id}:${index}`.
+	const bridgeMulti = createStampCaptureBridge();
+	await execParallel(
+		{ tasks: [{ agent: "worker", task: "a" }, { agent: "worker", task: "b" }] },
+		makeCtx(), makeAgents(), () => undefined, { depth: 0, trail: [] }, noOpDetails, undefined, noSignal(), selCtx(), "callB", bridgeMulti,
+	);
+	const idsMulti = (await capturedSubagentCallIds(bridgeMulti)).sort();
+	assert.deepEqual(idsMulti, ["callB:0", "callB:1"]);
+
+	// Single-task (results.length <= 1) -> webview uses bare `id`.
+	(globalThis as any).__MOCK_PROXIES__ = [];
+	const bridgeSingle = createStampCaptureBridge();
+	await execParallel(
+		{ tasks: [{ agent: "worker", task: "a" }] },
+		makeCtx(), makeAgents(), () => undefined, { depth: 0, trail: [] }, noOpDetails, undefined, noSignal(), selCtx(), "callC", bridgeSingle,
+	);
+	const idsSingle = await capturedSubagentCallIds(bridgeSingle);
+	assert.deepEqual(idsSingle, ["callC"]);
 });

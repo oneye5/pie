@@ -123,10 +123,19 @@ function renderAskUserTool({
 }: ToolRendererProps) {
   const parsedInput = parseAskUserInput(toolCall.input);
   const askUserCtx = useContext(AskUserContext);
-  const subagentCallId = useContext(SubagentCallContext);
-  const matchingRequest = findMatchingRequest(askUserCtx.pendingRequests, subagentCallId);
+  const subagentCtx = useContext(SubagentCallContext);
+  const matchingRequest = findMatchingRequest(askUserCtx.pendingRequests, subagentCtx?.id);
   const sessionPath = askUserCtx.sessionPath;
   const postMessage = askUserCtx.postMessage;
+
+  // Source label for the prompt eyebrow. Subagent questions show the agent
+  // name (and nesting depth when > 1, i.e. a subagent-of-subagent) so the user
+  // can tell who is asking and how deep. Main-agent questions get no label.
+  const sourceLabel = subagentCtx
+    ? subagentCtx.depth > 1
+      ? `${subagentCtx.agent} · depth ${subagentCtx.depth}`
+      : subagentCtx.agent
+    : undefined;
 
   // Running ask_user: show interactive prompt if we have a matching request
   if (toolCall.status === 'running') {
@@ -137,6 +146,9 @@ function renderAskUserTool({
             sessionPath={sessionPath}
             request={matchingRequest}
             postMessage={postMessage}
+            variant="card"
+            context={parsedInput?.context}
+            sourceLabel={sourceLabel}
           />
         </div>
       );

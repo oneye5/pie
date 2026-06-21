@@ -14,13 +14,16 @@ type AskResult = ReturnType<typeof answered> | ReturnType<typeof cancelled>;
 export async function runAsk(input: AskUserInput, port: AskPort): Promise<AskResult> {
   const presetOptions = input.options.filter((option) => option !== CUSTOM_SENTINEL);
   const allowCustom = input.allowCustom !== false || presetOptions.length === 0;
-  const title = input.context ? `${input.question}\n\n${input.context}` : input.question;
+  // Pass the question as the title only. The `context` rationale is rendered
+  // separately by the webview (inline ask_user prompt) so it stays visually
+  // distinct from the question instead of being mashed into the title and
+  // flattened by CSS. The webview reads it from the tool-call input.
   const selectOptions = [...presetOptions];
   if (allowCustom) {
     selectOptions.push(CUSTOM_SENTINEL);
   }
 
-  const picked = await port.ui.select(title, selectOptions, { signal: port.signal });
+  const picked = await port.ui.select(input.question, selectOptions, { signal: port.signal });
   if (picked === undefined) {
     return cancelled();
   }

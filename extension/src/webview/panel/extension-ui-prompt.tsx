@@ -10,12 +10,25 @@ interface ExtensionUIPromptProps {
   sessionPath: string;
   request: ExtensionUIRequestPayload;
   postMessage: (msg: WebviewToHostMessage) => void;
+  /** Visual treatment: "strip" (bottom bar, slim & flush) or "card" (inline in
+   *  transcript, matches the ask_user loading/completed cards). Defaults to
+   *  "strip" for the bottom-bar mount site. */
+  variant?: 'strip' | 'card';
+  /** Optional rationale/context paragraph rendered muted under the question.
+   *  Only the inline ask_user renderer supplies this (from the tool-call
+   *  input); the bottom-bar prompt has none. */
+  context?: string;
+  /** Optional source label for the eyebrow (e.g. "worker · depth 2") so the
+   *  user can tell which subagent is asking. Supplied by the inline renderer. */
+  sourceLabel?: string;
 }
 
-export function ExtensionUIPrompt({ sessionPath, request, postMessage }: ExtensionUIPromptProps) {
+export function ExtensionUIPrompt({ sessionPath, request, postMessage, variant = 'strip', context, sourceLabel }: ExtensionUIPromptProps) {
   const respond = useCallback((response: ExtensionUIResponsePayload) => {
     postMessage({ type: 'extensionUiResponse', sessionPath, response });
   }, [postMessage, sessionPath]);
+
+  const rootClass = variant === 'card' ? 'ext-prompt ext-prompt--card' : 'ext-prompt';
 
   switch (request.method) {
     case 'confirm':
@@ -25,6 +38,9 @@ export function ExtensionUIPrompt({ sessionPath, request, postMessage }: Extensi
           title={request.title}
           message={request.message}
           extensionId={request.extensionId}
+          rootClass={rootClass}
+          context={context}
+          sourceLabel={sourceLabel}
           onRespond={respond}
         />
       );
@@ -35,6 +51,9 @@ export function ExtensionUIPrompt({ sessionPath, request, postMessage }: Extensi
           title={request.title}
           options={request.options}
           extensionId={request.extensionId}
+          rootClass={rootClass}
+          context={context}
+          sourceLabel={sourceLabel}
           onRespond={respond}
         />
       );
@@ -45,6 +64,9 @@ export function ExtensionUIPrompt({ sessionPath, request, postMessage }: Extensi
           title={request.title}
           placeholder={request.placeholder}
           extensionId={request.extensionId}
+          rootClass={rootClass}
+          context={context}
+          sourceLabel={sourceLabel}
           onRespond={respond}
         />
       );
@@ -61,10 +83,13 @@ interface ConfirmPromptProps {
   message: string;
   timeout?: number;
   extensionId?: string;
+  rootClass: string;
+  context?: string;
+  sourceLabel?: string;
   onRespond: (r: ExtensionUIResponsePayload) => void;
 }
 
-function ConfirmPrompt({ id, title, message, timeout, extensionId, onRespond }: ConfirmPromptProps) {
+function ConfirmPrompt({ id, title, message, timeout, extensionId, rootClass, context, sourceLabel, onRespond }: ConfirmPromptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const remaining = useCountdown(timeout);
 
@@ -98,14 +123,17 @@ function ConfirmPrompt({ id, title, message, timeout, extensionId, onRespond }: 
     return () => node.removeEventListener('keydown', handler);
   }, [id, onRespond]);
 
+  const eyebrow = sourceLabel ?? extensionId;
+
   return (
-    <div ref={containerRef} class="ext-prompt" tabIndex={-1} role="alertdialog" aria-label={title}>
+    <div ref={containerRef} class={rootClass} tabIndex={-1} role="alertdialog" aria-label={title}>
       <div class="ext-prompt-row">
         <span class="ext-prompt-icon" aria-hidden="true">?</span>
         <div class="ext-prompt-content">
-          {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
+          {eyebrow && <span class="ext-prompt-eyebrow">{eyebrow}</span>}
           <span class="ext-prompt-text">{message || title}</span>
           {remaining !== null && <span class="ext-prompt-countdown">{remaining}s</span>}
+          {context && <span class="ext-prompt-context">{context}</span>}
         </div>
         <div class="ext-prompt-actions">
           <button class="ext-prompt-btn secondary" type="button" onClick={() => onRespond({ id, confirmed: false })}>
@@ -128,17 +156,30 @@ interface SelectPromptProps {
   options: string[];
   timeout?: number;
   extensionId?: string;
+  rootClass: string;
+  context?: string;
+  sourceLabel?: string;
   onRespond: (r: ExtensionUIResponsePayload) => void;
 }
 
-function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: SelectPromptProps) {
+function SelectPrompt({ id, title, options, timeout, extensionId, rootClass, context, sourceLabel, onRespond }: SelectPromptProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const remaining = useCountdown(timeout);
   const [customValue, setCustomValue] = useState('');
   const [showCustomInput, setShowCustomInput] = useState(false);
   const customInputRef = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { containerRef.current?.focus(); }, []);
+  // Roving-tabindex keyboard nav for the option pills: one option in the tab
+  // order at a time (focusIndex); arrow keys cycle, Enter/Space activate the
+  // focused pill via its native click. Keeps the prompt fully keyboard-operable.
+  const [focusIndex, setFocusIndex] = useState(0);
+  const optionRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => {
+    // Focus the first option (not the container) so arrow nav starts
+    // immediately; Escape still bubbles to the container-scoped listener.
+    optionRefs.current[0]?.focus();
+  }, []);
 
   useEffect(() => {
     if (remaining === 0) {
@@ -165,6 +206,30 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
     return () => node.removeEventListener('keydown', handler);
   }, [id, onRespond]);
 
+  const handleOptionsKeyDown = useCallback((e: KeyboardEvent) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowRight') {
+      e.preventDefault();
+      const next = (focusIndex + 1) % options.length;
+      setFocusIndex(next);
+      optionRefs.current[next]?.focus();
+    } else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const prev = (focusIndex - 1 + options.length) % options.length;
+      setFocusIndex(prev);
+      optionRefs.current[prev]?.focus();
+    } else if (e.key === 'Home') {
+      e.preventDefault();
+      setFocusIndex(0);
+      optionRefs.current[0]?.focus();
+    } else if (e.key === 'End') {
+      e.preventDefault();
+      const last = options.length - 1;
+      setFocusIndex(last);
+      optionRefs.current[last]?.focus();
+    }
+    // Enter/Space activate the focused button via its native click handler.
+  }, [focusIndex, options.length]);
+
   const handleCustomSubmit = useCallback(() => {
     if (customValue.trim()) {
       onRespond({ id, value: customValue.trim() });
@@ -180,13 +245,16 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
     // would double-respond because the event bubbles up to the container.
   }, [id, customValue, onRespond]);
 
+  const eyebrow = sourceLabel ?? extensionId;
+
   return (
-    <div ref={containerRef} class="ext-prompt" tabIndex={-1} role="dialog" aria-label={title}>
+    <div ref={containerRef} class={rootClass} tabIndex={-1} role="dialog" aria-label={title}>
       <div class="ext-prompt-row">
         <span class="ext-prompt-icon" aria-hidden="true">?</span>
         <div class="ext-prompt-content">
-          {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
+          {eyebrow && <span class="ext-prompt-eyebrow">{eyebrow}</span>}
           <span class="ext-prompt-text">{title}</span>
+          {context && <span class="ext-prompt-context">{context}</span>}
         </div>
         {!showCustomInput && (
           <button class="ext-prompt-cancel" type="button" onClick={() => onRespond({ id, cancelled: true })}>
@@ -195,13 +263,16 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
         )}
       </div>
       <div class="ext-prompt-row">
-        <div class="ext-prompt-options">
-          {options.map((option) =>
+        <div class="ext-prompt-options" onKeyDown={handleOptionsKeyDown} role="listbox" aria-label={title}>
+          {options.map((option, i) =>
             option === CUSTOM_SENTINEL ? (
               <button
                 key={option}
+                ref={(el) => { optionRefs.current[i] = el; }}
                 class="ext-prompt-option custom"
                 type="button"
+                role="option"
+                tabIndex={i === focusIndex ? 0 : -1}
                 onClick={() => setShowCustomInput(true)}
               >
                 Custom…
@@ -209,8 +280,11 @@ function SelectPrompt({ id, title, options, timeout, extensionId, onRespond }: S
             ) : (
               <button
                 key={option}
+                ref={(el) => { optionRefs.current[i] = el; }}
                 class="ext-prompt-option"
                 type="button"
+                role="option"
+                tabIndex={i === focusIndex ? 0 : -1}
                 onClick={() => onRespond({ id, value: option })}
               >
                 {option}
@@ -257,10 +331,13 @@ interface InputPromptProps {
   placeholder?: string;
   timeout?: number;
   extensionId?: string;
+  rootClass: string;
+  context?: string;
+  sourceLabel?: string;
   onRespond: (r: ExtensionUIResponsePayload) => void;
 }
 
-function InputPrompt({ id, title, placeholder, timeout, extensionId, onRespond }: InputPromptProps) {
+function InputPrompt({ id, title, placeholder, timeout, extensionId, rootClass, context, sourceLabel, onRespond }: InputPromptProps) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
   const remaining = useCountdown(timeout);
@@ -283,13 +360,16 @@ function InputPrompt({ id, title, placeholder, timeout, extensionId, onRespond }
     }
   }, [id, value, onRespond]);
 
+  const eyebrow = sourceLabel ?? extensionId;
+
   return (
-    <div class="ext-prompt" role="dialog" aria-label={title}>
+    <div class={rootClass} role="dialog" aria-label={title}>
       <div class="ext-prompt-row">
         <span class="ext-prompt-icon" aria-hidden="true">?</span>
         <div class="ext-prompt-content">
-          {extensionId && <span class="ext-prompt-eyebrow">{extensionId}</span>}
+          {eyebrow && <span class="ext-prompt-eyebrow">{eyebrow}</span>}
           <span class="ext-prompt-text">{title}</span>
+          {context && <span class="ext-prompt-context">{context}</span>}
         </div>
         <button class="ext-prompt-cancel" type="button" onClick={() => onRespond({ id, cancelled: true })}>
           Cancel

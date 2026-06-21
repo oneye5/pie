@@ -246,7 +246,11 @@ export async function executeParallelMode(
 			allResults,
 			emitUpdate: emitParallelUpdate,
 			checkSessionLimit,
-			_toolCallId: `${_toolCallId}:${index}`,
+			// Mirror the webview's SubagentCallContext: it uses `${id}:${index}` only
+			// when multiple results render (results.length > 1). A single-task
+			// parallel call renders as one block with the bare id, so stamp bare to
+			// match — otherwise the inline ask_user prompt never finds its request.
+			_toolCallId: params.tasks!.length > 1 ? `${_toolCallId}:${index}` : _toolCallId,
 			parentUiBridge,
 		}),
 	);
@@ -467,7 +471,12 @@ export async function executeChainMode(
 					ctx.model,
 					sel,
 					selectionCtx.disabledProviders,
-					_toolCallId,
+					// Mirror the webview's SubagentCallContext for chain: step 0 renders
+					// as a single block (bare id) while results.length <= 1, then as
+					// `${id}:${i}` once earlier steps complete (results.length > 1).
+					// Without this, a chain step 2+ ask_user would be orphaned (no
+					// inline match, not surfaced to the bottom bar) and hang.
+					i > 0 ? `${_toolCallId}:${i}` : _toolCallId,
 					parentUiBridge,
 				);
 			},

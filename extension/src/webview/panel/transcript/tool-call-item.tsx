@@ -329,6 +329,14 @@ function SubagentSingleBlock({
       && (req.subagentCallId === toolCall.id || req.subagentCallId.startsWith(`${toolCall.id}:`)),
   );
 
+  // Source attribution for nested ask_user prompts: carry this subagent's
+  // call id (matching the proxy's subagentCallId stamping), agent name, and
+  // nesting depth (parent depth + 1; top-level subagent = 1) down to the
+  // nested transcript so ask_user prompts can label who is asking.
+  const parentSubagentCtx = useContext(SubagentCallContext);
+  const subagentDepth = (parentSubagentCtx?.depth ?? 0) + 1;
+  const subagentCallId = multipleResults ? `${toolCall.id}:${index}` : toolCall.id;
+
   return (
     <div
       class={cx('tool-call tool-call-subagent', 'border border-border-subtle rounded-xl bg-card shadow-sm overflow-hidden transition-[border-color,background,box-shadow] duration-150 hover:border-border hover:bg-control-hover hover:shadow-md forced-colors:border forced-colors:border-[ButtonText]', status, hasPendingAskUser && 'pending-ask-user')}
@@ -351,7 +359,7 @@ function SubagentSingleBlock({
         <StatusIndicator status={status} errorDetail={errorDetail} />
       </div>
       {open && (
-        <SubagentCallContext.Provider value={multipleResults ? `${toolCall.id}:${index}` : toolCall.id}>
+        <SubagentCallContext.Provider value={{ id: subagentCallId, agent: singleResult.agent, depth: subagentDepth }}>
           <SubagentMessages
             singleResult={singleResult}
             toolCall={toolCall}

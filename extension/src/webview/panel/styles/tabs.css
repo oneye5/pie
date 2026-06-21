@@ -251,36 +251,39 @@ body.session-tab-dragging {
 }
 
 /* Attention state — tab with a pending extension UI question.
-   The active tab gets a strong warning pulse; non-active tabs get a calmer
-   steady warning border with a gentle breathing glow (see below) so a pending
-   question is visible even when the tab is not selected. */
+   Uses the panel accent (gold) — the same "question pending" identity color as
+   the interactive prompt and the collapsed-subagent pulse — so a pending
+   question is visually consistent wherever it surfaces. The active tab gets a
+   strong accent pulse; non-active tabs get a calmer steady accent border with a
+   gentle breathing glow (see below) so a pending question is visible even when
+   the tab is not selected. Warning amber is reserved for actual warnings. */
 .session-tab.attention .session-tab-shell::after {
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 36%, var(--session-tab-outline)),
-    0 0 0 1px color-mix(in srgb, var(--panel-warning) 14%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--panel-accent) 36%, var(--session-tab-outline)),
+    0 0 0 1px color-mix(in srgb, var(--panel-accent) 14%, transparent);
   animation: session-tab-attention-pulse 1.6s ease-in-out infinite;
   will-change: opacity;
 }
 
 .session-tab.attention .session-tab-label {
-  color: var(--panel-warning);
+  color: var(--panel-accent);
 }
 
 /* Non-active attention — distinct from `unread-finished` (green flash):
-   a steady warning-colored inset border with a slow breathing outer glow. */
+   a steady accent-colored inset border with a slow breathing outer glow. */
 .session-tab.attention:not(.active) .session-tab-shell {
-  /* Steady warning inset border + faint ring (non-animated). */
+  /* Steady accent inset border + faint ring (non-animated). */
   box-shadow:
-    inset 0 0 0 1px color-mix(in srgb, var(--panel-warning) 42%, var(--session-tab-outline)),
-    0 0 0 1px color-mix(in srgb, var(--panel-warning) 10%, transparent);
+    inset 0 0 0 1px color-mix(in srgb, var(--panel-accent) 42%, var(--session-tab-outline)),
+    0 0 0 1px color-mix(in srgb, var(--panel-accent) 10%, transparent);
 }
 
-/* Breathing warning ring — opacity-animated so it stays off the main thread.
+/* Breathing accent ring — opacity-animated so it stays off the main thread.
    A 1px ring (not a blurred halo) so the strip's `overflow-x: auto` doesn't
    clip it vertically. Base shell already holds a steady 10% ring; this overlay
    breathes the extra delta up to ~22% at peak, matching the original pulse. */
 .session-tab.attention:not(.active) .session-tab-shell::after {
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--panel-warning) 12%, transparent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--panel-accent) 12%, transparent);
   animation: session-tab-attention-idle 2.4s ease-in-out infinite;
   will-change: opacity;
 }

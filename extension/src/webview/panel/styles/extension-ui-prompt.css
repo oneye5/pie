@@ -18,6 +18,32 @@
   outline: none;
 }
 
+/* ── Card variant (inline in transcript) ──────────────────────────────────── */
+/* Matches the .ask-user-prompt loading / .ask-user-completed card aesthetic so */
+/* the active interactive prompt reads as a sibling of the loading & completed  */
+/* states instead of a bottom-bar strip dropped into a card context.             */
+.ext-prompt.ext-prompt--card {
+  /* Override the strip's flush top border + 3px accent left with a full, rounded
+     accent-tinted border that matches the .ask-user-prompt loading card. */
+  border: 1px solid color-mix(in srgb, var(--panel-accent) 32%, var(--panel-border));
+  background: color-mix(in srgb, var(--panel-accent) 4%, var(--panel-card-surface));
+  border-radius: var(--panel-radius-lg);
+  animation: ext-prompt-card-in var(--panel-duration-entrance) var(--panel-ease-out-expo);
+}
+
+.ext-prompt.ext-prompt--card:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: 2px;
+}
+
+/* Larger icon in card mode to match the .ask-user-icon (22px) used by the   */
+/* loading/completed cards.                                                 */
+.ext-prompt.ext-prompt--card .ext-prompt-icon {
+  width: 22px;
+  height: 22px;
+  font-size: 12px;
+}
+
 /* ── Row layout ──────────────────────────────────────────────────────────── */
 /* Each .ext-prompt-row is a horizontal strip of content + actions.          */
 
@@ -39,7 +65,7 @@
   }
 }
 
-/* ── Content (eyebrow + text + countdown) ─────────────────────────────────── */
+/* ── Content (eyebrow + text + countdown + context) ─────────────────────── */
 
 .ext-prompt-content {
   flex: 1;
@@ -47,6 +73,13 @@
   display: flex;
   align-items: baseline;
   gap: var(--panel-gap-sm);
+}
+
+/* Card variant wraps content so the `.ext-prompt-context` rationale can break */
+/* onto its own line under the question. The strip stays single-line (nowrap) */
+/* so a long question doesn't push the countdown onto a second row.        */
+.ext-prompt.ext-prompt--card .ext-prompt-content {
+  flex-wrap: wrap;
 }
 
 .ext-prompt-eyebrow {
@@ -74,6 +107,19 @@
   color: var(--panel-warning);
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
+}
+
+/* Rationale/context paragraph (ask_user `context` field). Wraps onto its own */
+/* line within the content column so it aligns under the question, past the   */
+/* icon, and stays muted — matching the .ask-user-context treatment used by   */
+/* the loading/completed cards. The content column's row-gap supplies spacing. */
+.ext-prompt-context {
+  flex-basis: 100%;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--panel-muted);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }
 
 /* ── Prompt icon (visual identity / lifecycle continuity with ask_user) ──── */
@@ -288,6 +334,19 @@
   }
 }
 
+/* Card variant entrance — mirrors .ask-user-slide-in so the active inline */
+/* prompt enters identically to its loading/completed siblings.           */
+@keyframes ext-prompt-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* ── Custom input row entrance (select "Custom…" flow) ───────────────────── */
 
 .ext-prompt-custom-row {
@@ -410,6 +469,9 @@
 
 @media (forced-colors: active) {
   .ext-prompt {
+    border-color: Highlight;
+  }
+  .ext-prompt.ext-prompt--card {
     border-color: Highlight;
   }
   .ext-prompt-btn {
