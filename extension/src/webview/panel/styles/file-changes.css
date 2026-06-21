@@ -8,12 +8,23 @@
   display: flex;
   flex-direction: row;
   flex: 0 0 auto;
-  align-items: stretch;
-  height: 100%;
+  /* Collapsed: only the compact handle chip shows — no full-height bar,
+     background, or left border, so there is no empty vertical strip. The
+     rail sizes to the chip (content height, top-aligned) until expanded. */
+  align-items: flex-start;
+  align-self: flex-start;
   min-height: 0;
-  border-left: 1px solid var(--panel-border);
-  background: var(--panel-card-surface);
+  /* The rail is a transparent layout container; only the chip (collapsed) or
+     the drawer (expanded) receive pointer events, so the empty gutter below
+     the chip never swallows clicks. */
+  pointer-events: none;
   color: var(--panel-foreground);
+}
+
+/* Expanded: stretch to full height so the drawer can host a scrollable list.
+   The drawer itself carries the card surface + left border. */
+.file-changes-rail.is-expanded {
+  align-self: stretch;
 }
 
 /* Hide when there is nothing to show. The component itself also returns null
@@ -30,14 +41,25 @@
   align-items: center;
   gap: var(--panel-gap-xs);
   width: var(--file-changes-handle-width);
-  padding: var(--panel-gap-xs) 0;
-  border: none;
+  padding: var(--panel-gap-sm) 0;
+  border: 1px solid var(--panel-border-subtle);
+  border-radius: var(--panel-radius-md);
   background: var(--panel-control-surface);
   color: var(--panel-foreground-soft);
   cursor: pointer;
-  align-self: stretch;
   flex-shrink: 0;
-  transition: background var(--panel-transition-fast), color var(--panel-transition-fast);
+  margin: var(--panel-gap-xs);
+  pointer-events: auto;
+  transition:
+    background var(--panel-transition-fast),
+    color var(--panel-transition-fast),
+    border-color var(--panel-transition-fast);
+}
+
+/* When expanded the drawer header carries the collapse affordance, so the
+   handle chip is hidden — no leftover bar or strip in either state. */
+.file-changes-rail.is-expanded .file-changes-handle {
+  display: none;
 }
 
 .file-changes-handle:hover {
@@ -50,13 +72,10 @@
   transition: transform var(--panel-transition-fast);
 }
 
+/* The chevron sits grouped with the count (no margin-top:auto) since the
+   handle is now a compact chip; it is hidden entirely when expanded. */
 .file-changes-handle svg.file-changes-handle-chevron {
-  margin-top: auto;
-  transform: rotate(0deg);
-}
-
-.file-changes-rail.is-expanded .file-changes-handle svg.file-changes-handle-chevron {
-  transform: rotate(180deg);
+  opacity: 0.65;
 }
 
 .file-changes-handle-count {
@@ -97,7 +116,12 @@
 
 .file-changes-drawer {
   flex: 0 0 auto;
+  align-self: stretch;
   width: 0;
+  /* Collapsed: zero size so the drawer contributes no height — the rail
+     shrinks to just the handle chip. Height resets to auto (stretch) when
+     expanded. */
+  height: 0;
   overflow: hidden;
   opacity: 0;
   pointer-events: none;
@@ -110,6 +134,7 @@
 
 .file-changes-rail.is-expanded .file-changes-drawer {
   width: var(--file-changes-drawer-width);
+  height: auto;
   opacity: 1;
   pointer-events: auto;
 }
@@ -353,7 +378,7 @@
 /* ── Forced-colors mode ──────────────────────────────────────────────────── */
 
 @media (forced-colors: active) {
-  .file-changes-rail {
+  .file-changes-handle {
     border-color: ButtonText;
   }
   .file-changes-drawer {
