@@ -3,6 +3,7 @@
  */
 
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
+import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
 import { type AgentConfig, type AgentScope, discoverAgents } from "../agents.js";
 import {
@@ -41,6 +42,34 @@ const SUBAGENT_ALWAYS_PARENT_MODEL_ENV = "PIE_SUBAGENT_ALWAYS_PARENT_MODEL";
 export function readAlwaysParentModel(): boolean {
 	const raw = process.env[SUBAGENT_ALWAYS_PARENT_MODEL_ENV];
 	return raw === "1" || raw === "true";
+}
+
+/**
+ * Reads the `subagent.confirmProjectAgents` value from a settings.json file.
+ * Returns undefined when the file or key is absent, so callers fall back to
+ * the per-call parameter (which itself defaults to true). A per-call
+ * `confirmProjectAgents` value always takes precedence over this setting.
+ *
+ * Exported separately from `readSubagentConfirmDefault` so the parsing logic
+ * can be unit-tested against an arbitrary path.
+ */
+export function readConfirmDefaultFromSettings(settingsPath: string): boolean | undefined {
+	if (!existsSync(settingsPath)) return undefined;
+	try {
+		const parsed = JSON.parse(readFileSync(settingsPath, "utf-8")) as Record<string, unknown>;
+		const subagent = parsed.subagent as Record<string, unknown> | undefined;
+		if (subagent && typeof subagent.confirmProjectAgents === "boolean") {
+			return subagent.confirmProjectAgents;
+		}
+	} catch {
+		/* ignore malformed settings.json */
+	}
+	return undefined;
+}
+
+/** Reads the `subagent.confirmProjectAgents` default from settings.json at the config root. */
+export function readSubagentConfirmDefault(): boolean | undefined {
+	return readConfirmDefaultFromSettings(path.join(CONFIG_ROOT, "settings.json"));
 }
 
 /** Context for model selection settings and restrictions. */
@@ -197,7 +226,7 @@ export const checkTrailLoop = (agentName: string, trail: string[]): boolean => {
 };
 
 /** Standard error response shape used by early returns. */
-type Mode = "single" | "parallel" | "chain";
+export type Mode = "single" | "parallel" | "chain";
 type ErrorResponse = { content: { type: "text"; text: string }[]; details: SubagentDetails; isError: true };
 
 /** Returns the standard response when the tool is disabled. */
@@ -287,7 +316,7 @@ function collectRequestedAgentNames(params: SubagentParams): Set<string> {
 }
 
 /** Confirms project-local agent usage with the user; returns undefined on approval, response on cancel. */
-async function maybeApproveProjectAgents(
+export async function maybeApproveProjectAgents(
 	params: SubagentParams,
 	agents: AgentConfig[],
 	discovery: ReturnType<typeof discoverAgents>,
@@ -297,7 +326,7 @@ async function maybeApproveProjectAgents(
 ): Promise<ErrorResponse | undefined> {
 	if (
 		!(agentScope === "project" || agentScope === "both") ||
-		!(params.confirmProjectAgents ?? true) ||
+		!(params.confirmProjectAgents ?? readSubagentConfirmDefault() ?? true) ||
 		!ctx.hasUI
 	) {
 		return undefined;
