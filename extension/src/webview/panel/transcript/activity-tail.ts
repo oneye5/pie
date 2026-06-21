@@ -24,8 +24,16 @@ import {
   type SubagentSingleResult,
 } from './subagent';
 
-/** Maximum number of tail content lines rendered in the compact activity block. */
+/** Maximum number of content lines rendered in the tail's content block (streaming reasoning/reply text, a tool's output, or a multi-tool `→ name` listing). */
 export const ACTIVITY_TAIL_MAX_LINES = 2;
+/**
+ * Reserved row budget for a running-tool / subagent tail block. The block keeps
+ * this many rows of height so the transcript stops reflowing as output streams
+ * in — a composite row (tool name + command, or `running N tools`) on row 1
+ * leaves room for up to two content rows below. Reasoning / reply text uses the
+ * smaller {@link ACTIVITY_TAIL_MAX_LINES} budget (no composite row).
+ */
+export const ACTIVITY_TAIL_TOOL_ROWS = 3;
 /** Maximum characters of streaming text/reasoning considered for the tail. */
 export const ACTIVITY_TAIL_MAX_CHARS = 140;
 /** Soft cap for a single rendered line before CSS ellipsis takes over. */
@@ -36,11 +44,18 @@ export const ACTIVITY_TAIL_ROW_HEIGHT_PX = 13;
 export interface TurnActivityTail {
   /** Semantic kind; drives styling (e.g. reasoning renders muted/italic). */
   kind: 'reasoning' | 'text' | 'tool' | 'subagent';
-  /** Optional one-line input shown under the header (e.g. a bash command, subagent task). */
+  /**
+   * Inline label rendered as the first row of a tool/subagent block — the tool
+   * name, agent name, or `running N tools` count — merged with {@link inputLine}
+   * as `label ▸ input` so the caller and its command share one row instead of
+   * two. Omitted for reasoning / reply text (no header row).
+   */
+  label?: string;
+  /** Optional one-line input shown beside {@link label} (e.g. a bash command, subagent task). */
   inputLine?: string;
-  /** Tail content lines, already clipped to {@link ACTIVITY_TAIL_MAX_LINES}. Newest at the bottom. */
+  /** Tail content lines, already clipped to the kind's row budget. Newest at the bottom. */
   lines: string[];
-  /** True when more content exists above the shown lines (renders the `…` separator). */
+  /** True when more content exists above the shown lines (renders the top fade). */
   truncated: boolean;
   /** Show a blinking cursor indicating live streaming/execution. */
   cursor: boolean;
@@ -156,6 +171,7 @@ export function deriveToolTail(toolCall: ToolCall): DerivedActivityTail | null {
     label: toolCall.name,
     tail: {
       kind: 'tool',
+      label: toolCall.name,
       inputLine,
       lines,
       truncated: truncated || sdkTruncated,
@@ -219,6 +235,7 @@ export function deriveSubagentTail(toolCall: ToolCall): DerivedActivityTail | nu
     label,
     tail: {
       kind: 'subagent',
+      label,
       inputLine,
       lines,
       truncated,
@@ -239,29 +256,42 @@ export function deriveRunningToolTail(toolCall: ToolCall): DerivedActivityTail |
 }
 
 /**
- * Build a per-tool summary tail for the multi-tool case (e.g. parallel
- * tool calls). Each running tool renders as a compact `→ <name>` line.
+ * Build a per-tool summary tail for the multi-tool case (e.g. parallel tool
+ * calls). A `running N tools` composite row carries the count on row 1; each
+ * running tool then renders as a compact `→ <name>` line below, capped to the
+ * content-block budget so the whole block keeps its fixed 3-row height as tools
+ * start/finish.
  */
 export function deriveMultiToolTail(toolCalls: readonly ToolCall[]): DerivedActivityTail {
+  const toolCount = toolCalls.length;
   const all = toolCalls.map((tc) => `→ ${tc.name}`);
   const { lines, truncated } = clampLines(all, ACTIVITY_TAIL_MAX_LINES);
+  const label = `running ${toolCount} tools`;
   return {
-    label: `running ${toolCalls.length} tools`,
-    tail: { kind: 'tool', lines, truncated, cursor: true },
+    label,
+    tail: { kind: 'tool', label, lines, truncated, cursor: true },
   };
+}
+
+/**
+ * Reserved row budget for a tail block — drives the CSS `min-height` so the block
+ * keeps a constant height as content streams. Tools / subagents reserve a
+ * taller block (label ▸ input on row 1 + up to two output rows); reasoning and
+ * reply text reserve the smaller streaming budget with no header row.
+ */
+export function activityTailRowCount(tail: TurnActivityTail): number {
+  return tail.kind === 'tool' || tail.kind === 'subagent'
+    ? ACTIVITY_TAIL_TOOL_ROWS
+    : ACTIVITY_TAIL_MAX_LINES;
 }
 
 /**
  * Rough rendered height of a tail, used by the virtualizer's size estimate so
  * initial layout is close before ResizeObserver re-measures the real height.
- * The compact layout keeps the input line + up to two content lines + a
- * blinking cursor; the truncation separator is a CSS fade, not a row.
+ * Matches the reserved row budget (see {@link activityTailRowCount}) plus the
+ * block's vertical chrome; the real height is always measured from the DOM.
  */
 export function estimateActivityTailHeight(tail: TurnActivityTail | null | undefined): number {
   if (!tail) return 0;
-  const rows =
-    tail.lines.length +
-    (tail.inputLine ? 1 : 0) +
-    (tail.cursor ? 1 : 0);
-  return rows * ACTIVITY_TAIL_ROW_HEIGHT_PX + 4;
+  return activityTailRowCount(tail) * ACTIVITY_TAIL_ROW_HEIGHT_PX + 8;
 }

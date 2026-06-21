@@ -22,7 +22,7 @@ function renderTypingIndicator({ row }: RowRendererProps) {
   if (activityState?.tail) {
     return (
       <div class="activity-status-row">
-        <TurnActivityBlock state={activityState} standalone />
+        <TurnActivityBlock state={activityState} />
       </div>
     );
   }

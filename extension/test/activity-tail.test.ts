@@ -128,6 +128,7 @@ test('deriveToolTail shows the bash command plus the tail of streaming output', 
   assert.ok(result);
   assert.equal(result.label, 'bash');
   assert.equal(result.tail.kind, 'tool');
+  assert.equal(result.tail.label, 'bash');
   assert.equal(result.tail.inputLine, 'npm run test');
   assert.equal(result.tail.cursor, true);
   assert.deepEqual(result.tail.lines, ['somefile.py pass', 'somefile2.py pass']);
@@ -205,6 +206,7 @@ test('deriveSubagentTail peeks into a running subagent and shows its running too
   assert.ok(result);
   assert.equal(result.label, 'worker');
   assert.equal(result.tail.kind, 'subagent');
+  assert.equal(result.tail.label, 'worker');
   assert.equal(result.tail.inputLine, 'fix the failing tests');
   assert.equal(result.tail.cursor, true);
   assert.deepEqual(result.tail.lines, ['→ bash · read']);
@@ -258,6 +260,7 @@ test('deriveMultiToolTail lists each running tool and caps to the line budget', 
   );
   const result = deriveMultiToolTail(tools);
   assert.equal(result.label, `running ${tools.length} tools`);
+  assert.equal(result.tail.label, `running ${tools.length} tools`);
   assert.equal(result.tail.lines.length, ACTIVITY_TAIL_MAX_LINES);
   assert.equal(result.tail.truncated, true);
   assert.equal(result.tail.lines[0], '→ tool2');
@@ -277,8 +280,8 @@ test('estimateActivityTailHeight scales with rendered rows and is zero without a
   )!;
   const height = estimateActivityTailHeight(withRows.tail);
   assert.ok(height > 0);
-  // inputLine + up to 2 lines + cursor = 4 rows.
-  assert.equal(height, 4 * 13 + 4);
+  // Tools reserve a 3-row block (label ▸ input on row 1 + two output rows).
+  assert.equal(height, 3 * 13 + 8);
 });
 
 // ── deriveTurnActivityState integration ─────────────────────────────────────

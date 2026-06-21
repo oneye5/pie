@@ -444,10 +444,12 @@
 }
 
 /* ── Turn-activity tail ──────────────────────────────────────────────────── */
-/* Compact "last few rows" live preview rendered below the activity strip: a
-   tool's input + streaming output tail, the tail of streaming reasoning/reply
-   text, or a running subagent's live activity. Rendered as a bounded,
-   terminal-style block with a blinking caret. */
+/* Compact "last few rows" live preview: the tail of streaming reasoning/reply
+   text, a running tool's merged `name ▸ command` + output, or a running
+   subagent's live activity. Rendered as a fixed-height, terminal-style block
+   with a blinking caret. The reserved height (2 rows for reasoning/reply, 3
+   for tools/subagents) keeps the block from growing/shrinking as content
+   streams, so the transcript stops reflowing while the agent works. */
 
 .turn-activity-block {
   display: flex;
@@ -455,32 +457,19 @@
   align-items: stretch;
   width: 100%;
   min-width: 0;
-  margin: 2px 0 4px;
-  padding: 5px 8px;
-  border-radius: var(--panel-radius-md);
-  background: var(--panel-subtle-surface);
-  border: 1px solid var(--panel-border-subtle);
-  border-left: 3px solid transparent;
-  box-shadow: var(--panel-shadow-sm);
-}
-
-/* Running monitor strip: left accent border and slightly lifted surface. */
-.turn-activity-block:has(.turn-activity-strip.running) {
-  border-left-color: var(--panel-accent);
-  background: color-mix(in srgb, var(--panel-subtle-surface) 92%, var(--panel-accent) 8%);
-}
-
-.turn-activity-block .turn-activity-strip {
-  margin-bottom: 1px;
-  padding: 0;
-  min-height: auto;
+  margin: 1px 0 3px;
+  padding: 3px 8px;
+  border-radius: var(--panel-radius-sm);
+  background: color-mix(in srgb, var(--panel-subtle-surface) 45%, transparent);
+  border: none;
+  border-left: 2px solid color-mix(in srgb, var(--panel-accent) 32%, transparent);
+  box-shadow: none;
 }
 
 .turn-activity-tail {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  padding: 1px 0 0;
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 10px;
   line-height: 13px;
@@ -504,22 +493,38 @@
   white-space: pre;
 }
 
-.turn-activity-tail-input .turn-activity-tail-text {
+/* Merged `label ▸ input` row for tools/subagents: the caller name is muted
+   metadata and the command/task is the content, so the name + separator stay
+   dim while the input reads brighter. */
+.turn-activity-tail-composite .turn-activity-tail-label {
+  flex: 0 0 auto;
+  color: var(--panel-muted);
+  font-weight: 500;
+}
+
+.turn-activity-tail-sep {
+  flex: 0 0 auto;
+  color: var(--panel-muted);
+  opacity: 0.55;
+}
+
+.turn-activity-tail-composite .turn-activity-tail-text {
   color: color-mix(in srgb, var(--panel-foreground) 74%, var(--panel-muted) 26%);
 }
 
+/* Reserved output rows: reasoning/reply text reserves 2, and a tool/subagent
+   block reserves 2 below the composite (so the block is 3 rows total). The
+   min-height keeps the block height constant as content streams in. */
 .turn-activity-tail-content {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 26px;
 }
 
-/* Truncation indicator: a gentle top fade replaces the old dedicated `…`
-   separator row, signalling that more output exists above without spending a
-   whole line. Only the oldest visible line (top) fades in; the newest content
-   and the blinking caret (bottom) stay fully opaque so the live tail reads
-   cleanly. Applies with ≥2 content lines; a single clipped line relies on its
-   own `text-overflow` ellipsis. */
+/* Truncation: a gentle top fade replaces a dedicated `…` row, signalling that
+   more output exists above without spending a line. Only the oldest visible
+   row (top) fades; the newest content and the caret stay fully opaque. */
 .turn-activity-tail-content.truncated {
   -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 11px);
   mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 11px);
@@ -532,23 +537,23 @@
   opacity: 0.72;
 }
 
-.turn-activity-tail.reasoning .turn-activity-tail-input .turn-activity-tail-text {
+.turn-activity-tail.reasoning .turn-activity-tail-composite .turn-activity-tail-text {
   font-style: italic;
 }
 
 .turn-activity-tail-cursor {
   flex: 0 0 auto;
   display: inline-block;
-  width: 7px;
+  width: 6px;
   height: 12px;
   background: var(--panel-accent, var(--vscode-foreground));
-  opacity: 0.85;
+  opacity: 0.8;
   animation: turn-activity-cursor-blink 1.05s steps(2, start) infinite;
   will-change: opacity;
 }
 
 @keyframes turn-activity-cursor-blink {
-  0%, 50% { opacity: 0.85; }
+  0%, 50% { opacity: 0.8; }
   50.01%, 100% { opacity: 0; }
 }
 
