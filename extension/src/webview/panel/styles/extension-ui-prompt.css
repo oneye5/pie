@@ -65,21 +65,26 @@
   }
 }
 
-/* ── Content (eyebrow + text + countdown + context) ─────────────────────── */
+/* ── Content (meta + markdown question + markdown context) ───────────── */
+/* Stacked column: an optional meta line (source eyebrow + timeout countdown) */
+/* sits above the question, which is rendered as markdown so agent-authored   */
+/* emphasis (bold, code, lists) is styled. The `context` rationale is a second */
+/* muted markdown block under the question.                                  */
 
 .ext-prompt-content {
   flex: 1;
   min-width: 0;
   display: flex;
-  align-items: baseline;
-  gap: var(--panel-gap-sm);
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--panel-gap-xs);
 }
 
-/* Card variant wraps content so the `.ext-prompt-context` rationale can break */
-/* onto its own line under the question. The strip stays single-line (nowrap) */
-/* so a long question doesn't push the countdown onto a second row.        */
-.ext-prompt.ext-prompt--card .ext-prompt-content {
-  flex-wrap: wrap;
+.ext-prompt-meta {
+  display: flex;
+  align-items: baseline;
+  gap: var(--panel-gap-sm);
+  flex-shrink: 0;
 }
 
 .ext-prompt-eyebrow {
@@ -88,17 +93,14 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--panel-accent);
-  flex-shrink: 0;
   line-height: 1;
 }
 
 .ext-prompt-text {
   font-size: 12px;
   font-weight: 400;
-  line-height: 1.45;
+  line-height: 1.5;
   color: var(--panel-foreground);
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .ext-prompt-countdown {
@@ -109,20 +111,92 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Rationale/context paragraph (ask_user `context` field). Wraps onto its own */
-/* line within the content column so it aligns under the question, past the   */
-/* icon, and stays muted — matching the .ask-user-context treatment used by   */
-/* the loading/completed cards. The content column's row-gap supplies spacing. */
+/* Rationale/context (ask_user `context` field), rendered as muted markdown. */
 .ext-prompt-context {
-  flex-basis: 100%;
   font-size: 12px;
   line-height: 1.5;
   color: var(--panel-muted);
-  white-space: pre-line;
+}
+
+/* Shared lightweight markdown prose for the question + context blocks.      */
+/* Scoped descendant rules keep the compact prompt's spacing tight (4px)      */
+/* instead of the transcript .message-body's 8px, and size inline code at the */
+/* prompt's scale.                                                            */
+.ask-prose {
+  min-width: 0;
+  max-width: 100%;
   overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.ask-prose > :first-child {
+  margin-top: 0;
+}
+
+.ask-prose > :last-child {
+  margin-bottom: 0;
+}
+
+.ask-prose p {
+  margin: 0 0 4px;
+}
+
+.ask-prose p:last-child {
+  margin-bottom: 0;
+}
+
+.ask-prose strong {
+  font-weight: 600;
+}
+
+.ask-prose em {
+  font-style: italic;
+}
+
+.ask-prose a {
+  color: var(--panel-accent);
+  text-decoration: underline;
+}
+
+.ask-prose ul,
+.ask-prose ol {
+  margin: 4px 0;
+  padding-left: 18px;
+}
+
+.ask-prose li {
+  margin: 2px 0;
+}
+
+.ask-prose code {
+  background: var(--panel-code-surface);
+  border-radius: 4px;
+  padding: 1px 4px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.92em;
+}
+
+.ask-prose pre {
+  background: var(--panel-code-surface);
+  border-radius: var(--panel-radius-sm);
+  padding: 6px 8px;
+  overflow-x: auto;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 0.92em;
+  line-height: 1.5;
+  margin: 4px 0;
+}
+
+.ask-prose pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
 }
 
 /* ── Prompt icon (visual identity / lifecycle continuity with ask_user) ──── */
+/* Tinted accent disc with a speech-bubble glyph (QuestionIcon). The glyph    */
+/* uses currentColor so it inherits the accent (pending) or success (completed) */
+/* color. Slightly larger in the card variant to match .ask-user-icon.       */
 
 .ext-prompt-icon {
   flex-shrink: 0;
@@ -134,9 +208,21 @@
   border-radius: 50%;
   background: color-mix(in srgb, var(--panel-accent) 16%, transparent);
   color: var(--panel-accent);
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 1;
+}
+
+.ext-prompt-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.ext-prompt.ext-prompt--card .ext-prompt-icon {
+  width: 22px;
+  height: 22px;
+}
+
+.ext-prompt.ext-prompt--card .ext-prompt-icon svg {
+  width: 13px;
+  height: 13px;
 }
 
 /* ── Action buttons ──────────────────────────────────────────────────────── */

@@ -1,10 +1,12 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useCallback, useEffect, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { CUSTOM_SENTINEL } from '../../shared/ask-user-sentinel';
 import type { ExtensionUIRequestPayload, ExtensionUIResponsePayload, WebviewToHostMessage } from '../../shared/protocol';
+import { renderMarkdown } from './markdown';
+import { QuestionIcon } from './components/question-icon';
 
 interface ExtensionUIPromptProps {
   sessionPath: string;
@@ -75,6 +77,36 @@ export function ExtensionUIPrompt({ sessionPath, request, postMessage, variant =
   }
 }
 
+// ── Prompt content (shared by confirm/select/input) ─────────────────────── */
+// Stacks an optional meta line (source eyebrow + timeout countdown) above the
+// question, rendered as markdown so agent-authored emphasis (bold, code, lists)
+// is styled. The `context` rationale renders as a second muted markdown block.
+// Memoised per-text so the ~7/sec host snapshots don't re-parse markdown.
+interface PromptContentProps {
+  eyebrow?: string;
+  text: string;
+  context?: string;
+  remaining: number | null;
+}
+
+function PromptContent({ eyebrow, text, context, remaining }: PromptContentProps) {
+  const questionHtml = useMemo(() => renderMarkdown(text), [text]);
+  const contextHtml = useMemo(() => (context ? renderMarkdown(context) : ''), [context]);
+  const hasMeta = !!eyebrow || remaining !== null;
+  return (
+    <div class="ext-prompt-content">
+      {hasMeta && (
+        <div class="ext-prompt-meta">
+          {eyebrow && <span class="ext-prompt-eyebrow">{eyebrow}</span>}
+          {remaining !== null && <span class="ext-prompt-countdown">{remaining}s</span>}
+        </div>
+      )}
+      <div class="ext-prompt-text ask-prose" dangerouslySetInnerHTML={{ __html: questionHtml }} />
+      {context && <div class="ext-prompt-context ask-prose" dangerouslySetInnerHTML={{ __html: contextHtml }} />}
+    </div>
+  );
+}
+
 // ─── Confirm ─────────────────────────────────────────────────────────────────
 
 interface ConfirmPromptProps {
@@ -128,13 +160,8 @@ function ConfirmPrompt({ id, title, message, timeout, extensionId, rootClass, co
   return (
     <div ref={containerRef} class={rootClass} tabIndex={-1} role="alertdialog" aria-label={title}>
       <div class="ext-prompt-row">
-        <span class="ext-prompt-icon" aria-hidden="true">?</span>
-        <div class="ext-prompt-content">
-          {eyebrow && <span class="ext-prompt-eyebrow">{eyebrow}</span>}
-          <span class="ext-prompt-text">{message || title}</span>
-          {remaining !== null && <span class="ext-prompt-countdown">{remaining}s</span>}
-          {context && <span class="ext-prompt-context">{context}</span>}
-        </div>
+        <span class="ext-prompt-icon" aria-hidden="true"><QuestionIcon /></span>
+        <PromptContent eyebrow={eyebrow} text={message || title} context={context} remaining={remaining} />
         <div class="ext-prompt-actions">
           <button class="ext-prompt-btn secondary" type="button" onClick={() => onRespond({ id, confirmed: false })}>
             Deny
@@ -250,12 +277,8 @@ function SelectPrompt({ id, title, options, timeout, extensionId, rootClass, con
   return (
     <div ref={containerRef} class={rootClass} tabIndex={-1} role="dialog" aria-label={title}>
       <div class="ext-prompt-row">
-        <span class="ext-prompt-icon" aria-hidden="true">?</span>
-        <div class="ext-prompt-content">
-          {eyebrow && <span class="ext-prompt-eyebrow">{eyebrow}</span>}
-          <span class="ext-prompt-text">{title}</span>
-          {context && <span class="ext-prompt-context">{context}</span>}
-        </div>
+        <span class="ext-prompt-icon" aria-hidden="true"><QuestionIcon /></span>
+        <PromptContent eyebrow={eyebrow} text={title} context={context} remaining={remaining} />
         {!showCustomInput && (
           <button class="ext-prompt-cancel" type="button" onClick={() => onRespond({ id, cancelled: true })}>
             Cancel
@@ -365,12 +388,8 @@ function InputPrompt({ id, title, placeholder, timeout, extensionId, rootClass, 
   return (
     <div class={rootClass} role="dialog" aria-label={title}>
       <div class="ext-prompt-row">
-        <span class="ext-prompt-icon" aria-hidden="true">?</span>
-        <div class="ext-prompt-content">
-          {eyebrow && <span class="ext-prompt-eyebrow">{eyebrow}</span>}
-          <span class="ext-prompt-text">{title}</span>
-          {context && <span class="ext-prompt-context">{context}</span>}
-        </div>
+        <span class="ext-prompt-icon" aria-hidden="true"><QuestionIcon /></span>
+        <PromptContent eyebrow={eyebrow} text={title} context={context} remaining={remaining} />
         <button class="ext-prompt-cancel" type="button" onClick={() => onRespond({ id, cancelled: true })}>
           Cancel
         </button>

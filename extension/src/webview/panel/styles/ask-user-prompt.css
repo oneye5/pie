@@ -37,9 +37,11 @@
   border-radius: 50%;
   background: color-mix(in srgb, var(--panel-accent) 18%, transparent);
   color: var(--panel-accent);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1;
+}
+
+.ask-user-icon svg {
+  width: 13px;
+  height: 13px;
 }
 
 .ask-user-question {
@@ -47,8 +49,6 @@
   font-weight: 500;
   line-height: 1.55;
   color: var(--panel-foreground);
-  min-width: 0;
-  overflow-wrap: anywhere;
 }
 
 .ask-user-header-completed {
@@ -66,12 +66,12 @@
 }
 
 /* ── Context text (the "rationale" field) ─────────────────────────────── */
+/* Rendered as muted markdown (.ask-prose supplies the descendant rules).   */
 
 .ask-user-context {
   font-size: 12px;
   line-height: 1.5;
   color: var(--panel-muted);
-  white-space: pre-line;
   margin-inline-start: calc(22px + var(--panel-gap-sm));
 }
 

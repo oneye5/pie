@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useContext } from 'preact/hooks';
+import { useContext, useMemo } from 'preact/hooks';
 
 import type { ToolCall } from '../../../../shared/protocol';
 import { AskUserContext, findMatchingRequest } from '../../hooks/ask-user-context';
@@ -9,6 +9,8 @@ import { SubagentCallContext } from '../subagent-call-context';
 import { ToolCallCard } from '../tool-call-card';
 import { getToolCallContextType } from '../../chat-prefs';
 import { ExtensionUIPrompt } from '../../extension-ui-prompt';
+import { renderMarkdown } from '../../markdown';
+import { QuestionIcon } from '../../components/question-icon';
 import { registerToolRenderer, type ToolRendererProps } from '../registry';
 import type { TranscriptContextMenuHandler } from '../types';
 
@@ -82,6 +84,7 @@ function AskUserCompleted({ toolCall, parsedInput, parsedResult, onContextMenu }
 }) {
   const contextType = getToolCallContextType('ask_user');
   const handleContextMenu = (e: MouseEvent) => onContextMenu(contextType, JSON.stringify(toolCall, null, 2), e);
+  const questionHtml = useMemo(() => renderMarkdown(parsedInput.question), [parsedInput.question]);
 
   return (
     <div
@@ -89,8 +92,8 @@ function AskUserCompleted({ toolCall, parsedInput, parsedResult, onContextMenu }
       onContextMenu={(e) => { e.preventDefault(); handleContextMenu(e as unknown as MouseEvent); }}
     >
       <div class="ask-user-header ask-user-header-completed">
-        <span class="ask-user-icon ask-user-icon-completed">?</span>
-        <span class="ask-user-question ask-user-question-completed">{parsedInput.question}</span>
+        <span class="ask-user-icon ask-user-icon-completed" aria-hidden="true"><QuestionIcon /></span>
+        <div class="ask-user-question ask-user-question-completed ask-prose" dangerouslySetInnerHTML={{ __html: questionHtml }} />
       </div>
       {parsedResult && !parsedResult.cancelled && (
         <div class="ask-user-answer">
@@ -158,13 +161,15 @@ function renderAskUserTool({
     // and a gentle nudge that the UI is loading. This handles the brief moment
     // before the extension_ui.request event reaches the webview.
     if (parsedInput) {
+      const questionHtml = renderMarkdown(parsedInput.question);
+      const contextHtml = parsedInput.context ? renderMarkdown(parsedInput.context) : '';
       return (
         <div class="ask-user-prompt ask-user-prompt-loading">
           <div class="ask-user-header">
-            <span class="ask-user-icon">?</span>
-            <span class="ask-user-question">{parsedInput.question}</span>
+            <span class="ask-user-icon" aria-hidden="true"><QuestionIcon /></span>
+            <div class="ask-user-question ask-prose" dangerouslySetInnerHTML={{ __html: questionHtml }} />
           </div>
-          {parsedInput.context && <div class="ask-user-context">{parsedInput.context}</div>}
+          {parsedInput.context && <div class="ask-user-context ask-prose" dangerouslySetInnerHTML={{ __html: contextHtml }} />}
           <div class="ask-user-pending">Loading response options…</div>
         </div>
       );
@@ -173,7 +178,7 @@ function renderAskUserTool({
     return (
       <div class="ask-user-prompt ask-user-prompt-loading">
         <div class="ask-user-header">
-          <span class="ask-user-icon">?</span>
+          <span class="ask-user-icon" aria-hidden="true"><QuestionIcon /></span>
           <span class="ask-user-question">Loading prompt…</span>
         </div>
         <div class="ask-user-pending">Loading response options…</div>
