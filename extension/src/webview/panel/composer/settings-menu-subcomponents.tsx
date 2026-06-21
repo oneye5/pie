@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import { playCompletionSound, warmupCompletionSoundContext } from '../completion-sound';
 
@@ -272,14 +272,16 @@ interface UiFlyoutProps {
 /**
  * Side panel of UI appearance controls. Renders as a flyout to the right of the
  * settings menu (a child of `.toolbar-settings-menu`, positioned past its right
- * edge) so opening it never grows the menu upward and off-screen. A mount-time
- * effect clamps its height to the viewport and shrinks it to fit the space
- * beside the menu, so it never grows the menu upward or runs off-screen.
+ * edge) so opening it never grows the menu. The flyout is bottom-aligned with
+ * the menu (whose bottom sits just above the toolbar) and a mount-time effect
+ * caps its height to the transcript's vertical space (viewport top → menu
+ * bottom), so it fills the available room, scrolls internally, and never
+ * extends past the toolbar or off the bottom of the screen.
  */
 function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
   const flyoutRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = flyoutRef.current;
     const menu = el?.parentElement; // .toolbar-settings-menu
     if (!el || !menu) return;
@@ -288,12 +290,14 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
     const naturalWidth = 260; // matches .toolbar-settings-ui-flyout width
     const minWidth = 200;
     const fit = () => {
-      const flyRect = el.getBoundingClientRect();
       const menuRect = menu.getBoundingClientRect();
-      // Vertical: never overflow the viewport bottom (the main off-screen fix).
-      const overflowBottom = flyRect.bottom - (window.innerHeight - pad);
-      el.style.maxHeight =
-        overflowBottom > 0 ? `${Math.max(180, flyRect.height - overflowBottom)}px` : '';
+      // Vertical: the flyout is bottom-aligned with the menu (CSS bottom:0 ≈
+      // toolbar top). Cap its height to the transcript's vertical space — from
+      // the viewport top (plus padding) down to the menu's bottom — so it fills
+      // the available room and scrolls instead of running past the toolbar / off
+      // the bottom of the screen.
+      const availableHeight = menuRect.bottom - pad;
+      el.style.maxHeight = `${Math.max(180, availableHeight)}px`;
       // Horizontal: the menu sits at the panel's left edge, so the flyout
       // always opens to the right. Shrink it to fit the space beside the menu
       // rather than overflowing the right edge (there's no room to flip left).

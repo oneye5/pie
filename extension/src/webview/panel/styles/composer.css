@@ -553,7 +553,11 @@
 .toolbar-settings-ui-flyout {
   position: absolute;
   left: calc(100% + var(--panel-gap-md));
-  top: 0;
+  /* Bottom-align with the menu (whose bottom sits just above the toolbar) so
+     the flyout grows upward into the transcript area and never extends past the
+     toolbar / off the bottom of the screen. The mount-time effect caps its
+     height to the transcript's vertical space and it scrolls internally. */
+  bottom: 0;
   z-index: 210;
   display: flex;
   flex-direction: column;
@@ -569,7 +573,7 @@
   -webkit-backdrop-filter: blur(16px);
   box-shadow: var(--panel-shadow-overlay);
   animation: panel-scale-in var(--panel-duration-entrance) var(--panel-ease-out-expo);
-  transform-origin: left center;
+  transform-origin: bottom left;
 }
 
 .toolbar-settings-ui-flyout-title {

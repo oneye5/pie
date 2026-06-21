@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningCatalog, PruningResult, PruningSettings } from '../../../shared/protocol';
 import { orderModelsForPicker } from './model-list';
@@ -65,6 +65,30 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
   const [uiOpen, setUiOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const settingsMenuRef = useRef<HTMLDivElement>(null);
+
+  // Cap the menu's height to the transcript's vertical space (viewport top → the
+  // menu's bottom, which sits just above the toolbar) so a tall menu fills the
+  // available room and its inner body scrolls instead of running off the top of
+  // the screen. CSS max-height: calc(100vh - 32px) overestimates the room
+  // because it ignores the toolbar/composer height. The menu is bottom-anchored,
+  // so its bottom edge is stable regardless of content height (no feedback loop).
+  useLayoutEffect(() => {
+    const el = settingsMenuRef.current;
+    if (!open || !el) return;
+    const pad = 8;
+    const fit = () => {
+      const rect = el.getBoundingClientRect();
+      el.style.maxHeight = `${Math.max(180, rect.bottom - pad)}px`;
+    };
+    fit();
+    const t = window.setTimeout(fit, 320);
+    window.addEventListener('resize', fit);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener('resize', fit);
+    };
+  }, [open]);
 
   useEffect(() => {
     if (!open) {
@@ -135,7 +159,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
       </button>
 
       {open && (
-        <div class="toolbar-settings-menu" role="menu" aria-label="Chat settings menu">
+        <div ref={settingsMenuRef} class="toolbar-settings-menu" role="menu" aria-label="Chat settings menu">
           <div class="toolbar-settings-menu-body">
             <ChatPrefSections prefs={prefs} onSetPrefs={onSetPrefs} />
             <UiSubmenuTrigger open={uiOpen} onToggle={() => setUiOpen((v) => !v)} />
