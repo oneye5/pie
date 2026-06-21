@@ -236,7 +236,7 @@ function toolCallsFromMessage(message: ChatMessage): ToolCall[] {
     .map((part) => part.toolCall) ?? [];
 }
 
-function extractSubagentDirectCost(transcript: ChatMessage[]): number {
+export function extractSubagentDirectCost(transcript: ChatMessage[]): number {
   let cost = 0;
   for (const message of transcript) {
     if (message.role !== 'assistant') continue;
@@ -287,7 +287,7 @@ function buildPruningPrepassSummary(
   };
 }
 
-interface CompletedCostSummary extends CostUsage {
+export interface CompletedCostSummary extends CostUsage {
   inputCost: number;
   outputCost: number;
   cacheReadCost: number;
@@ -337,7 +337,7 @@ function addCompletedUsageCost(
   summary.pricedTurnCount += 1;
 }
 
-function buildCompletedCostSummary(
+export function buildCompletedCostSummary(
   usageSummary: SessionTokenUsageSummary,
   transcript: ChatMessage[],
   fallbackPricing: TokenPricing | undefined,
@@ -366,7 +366,8 @@ export function buildSessionCostIndicator(
   summary: SessionTokenUsageSummary,
   pricing: TokenPricing | undefined,
   modelName: string | undefined,
-  transcript: ChatMessage[],
+  completed: CompletedCostSummary,
+  subagentCost: number,
   pruningDetails: PruningCostDetails | undefined,
   pricingForModel?: TokenPricingResolver,
   liveEstimate?: LiveSessionCostEstimate | null,
@@ -374,9 +375,7 @@ export function buildSessionCostIndicator(
   if (summary.reportedTurnCount === 0 && !liveEstimate) return null;
 
   const labelModel = modelName ?? 'Selected model';
-  const subagentCost = extractSubagentDirectCost(transcript);
   const prepass = buildPruningPrepassSummary(pruningDetails, pricing, pricingForModel);
-  const completed = buildCompletedCostSummary(summary, transcript, pricing, pricingForModel);
   const liveCost = pricing && liveEstimate ? costFromUsage(liveEstimate, pricing) : 0;
 
   if (!pricing) {

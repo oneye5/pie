@@ -15,12 +15,20 @@ import type { TokenRateIndicatorState } from '../../../shared/token-rate';
 import { buildContextWindowBreakdown } from '../context-window/breakdown';
 import { buildContextWindowIndicatorState } from '../context-window/indicator';
 import {
+  buildCompletedCostSummary,
+  extractSubagentDirectCost,
   buildLiveSessionCostEstimate,
   buildSessionCostIndicator,
   buildSessionTokenIndicator,
   buildSessionTokenUsage,
   type TokenPricing,
 } from '../session-tabs/token-usage';
+import {
+  streamingContentSignature,
+  subagentCostSignature,
+  systemPromptsSignature,
+  transcriptUsageSignature,
+} from './indicator-signature';
 import { resolveComposerModelState } from './model-state';
 import { useTokenRateIndicator } from './use-token-rate';
 
@@ -75,8 +83,33 @@ export function useComposerIndicators({
   const supportsImageInputs = selectedModelInfo?.inputKinds.includes('image') ?? false;
 
   const effectiveContextWindow = contextUsage?.contextWindow ?? selectedModelInfo?.contextWindow ?? 0;
-  const contextBreakdown = useMemo(() => (
-    effectiveContextWindow <= 0
+  const fallbackPricing = selectedModelInfo?.subagent?.pricing;
+
+  // ── Cheap fingerprints (recomputed each snapshot, but O(1)/O(small)) that
+  //    gate the O(transcript) walks below so they bail when only the streaming
+  //    message grew. The host posts a structured-cloned ViewState ~7×/sec
+  //    while streaming, so the transcript array (and every nested object) is a
+  //    fresh reference on every snapshot even when byte-identical — keying a
+  //    memo on the transcript ref would re-walk the whole transcript every
+  //    tick. These signatures change iff the walk's result could change. See
+  //    `indicator-signature.ts` for the correctness contract.
+  const usageSig = useMemo(() => transcriptUsageSignature(transcript), [transcript]);
+  const sysPromptsSig = useMemo(() => systemPromptsSignature(systemPrompts), [systemPrompts]);
+  // When a live context-usage token count is reported, the breakdown's
+  // used/remaining values come from the snapshot (not the growing transcript
+  // estimate), so the streaming fingerprint is intentionally excluded → the
+  // breakdown stays stable while only the streaming prose grows. When no token
+  // count is reported, the fingerprint tracks the growing estimate so the
+  // breakdown legitimately recomputes.
+  const breakdownStreamSig = useMemo(
+    () => (contextUsage?.tokens == null ? streamingContentSignature(transcript) : ''),
+    [transcript, contextUsage?.tokens],
+  );
+  const subagentSig = useMemo(() => subagentCostSignature(transcript), [transcript]);
+  const liveStreamSig = useMemo(() => streamingContentSignature(transcript), [transcript]);
+
+  const contextBreakdown = useMemo(
+    () => effectiveContextWindow <= 0
       ? null
       : buildContextWindowBreakdown({
           contextUsage,
@@ -84,33 +117,60 @@ export function useComposerIndicators({
           systemPrompts,
           transcript,
           isPartial: transcriptWindow.isPartial,
-        })
-  ), [contextUsage, effectiveContextWindow, systemPrompts, transcript, transcriptWindow.isPartial]);
+        }),
+    // Primitive/signature deps — NOT the raw object refs, which are fresh every
+    // structured-cloned snapshot. Stable while the breakdown's content is
+    // stable (e.g. contextUsage.tokens reported + only the streaming prose grew).
+    [contextUsage?.tokens, contextUsage?.contextWindow, effectiveContextWindow, sysPromptsSig, breakdownStreamSig, transcriptWindow.isPartial],
+  );
   const contextIndicator = useMemo(() => (
     contextBreakdown
       ? buildContextWindowIndicatorState(contextBreakdown.summary)
       : null
   ), [contextBreakdown]);
-  const sessionTokenUsage = useMemo(() => buildSessionTokenUsage(transcript), [transcript]);
+  const sessionTokenUsage = useMemo(() => buildSessionTokenUsage(transcript), [usageSig]);
   const sessionTokenIndicator = useMemo(
     () => buildSessionTokenIndicator(sessionTokenUsage),
     [sessionTokenUsage],
   );
   const liveCostEstimate = useMemo(
     () => buildLiveSessionCostEstimate(transcript, contextUsage, busy),
-    [transcript, contextUsage, busy],
+    [busy, contextUsage?.tokens, liveStreamSig],
+  );
+
+  // Stable pricing resolver so the completed-cost memo doesn't see a fresh
+  // function ref every snapshot.
+  const resolvePricing = useMemo(
+    () => (modelId: string) => pricingByModelId.get(modelId),
+    [pricingByModelId],
+  );
+
+  // The O(transcript) completed-cost summary and subagent direct-cost walk are
+  // memoized SEPARATELY from the live cost estimate. Their results are stable
+  // while only the streaming message grows (no new usage, no new completed
+  // subagent calls), but the live estimate grows every delta — so keying the
+  // final cost indicator on these memoized refs keeps the per-delta recompute
+  // O(1) (arithmetic + formatting) instead of re-walking the transcript.
+  const completedCostSummary = useMemo(
+    () => buildCompletedCostSummary(sessionTokenUsage, transcript, fallbackPricing, resolvePricing),
+    [sessionTokenUsage, fallbackPricing, resolvePricing],
+  );
+  const subagentDirectCost = useMemo(
+    () => extractSubagentDirectCost(transcript),
+    [subagentSig],
   );
   const sessionCostIndicator = useMemo(
     () => buildSessionCostIndicator(
       sessionTokenUsage,
-      selectedModelInfo?.subagent?.pricing,
+      fallbackPricing,
       selectedModelInfo?.name,
-      transcript,
+      completedCostSummary,
+      subagentDirectCost,
       (pruningResult?.details as PruningDetails | undefined),
-      (modelId) => pricingByModelId.get(modelId),
+      resolvePricing,
       liveCostEstimate,
     ),
-    [sessionTokenUsage, selectedModelInfo, transcript, pruningResult, pricingByModelId, liveCostEstimate],
+    [sessionTokenUsage, fallbackPricing, selectedModelInfo?.name, completedCostSummary, subagentDirectCost, pruningResult, resolvePricing, liveCostEstimate],
   );
 
   const tokenRateIndicator = useTokenRateIndicator({ sessionPath, tokenRateBySession });

@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  buildCompletedCostSummary,
   buildLiveSessionCostEstimate,
   buildSessionCostIndicator,
   buildSessionTokenIndicator,
+  extractSubagentDirectCost,
   formatCostUsd,
   type SessionTokenUsageSummary,
 } from '../src/webview/panel/session-tabs/token-usage';
@@ -55,13 +57,13 @@ test('buildSessionTokenIndicator shows real counts once usage is reported', () =
 
 test('buildSessionCostIndicator returns null when nothing has been spent', () => {
   const summary = makeSummary();
-  assert.equal(buildSessionCostIndicator(summary, undefined, 'Model', [], undefined), null);
+  assert.equal(buildSessionCostIndicator(summary, undefined, 'Model', buildCompletedCostSummary(summary, [], undefined, undefined), extractSubagentDirectCost([]), undefined), null);
 });
 
 test('buildSessionCostIndicator stays quiet until a turn reports usage', () => {
   const summary = makeSummary();
   const pricing = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
-  assert.equal(buildSessionCostIndicator(summary, pricing, 'Model', [], undefined), null);
+  assert.equal(buildSessionCostIndicator(summary, pricing, 'Model', buildCompletedCostSummary(summary, [], pricing, undefined), extractSubagentDirectCost([]), undefined), null);
 });
 
 test('buildSessionCostIndicator computes cost across all channels', () => {
@@ -75,7 +77,7 @@ test('buildSessionCostIndicator computes cost across all channels', () => {
     reportedTurnCount: 2,
   });
   const pricing = { input: 3, output: 15, cacheRead: 0.3, cacheWrite: 3.75 };
-  const result = buildSessionCostIndicator(summary, pricing, 'Copilot: Claude Sonnet 4.6', [], undefined);
+  const result = buildSessionCostIndicator(summary, pricing, 'Copilot: Claude Sonnet 4.6', buildCompletedCostSummary(summary, [], pricing, undefined), extractSubagentDirectCost([]), undefined);
   assert.ok(result);
   // 3 + 15 + 0.3 + 3.75 = 22.05
   assert.equal(result.label, '$22.05');
@@ -93,7 +95,7 @@ test('buildSessionCostIndicator omits cache lines when no cache usage', () => {
     reportedTurnCount: 1,
   });
   const pricing = { input: 2, output: 8, cacheRead: 0.5, cacheWrite: 0 };
-  const result = buildSessionCostIndicator(summary, pricing, 'Copilot: GPT-4.1', [], undefined);
+  const result = buildSessionCostIndicator(summary, pricing, 'Copilot: GPT-4.1', buildCompletedCostSummary(summary, [], pricing, undefined), extractSubagentDirectCost([]), undefined);
   assert.ok(result);
   // 0.5M*2 = 1.0 + 0.1M*8 = 0.8 → $1.80
   assert.equal(result.label, '$1.80');
@@ -108,7 +110,7 @@ test('buildSessionCostIndicator renders sub-cent spend compactly', () => {
     reportedTurnCount: 1,
   });
   const pricing = { input: 0.25, output: 2, cacheRead: 0.025, cacheWrite: 0 };
-  const result = buildSessionCostIndicator(summary, pricing, 'Copilot: GPT-5 Mini', [], undefined);
+  const result = buildSessionCostIndicator(summary, pricing, 'Copilot: GPT-5 Mini', buildCompletedCostSummary(summary, [], pricing, undefined), extractSubagentDirectCost([]), undefined);
   assert.ok(result);
   // 0.001M*0.25 = 0.00025 + 0.0002M*2 = 0.0004 → 0.00065 → "<$0.01"
   assert.equal(result.label, '<$0.01');
@@ -144,7 +146,7 @@ test('buildSessionCostIndicator shows sub-agent costs from transcript', () => {
     ] },
   ];
 
-  const result = buildSessionCostIndicator(summary, pricing, 'Test Model', transcript, undefined);
+  const result = buildSessionCostIndicator(summary, pricing, 'Test Model', buildCompletedCostSummary(summary, transcript, pricing, undefined), extractSubagentDirectCost(transcript as never), undefined);
   assert.ok(result);
   // Main: 10k/1M * 3 + 2k/1M * 15 = 0.03 + 0.03 = 0.06
   // Sub: $0.05
@@ -163,7 +165,7 @@ test('buildSessionCostIndicator shows tokens when no pricing (Ollama)', () => {
     reportedTurnCount: 1,
   });
 
-  const result = buildSessionCostIndicator(summary, undefined, 'Ollama: llama3.1', [], undefined);
+  const result = buildSessionCostIndicator(summary, undefined, 'Ollama: llama3.1', buildCompletedCostSummary(summary, [], undefined, undefined), extractSubagentDirectCost([]), undefined);
   assert.ok(result);
   assert.equal(result.label, '$0.00');
   assert.match(result.tooltip, /150,000 tokens \(no pricing\)/);
@@ -191,7 +193,7 @@ test('buildSessionCostIndicator shows prepass cost from pruning details', () => 
     prepassOutputTokens: 200,
   };
 
-  const result = buildSessionCostIndicator(summary, pricing, 'Test', [], pruningDetails);
+  const result = buildSessionCostIndicator(summary, pricing, 'Test', buildCompletedCostSummary(summary, [], pricing, undefined), extractSubagentDirectCost([]), pruningDetails);
   assert.ok(result);
   assert.match(result.tooltip, /Pruning prepass/);
   assert.match(result.tooltip, /gemma3:4b/);
@@ -211,7 +213,8 @@ test('buildSessionCostIndicator uses prepass model pricing when available', () =
     summary,
     selectedPricing,
     'Selected Model',
-    [],
+    buildCompletedCostSummary(summary, [], selectedPricing, undefined),
+    extractSubagentDirectCost([]),
     {
       mode: 'auto' as const,
       skillTokensSaved: 0,
@@ -264,7 +267,8 @@ test('buildSessionCostIndicator uses assistant message model pricing when availa
     summary,
     selectedPricing,
     'Selected Model',
-    transcript,
+    buildCompletedCostSummary(summary, transcript, selectedPricing, (modelId) => (modelId === 'actual-model' ? messagePricing : undefined)),
+    extractSubagentDirectCost(transcript as never),
     undefined,
     (modelId) => (modelId === 'actual-model' ? messagePricing : undefined),
   );
@@ -296,7 +300,8 @@ test('buildSessionCostIndicator shows a live estimate while running without comp
     makeSummary(),
     { input: 0.04, output: 0.08, cacheRead: 0, cacheWrite: 0 },
     'Ollama Cloud: Gemma 3 4B',
-    transcript,
+    buildCompletedCostSummary(makeSummary(), transcript, { input: 0.04, output: 0.08, cacheRead: 0, cacheWrite: 0 }, undefined),
+    extractSubagentDirectCost(transcript as never),
     undefined,
     undefined,
     liveEstimate,
@@ -332,7 +337,7 @@ test('buildSessionCostIndicator does not crash when a tool call has an undefined
       ],
     },
   ];
-  const result = buildSessionCostIndicator(summary, undefined, 'Model', transcript as never, undefined);
+  const result = buildSessionCostIndicator(summary, undefined, 'Model', buildCompletedCostSummary(summary, transcript as never, undefined, undefined), extractSubagentDirectCost(transcript as never), undefined);
   assert.ok(result);
 });
 
@@ -357,6 +362,6 @@ test('buildSessionCostIndicator does not crash when message.toolCalls has an und
       ],
     },
   ];
-  const result = buildSessionCostIndicator(summary, undefined, 'Model', transcript as never, undefined);
+  const result = buildSessionCostIndicator(summary, undefined, 'Model', buildCompletedCostSummary(summary, transcript as never, undefined, undefined), extractSubagentDirectCost(transcript as never), undefined);
   assert.ok(result);
 });
