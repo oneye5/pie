@@ -63,10 +63,15 @@
 
 /* Dropdown */
 
+/* The dropdown is portaled to document.body and positioned with fixed coords
+   set imperatively by useDropdownPosition (see model-picker.tsx). Portaling
+   lets the (wide) list escape clipping ancestors — e.g. the settings menu's
+   scroll container, which (per the CSS overflow spec) would otherwise force
+   overflow-x to auto and clip the dropdown. left/top/bottom are therefore not
+   declared here; transform-origin is kept so the entrance animation still
+   grows from the trigger-adjacent corner. */
 .model-picker-dropdown {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 4px);
+  position: fixed;
   z-index: 200;
   display: flex;
   flex-direction: column;
@@ -86,14 +91,14 @@
   transform-origin: bottom left;
 }
 
-.model-picker-compact .model-picker-dropdown {
+/* Compact sizing is a self-modifier (not an ancestor-scoped selector) so it
+   still applies once the dropdown is portaled out of .model-picker-compact. */
+.model-picker-dropdown-compact {
   min-width: 380px;
   max-width: 580px;
 }
 
 .model-picker-dropdown-down {
-  top: calc(100% + 4px);
-  bottom: auto;
   transform-origin: top left;
 }
 

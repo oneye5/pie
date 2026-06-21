@@ -199,6 +199,13 @@
   inset: -4px;
 }
 
+/* The menu itself must stay overflow:visible: the UI flyout is an absolutely
+   positioned child placed just past the menu's right edge, and CSS forces
+   overflow-x to compute to auto whenever overflow-y is non-visible (visible+auto
+   is not a legal pair), which would clip the flyout and surface a stray
+   horizontal scrollbar. Vertical scrolling is delegated to the inner
+   .toolbar-settings-menu-body wrapper below so the menu can still spill the
+   flyout past its right edge. */
 .toolbar-settings-menu {
   position: absolute;
   left: 0;
@@ -206,11 +213,9 @@
   z-index: 200;
   display: flex;
   flex-direction: column;
-  gap: var(--panel-gap-sm);
   min-width: 240px;
   max-width: 300px;
   max-height: calc(100vh - 32px);
-  overflow-y: auto;
   padding: var(--panel-gap-md);
   border: 1px solid var(--panel-border);
   border-radius: var(--panel-radius-lg);
@@ -220,6 +225,18 @@
   box-shadow: var(--panel-shadow-overlay);
   animation: panel-scale-in var(--panel-duration-entrance) var(--panel-ease-out-expo);
   transform-origin: bottom left;
+}
+
+/* Scrollable interior of the settings menu. Carries the section gap and the
+   vertical scroll so the parent menu can keep overflow:visible (see above).
+   min-height:0 lets the flex item shrink below its content so it scrolls
+   instead of growing the menu past its max-height. */
+.toolbar-settings-menu-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--panel-gap-sm);
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .toolbar-settings-section {

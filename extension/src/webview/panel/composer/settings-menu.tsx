@@ -72,7 +72,15 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
     }
 
     const handlePointerDown = (event: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      const target = event.target as Node;
+      if (menuRef.current && !menuRef.current.contains(target)) {
+        // The ModelPicker dropdown is portaled to document.body (to escape
+        // this menu's scroll container), so it is no longer a DOM descendant
+        // of the menu. Treat interaction with it as inside the menu so
+        // selecting a row doesn't dismiss the settings menu.
+        if (target instanceof HTMLElement && target.closest('.model-picker-dropdown')) {
+          return;
+        }
         setOpen(false);
       }
     };
@@ -84,12 +92,11 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
       // listener is registered first (parent mounts first) and therefore fires
       // first, so we skip here rather than rely on the child stopping
       // propagation (stopImmediatePropagation would have no effect).
+      //
+      // The picker dropdown is portaled to document.body, so we can't gate on
+      // menuRef.contains(active); matching the dropdown class is sufficient.
       const active = document.activeElement as HTMLElement | null;
-      if (
-        active &&
-        menuRef.current?.contains(active) &&
-        active.closest('.model-picker-dropdown')
-      ) {
+      if (active && active.closest('.model-picker-dropdown')) {
         return;
       }
       setOpen(false);
@@ -129,28 +136,30 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
 
       {open && (
         <div class="toolbar-settings-menu" role="menu" aria-label="Chat settings menu">
-          <ChatPrefSections prefs={prefs} onSetPrefs={onSetPrefs} />
-          <UiSubmenuTrigger open={uiOpen} onToggle={() => setUiOpen((v) => !v)} />
+          <div class="toolbar-settings-menu-body">
+            <ChatPrefSections prefs={prefs} onSetPrefs={onSetPrefs} />
+            <UiSubmenuTrigger open={uiOpen} onToggle={() => setUiOpen((v) => !v)} />
+            <SoundSection prefs={prefs} onSetPrefs={onSetPrefs} />
+            {availableExtensions.length > 0 && (
+              <ExtensionsSection
+                availableExtensions={availableExtensions}
+                prefs={prefs}
+                onSetPrefs={onSetPrefs}
+                expandedExt={expandedExt}
+                setExpandedExt={setExpandedExt}
+                pruningSettings={pruningSettings}
+                modelEntries={modelEntries}
+                availableModels={availableModels}
+                skillCatalog={skillCatalog}
+                toolCatalog={toolCatalog}
+                onSetPruningSettings={onSetPruningSettings}
+              />
+            )}
+            {providers.length > 0 && (
+              <ProvidersSection providers={providers} prefs={prefs} onSetPrefs={onSetPrefs} />
+            )}
+          </div>
           {uiOpen && <UiFlyout prefs={prefs} onSetPrefs={onSetPrefs} />}
-          <SoundSection prefs={prefs} onSetPrefs={onSetPrefs} />
-          {availableExtensions.length > 0 && (
-            <ExtensionsSection
-              availableExtensions={availableExtensions}
-              prefs={prefs}
-              onSetPrefs={onSetPrefs}
-              expandedExt={expandedExt}
-              setExpandedExt={setExpandedExt}
-              pruningSettings={pruningSettings}
-              modelEntries={modelEntries}
-              availableModels={availableModels}
-              skillCatalog={skillCatalog}
-              toolCatalog={toolCatalog}
-              onSetPruningSettings={onSetPruningSettings}
-            />
-          )}
-          {providers.length > 0 && (
-            <ProvidersSection providers={providers} prefs={prefs} onSetPrefs={onSetPrefs} />
-          )}
         </div>
       )}
     </div>

@@ -1,7 +1,8 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useCallback, useEffect, useId, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'preact/hooks';
+import { createPortal } from 'preact/compat';
 import type { JSX } from 'preact';
 import type { ModelPickerEntry } from '../composer/model-list';
 import { CollapsibleChevron } from './chevron';
@@ -39,10 +40,11 @@ function getWrapperClass(compact?: boolean): string {
   return ['model-picker', compact && 'model-picker-compact'].filter(Boolean).join(' ');
 }
 
-function getDropdownClass(direction: 'up' | 'down'): string {
+function getDropdownClass(direction: 'up' | 'down', compact?: boolean): string {
   return [
     'model-picker-dropdown',
     direction === 'down' && 'model-picker-dropdown-down',
+    compact && 'model-picker-dropdown-compact',
   ].filter(Boolean).join(' ');
 }
 
@@ -131,21 +133,63 @@ function useClickOutside(
   }, [open]);
 }
 
-function useDropdownMaxHeight(
+function useDropdownPosition(
   open: boolean,
   dropdownDirection: 'up' | 'down',
   listRef: { current: HTMLDivElement | null },
   triggerRef: { current: HTMLButtonElement | null },
 ) {
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
-    if (dropdownDirection !== 'down') return;
-    if (!listRef.current || !triggerRef.current) return;
-    const rect = triggerRef.current.getBoundingClientRect();
-    const margin = 8;
-    const available = window.innerHeight - rect.bottom - margin;
-    const maxHeight = Math.min(420, Math.max(120, available));
-    listRef.current.style.maxHeight = `${maxHeight}px`;
+    const dropdown = listRef.current;
+    const trigger = triggerRef.current;
+    if (!dropdown || !trigger) return;
+
+    const gap = 4; // matches the previous calc(100% + 4px) offset
+    const margin = 8; // viewport edge padding
+
+    const position = () => {
+      const rect = trigger.getBoundingClientRect();
+      // Horizontal: align the dropdown's left edge to the trigger, then clamp
+      // inward so a wide list never overflows the viewport's right edge (the
+      // common case inside the narrow settings menu).
+      let left = rect.left;
+      const maxLeft = window.innerWidth - dropdown.offsetWidth - margin;
+      if (left > maxLeft) left = Math.max(margin, maxLeft);
+      dropdown.style.left = `${left}px`;
+
+      if (dropdownDirection === 'down') {
+        const top = rect.bottom + gap;
+        dropdown.style.top = `${top}px`;
+        dropdown.style.bottom = '';
+        // Cap height to the space below the trigger so the list scrolls
+        // instead of running off the viewport bottom.
+        const available = window.innerHeight - top - margin;
+        dropdown.style.maxHeight = `${Math.min(420, Math.max(120, available))}px`;
+      } else {
+        // Up: anchor the dropdown's bottom edge `gap` above the trigger.
+        dropdown.style.bottom = `${window.innerHeight - rect.top + gap}px`;
+        dropdown.style.top = '';
+        // No inline maxHeight for 'up' — the CSS max-height: 420px cap wins,
+        // matching prior behavior (the trigger sits low in the panel, so there
+        // is ordinarily ample room above it).
+      }
+    };
+
+    position();
+    // Re-measure once the entrance animation settles, in case async content
+    // (font loads, row hydration) changed the dropdown's width after layout.
+    const t = window.setTimeout(position, 320);
+    // The portal no longer tracks the trigger automatically, so follow the
+    // viewport on resize and any ancestor scroll (capture phase catches
+    // scrolls in nested scroll containers like the settings menu body).
+    window.addEventListener('resize', position);
+    window.addEventListener('scroll', position, true);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener('resize', position);
+      window.removeEventListener('scroll', position, true);
+    };
   }, [open, dropdownDirection]);
 }
 
@@ -251,7 +295,7 @@ function useModelPicker({
 
   useFocusOnOpen(open, selectedIndex, setActiveIndex, listRef);
   useClickOutside(open, setOpen, triggerRef, listRef);
-  useDropdownMaxHeight(open, dropdownDirection, listRef, triggerRef);
+  useDropdownPosition(open, dropdownDirection, listRef, triggerRef);
   useScrollActiveItem(open, activeIndex, itemRefs);
 
   const handleSelect = useHandleSelect(onChange, setOpen, triggerRef);
@@ -372,6 +416,7 @@ interface ModelPickerDropdownProps {
   listRef: { current: HTMLDivElement | null };
   listId: string;
   dropdownDirection: 'up' | 'down';
+  compact?: boolean;
   ariaLabel: string;
   activeDescendant: string | undefined;
   onKeyDown: (e: JSX.TargetedKeyboardEvent<HTMLDivElement>) => void;
@@ -388,6 +433,7 @@ function ModelPickerDropdown({
   listRef,
   listId,
   dropdownDirection,
+  compact,
   ariaLabel,
   activeDescendant,
   onKeyDown,
@@ -403,7 +449,7 @@ function ModelPickerDropdown({
     <div
       ref={listRef}
       id={listId}
-      class={getDropdownClass(dropdownDirection)}
+      class={getDropdownClass(dropdownDirection, compact)}
       role="listbox"
       tabIndex={0}
       aria-label={ariaLabel}
@@ -461,6 +507,29 @@ export function ModelPicker({
 
   const triggerClass = getTriggerClass(compact);
   const wrapperClass = getWrapperClass(compact);
+  // Portal the dropdown to document.body so its (wide) list escapes any
+  // clipping scroll container it happens to be rendered inside — notably the
+  // settings menu, whose scrollable body would otherwise clip it on the x-axis.
+  const usePortal = typeof document !== 'undefined';
+
+  const dropdown = state.open && (
+    <ModelPickerDropdown
+      listRef={state.listRef}
+      listId={state.listId}
+      dropdownDirection={dropdownDirection}
+      compact={compact}
+      ariaLabel={ariaLabel}
+      activeDescendant={state.activeDescendant}
+      onKeyDown={state.onListKeyDown}
+      entries={entries}
+      value={value}
+      activeIndex={state.activeIndex}
+      idBase={state.idBase}
+      handleSelect={state.handleSelect}
+      setActiveIndex={state.setActiveIndex}
+      itemRefs={state.itemRefs}
+    />
+  );
 
   return (
     <div class={wrapperClass}>
@@ -474,23 +543,7 @@ export function ModelPicker({
         onClick={() => state.setOpen((o) => !o)}
         onKeyDown={state.onTriggerKeyDown}
       />
-      {state.open && (
-        <ModelPickerDropdown
-          listRef={state.listRef}
-          listId={state.listId}
-          dropdownDirection={dropdownDirection}
-          ariaLabel={ariaLabel}
-          activeDescendant={state.activeDescendant}
-          onKeyDown={state.onListKeyDown}
-          entries={entries}
-          value={value}
-          activeIndex={state.activeIndex}
-          idBase={state.idBase}
-          handleSelect={state.handleSelect}
-          setActiveIndex={state.setActiveIndex}
-          itemRefs={state.itemRefs}
-        />
-      )}
+      {dropdown && (usePortal ? createPortal(dropdown, document.body) : dropdown)}
     </div>
   );
 }

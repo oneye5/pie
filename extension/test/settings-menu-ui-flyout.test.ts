@@ -68,9 +68,12 @@ test('UiFlyout color rows enable Reset only when their pref is overridden', () =
     onSetPrefs: () => undefined,
   }));
 
-  // Enabled buttons have no disabled attribute; disabled ones do.
-  const totalResets = (html.match(/class="toolbar-settings-color-reset"/g) ?? []).length;
-  const disabledResets = (html.match(/class="toolbar-settings-color-reset"[^>]*disabled[^>]*>/g) ?? []).length;
+  // Enabled buttons have no disabled attribute; disabled ones do. Match
+  // whole reset-button tags and check each for `disabled` so the assertion is
+  // independent of attribute serialization order (preact/compat reorders attrs).
+  const resetTags = html.match(/<button\b[^>]*\bclass="toolbar-settings-color-reset"[^>]*>/g) ?? [];
+  const totalResets = resetTags.length;
+  const disabledResets = resetTags.filter((tag) => /\bdisabled\b/.test(tag)).length;
   assert.equal(totalResets, 4, 'expected one reset button per color row');
   assert.equal(totalResets - disabledResets, 2, 'expected exactly the two overridden rows to be resettable');
 });
