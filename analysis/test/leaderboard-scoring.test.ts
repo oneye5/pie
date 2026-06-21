@@ -7,6 +7,8 @@ import {
   LEADERBOARD_MINIMUM_SCORED_RUNS,
   LEADERBOARD_SHRINKAGE_K,
   LEADERBOARD_TOKEN_EFFICIENCY_MAX,
+  LEADERBOARD_OUTCOME_EXPONENT,
+  LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT,
 } from '../scripts/leaderboard-scoring.ts';
 
 test('LEADERBOARD_WEIGHTS dimensions sum to 1.0 (composite weighting invariant)', () => {
@@ -39,26 +41,32 @@ test('LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS is a subset of the weighted dimensi
   }
 });
 
-test('LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS contains exactly the four outcome mastery dimensions', () => {
-  // Known-answer: the four outcome dimensions that measure "completing complex
-  // tasks" are complexity-emphasized. toolReliability (process quality) and
-  // tokenEfficiency (cost-adjacent efficiency) are deliberately left raw.
-  assert.equal(LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.size, 4);
-  for (const dim of ['satisfaction', 'resolutionRate', 'firstAttemptSuccess', 'verificationPassRate']) {
+test('LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS contains exactly the five mastery dimensions', () => {
+  // Known-answer: the five outcome/process dimensions that measure "completing complex tasks"
+  // (satisfaction, resolution, first-attempt, verification pass, tool reliability) are
+  // complexity-emphasized so actual success on hard tasks dominates. tokenEfficiency
+  // (cost-adjacent efficiency) is deliberately left raw.
+  assert.equal(LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.size, 5);
+  for (const dim of ['satisfaction', 'resolutionRate', 'firstAttemptSuccess', 'verificationPassRate', 'toolReliability']) {
     assert.ok(LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.has(dim), `expected "${dim}" to be emphasized`);
   }
-  assert.ok(!LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.has('toolReliability'), 'toolReliability must NOT be emphasized');
   assert.ok(!LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.has('tokenEfficiency'), 'tokenEfficiency must NOT be emphasized');
 });
 
 test('scalar scoring constants are positive with their known-answer values', () => {
-  // Pin the small-sample gate, empirical-Bayes prior strength, and token-efficiency
-  // saturation cap. Asserting exact values also proves each import resolved to a
-  // real export (undefined would fail the > 0 checks).
+  // Pin the small-sample gate, empirical-Bayes prior strength, token-efficiency saturation cap,
+  // outcome exponent (penalizes partial/low per-run outcomes), and mastery blend weight (raw success
+  // vs complexity-weighted split). Asserting exact values also proves each import resolved to a real
+  // export (undefined would fail the > 0 / range checks).
   assert.equal(LEADERBOARD_MINIMUM_SCORED_RUNS, 3);
   assert.equal(LEADERBOARD_SHRINKAGE_K, 4);
   assert.equal(LEADERBOARD_TOKEN_EFFICIENCY_MAX, 50);
+  assert.equal(LEADERBOARD_OUTCOME_EXPONENT, 2);
+  assert.equal(LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT, 0.5);
   assert.ok(LEADERBOARD_MINIMUM_SCORED_RUNS > 0);
   assert.ok(LEADERBOARD_SHRINKAGE_K > 0);
   assert.ok(LEADERBOARD_TOKEN_EFFICIENCY_MAX > 0);
+  assert.ok(LEADERBOARD_OUTCOME_EXPONENT >= 1, 'exponent must be >= 1 (1 = no outcome emphasis)');
+  assert.ok(LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT > 0 && LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT < 1,
+    'blend weight must be in (0,1): 0 = raw success only, 1 = complexity-weighted only');
 });

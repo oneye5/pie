@@ -684,11 +684,18 @@ test('leaderboard difficulty-emphasizes so easy-task models do not outrank hard-
     run.finalizationReason = 'scored';
     run.finalizedAt = '2026-05-10T14:19:00.000Z';
     run.outcome = { resolution, satisfaction };
-    // Vary line mutations to vary task complexity; keep token efficiency constant (~5 tok/line)
-    // so tokenEfficiency cancels across models and the ranking isolates the difficulty adjustment.
+    // Vary five of the six complexity signals with `lineAdd` (a difficulty proxy) so task complexity
+    // spans the full 0–1 range — lineMutations, touchedFileCount, toolCallCount, busyDurationMs,
+    // inputTokens. Keep token efficiency constant (~5 tok/line: outputTokens = 5 × lineMutations) and
+    // verification inherited from the base run, so those dims cancel across models and the ranking
+    // isolates the difficulty emphasis.
     run.fileMutation.lineAdditions = lineAdd;
     run.fileMutation.lineDeletions = 0;
     run.fileMutation.lineModifications = 0;
+    run.fileMutation.touchedFileCount = Math.max(1, Math.round(lineAdd / 5));
+    run.toolUsage.totalCount = Math.max(1, Math.round(lineAdd / 2));
+    run.busyDurationMs = lineAdd * 1000;
+    run.inputTokens = lineAdd * 50;
     run.outputTokens = lineAdd * 5;
     fixture.completedRuns.push(run);
     fixture.outcomes.push({

@@ -11,7 +11,8 @@ import {
   LEADERBOARD_SHRINKAGE_K as SHRINKAGE_K,
   LEADERBOARD_TOKEN_EFFICIENCY_MAX as TOKEN_EFFICIENCY_MAX,
   LEADERBOARD_WEIGHTS as WEIGHTS,
-  LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS as EMPHASIZED_DIMS,
+  LEADERBOARD_OUTCOME_EXPONENT as OUTCOME_EXPONENT,
+  LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT as MASTERY_COMPLEXITY_WEIGHT,
 } from './leaderboard-scoring.ts';
 import {
   computeComplexityScores,
@@ -149,8 +150,9 @@ interface GroupEstimate {
   medianCostUsd: number | null;
   meanTaskComplexity: number | null;
   /** Observed normalized point estimate per dimension in [0,1] (null when the group has no data).
-   *  For difficulty-emphasized (outcome) dims this is the complexity-weighted mastery estimate
-   *  mean(complexity × outcome); for the raw process dims it is the unweighted rate/median. */
+   *  For difficulty-emphasized (outcome) dims this is the blended mastery estimate
+   *  ((1-W)×rawRate + W×mean(complexity × outcome^EXPONENT)); for the raw process dims it is the
+   *  unweighted rate/median. */
   observed: Record<DimensionKey, number | null>;
   /** Sample size per dimension. */
   n: Record<DimensionKey, number>;
@@ -159,10 +161,11 @@ interface GroupEstimate {
 }
 
 /**
- * Builds model leaderboard rows ranked by expected strength on the hardest work: a weighted
- * composite of empirical-Bayes shrunk point estimates whose outcome dimensions are
- * complexity-weighted (mastery) so that completing the most complex tasks dominates the score.
- * Cost is surfaced separately and is not part of the composite.
+ * Builds model leaderboard rows ranked by expected strength on the hardest work, gated by actual
+ * success: a weighted composite of empirical-Bayes shrunk point estimates whose outcome
+ * dimensions are blended mastery (raw success + complexity-weighted) so actual success dominates
+ * task complexity while still rewarding completion of the most complex tasks. Cost is surfaced
+ * separately and is not part of the composite.
  */
 export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLeaderboardData {
   const completedRuns = prepared.runs.filter((run) => run.status !== 'open');
@@ -175,15 +178,15 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
   }
 
   // Pass 0: per-run complexity scores over the scored-run population. The outcome dimensions are
-  // complexity-weighted (mastery = mean(complexity × outcome)) so success on the hardest tasks
-  // dominates the composite — the opposite of the prior residual-control adjustment, which
-  // neutralized task difficulty.
+  // blended mastery ((1-W)×rawSuccessRate + W×mean(complexity × outcome^EXPONENT)) so actual success
+  // dominates task complexity while still rewarding completion of the hardest tasks — the opposite
+  // of the prior residual-control adjustment, which neutralized task difficulty.
   const allScoredRuns = completedRuns.filter((run) => run.scored && run.satisfaction !== null);
   const complexityScores = computeComplexityScores(allScoredRuns);
   const complexityOf = (run: PreparedRunRow): number => complexityScores.get(run.runId) ?? 0.5;
   const difficultyEmphasized = hasComplexityVariance(allScoredRuns.map((run) => complexityOf(run)));
 
-  // Pass 1: per-group observed estimates (complexity-weighted mastery for outcome dims, raw for
+  // Pass 1: per-group observed estimates (blended mastery for outcome dims, raw for
   // process dims), native-scale display values, CI lower bounds, per-run (complexity, outcome)
   // pairs, and mean task complexity.
   const estimates: GroupEstimate[] = [...grouped.entries()].map(([key, runs]) => {
@@ -227,30 +230,38 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
       n: tokenEfficiencyValues.length,
     };
 
-    // Per-run (complexity, outcome) pairs for the difficulty-emphasized outcome dimensions.
+    // Per-run (complexity, outcome) pairs for the complexity-weighted dimensions. The five
+    // outcome/process dimensions (satisfaction, resolution, first-attempt, verification pass,
+    // tool reliability) are mastery-weighted; token efficiency stays raw (cost-adjacent efficiency,
+    // not "completing complex tasks").
     const pairs: Record<DimensionKey, ComplexityOutcomePair[]> = {
       satisfaction: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: clamp((run.satisfaction! - 1) / 4, 0, 1) })),
       resolutionRate: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: resolutionScore(run.resolution) })),
       firstAttemptSuccess: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: run.firstAttemptSuccess ? 1 : 0 })),
       verificationPassRate: verifyingRuns.map((run) => ({ complexity: complexityOf(run), outcome: run.verificationState === 'passing' ? 1 : 0 })),
-      toolReliability: [],
+      toolReliability: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: run.toolFailureCount === 0 ? 1 : 0 })),
       tokenEfficiency: [],
     };
 
-    // Outcome dims use complexity-weighted mastery (mean(complexity × outcome)); process dims
-    // (tool reliability, token efficiency) stay raw — they measure process quality / cost-adjacent
-    // efficiency, not "completing complex tasks".
-    const satisfactionMastery = complexityWeightedMean(pairs.satisfaction);
-    const resolutionMastery = complexityWeightedMean(pairs.resolutionRate);
-    const firstAttemptMastery = complexityWeightedMean(pairs.firstAttemptSuccess);
-    const verificationMastery = complexityWeightedMean(pairs.verificationPassRate);
+    // Blended mastery = (1-W)×rawSuccessRate + W×mean(complexity × outcome^OUTCOME_EXPONENT). The raw
+    // success component makes actual success matter directly on every dimension (including 0/1 outcome
+    // dims where the exponent is a no-op); the complexity-weighted component rewards completing the
+    // hardest tasks. Together, actual success dominates task complexity — a mediocre performer on
+    // very-hard tasks cannot ride its complexity past a strong consistent performer on medium-hard
+    // tasks. Token efficiency stays raw (median-based, inverted).
+    const masteryOf = (rawRate: number | null, p: ComplexityOutcomePair[]): number | null => {
+      if (rawRate === null) return null;
+      const cwm = complexityWeightedMean(p, OUTCOME_EXPONENT);
+      if (cwm === null) return null;
+      return clamp((1 - MASTERY_COMPLEXITY_WEIGHT) * rawRate + MASTERY_COMPLEXITY_WEIGHT * cwm, 0, 1);
+    };
 
     const observed: Record<DimensionKey, number | null> = {
-      satisfaction: satisfactionMastery !== null ? clamp(satisfactionMastery, 0, 1) : null,
-      resolutionRate: resolutionMastery !== null ? clamp(resolutionMastery, 0, 1) : null,
-      firstAttemptSuccess: firstAttemptMastery !== null ? clamp(firstAttemptMastery, 0, 1) : null,
-      toolReliability: scoredN > 0 ? toolSuccesses / scoredN : null,
-      verificationPassRate: verificationMastery !== null ? clamp(verificationMastery, 0, 1) : null,
+      satisfaction: masteryOf(satMean !== null ? clamp((satMean - 1) / 4, 0, 1) : null, pairs.satisfaction),
+      resolutionRate: masteryOf(resMean, pairs.resolutionRate),
+      firstAttemptSuccess: masteryOf(scoredN > 0 ? fasSuccesses / scoredN : null, pairs.firstAttemptSuccess),
+      toolReliability: masteryOf(scoredN > 0 ? toolSuccesses / scoredN : null, pairs.toolReliability),
+      verificationPassRate: masteryOf(verifyingRuns.length > 0 ? verPassSuccesses / verifyingRuns.length : null, pairs.verificationPassRate),
       tokenEfficiency: tokenEfficiencyClamped !== null ? clamp(1 - tokenEfficiencyClamped / TOKEN_EFFICIENCY_MAX, 0, 1) : null,
     };
     const n: Record<DimensionKey, number> = {
@@ -358,13 +369,13 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     weights: WEIGHTS,
     minimumScoredRuns: MINIMUM_SCORED_RUNS,
     notes: [
-      `Composite ranks by expected strength on the hardest work: a weighted sum of empirical-Bayes shrunk point estimates (prior strength k=${SHRINKAGE_K}). Outcome dimensions (satisfaction, resolution, first-attempt, verification pass) are complexity-weighted mastery — each scored run contributes complexity × outcome to the dimension mean, so success on the most complex tasks dominates the score. A model that only completes easy tasks cannot reach the top (its easy-task successes are complexity-down-weighted); a model that completes complex tasks rises. This emphasizes task difficulty rather than neutralizing it.`,
-      `Estimates are shrunk toward each dimension's cross-model grand mean by the data fraction n/(n+k), curbing small-sample cherry-picking without a harsh multiplicative penalty. The grand mean for outcome dims is the mean mastery across models; for process dims the mean raw rate.`,
+      `Composite ranks by expected strength on the hardest work, gated by actual success: a weighted sum of empirical-Bayes shrunk point estimates (prior strength k=${SHRINKAGE_K}). Five non-efficiency dimensions (satisfaction, resolution, first-attempt, verification pass, tool reliability) use blended mastery = ${(1 - MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×rawSuccessRate + ${MASTERY_COMPLEXITY_WEIGHT}×mean(complexity × outcome^${OUTCOME_EXPONENT}). The raw-success component makes actual success matter directly on every dimension — including the 0/1 outcome dims (first-attempt, verification, tool reliability) where the outcome exponent alone is a no-op (0^p=0, 1^p=1). The complexity-weighted component rewards completing the hardest tasks. Together, actual success dominates task complexity: a mediocre performer on very-hard tasks cannot ride its complexity past a strong consistent performer on medium-hard tasks, while a model that completes complex tasks still rises above one that only completes easy ones.`,
+      `Estimates are shrunk toward each dimension's cross-model grand mean by the data fraction n/(n+k), curbing small-sample cherry-picking without a harsh multiplicative penalty. Small-sample rows (few scored runs) are therefore pulled toward the population mean regardless of how hard their tasks were.`,
       `Task complexity is a per-run 0–1 score from 6 signals (line mutations, touched files, tool calls, busy duration, verification count, input tokens). When the scored population has no complexity variance, mastery collapses to a uniform rescaling of raw outcomes (no genuine difficulty emphasis); difficultyEmphasized flags whether variance was present.`,
       `reliabilityFactor reports sample confidence = scoredRunCount / (scoredRunCount + ${SHRINKAGE_K}); it is a display-only indicator and is NOT applied to the composite.`,
       `meanTaskComplexity reports each model's average task difficulty (0=easy, 1=hard) for transparency ("strength of schedule"); it is not part of the composite. difficultyEmphasized flags whether the composite was complexity-weighted for this row.`,
-      `Dimensions: satisfaction (1–5 → 0–1), resolution rate, first-attempt success, tool reliability, verification pass rate (share of verifying runs whose checks pass — not mere adoption), and token efficiency (1 − median tok/line ÷ ${TOKEN_EFFICIENCY_MAX}). Outcome dims use scored-run mastery; tool reliability and token efficiency use raw rates/medians (process dims, not difficulty-weighted).`,
-      `Each dimension exposes value (observed point estimate on its native scale), lowerBound (95% CI lower bound, an uncertainty indicator — not used for ranking), shrunk (empirical-Bayes estimate used in the composite; complexity-weighted mastery for outcome dims), and n.`,
+      `Dimensions: satisfaction (1–5 → 0–1), resolution rate, first-attempt success, tool reliability (share of runs with zero tool failures), verification pass rate (share of verifying runs whose checks pass — not mere adoption), and token efficiency (1 − median tok/line ÷ ${TOKEN_EFFICIENCY_MAX}). The first five use blended mastery (${(1 - MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×raw rate + ${MASTERY_COMPLEXITY_WEIGHT}×complexity-weighted, outcome^${OUTCOME_EXPONENT}); token efficiency uses a raw median (cost-adjacent efficiency, not task completion).`,
+      `Each dimension exposes value (observed point estimate on its native scale), lowerBound (95% CI lower bound, an uncertainty indicator — not used for ranking), shrunk (empirical-Bayes estimate used in the composite; blended mastery for the first five dims), and n.`,
       `Models with fewer than ${MINIMUM_SCORED_RUNS} scored runs are shown but unranked (null composite and rank).`,
       `medianCostUsd surfaces per-run cost separately; cost is not part of the composite so rank #1 reflects strength, not cheapness.`,
       'Subagent context shows co-occurrence; subagent model attribution requires pipeline enhancement.',

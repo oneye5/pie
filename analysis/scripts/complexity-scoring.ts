@@ -92,17 +92,19 @@ export function computeComplexityScores(runs: PreparedRunRow[]): Map<string, num
 // top of the board is the model that demonstrably completes the most complex work.
 
 /**
- * Mean of `complexity × outcome` over the given (complexity, outcome) pairs.
- * This is the per-dimension mastery estimate used in the difficulty-emphasized
- * composite. Returns null when there are no pairs (caller should treat the
- * dimension as unobserved).
+ * Mean of `complexity × outcome^outcomeExponent` over the given (complexity, outcome) pairs.
+ * This is the per-dimension mastery estimate used in the difficulty-emphasized composite. The outcome
+ * exponent (>1) penalizes partial / low outcomes per run so that merely *attempting* hard tasks
+ * does not outrank *completing* them: a model must actually succeed, weighted by task complexity.
+ * Returns null when there are no pairs (caller should treat the dimension as unobserved).
  */
 export function complexityWeightedMean(
   pairs: { complexity: number; outcome: number }[],
+  outcomeExponent = 1,
 ): number | null {
   if (pairs.length === 0) return null;
   let sum = 0;
-  for (const p of pairs) sum += p.complexity * p.outcome;
+  for (const p of pairs) sum += p.complexity * (p.outcome ** outcomeExponent);
   return sum / pairs.length;
 }
 

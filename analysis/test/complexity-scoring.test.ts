@@ -63,6 +63,33 @@ test('complexityWeightedMean: is bounded in [0, 1] for complexity, outcome in [0
   assert.ok(m >= 0 && m <= 1, `mastery ${m} should be in [0,1]`);
 });
 
+test('complexityWeightedMean: outcome exponent > 1 penalizes partial outcomes so success dominates', () => {
+  // Two runs at the same (high) complexity: one perfect (outcome 1), one partial (outcome 0.5).
+  // With exponent 1 they contribute 0.8 and 0.4 (gap 0.4); with exponent 2 the partial run
+  // contributes 0.8 × 0.25 = 0.2 (gap 0.6) — the partial outcome is penalized harder, so a model
+  // must actually succeed to score well rather than merely attempting hard tasks.
+  const perfect: Pair[] = [{ complexity: 0.8, outcome: 1 }];
+  const partial: Pair[] = [{ complexity: 0.8, outcome: 0.5 }];
+  approx(complexityWeightedMean(perfect, 1), 0.8);
+  approx(complexityWeightedMean(partial, 1), 0.4);
+  approx(complexityWeightedMean(perfect, 2), 0.8); // 1^2 = 1, unchanged
+  approx(complexityWeightedMean(partial, 2), 0.2); // 0.5^2 = 0.25 → 0.8 × 0.25 = 0.2
+  // A perfect-easy run (low complexity) must NOT beat a partial-hard run under exponent 2
+  // unless the partial outcome is very low: success still matters, weighted by complexity.
+  const easyPerfect: Pair[] = [{ complexity: 0.2, outcome: 1 }];
+  assert.ok(complexityWeightedMean(perfect, 2)! > complexityWeightedMean(easyPerfect, 2)!,
+    'completing a hard task perfectly must outrank completing an easy task perfectly');
+});
+
+test('complexityWeightedMean: exponent is a no-op on 0/1 outcomes (tool reliability, first-attempt)', () => {
+  // Binary outcomes are unaffected by the exponent (0^p = 0, 1^p = 1), so the exponent targets
+  // continuous / partial outcomes (satisfaction, partial resolution) without distorting binary dims.
+  const pairs: Pair[] = [{ complexity: 0.8, outcome: 1 }, { complexity: 0.8, outcome: 0 }];
+  approx(complexityWeightedMean(pairs, 1), 0.4);
+  approx(complexityWeightedMean(pairs, 2), 0.4);
+  approx(complexityWeightedMean(pairs, 4), 0.4);
+});
+
 // ---------------------------------------------------------------------------
 // hasComplexityVariance (difficultyEmphasized gate)
 // ---------------------------------------------------------------------------

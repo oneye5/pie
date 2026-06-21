@@ -5,7 +5,8 @@ import {
   LEADERBOARD_SHRINKAGE_K,
   LEADERBOARD_TOKEN_EFFICIENCY_MAX,
   LEADERBOARD_WEIGHTS,
-  LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS as EMPHASIZED_DIMS,
+  LEADERBOARD_OUTCOME_EXPONENT,
+  LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT,
 } from '../scripts/leaderboard-scoring.ts';
 import { computeComplexityScores, complexityWeightedMean, hasComplexityVariance } from '../scripts/complexity-scoring.ts';
 import { meanDifferenceInterval, meanInterval, wilsonInterval } from './chart-stats.ts';
@@ -1938,9 +1939,10 @@ function leaderboardRows(runs: PreparedRunRow[]): {
   const DIM_KEYS: DimKey[] = ['satisfaction', 'resolutionRate', 'firstAttemptSuccess', 'toolReliability', 'verificationPassRate', 'tokenEfficiency'];
   type Pair = { complexity: number; outcome: number };
 
-  // Pass 0: per-run complexity scores. Outcome dimensions are complexity-weighted (mastery =
-  // mean(complexity × outcome)) so that completing the hardest tasks dominates the composite —
-  // the top of the board is the model that demonstrably completes the most complex work.
+  // Pass 0: per-run complexity scores. Outcome dimensions are blended mastery
+  // ((1-W)×rawSuccessRate + W×mean(complexity × outcome^EXPONENT)) so that actual success dominates
+  // task complexity while still rewarding completion of the hardest tasks — the top of the board is
+  // the model that demonstrably completes the most complex work, not merely the one assigned it.
   const allScored = completed.filter((r) => r.scored && r.satisfaction !== null);
   const complexityScores = computeComplexityScores(allScored);
   const complexityOf = (r: PreparedRunRow): number => complexityScores.get(r.runId) ?? 0.5;
@@ -1968,30 +1970,36 @@ function leaderboardRows(runs: PreparedRunRow[]): {
       ? Math.max(0, Math.min(LEADERBOARD_TOKEN_EFFICIENCY_MAX, median(tokenEffValues) ?? 0))
       : null;
 
-    // Per-run (complexity, outcome) pairs for the difficulty-emphasized outcome dimensions.
+    // Per-run (complexity, outcome) pairs for the complexity-weighted dimensions. The five
+    // outcome/process dimensions (satisfaction, resolution, first-attempt, verification pass,
+    // tool reliability) are mastery-weighted; token efficiency stays raw (cost-adjacent efficiency,
+    // not "completing complex tasks").
     const pairs: Record<DimKey, Pair[]> = {
       satisfaction: scored.map((r) => ({ complexity: complexityOf(r), outcome: Math.max(0, Math.min(1, (r.satisfaction! - 1) / 4)) })),
       resolutionRate: scored.map((r) => ({ complexity: complexityOf(r), outcome: r.resolution === 'resolved' ? 1 : r.resolution === 'partially_resolved' ? 0.5 : 0 })),
       firstAttemptSuccess: scored.map((r) => ({ complexity: complexityOf(r), outcome: r.firstAttemptSuccess ? 1 : 0 })),
       verificationPassRate: verifying.map((r) => ({ complexity: complexityOf(r), outcome: r.verificationState === 'passing' ? 1 : 0 })),
-      toolReliability: [],
+      toolReliability: scored.map((r) => ({ complexity: complexityOf(r), outcome: r.toolFailureCount === 0 ? 1 : 0 })),
       tokenEfficiency: [],
     };
 
-    // Outcome dims use complexity-weighted mastery (mean(complexity × outcome)); process dims
-    // (tool reliability, token efficiency) stay raw — they measure process quality / cost-adjacent
-    // efficiency, not "completing complex tasks".
-    const satMastery = complexityWeightedMean(pairs.satisfaction);
-    const resMastery = complexityWeightedMean(pairs.resolutionRate);
-    const fasMastery = complexityWeightedMean(pairs.firstAttemptSuccess);
-    const verMastery = complexityWeightedMean(pairs.verificationPassRate);
+    // Blended mastery = (1-W)×rawSuccessRate + W×mean(complexity × outcome^OUTCOME_EXPONENT). The raw
+    // success component makes actual success matter directly on every dimension (including 0/1 outcome
+    // dims where the exponent is a no-op); the complexity-weighted component rewards completing the
+    // hardest tasks. Together, actual success dominates task complexity. Token efficiency stays raw.
+    const masteryOf = (rawRate: number | null, p: Pair[]): number | null => {
+      if (rawRate === null) return null;
+      const cwm = complexityWeightedMean(p, LEADERBOARD_OUTCOME_EXPONENT);
+      if (cwm === null) return null;
+      return Math.max(0, Math.min(1, (1 - LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT) * rawRate + LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT * cwm));
+    };
 
     const observed: Record<DimKey, number | null> = {
-      satisfaction: satMastery !== null ? Math.max(0, Math.min(1, satMastery)) : null,
-      resolutionRate: resMastery !== null ? Math.max(0, Math.min(1, resMastery)) : null,
-      firstAttemptSuccess: fasMastery !== null ? Math.max(0, Math.min(1, fasMastery)) : null,
-      toolReliability: scored.length > 0 ? toolSuccesses / scored.length : null,
-      verificationPassRate: verMastery !== null ? Math.max(0, Math.min(1, verMastery)) : null,
+      satisfaction: masteryOf(satMean !== null ? Math.max(0, Math.min(1, (satMean - 1) / 4)) : null, pairs.satisfaction),
+      resolutionRate: masteryOf(resMean, pairs.resolutionRate),
+      firstAttemptSuccess: masteryOf(scored.length > 0 ? fasSuccesses / scored.length : null, pairs.firstAttemptSuccess),
+      toolReliability: masteryOf(scored.length > 0 ? toolSuccesses / scored.length : null, pairs.toolReliability),
+      verificationPassRate: masteryOf(verifying.length > 0 ? verPass / verifying.length : null, pairs.verificationPassRate),
       tokenEfficiency: tokenEffMedian !== null ? Math.max(0, Math.min(1, 1 - tokenEffMedian / LEADERBOARD_TOKEN_EFFICIENCY_MAX)) : null,
     };
     const n: Record<DimKey, number> = {
@@ -2031,7 +2039,7 @@ function leaderboardRows(runs: PreparedRunRow[]): {
           const obs = e.observed[dim];
           const gm = grandMean[dim];
           if (obs === null || gm === null) { shrunk[dim] = null; continue; }
-          // Difficulty emphasis: outcome dims are already complexity-weighted mastery estimates;
+          // Difficulty emphasis: outcome dims are already blended mastery estimates (raw success +
           // shrink toward the grand mean by n/(n+k) to curb small-sample cherry-picking.
           const s = Math.max(0, Math.min(1, (e.n[dim] * obs + LEADERBOARD_SHRINKAGE_K * gm) / (e.n[dim] + LEADERBOARD_SHRINKAGE_K)));
           shrunk[dim] = s;
@@ -2107,7 +2115,7 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
 
   target.innerHTML = `
     <table class="data-table leaderboard-table">
-      <caption>Ranked first to last by expected strength on the hardest work. Composite = complexity-weighted (mastery) empirical-Bayes shrunk estimates — success on the most complex tasks dominates; cost & task difficulty shown separately.</caption>
+      <caption>Ranked first to last by expected strength on the hardest work, gated by actual success. Composite = blended mastery empirical-Bayes shrunk estimates (raw success + complexity-weighted) — actual success dominates task complexity; cost & task difficulty shown separately.</caption>
       <thead>
         <tr>
           <th scope="col">Rank</th>
@@ -2441,7 +2449,7 @@ async function renderCharts(
     'leaderboard-note',
     lb.composite.length === 0
       ? `No models with ≥${LEADERBOARD_MIN_SCORED} scored runs.`
-      : `${lb.composite.length} ranked models ordered #1 → #${lb.composite.length}; ${lb.unrankedCount} unranked. Composite = complexity-weighted (mastery) empirical-Bayes shrunk estimates (expected strength on the hardest work — success on the most complex tasks dominates); cost & task difficulty shown separately, not in score.`,
+      : `${lb.composite.length} ranked models ordered #1 → #${lb.composite.length}; ${lb.unrankedCount} unranked. Composite = blended mastery empirical-Bayes shrunk estimates (raw success + complexity-weighted; actual success dominates task complexity so mediocre performers on hard tasks don't outrank strong consistent ones); cost & task difficulty shown separately, not in score.`,
     renderToken,
   );
   renderLeaderboardTable(lb.composite, renderToken);
@@ -2498,7 +2506,7 @@ async function renderCharts(
     'leaderboard-dimension-note',
     lb.dimensions.length === 0
       ? 'No ranked models to show.'
-      : `6 dimensions per model; dot = empirical-Bayes shrunk estimate (0–1), the value used in the composite. Outcome dimensions (satisfaction, resolution, first-attempt, verification pass) are complexity-weighted mastery (mean(complexity × outcome)) so completing the hardest tasks dominates; tool reliability & token efficiency stay raw. Outcome-dim dots sit lower in absolute terms when a model's task mix is easier — that is the point. Weights: sat ${(LEADERBOARD_WEIGHTS.satisfaction * 100).toFixed(0)}%, res ${(LEADERBOARD_WEIGHTS.resolutionRate * 100).toFixed(0)}%, 1st ${(LEADERBOARD_WEIGHTS.firstAttemptSuccess * 100).toFixed(0)}%, tool ${(LEADERBOARD_WEIGHTS.toolReliability * 100).toFixed(0)}%, ver ${(LEADERBOARD_WEIGHTS.verificationPassRate * 100).toFixed(0)}%, tok ${(LEADERBOARD_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%. Estimates shrink toward the grand mean by n/(n+${LEADERBOARD_SHRINKAGE_K}).`,
+      : `6 dimensions per model; dot = empirical-Bayes shrunk estimate (0–1), the value used in the composite. Five non-efficiency dimensions (satisfaction, resolution, first-attempt, verification pass, tool reliability) are blended mastery = ${(1 - LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×raw success rate + ${LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT}×mean(complexity × outcome^${LEADERBOARD_OUTCOME_EXPONENT}); the raw-success component makes actual success dominate task complexity on every dimension (incl. 0/1 outcome dims where the exponent is a no-op), so a mediocre performer on hard tasks can't outrank a strong consistent one. Token efficiency stays raw. Weights: sat ${(LEADERBOARD_WEIGHTS.satisfaction * 100).toFixed(0)}%, res ${(LEADERBOARD_WEIGHTS.resolutionRate * 100).toFixed(0)}%, 1st ${(LEADERBOARD_WEIGHTS.firstAttemptSuccess * 100).toFixed(0)}%, tool ${(LEADERBOARD_WEIGHTS.toolReliability * 100).toFixed(0)}%, ver ${(LEADERBOARD_WEIGHTS.verificationPassRate * 100).toFixed(0)}%, tok ${(LEADERBOARD_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%. Estimates shrink toward the grand mean by n/(n+${LEADERBOARD_SHRINKAGE_K}).`,
     renderToken,
   );
 
