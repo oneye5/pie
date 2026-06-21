@@ -1,9 +1,10 @@
 import type { ChatMessage } from './protocol';
 
 /**
- * Turn-latency stats, surfaced as an **average** inside the generation-speed
- * (tokens/sec) chip's tooltip — the latency breakdown is no longer a separate
- * chip.
+ * Turn-latency stats. The average time-to-first-token is surfaced INLINE on
+ * the generation-speed (tokens/sec) chip — always visible, e.g. `42 tok/s · 1.3s`
+ * — while the full overhead / total breakdown lives in that chip's tooltip.
+ * The latency breakdown is no longer a separate chip.
  *
  * Turn latency is the wall-clock gap from the previous tool call finishing (or
  * the prompt being sent, for the first turn) to the model's first reply token,
@@ -101,19 +102,42 @@ export function computeTurnLatencyStats(transcript: ChatMessage[]): TurnLatencyS
 }
 
 /**
- * Format the average turn latency as tooltip lines for the speed chip. Returns
- * an empty array when no turns have been measured yet, so the speed tooltip
- * stays concise until latency data exists.
+ * Format the average time-to-first-token for inline display on the speed chip
+ * (e.g. `42 tok/s · 1.3s`). Returns `null` when no provider latency has been
+ * measured, so the inline segment is omitted rather than showing a stale dash
+ * — the tooltip still carries the `—` placeholder in its breakdown.
+ *
+ * Time-to-first-token here is the provider portion of turn latency
+ * (`turn_start` → first content delta): request prep + network + the model's
+ * own first-token time. It is the value now surfaced inline on the speed chip;
+ * the overhead and full turn latency remain in the tooltip.
+ */
+export function formatAvgTimeToFirstToken(stats: TurnLatencyStats): string | null {
+  if (stats.count === 0 || stats.avgProviderLatencyMs === null) return null;
+  return formatSeconds(stats.avgProviderLatencyMs);
+}
+
+/**
+ * Format the average turn-latency breakdown as tooltip lines for the speed chip.
+ * The total leads with its turn count; the time-to-first-token line (the
+ * provider portion, shown inline on the chip) and the overhead line are its
+ * components. Returns an empty array when no turns have been measured yet, so
+ * the speed tooltip stays concise until latency data exists.
+ *
+ * The total is averaged over all measured turns (`count`); overhead and
+ * time-to-first-token are averaged only over the turns that measured each, so
+ * the two component values need not sum to the displayed total. The lines are
+ * listed as a breakdown, not an equation, to avoid implying otherwise.
  */
 export function formatTurnLatencyTooltipLines(stats: TurnLatencyStats): string[] {
   if (stats.count === 0) return [];
-  const avg = formatSeconds(stats.avgTurnLatencyMs);
+  const total = formatSeconds(stats.avgTurnLatencyMs);
   const overhead = stats.avgOverheadMs !== null ? formatSeconds(stats.avgOverheadMs) : '—';
-  const provider = stats.avgProviderLatencyMs !== null ? formatSeconds(stats.avgProviderLatencyMs) : '—';
+  const ttft = stats.avgProviderLatencyMs !== null ? formatSeconds(stats.avgProviderLatencyMs) : '—';
   const turns = stats.count === 1 ? '1 turn' : `${stats.count} turns`;
   return [
-    `Avg turn latency: ${avg} over ${turns}`,
+    `Avg turn latency: ${total} over ${turns}`,
     `  overhead: ${overhead} — inter-turn work before the provider request`,
-    `  provider: ${provider} — request prep + network + time-to-first-token`,
+    `  time to first token: ${ttft} — request prep + network + model first token`,
   ];
 }

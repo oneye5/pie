@@ -5,7 +5,12 @@ import {
   getRenderableSubagentResultFromToolCall,
   type SubagentSingleResult,
 } from './subagent-result';
-import { computeTurnLatencyStats, formatTurnLatencyTooltipLines } from './turn-latency';
+import {
+  computeTurnLatencyStats,
+  formatAvgTimeToFirstToken,
+  formatTurnLatencyTooltipLines,
+  type TurnLatencyStats,
+} from './turn-latency';
 
 /**
  * Live "average tokens per second" measurement.
@@ -51,7 +56,7 @@ const MIN_RATE_SPAN_MS = 300;
 const MAX_SAMPLES = 360;
 
 export interface TokenRateIndicatorState {
-  /** Compact label e.g. "42 tok/s"; "—" hides no useful value yet. */
+  /** Compact label e.g. "42 tok/s · 1.3s" (rate · avg time to first token); "—" when idle or measuring. */
   label: string;
   ariaLabel: string;
   tooltip: string;
@@ -285,7 +290,7 @@ function buildState(
   generating: boolean,
   streaming: ChatMessage | null,
   toolBlocked: boolean,
-  latencyLines: string[],
+  stats: TurnLatencyStats,
 ): TokenRateIndicatorState {
   const rate = computeRate(acc.samples);
   const genSec = Math.round(acc.genMs / 1000);
@@ -294,8 +299,15 @@ function buildState(
     : 0;
   const windowSec = Math.round(Math.min(windowSpanMs, WINDOW_MS) / 1000);
 
-  // Append the merged average turn-latency lines to whichever tooltip we build.
-  // No measured turns yet -> empty array -> the speed tooltip stays concise.
+  // Time-to-first-token is surfaced INLINE on the speed chip (always visible,
+  // not just on hover) as ` · 1.3s` appended to the rate label. The latency
+  // breakdown is appended to the tooltip for context. No measured turns yet
+  // -> ttft is null and latencyLines is empty -> the label and tooltip stay
+  // concise.
+  const ttft = formatAvgTimeToFirstToken(stats);
+  const latencyLines = formatTurnLatencyTooltipLines(stats);
+  const withTtft = (label: string) => (ttft !== null ? `${label} · ${ttft}` : label);
+  const ttftAria = ttft !== null ? ` Average time to first token ${ttft}.` : '';
   const withLatency = (lines: string[]): string => (
     latencyLines.length > 0 ? [...lines, ...latencyLines].join('\n') : lines.join('\n')
   );
@@ -303,8 +315,8 @@ function buildState(
   if (generating) {
     if (rate === null) {
       return {
-        label: '—',
-        ariaLabel: 'Generation rate: measuring.',
+        label: withTtft('—'),
+        ariaLabel: `Generation rate: measuring.${ttftAria}`,
         tooltip: withLatency(['Measuring generation rate…']),
         state: 'generating',
         paused: false,
@@ -312,8 +324,8 @@ function buildState(
     }
     const num = formatRate(rate);
     return {
-      label: `${num} tok/s`,
-      ariaLabel: `Generation rate: ${num} tokens per second.`,
+      label: withTtft(`${num} tok/s`),
+      ariaLabel: `Generation rate: ${num} tokens per second.${ttftAria}`,
       tooltip: withLatency([
         `Generation rate: ${num} tok/s`,
         `Average over the last ${windowSec}s of generation.`,
@@ -329,8 +341,8 @@ function buildState(
   const reason = describePauseReason(streaming, toolBlocked);
   if (rate === null) {
     return {
-      label: '—',
-      ariaLabel: `Generation paused (${reason}).`,
+      label: withTtft('—'),
+      ariaLabel: `Generation paused (${reason}).${ttftAria}`,
       tooltip: withLatency([
         `Generation paused (${reason}).`,
         'Waiting for the model to produce output.',
@@ -341,8 +353,8 @@ function buildState(
   }
   const num = formatRate(rate);
   return {
-    label: `⏸ ${num} tok/s`,
-    ariaLabel: `Generation paused (${reason}). Last rate ${num} tokens per second.`,
+    label: withTtft(`⏸ ${num} tok/s`),
+    ariaLabel: `Generation paused (${reason}). Last rate ${num} tokens per second.${ttftAria}`,
     tooltip: withLatency([
       `Generation paused (${reason}).`,
       `Last rate: ${num} tok/s`,
@@ -427,8 +439,8 @@ export function tickTokenRate(
   }
   acc.lastWall = now;
 
-  const latencyLines = formatTurnLatencyTooltipLines(computeTurnLatencyStats(transcript));
-  return buildState(acc, generating, streaming, toolBlocked, latencyLines);
+  const latencyStats = computeTurnLatencyStats(transcript);
+  return buildState(acc, generating, streaming, toolBlocked, latencyStats);
 }
 
 /** Create a fresh accumulator (for tests / explicit reset). */

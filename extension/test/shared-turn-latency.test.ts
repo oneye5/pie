@@ -6,6 +6,7 @@ import {
   NO_LATENCY_STATS,
   collectMeasuredTurns,
   computeTurnLatencyStats,
+  formatAvgTimeToFirstToken,
   formatTurnLatencyTooltipLines,
 } from '../src/shared/turn-latency';
 
@@ -121,17 +122,24 @@ test('formatTurnLatencyTooltipLines renders the average with turn count and brea
     assistant({ id: 't2', turnLatencyMs: 2_000, overheadMs: 300, providerLatencyMs: 1_700 }),
   ]));
   assert.equal(lines.length, 3);
+  // Total leads with its turn count; the time-to-first-token line (provider
+  // portion) is the value surfaced inline on the speed chip.
   assert.match(lines[0]!, /Avg turn latency: 1\.5s over 2 turns/);
   assert.match(lines[1]!, /overhead: 0\.2s — inter-turn work before the provider request/);
-  assert.match(lines[2]!, /provider: 1\.3s — request prep \+ network \+ time-to-first-token/);
+  assert.match(lines[2]!, /time to first token: 1\.3s — request prep \+ network \+ model first token/);
 });
 
 test('formatTurnLatencyTooltipLines renders missing components as a dash', () => {
   const lines = formatTurnLatencyTooltipLines(computeTurnLatencyStats([
     assistant({ id: 't1', turnLatencyMs: 1_000, overheadMs: undefined, providerLatencyMs: undefined }),
   ]));
+  // Total is always present (turnLatencyMs is the gating field for a "measured"
+  // turn); overhead and time-to-first-token are "—" when their split was not
+  // measured. The lines are a breakdown, not an equation, so a missing
+  // component does not falsify a summation claim.
+  assert.match(lines[0]!, /Avg turn latency: 1\.0s over 1 turn/);
   assert.match(lines[1]!, /overhead: —/);
-  assert.match(lines[2]!, /provider: —/);
+  assert.match(lines[2]!, /time to first token: —/);
 });
 
 test('formatTurnLatencyTooltipLines uses singular "turn" for a single measurement', () => {
@@ -149,7 +157,7 @@ test('formatSeconds sub-100ms latency renders as "<0.1s"', () => {
 });
 
 test('formatSeconds 100-999ms latency rounds to one decimal second', () => {
-  // 100ms -> 0.1s, 500ms -> 0.5s.
+  // 100ms -> 0.1s, 500ms -> 0.5s (on the total-turn-latency line).
   const [a] = formatTurnLatencyTooltipLines(
     computeTurnLatencyStats([assistant({ turnLatencyMs: 100, overheadMs: 100, providerLatencyMs: 0 })]),
   );
@@ -161,7 +169,7 @@ test('formatSeconds 100-999ms latency rounds to one decimal second', () => {
 });
 
 test('formatSeconds >=1000ms latency renders as seconds with one decimal', () => {
-  // 1500ms -> 1.5s, 2500ms -> 2.5s.
+  // 1500ms -> 1.5s, 2500ms -> 2.5s (on the total-turn-latency line).
   const [a] = formatTurnLatencyTooltipLines(
     computeTurnLatencyStats([assistant({ turnLatencyMs: 1_500, overheadMs: 500, providerLatencyMs: 1_000 })]),
   );
@@ -170,4 +178,22 @@ test('formatSeconds >=1000ms latency renders as seconds with one decimal', () =>
     computeTurnLatencyStats([assistant({ turnLatencyMs: 2_500, overheadMs: 500, providerLatencyMs: 2_000 })]),
   );
   assert.match(b!, /Avg turn latency: 2\.5s over 1 turn/);
+});
+
+test('formatAvgTimeToFirstToken renders the average provider latency for inline display', () => {
+  const stats = computeTurnLatencyStats([
+    assistant({ id: 't1', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 }),
+    assistant({ id: 't2', turnLatencyMs: 2_000, overheadMs: 300, providerLatencyMs: 1_700 }),
+  ]);
+  // (900 + 1700) / 2 = 1300ms -> 1.3s — the segment appended to the rate label.
+  assert.equal(formatAvgTimeToFirstToken(stats), '1.3s');
+});
+
+test('formatAvgTimeToFirstToken returns null until a provider latency is measured', () => {
+  assert.equal(formatAvgTimeToFirstToken(NO_LATENCY_STATS), null);
+  // A measured turn without the provider split has no TTFT to show inline.
+  assert.equal(
+    formatAvgTimeToFirstToken(computeTurnLatencyStats([assistant({ turnLatencyMs: 1_000 })])),
+    null,
+  );
 });

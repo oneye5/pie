@@ -435,9 +435,10 @@ test('text produced while a tool call is running is counted as generation, not b
 });
 
 test('merged tooltip surfaces the average turn latency alongside the live rate', () => {
-  // The turn-latency breakdown is no longer a separate chip — it is folded
-  // into the speed chip's tooltip as a session-wide average across measured
-  // turns. Verify the average lines appear in the generating-state tooltip.
+  // The turn-latency breakdown is no longer a separate chip — the average
+  // time-to-first-token is shown INLINE on the speed chip (always visible),
+  // with the overhead / total breakdown in the tooltip. Verify the inline TTFT
+  // segment and the tooltip lines both appear in the generating-state chip.
   const m = streamingMessage();
   const finishedTurns: ChatMessage[] = [
     { ...m, id: 'f1', status: 'completed', markdown: 'done', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 },
@@ -449,11 +450,12 @@ test('merged tooltip surfaces the average turn latency alongside the live rate',
   const state = tickTokenRate(acc, [...finishedTurns, setContent(m, 800)], BASE_NOW + 2000);
 
   assert.equal(state.state, 'generating');
+  // Inline TTFT: avg provider latency = (900 + 1700) / 2 = 1300ms -> 1.3s.
+  assert.match(state.label!, /100 tok\/s · 1\.3s/);
   assert.match(state.tooltip, /Generation rate: 100 tok\/s/);
-  // avg = (1000 + 2000) / 2 = 1500ms -> 1.5s over 2 turns.
   assert.match(state.tooltip, /Avg turn latency: 1\.5s over 2 turns/);
   assert.match(state.tooltip, /overhead: 0\.2s/);
-  assert.match(state.tooltip, /provider: 1\.3s/);
+  assert.match(state.tooltip, /time to first token: 1\.3s/);
 });
 
 test('speed tooltip stays concise when no turn has been measured yet', () => {
@@ -462,7 +464,28 @@ test('speed tooltip stays concise when no turn has been measured yet', () => {
   tickTokenRate(acc, [setContent(m, 0)], BASE_NOW);
   const state = tickTokenRate(acc, [setContent(m, 400)], BASE_NOW + 1000);
   assert.equal(state.state, 'generating');
+  // No measured turns -> no inline TTFT segment and no latency tooltip lines.
+  assert.doesNotMatch(state.label!, /·/);
   assert.doesNotMatch(state.tooltip, /Avg turn latency/);
+});
+
+test('inline TTFT is omitted (and tooltip shows —) when measured turns lack the provider split', () => {
+  // A turn was measured (turnLatencyMs present) but without the provider split
+  // (providerLatencyMs undefined). The inline segment must be omitted rather
+  // than showing a stale dash, while the tooltip still carries the — placeholder.
+  const m = streamingMessage();
+  const finishedTurns: ChatMessage[] = [
+    { ...m, id: 'f1', status: 'completed', markdown: 'done', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: undefined },
+  ];
+  const acc = createTokenRateAccumulator(BASE_NOW);
+  tickTokenRate(acc, [...finishedTurns, setContent(m, 0)], BASE_NOW);
+  const state = tickTokenRate(acc, [...finishedTurns, setContent(m, 800)], BASE_NOW + 1000);
+  assert.equal(state.state, 'generating');
+  // No provider latency -> no inline TTFT segment.
+  assert.doesNotMatch(state.label!, /·/);
+  // Tooltip breakdown still renders, with — for the missing time to first token.
+  assert.match(state.tooltip, /Avg turn latency: 1\.0s over 1 turn/);
+  assert.match(state.tooltip, /time to first token: —/);
 });
 
 test('merged average latency also appears in the paused (tool running) tooltip', () => {
@@ -485,7 +508,7 @@ test('merged average latency also appears in the paused (tool running) tooltip',
   );
   const state = tickTokenRate(acc, [...finishedTurns, blocked], BASE_NOW + 7000);
   assert.equal(state.state, 'paused');
-  assert.match(state.label!, /⏸ 100 tok\/s/);
+  assert.match(state.label!, /⏸ 100 tok\/s · 1\.3s/);
   assert.match(state.tooltip, /Generation paused \(tool running\)/);
   assert.match(state.tooltip, /Last rate: 100 tok\/s/);
   assert.match(state.tooltip, /Avg turn latency: 1\.5s over 2 turns/);

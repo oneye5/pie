@@ -19,7 +19,7 @@ import {
 export { useComposerIndicators } from './use-composer-indicators';
 export { useTokenRateIndicator, tickTokenRate, createTokenRateAccumulator } from './use-token-rate';
 export type { TokenRateIndicatorState } from './use-token-rate';
-export { computeTurnLatencyStats, formatTurnLatencyTooltipLines } from './turn-latency';
+export { computeTurnLatencyStats, formatAvgTimeToFirstToken, formatTurnLatencyTooltipLines } from './turn-latency';
 export type { TurnLatencyStats } from './turn-latency';
 
 const COMPOSER_TEXTAREA_MAX_HEIGHT = 200;

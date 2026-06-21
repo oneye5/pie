@@ -6,6 +6,7 @@ import {
   NO_LATENCY_STATS,
   collectMeasuredTurns,
   computeTurnLatencyStats,
+  formatAvgTimeToFirstToken,
   formatTurnLatencyTooltipLines,
 } from '../src/webview/panel/composer/turn-latency';
 
@@ -85,7 +86,7 @@ test('formatTurnLatencyTooltipLines renders the average with turn count and brea
   assert.equal(lines.length, 3);
   assert.match(lines[0]!, /Avg turn latency: 1\.5s over 2 turns/);
   assert.match(lines[1]!, /overhead: 0\.2s/);
-  assert.match(lines[2]!, /provider: 1\.3s/);
+  assert.match(lines[2]!, /time to first token: 1\.3s/);
 });
 
 test('formatTurnLatencyTooltipLines renders missing components as a dash', () => {
@@ -93,7 +94,7 @@ test('formatTurnLatencyTooltipLines renders missing components as a dash', () =>
     assistantMessage({ id: 't1', turnLatencyMs: 1_000, overheadMs: undefined, providerLatencyMs: undefined }),
   ]));
   assert.match(lines[1]!, /overhead: —/);
-  assert.match(lines[2]!, /provider: —/);
+  assert.match(lines[2]!, /time to first token: —/);
 });
 
 test('formatTurnLatencyTooltipLines uses singular "turn" for a single measurement', () => {
@@ -101,4 +102,12 @@ test('formatTurnLatencyTooltipLines uses singular "turn" for a single measuremen
     computeTurnLatencyStats([assistantMessage({ turnLatencyMs: 1_200, overheadMs: 100, providerLatencyMs: 1_100 })]),
   );
   assert.match(line!, /over 1 turn$/);
+});
+
+test('formatAvgTimeToFirstToken is re-exported for inline display', () => {
+  const stats = computeTurnLatencyStats([
+    assistantMessage({ id: 't1', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 }),
+  ]);
+  assert.equal(formatAvgTimeToFirstToken(stats), '0.9s');
+  assert.equal(formatAvgTimeToFirstToken(NO_LATENCY_STATS), null);
 });
