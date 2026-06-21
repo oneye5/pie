@@ -2,7 +2,7 @@
 
 .file-changes-rail {
   --file-changes-handle-width: 30px;
-  --file-changes-drawer-width: 290px;
+  --file-changes-drawer-width: 250px;
 
   position: relative;
   display: flex;
@@ -81,26 +81,11 @@
 }
 
 /* Promote the count to an accent pill when there are unseen changes, so the
-   collapsed handle signals activity at a glance (pairs with the pulse dot). */
-.file-changes-rail:has(.file-changes-new-dot) .file-changes-handle-count {
+   collapsed handle signals activity at a glance (static — no animation). */
+.file-changes-rail.has-new-changes:not(.is-expanded) .file-changes-handle-count {
   background: color-mix(in srgb, var(--panel-accent) 18%, var(--panel-ink-4));
   border-color: color-mix(in srgb, var(--panel-accent) 32%, transparent);
   color: var(--panel-accent-strong);
-}
-
-.file-changes-new-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--panel-accent);
-  box-shadow: 0 0 0 2px var(--panel-card-surface);
-  animation: pulse 1.4s ease-in-out infinite;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .file-changes-new-dot {
-    animation: none;
-  }
 }
 
 /* ── Expanded drawer ─────────────────────────────────────────────────────── */
@@ -143,7 +128,7 @@
   display: flex;
   align-items: center;
   gap: var(--panel-gap-sm);
-  padding: var(--panel-gap-sm) var(--panel-gap-md);
+  padding: var(--panel-gap-xs) var(--panel-gap-md);
   border-bottom: 1px solid var(--panel-border);
   background: var(--panel-control-surface);
   flex-shrink: 0;
@@ -159,16 +144,6 @@
   margin-left: auto;
 }
 
-.file-changes-aggregate-stats {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 10px;
-  font-weight: 500;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.85;
-}
-
 /* ── File list ──────────────────────────────────────────────────────────── */
 
 .file-changes-list {
@@ -181,13 +156,13 @@
   padding: var(--panel-gap-xs);
 }
 
-/* Flat modern rows: generous vertical rhythm, rounded hover surface, no
+/* Flat modern rows: tight vertical rhythm, rounded hover surface, no
    divider lines — spacing + hover fill carry the list structure. */
 .file-change-item {
   display: flex;
   align-items: center;
   gap: var(--panel-gap-xs);
-  padding: var(--panel-gap-sm) var(--panel-gap-sm);
+  padding: var(--panel-gap-xs) var(--panel-gap-sm);
   border-radius: var(--panel-radius-sm);
   transition: background var(--panel-transition-fast);
 }
@@ -231,50 +206,38 @@
 
 /* ── Status labels (non-color indicator) ─────────────────────────────────── */
 
-/* Status badge: a tinted pill (semantic surface + inset border + colored
-   glyph) reusing the panel's chip language, so kind is legible by shape and
-   color — not color alone. */
+/* Status glyph: a single colored mono letter. Kind is legible by glyph
+   (A/M/D) and color — not color alone — without a loud tinted pill, so a
+   long list reads as calm text rather than a row of badges. */
 .file-change-status {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 16px;
-  padding: 0 4px;
+  min-width: 12px;
   flex-shrink: 0;
-  border-radius: var(--panel-radius-sm);
-  border: 1px solid transparent;
-  font-size: 9px;
-  font-weight: 650;
+  font-size: 10px;
+  font-weight: 600;
   line-height: 1;
   font-family: var(--panel-font-mono);
   letter-spacing: 0.02em;
+  opacity: 0.85;
 }
 
 .file-change-status-created {
   color: var(--panel-success);
-  background: color-mix(in srgb, var(--panel-success) 10%, transparent);
-  border-color: color-mix(in srgb, var(--panel-success) 30%, transparent);
 }
 
 .file-change-status-modified {
   color: var(--panel-warning);
-  background: color-mix(in srgb, var(--panel-warning) 10%, transparent);
-  border-color: color-mix(in srgb, var(--panel-warning) 30%, transparent);
 }
 
 .file-change-status-deleted {
   color: var(--panel-danger);
-  background: color-mix(in srgb, var(--panel-danger) 10%, transparent);
-  border-color: color-mix(in srgb, var(--panel-danger) 30%, transparent);
 }
 
 /* ── File path ───────────────────────────────────────────────────────────── */
 
 .file-change-path {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
   min-width: 0;
   flex: 1;
   border: none;
@@ -285,6 +248,7 @@
   line-height: 1.25;
   text-align: left;
   cursor: pointer;
+  overflow: hidden;
 }
 
 .file-change-path:hover .file-change-name {
@@ -292,25 +256,30 @@
   text-underline-offset: 2px;
 }
 
+/* Single-line path: the directory shrinks and ellipsizes while the filename
+   stays fully visible, so rows stay compact and scannable. */
 .file-change-path-text {
   display: flex;
-  flex-direction: column;
+  align-items: baseline;
   min-width: 0;
-}
-
-.file-change-name {
-  font-weight: 500;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .file-change-dir {
-  font-size: 10px;
-  color: var(--panel-muted);
-  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+  color: var(--panel-muted);
+  opacity: 0.85;
+}
+
+.file-change-name {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-weight: 500;
 }
 
 /* ── Action buttons ───────────────────────────────────────────────────────── */
@@ -393,7 +362,6 @@
   .file-change-status {
     color: ButtonText;
     background: transparent;
-    border-color: ButtonText;
   }
   .file-change-open,
   .file-change-copy,

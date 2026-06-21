@@ -32,11 +32,11 @@ function LineStats({ additions, deletions }: { additions?: number; deletions?: n
 function FilePath({ path }: { path: string }) {
   const parts = path.split(/[/\\]/);
   const name = parts.pop() ?? path;
-  const dir = parts.join('/') || '.';
+  const dir = parts.join('/');
   return (
     <span class="file-change-path-text">
+      {dir ? <span class="file-change-dir">{dir}/</span> : null}
       <span class="file-change-name">{name}</span>
-      <span class="file-change-dir">{dir}</span>
     </span>
   );
 }
@@ -148,7 +148,7 @@ function RevertButton({ path, onRevert }: { path: string; onRevert: (path: strin
 
 function StatusLabel({ kind }: { kind: FileChangeEntry['kind'] }) {
   return (
-    <span class={`file-change-status file-change-status-${kind}`} aria-label={kind}>
+    <span class={`file-change-status file-change-status-${kind}`} role="img" aria-label={kind}>
       {STATUS_LABELS[kind]}
     </span>
   );
@@ -183,11 +183,8 @@ export function FileChangesPanel({
 
   if (fileChanges.length === 0) return null;
 
-  const totalAdditions = fileChanges.reduce((sum, f) => sum + (f.additions ?? 0), 0);
-  const totalDeletions = fileChanges.reduce((sum, f) => sum + (f.deletions ?? 0), 0);
-
   return (
-    <div class={`file-changes-rail${expanded ? ' is-expanded' : ''}`}>
+    <div class={`file-changes-rail${expanded ? ' is-expanded' : ''}${hasNewChanges ? ' has-new-changes' : ''}`}>
       <button
         class="file-changes-handle"
         type="button"
@@ -202,7 +199,6 @@ export function FileChangesPanel({
           <path d="M2 9.5 H7.5" />
         </svg>
         <span class="file-changes-handle-count">{fileChanges.length}</span>
-        {hasNewChanges && <span class="file-changes-new-dot" aria-hidden="true" />}
         <svg
           class="file-changes-handle-chevron"
           width="12"
@@ -222,12 +218,6 @@ export function FileChangesPanel({
         <div class="file-changes-drawer-inner">
         <div class="file-changes-header">
           <span class="file-changes-title">File changes · {fileChanges.length}</span>
-          {(totalAdditions > 0 || totalDeletions > 0) && (
-            <span class="file-changes-aggregate-stats">
-              {totalAdditions > 0 && <span class="stat-additions">+{totalAdditions}</span>}
-              {totalDeletions > 0 && <span class="stat-deletions">-{totalDeletions}</span>}
-            </span>
-          )}
           <button
             class="action-btn icon-only file-changes-close"
             type="button"
