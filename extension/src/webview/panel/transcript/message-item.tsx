@@ -8,12 +8,13 @@ import type { ChatMessage, ChatPrefs } from '../../../shared/protocol';
 import type { PruningHeaderState } from './pruning';
 import type { TurnActivityState } from './activity';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
+import { chatMessageEqual } from './message-equal';
 import { useCaptureHeight, useMessageEntrance, useMessageItemDerived, useMessageParts } from './message-item/hooks';
 import { MessageItemInner, MessageItemShell } from './message-item/inner';
 
 export { ReasoningBlock } from './message-item/reasoning-block';
 
-interface MessageItemProps {
+export interface MessageItemProps {
   message: ChatMessage;
   isStreaming: boolean;
   prefs: ChatPrefs;
@@ -140,4 +141,50 @@ export function MessageItemView({
   );
 }
 
-export const MessageItem = memo(MessageItemView);
+export const MessageItem = memo(MessageItemView, areMessageItemPropsEqual);
+
+/**
+ * Custom `memo` comparer for {@link MessageItem}.
+ *
+ * The host posts a fresh structured-cloned `ViewState` ~7×/sec while
+ * streaming, so the `message` prop is a new reference on every snapshot even
+ * when the content is byte-identical. Preact's default shallow compare would
+ * therefore never bail, re-rendering every visible row (hooks + markdown cache
+ * lookups + reconciliation) on every token. Comparing `message` by content
+ * (via {@link chatMessageEqual}, O(visible rows) — not O(transcript) — thanks
+ * to virtualization) lets unchanged rows skip rendering entirely.
+ *
+ * The remaining props are all either stable across snapshots (handlers are
+ * `useCallback`-stable from `useAppHandlers`; `prefs` is reference-stabilized
+ * in `hydrateViewState`; `recovery` is interned by `userId`; `renderToolCall`
+ * is `useCallback`-stable) or primitives (`isStreaming`, `editingId`,
+ * `sessionKey`, …), so shallow `===` is correct for them.
+ *
+ * `activityState` and `pruningHeaderState` are fresh references on every
+ * snapshot (they come from the freshly-rebuilt `rows` array). That's fine: they
+ * are `undefined` for all rows except the last assistant row (activity) and
+ * pruning-result rows (pruning header), so `undefined === undefined` bails the
+ * common rows, and the rows that do carry them are exactly the ones that need
+ * to re-render (the streaming / just-pruned rows).
+ */
+export function areMessageItemPropsEqual(prev: MessageItemProps, next: MessageItemProps): boolean {
+  if (!chatMessageEqual(prev.message, next.message)) return false;
+  return (
+    prev.isStreaming === next.isStreaming &&
+    prev.prefs === next.prefs &&
+    prev.readonly === next.readonly &&
+    prev.workingDirectory === next.workingDirectory &&
+    prev.editingId === next.editingId &&
+    prev.isLastAssistantMessage === next.isLastAssistantMessage &&
+    prev.sessionKey === next.sessionKey &&
+    prev.onEditRequest === next.onEditRequest &&
+    prev.onEditConfirm === next.onEditConfirm &&
+    prev.onEditCancel === next.onEditCancel &&
+    prev.onOpenFile === next.onOpenFile &&
+    prev.onContextMenu === next.onContextMenu &&
+    prev.renderToolCall === next.renderToolCall &&
+    prev.pruningHeaderState === next.pruningHeaderState &&
+    prev.activityState === next.activityState &&
+    prev.recovery === next.recovery
+  );
+}

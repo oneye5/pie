@@ -103,14 +103,22 @@ function useAppBodyDerivedState(
   // there is itself a `select` that is rendered inline in the transcript. The
   // previous check ("any select exists") hid confirm/input prompts too, leaving
   // them shown nowhere and blocking the extension.
-  const isAskUserHandledInline =
-    !!activeSessionPath &&
-    pendingExtensionUIRequest?.method === 'select' &&
-    transcript.some((msg) =>
-      msg.parts?.some((p): p is ChatMessageToolCallPart =>
-        p.kind === 'toolCall' && p.toolCall.name === 'ask_user' && p.toolCall.status === 'running'
+  //
+  // Memoized: the host posts a fresh `transcript` array reference on every
+  // snapshot (~7/sec while streaming), so an un-memoized `transcript.some()`
+  // would walk the whole transcript on every render even when nothing relevant
+  // changed. The deps are the three values this actually depends on.
+  const isAskUserHandledInline = useMemo(
+    () =>
+      !!activeSessionPath &&
+      pendingExtensionUIRequest?.method === 'select' &&
+      transcript.some((msg) =>
+        msg.parts?.some((p): p is ChatMessageToolCallPart =>
+          p.kind === 'toolCall' && p.toolCall.name === 'ask_user' && p.toolCall.status === 'running'
+        ),
       ),
-    );
+    [activeSessionPath, pendingExtensionUIRequest, transcript],
+  );
 
   const askUserContextValue = useMemo(() => ({
     sessionPath: activeSessionPath,

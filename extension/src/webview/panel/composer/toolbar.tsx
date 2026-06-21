@@ -130,6 +130,7 @@ export function ComposerToolbar({
           ariaLabel={sessionTokenIndicator.ariaLabel}
           tooltip={sessionTokenIndicator.tooltip}
           label={sessionTokenIndicator.label}
+          freezeWhileVisible
         />
 
         {sessionCostIndicator && (
@@ -138,6 +139,7 @@ export function ComposerToolbar({
             ariaLabel={sessionCostIndicator.ariaLabel}
             tooltip={sessionCostIndicator.tooltip}
             label={sessionCostIndicator.label}
+            freezeWhileVisible
           />
         )}
 
@@ -148,6 +150,7 @@ export function ComposerToolbar({
             ariaLabel={contextIndicator.ariaLabel}
             tooltip={contextBreakdownTitle}
             label={contextIndicator.label}
+            freezeWhileVisible
           />
         )}
 

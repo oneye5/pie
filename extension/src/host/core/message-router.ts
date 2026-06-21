@@ -8,7 +8,6 @@ import type { ArchState } from './reducer';
 import type { StatsService } from '../stats-service';
 import type { FileDiffService } from './file-diff-service';
 import type { BackendLike } from './effect-runner';
-import { selectViewState } from './projection';
 import { bootLog } from '../util/audit';
 import { buildOptimisticUserParts, buildPromptText } from './composer';
 
@@ -69,13 +68,22 @@ export class MessageRouter {
 
   async handle(msg: WebviewToHostMessage): Promise<void> {
     if (msg.type === 'ready' || msg.type === 'refreshState' || msg.type === 'requestSnapshot') {
-      const viewState = selectViewState(this.getArchState());
+      // Read ArchState fields directly instead of running a full O(transcript)
+      // `selectViewState` projection purely to log five fields. These inbound
+      // messages fire on webview (re)connect / focus / snapshot recovery, and
+      // the projection was the only work they did — dropping it removes a
+      // whole-transcript walk per handshake. Mirrors `scheduleRender`'s
+      // direct-read pattern.
+      const arch = this.getArchState();
+      const activeSessionPath = arch.sessions.activeSessionPath ?? null;
       bootLog('extension-host', `webview.${msg.type}`, {
-        activeSessionPath: viewState.activeSession?.path ?? null,
-        backendReady: viewState.backendReady,
-        notice: viewState.notice,
-        openTabCount: viewState.openTabPaths.length,
-        transcriptLoaded: viewState.transcriptLoaded,
+        activeSessionPath,
+        backendReady: arch.settings.backendReady,
+        notice: arch.settings.notice,
+        openTabCount: arch.sessions.openTabPaths.length,
+        transcriptLoaded: activeSessionPath
+          ? Object.prototype.hasOwnProperty.call(arch.transcript.windowBySession, activeSessionPath)
+          : false,
       });
     }
 
