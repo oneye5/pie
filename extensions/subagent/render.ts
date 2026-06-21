@@ -19,7 +19,7 @@ const CHAIN_PREVIEW_LIMIT = 3;
 const PARALLEL_RESULT_PREVIEW_LIMIT = 5;
 const TEXT_PREVIEW_LINES = 3;
 
-function truncate(s: string, max: number): string {
+export function truncate(s: string, max: number): string {
 	return s.length > max ? `${s.slice(0, max)}...` : s;
 }
 
@@ -42,7 +42,7 @@ function resultHeader(theme: Theme, r: SingleResult, icon: string): string {
 	return header;
 }
 
-function renderDisplayItems(items: DisplayItem[], theme: Theme, expanded: boolean, limit?: number): string {
+export function renderDisplayItems(items: DisplayItem[], theme: Theme, expanded: boolean, limit?: number): string {
 	const toShow = limit ? items.slice(-limit) : items;
 	const skipped = limit && items.length > limit ? items.length - limit : 0;
 	let text = "";
@@ -58,7 +58,7 @@ function renderDisplayItems(items: DisplayItem[], theme: Theme, expanded: boolea
 	return text.trimEnd();
 }
 
-function aggregateUsage(results: SingleResult[]) {
+export function aggregateUsage(results: SingleResult[]) {
 	const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, turns: 0 };
 	for (const r of results) {
 		total.input += r.usage.input;

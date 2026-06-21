@@ -61,24 +61,30 @@ function toolCall(overrides: Partial<ToolCall> = {}): ToolCall {
   };
 }
 
-async function loadWebviewModules() {
-  const [messageItemModule, toolCallCardModule, toolCallItemModule, virtualRowModule, systemPromptsModule] = await Promise.all([
-    import('../src/webview/panel/transcript/message-item.tsx'),
-    import('../src/webview/panel/transcript/tool-call-card.tsx'),
-    import('../src/webview/panel/transcript/tool-call-item.tsx'),
-    import('../src/webview/panel/transcript/virtual-list-row.tsx'),
-    import('../src/webview/panel/system-prompts.tsx'),
-    import('../src/webview/panel/transcript/register-builtins'),
-  ]);
+// Hoist the 6 module loads out of the first test. Dynamic-importing them inside
+// the first test billed ~690 ms to that test. Loading synchronously at module
+// scope (require) runs them once during module evaluation, which node:test
+// does not bill to any test. (Top-level await isn't available here — tsx
+// compiles to CJS — and a before() hook's time is billed to the first test, so
+// neither of those would actually keep the first case under 200 ms.)
+require('../src/webview/panel/transcript/register-builtins');
+const messageItemModule: typeof import('../src/webview/panel/transcript/message-item.tsx') = require('../src/webview/panel/transcript/message-item.tsx');
+const toolCallCardModule: typeof import('../src/webview/panel/transcript/tool-call-card.tsx') = require('../src/webview/panel/transcript/tool-call-card.tsx');
+const toolCallItemModule: typeof import('../src/webview/panel/transcript/tool-call-item.tsx') = require('../src/webview/panel/transcript/tool-call-item.tsx');
+const virtualRowModule: typeof import('../src/webview/panel/transcript/virtual-list-row.tsx') = require('../src/webview/panel/transcript/virtual-list-row.tsx');
+const systemPromptsModule: typeof import('../src/webview/panel/system-prompts.tsx') = require('../src/webview/panel/system-prompts.tsx');
 
-  return {
-    MessageItem: messageItemModule.MessageItem,
-    ReasoningBlock: messageItemModule.ReasoningBlock,
-    ToolCallHeader: toolCallCardModule.ToolCallHeader,
-    ToolCallItem: toolCallItemModule.ToolCallItem,
-    TranscriptVirtualRow: virtualRowModule.TranscriptVirtualRow,
-    SystemPromptMessage: systemPromptsModule.SystemPromptMessage,
-  };
+const webviewModules = {
+  MessageItem: messageItemModule.MessageItem,
+  ReasoningBlock: messageItemModule.ReasoningBlock,
+  ToolCallHeader: toolCallCardModule.ToolCallHeader,
+  ToolCallItem: toolCallItemModule.ToolCallItem,
+  TranscriptVirtualRow: virtualRowModule.TranscriptVirtualRow,
+  SystemPromptMessage: systemPromptsModule.SystemPromptMessage,
+};
+
+function loadWebviewModules() {
+  return webviewModules;
 }
 
 test('rendered MessageItem covers assistant, editable user, and image-user branches', async () => {

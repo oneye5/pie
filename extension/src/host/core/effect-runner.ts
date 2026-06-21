@@ -99,6 +99,24 @@ export interface StatsServiceLike {
   continueTask(sessionPath: string): void;
 }
 
+/** Opaque handle returned by {@link TimerSink.schedule}. Stored & passed back to cancel. */
+export type TimerHandle = unknown;
+
+/**
+ * Injectable timer sink. Defaults to real `setTimeout`/`clearTimeout`; tests
+ * pass a fake to drive timers deterministically (no wall-clock waits, no flakes
+ * from real-timer races under load).
+ */
+export interface TimerSink {
+  schedule(fn: () => void, ms: number): TimerHandle;
+  cancel(handle: TimerHandle): void;
+}
+
+const defaultTimerSink: TimerSink = {
+  schedule: (fn, ms) => setTimeout(fn, ms),
+  cancel: (handle) => clearTimeout(handle as NodeJS.Timeout),
+};
+
 export interface EffectRunnerDeps {
   backend: BackendLike;
   queues: QueueRouter;
@@ -130,17 +148,26 @@ export interface EffectRunnerDeps {
    * `*Result{ok:false}` event so the reducer reverts the optimistic change.
    */
   optimisticOpTimeoutMs?: number;
+  /**
+   * Timer sink used for the backend-ready watchdog + optimistic-op TTL.
+   * Defaults to real `setTimeout`/`clearTimeout`. Tests inject a fake to
+   * advance timers synchronously without wall-clock waits.
+   */
+  timer?: TimerSink;
 }
 
 export class EffectRunner {
   /** The backend-ready watchdog timer. Started by `StartBackendReadyWatchdog`,
    * cleared by `CancelBackendReadyWatchdog` / `DrainBackendReadyQueue` / fire. */
-  private backendReadyWatchdog: NodeJS.Timeout | null = null;
+  private backendReadyWatchdog: TimerHandle | null = null;
 
   /** Per-corrId timers for optimistic-op TTL. Started in runSendRpc/runEditRpc,
    * cancelled when the RPC completes. On fire, dispatches *Result{ok:false}
    * so the reducer reverts the optimistic change (same as a backend error). */
-  private optimisticOpTimers: Map<string, NodeJS.Timeout> = new Map();
+  private optimisticOpTimers: Map<string, TimerHandle> = new Map();
+
+  /** Injectable timer sink (real timers in production, fake in tests). */
+  private readonly timer: TimerSink;
 
   /** The timeout for optimistic ops. Generous — message.send usually returns
    * in <1s, but a hung backend should not leave the session stuck forever. */
@@ -150,6 +177,7 @@ export class EffectRunner {
 
   constructor(private readonly deps: EffectRunnerDeps) {
     this.optimisticOpTimeoutMs = deps.optimisticOpTimeoutMs ?? EffectRunner.OPTIMISTIC_OP_TIMEOUT_MS;
+    this.timer = deps.timer ?? defaultTimerSink;
   }
 
   /**
@@ -451,7 +479,7 @@ export class EffectRunner {
       // BackendReadyWatchdogFired → the reducer drops the queued messages +
       // removes optimistic entries + sets a notice.
       if (!this.backendReadyWatchdog) {
-        this.backendReadyWatchdog = setTimeout(() => {
+        this.backendReadyWatchdog = this.timer.schedule(() => {
           this.backendReadyWatchdog = null;
           this.deps.dispatchEvent({ kind: 'BackendReadyWatchdogFired' });
         }, effect.timeoutMs);
@@ -486,7 +514,7 @@ export class EffectRunner {
   /** Clear the backend-ready watchdog timer (no-op if not running). */
   private clearBackendReadyWatchdog(): void {
     if (this.backendReadyWatchdog) {
-      clearTimeout(this.backendReadyWatchdog);
+      this.timer.cancel(this.backendReadyWatchdog);
       this.backendReadyWatchdog = null;
     }
   }
@@ -496,7 +524,7 @@ export class EffectRunner {
    *  No-op if a timer is already running for this corrId. */
   private startOptimisticOpTimer(corrId: string, sessionPath: string, kind: 'send' | 'edit'): void {
     if (this.optimisticOpTimers.has(corrId)) return; // already running
-    const timer = setTimeout(() => {
+    const timer = this.timer.schedule(() => {
       this.optimisticOpTimers.delete(corrId);
       const error = `Timed out waiting for backend response (${this.optimisticOpTimeoutMs / 1000}s)`;
       if (kind === 'send') {
@@ -512,7 +540,7 @@ export class EffectRunner {
   private clearOptimisticOpTimer(corrId: string): void {
     const timer = this.optimisticOpTimers.get(corrId);
     if (timer) {
-      clearTimeout(timer);
+      this.timer.cancel(timer);
       this.optimisticOpTimers.delete(corrId);
     }
   }
@@ -521,7 +549,7 @@ export class EffectRunner {
   dispose(): void {
     this.clearBackendReadyWatchdog();
     for (const timer of this.optimisticOpTimers.values()) {
-      clearTimeout(timer);
+      this.timer.cancel(timer);
     }
     this.optimisticOpTimers.clear();
   }

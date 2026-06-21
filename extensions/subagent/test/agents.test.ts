@@ -11,32 +11,7 @@ import assert from "node:assert/strict";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { AgentConfig } from "../agents.js";
-
-// ============================================================
-// Re-implementations for isolated testing (avoid SDK dep)
-// ============================================================
-
-function parseBucketAndThinking(rawBucket: string | undefined, rawThinking: string | undefined): { bucket?: string; thinkingLevel?: string } {
-	const VALID_BUCKETS = new Set(["small", "medium", "frontier"]);
-	const VALID_THINKING = new Set(["minimal", "low", "medium", "high", "xhigh"]);
-	const bucket = rawBucket?.trim();
-	const thinking = rawThinking?.trim();
-	return {
-		bucket: bucket && VALID_BUCKETS.has(bucket) ? bucket : undefined,
-		thinkingLevel: thinking && VALID_THINKING.has(thinking) ? thinking : undefined,
-	};
-}
-
-function formatAgentList(agents: AgentConfig[], maxItems: number): { text: string; remaining: number } {
-	if (agents.length === 0) return { text: "none", remaining: 0 };
-	const listed = agents.slice(0, maxItems);
-	const remaining = agents.length - listed.length;
-	return {
-		text: listed.map((a) => `${a.name} (${a.source}): ${a.description}`).join("; "),
-		remaining,
-	};
-}
+import { formatAgentList, parseBucketAndThinking, type AgentConfig } from "../agents.js";
 
 // ============================================================
 // parseBucketAndThinking — INPUT TESTS
@@ -402,42 +377,63 @@ body
 	assert.equal(result.agents[0].name, "real");
 });
 
-test("loadAgentsFromDir: readdirSync failure returns empty array", async () => {
+test("loadAgentsFromDir: readdirSync failure returns empty array", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
-	// Use a path that exists but has no readdir permission (or a file masquerading)
-	// On Windows, this is hard to test. We rely on the try/catch in the code.
-	// The contract: if readdirSync throws, loadAgentsFromDir returns [].
-	assert.ok(true, "Code has try/catch on readdirSync — verified by static analysis");
+	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-readdir-fail-${Date.now()}`);
+	fs.mkdirSync(tmpDir, { recursive: true });
+	// Make `<agentDir>/agents` a FILE rather than a directory: existsSync passes
+	// but readdirSync throws ENOTDIR, exercising loadAgentsFromDir's try/catch.
+	fs.writeFileSync(path.join(tmpDir, "agents"), "not a directory");
+	t.after(() => {
+		fs.rmSync(tmpDir, { recursive: true, force: true });
+		delete process.env.PI_CODING_AGENT_DIR;
+	});
+
+	process.env.PI_CODING_AGENT_DIR = tmpDir;
+	// "user" scope reads from <agentDir>/agents (the file) → readdirSync throws → []
+	const result = discoverAgents(tmpDir, "user");
+	assert.deepEqual(result.agents, [], "readdirSync failure should yield an empty agent list");
 });
 
 // ============================================================
 // discoverAgents — SCOPE BEHAVIOR
 // ============================================================
 
-test("discoverAgents: 'both' scope deduplicates by name (project overrides user)", async (t) => {
+test("discoverAgents: 'both' scope lets project agents override user agents with the same name", async (t) => {
 	const { discoverAgents } = await import("../agents.js");
-	const tmpDir = path.join(os.tmpdir(), `pi-agent-test-both-${Date.now()}`);
-	const agentsDir = path.join(tmpDir, "agents");
-	fs.mkdirSync(agentsDir, { recursive: true });
+	// Control the user-agent directory via PI_CODING_AGENT_DIR so we can place a
+	// user-level "worker" and assert the project-level one overrides it.
+	const userDir = path.join(os.tmpdir(), `pi-agent-test-both-user-${Date.now()}`);
+	const projectDir = path.join(os.tmpdir(), `pi-agent-test-both-proj-${Date.now()}`);
+	const userAgentsDir = path.join(userDir, "agents");
+	const projectAgentsDir = path.join(projectDir, "agents");
+	fs.mkdirSync(userAgentsDir, { recursive: true });
+	fs.mkdirSync(projectAgentsDir, { recursive: true });
 
-	// We can't create user agents (SDK dep), but we can verify that project agents
-	// take precedence. If a user agent exists with the same name, the project one wins.
-	fs.writeFileSync(path.join(agentsDir, "worker.md"), `---
+	fs.writeFileSync(path.join(userAgentsDir, "worker.md"), `---
 name: worker
-description: Project-local worker (should override user)
+description: User worker
 ---
 body
 `);
-	t.after(() => { fs.rmSync(tmpDir, { recursive: true, force: true }); });
+	fs.writeFileSync(path.join(projectAgentsDir, "worker.md"), `---
+name: worker
+description: Project worker (should override user)
+---
+body
+`);
+	t.after(() => {
+		fs.rmSync(userDir, { recursive: true, force: true });
+		fs.rmSync(projectDir, { recursive: true, force: true });
+		delete process.env.PI_CODING_AGENT_DIR;
+	});
 
-	// With project scope, we get the project agent
-	const result = discoverAgents(tmpDir, "both");
+	process.env.PI_CODING_AGENT_DIR = userDir;
+	const result = discoverAgents(projectDir, "both");
 	const worker = result.agents.find((a) => a.name === "worker");
-	if (worker) {
-		// If there's also a user-level worker, the project one should appear here
-		// (we can't guarantee the user agent exists, so just check the project source)
-		assert.ok(true, "Both scope discovered agents");
-	}
+	assert.ok(worker, "worker should be discovered from both scopes");
+	assert.equal(worker!.source, "project", "project agent must override the user agent with the same name");
+	assert.equal(worker!.description, "Project worker (should override user)");
 });
 
 test("discoverAgents: 'user' scope ignores project agents entirely", async (t) => {

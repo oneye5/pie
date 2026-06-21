@@ -80,7 +80,7 @@ function parseToolsList(rawTools: string | undefined): string[] | undefined {
 	return tools.length > 0 ? tools : undefined;
 }
 
-function parseBucketAndThinking(rawBucket: string | undefined, rawThinking: string | undefined): { bucket?: string; thinkingLevel?: ThinkingLevel } {
+export function parseBucketAndThinking(rawBucket: string | undefined, rawThinking: string | undefined): { bucket?: string; thinkingLevel?: ThinkingLevel } {
 	const bucket = rawBucket?.trim();
 	const thinking = rawThinking?.trim() as ThinkingLevel | undefined;
 	return {

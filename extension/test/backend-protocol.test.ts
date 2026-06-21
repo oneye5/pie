@@ -1,19 +1,23 @@
 /**
  * Mock PI backend integration tests.
  *
- * Spawns the mock-backend.mjs fixture directly and exercises the JSONL protocol
- * layer without needing vscode or a real PI SDK install. Tests:
+ * Spawns the mock-backend.mjs fixture ONCE (via before()/after()) and exercises
+ * the JSONL protocol layer without needing vscode or a real PI SDK install.
+ * Sharing a single child process means the ~120ms process-boot cost is paid
+ * once for the whole file instead of once per test. Tests:
  *
- *   1. Protocol bootstrap — mock emits backend.ready with expected fields.
+ *   1. Protocol bootstrap — backend.ready is validated in before().
  *   2. Request/response round-trip — app.ping returns handshake info with the matching protocol version.
  *   3. session.list response shape.
  *   4. session.open triggers session.opened event.
  *   5. message.send triggers the full streaming event sequence.
- *   6. Event envelopes satisfy isEventEnvelope from shared protocol.
- *   7. Response envelopes satisfy isResponseEnvelope from shared protocol.
+ *   6. Unknown methods return an error ResponseEnvelope.
+ *
+ * Event/response envelopes are validated inline via isEventEnvelope /
+ * isResponseEnvelope from the shared protocol module.
  */
 
-import test from 'node:test';
+import test, { after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import * as cp from 'node:child_process';
 import * as path from 'node:path';
@@ -113,153 +117,140 @@ function spawnMockBackend() {
   return { proc, nextLine, send, shutdown };
 }
 
-// ─── Tests ───────────────────────────────────────────────────────────────────
+type MockBackend = ReturnType<typeof spawnMockBackend>;
 
-test('mock backend emits backend.ready on startup', async () => {
-  const { nextLine, shutdown } = spawnMockBackend();
-  try {
-    const line = await nextLine();
+// One shared child process for the whole suite: started in before(), torn down
+// in after(). Module-level nextLine/send helpers delegate to it so test bodies
+// read exactly as they did when each owned its own process.
+let harness: MockBackend | undefined;
+const nextLine: MockBackend['nextLine'] = (...args) => harness!.nextLine(...args);
+const send: MockBackend['send'] = (...args) => harness!.send(...args);
 
-    assert.ok(isEventEnvelope(line.parsed), 'First line should be an EventEnvelope');
-    const env = line.parsed as { event: string; payload: Record<string, unknown> };
-    assert.equal(env.event, 'backend.ready');
-    assert.equal(env.payload.protocolVersion, PROTOCOL_VERSION, 'Protocol version must match');
-    assert.equal(typeof env.payload.sdkVersion, 'string');
-    assert.equal(typeof env.payload.sdkPath, 'string');
-    assert.equal(typeof env.payload.agentDir, 'string');
-  } finally {
-    await shutdown();
-  }
+before(async () => {
+  harness = spawnMockBackend();
+  // Consume backend.ready once and validate it here. This folds the former
+  // "mock backend emits backend.ready on startup" test into suite setup so the
+  // process-boot cost is paid a single time and the remaining tests start with a
+  // clean line buffer (no stale backend.ready line to skip).
+  const line = await harness.nextLine();
+  assert.ok(isEventEnvelope(line.parsed), 'First line should be an EventEnvelope');
+  const env = line.parsed as { event: string; payload: Record<string, unknown> };
+  assert.equal(env.event, 'backend.ready');
+  assert.equal(env.payload.protocolVersion, PROTOCOL_VERSION, 'Protocol version must match');
+  assert.equal(typeof env.payload.sdkVersion, 'string');
+  assert.equal(typeof env.payload.sdkPath, 'string');
+  assert.equal(typeof env.payload.agentDir, 'string');
 });
 
+after(async () => {
+  await harness?.shutdown();
+});
+
+// ─── Tests ───────────────────────────────────────────────────────────────────
+
 test('app.ping returns a valid handshake ResponseEnvelope', async () => {
-  const { nextLine, send, shutdown } = spawnMockBackend();
-  try {
-    await nextLine(); // skip backend.ready
+  const id = send('app.ping');
+  const line = await nextLine();
 
-    const id = send('app.ping');
-    const line = await nextLine();
-
-    assert.ok(isResponseEnvelope(line.parsed), 'app.ping reply should be a ResponseEnvelope');
-    const env = line.parsed as {
-      id: string;
-      ok: true;
-      result: {
-        protocolVersion: number;
-        sdkVersion: string;
-        sdkPath: string;
-        agentDir: string;
-      };
+  assert.ok(isResponseEnvelope(line.parsed), 'app.ping reply should be a ResponseEnvelope');
+  const env = line.parsed as {
+    id: string;
+    ok: true;
+    result: {
+      protocolVersion: number;
+      sdkVersion: string;
+      sdkPath: string;
+      agentDir: string;
     };
-    assert.equal(env.id, id);
-    assert.equal(env.ok, true);
-    assert.equal(env.result.protocolVersion, PROTOCOL_VERSION);
-    assert.equal(typeof env.result.sdkVersion, 'string');
-    assert.equal(typeof env.result.sdkPath, 'string');
-    assert.equal(typeof env.result.agentDir, 'string');
-  } finally {
-    await shutdown();
-  }
+  };
+  assert.equal(env.id, id);
+  assert.equal(env.ok, true);
+  assert.equal(env.result.protocolVersion, PROTOCOL_VERSION);
+  assert.equal(typeof env.result.sdkVersion, 'string');
+  assert.equal(typeof env.result.sdkPath, 'string');
+  assert.equal(typeof env.result.agentDir, 'string');
 });
 
 test('session.list returns sessions array', async () => {
-  const { nextLine, send, shutdown } = spawnMockBackend();
-  try {
-    await nextLine(); // skip backend.ready
+  const id = send('session.list');
+  const line = await nextLine();
 
-    const id = send('session.list');
-    const line = await nextLine();
+  assert.ok(isResponseEnvelope(line.parsed));
+  const env = line.parsed as { id: string; ok: true; result: { sessions: unknown[] } };
+  assert.equal(env.id, id);
+  assert.equal(env.ok, true);
+  assert.ok(Array.isArray(env.result.sessions), 'result.sessions should be an array');
+  assert.ok(env.result.sessions.length > 0, 'At least one session should be returned');
 
-    assert.ok(isResponseEnvelope(line.parsed));
-    const env = line.parsed as { id: string; ok: true; result: { sessions: unknown[] } };
-    assert.equal(env.id, id);
-    assert.equal(env.ok, true);
-    assert.ok(Array.isArray(env.result.sessions), 'result.sessions should be an array');
-    assert.ok(env.result.sessions.length > 0, 'At least one session should be returned');
-
-    const session = env.result.sessions[0] as Record<string, unknown>;
-    assert.equal(typeof session.path, 'string');
-    assert.equal(typeof session.name, 'string');
-  } finally {
-    await shutdown();
-  }
+  const session = env.result.sessions[0] as Record<string, unknown>;
+  assert.equal(typeof session.path, 'string');
+  assert.equal(typeof session.name, 'string');
 });
 
 test('session.open triggers session.opened EventEnvelope', async () => {
-  const { nextLine, send, shutdown } = spawnMockBackend();
-  try {
-    await nextLine(); // skip backend.ready
+  const id = send('session.open', { path: '/mock/sessions/test-session.jsonl' });
 
-    const id = send('session.open', { path: '/mock/sessions/test-session.jsonl' });
+  // Response
+  const responseLine = await nextLine();
+  assert.ok(isResponseEnvelope(responseLine.parsed));
+  const resp = responseLine.parsed as { id: string; ok: boolean };
+  assert.equal(resp.id, id);
+  assert.equal(resp.ok, true);
 
-    // Response
-    const responseLine = await nextLine();
-    assert.ok(isResponseEnvelope(responseLine.parsed));
-    const resp = responseLine.parsed as { id: string; ok: boolean };
-    assert.equal(resp.id, id);
-    assert.equal(resp.ok, true);
-
-    // Event
-    const eventLine = await nextLine();
-    assert.ok(isEventEnvelope(eventLine.parsed), 'session.open should emit an event');
-    const env = eventLine.parsed as { event: string; payload: Record<string, unknown> };
-    assert.equal(env.event, 'session.opened');
-    assert.ok(env.payload.session, 'payload should include session');
-    assert.ok(Array.isArray(env.payload.transcript), 'payload should include transcript');
-    assert.deepEqual(env.payload.transcriptWindow, {
-      totalCount: 0,
-      loadedStart: 0,
-      loadedEnd: 0,
-      hasOlder: false,
-      hasNewer: false,
-      isPartial: false,
-      hasUserMessages: false,
-    });
-    assert.deepEqual(env.payload.contextUsage, {
-      tokens: 64000,
-      contextWindow: 200000,
-      percent: 32,
-    });
-    assert.deepEqual(env.payload.availableModels, [{
-      id: 'claude-mock',
-      name: 'Claude Mock',
-      provider: 'mock',
-      reasoning: true,
-      inputKinds: ['text', 'image'],
-      contextWindow: 200000,
-      maxTokens: 8192,
-    }]);
-    assert.deepEqual(env.payload.analyticsFactors, {
-      promptFamily: 'harness+customPrompt+selectedTools+skills',
-      promptHash: 'mock-prompt-hash',
-      promptCapturedAt: '2025-06-15T10:30:00.000Z',
-      harnessPromptHash: 'mock-harness-hash',
-      customPromptHash: 'mock-custom-hash',
-      appendSystemPromptHash: null,
-      promptGuidelineHashes: ['mock-guideline-hash'],
-      contextFiles: [{ path: '/mock/context.md', hash: 'mock-context-hash' }],
-      selectedToolIds: ['read', 'bash'],
-      toolSnippetHashes: [{ toolId: 'bash', hash: 'mock-tool-snippet-hash' }],
-      toolSetHash: 'mock-tool-set-hash',
-      skills: [{
-        name: 'frontend-design',
-        contentHash: 'mock-skill-hash',
-        sourceHash: 'mock-skill-source-hash',
-        disableModelInvocation: false,
-      }],
-      skillSetHash: 'mock-skill-set-hash',
-    });
-  } finally {
-    await shutdown();
-  }
+  // Event
+  const eventLine = await nextLine();
+  assert.ok(isEventEnvelope(eventLine.parsed), 'session.open should emit an event');
+  const env = eventLine.parsed as { event: string; payload: Record<string, unknown> };
+  assert.equal(env.event, 'session.opened');
+  assert.ok(env.payload.session, 'payload should include session');
+  assert.ok(Array.isArray(env.payload.transcript), 'payload should include transcript');
+  assert.deepEqual(env.payload.transcriptWindow, {
+    totalCount: 0,
+    loadedStart: 0,
+    loadedEnd: 0,
+    hasOlder: false,
+    hasNewer: false,
+    isPartial: false,
+    hasUserMessages: false,
+  });
+  assert.deepEqual(env.payload.contextUsage, {
+    tokens: 64000,
+    contextWindow: 200000,
+    percent: 32,
+  });
+  assert.deepEqual(env.payload.availableModels, [{
+    id: 'claude-mock',
+    name: 'Claude Mock',
+    provider: 'mock',
+    reasoning: true,
+    inputKinds: ['text', 'image'],
+    contextWindow: 200000,
+    maxTokens: 8192,
+  }]);
+  assert.deepEqual(env.payload.analyticsFactors, {
+    promptFamily: 'harness+customPrompt+selectedTools+skills',
+    promptHash: 'mock-prompt-hash',
+    promptCapturedAt: '2025-06-15T10:30:00.000Z',
+    harnessPromptHash: 'mock-harness-hash',
+    customPromptHash: 'mock-custom-hash',
+    appendSystemPromptHash: null,
+    promptGuidelineHashes: ['mock-guideline-hash'],
+    contextFiles: [{ path: '/mock/context.md', hash: 'mock-context-hash' }],
+    selectedToolIds: ['read', 'bash'],
+    toolSnippetHashes: [{ toolId: 'bash', hash: 'mock-tool-snippet-hash' }],
+    toolSetHash: 'mock-tool-set-hash',
+    skills: [{
+      name: 'frontend-design',
+      contentHash: 'mock-skill-hash',
+      sourceHash: 'mock-skill-source-hash',
+      disableModelInvocation: false,
+    }],
+    skillSetHash: 'mock-skill-set-hash',
+  });
 });
 
 test('message.send triggers full streaming sequence', async () => {
-  const { nextLine, send, shutdown } = spawnMockBackend();
-  try {
-    await nextLine(); // skip backend.ready
-
-    const id = send('message.send', {
+  const id = send('message.send', {
     requestId: 'rq-test-1',
     sessionPath: '/mock/sessions/test-session.jsonl',
     text: 'Hello',
@@ -341,26 +332,16 @@ test('message.send triggers full streaming sequence', async () => {
   assert.equal(typeof finishedEvent?.payload.message.markdown, 'string');
   assert.equal(finishedEvent?.payload.message.modelId, 'claude-mock');
   assert.equal(finishedEvent?.payload.message.thinkingLevel, 'medium');
-  } finally {
-    await shutdown();
-  }
 });
 
 test('unknown method returns error ResponseEnvelope', async () => {
-  const { nextLine, send, shutdown } = spawnMockBackend();
-  try {
-    await nextLine(); // skip backend.ready
+  const id = send('does.not.exist');
+  const line = await nextLine();
 
-    const id = send('does.not.exist');
-    const line = await nextLine();
-
-    assert.ok(isResponseEnvelope(line.parsed));
-    const env = line.parsed as { id: string; ok: false; error: { code: string; message: string } };
-    assert.equal(env.id, id);
-    assert.equal(env.ok, false);
-    assert.equal(typeof env.error.code, 'string');
-    assert.equal(typeof env.error.message, 'string');
-  } finally {
-    await shutdown();
-  }
+  assert.ok(isResponseEnvelope(line.parsed));
+  const env = line.parsed as { id: string; ok: false; error: { code: string; message: string } };
+  assert.equal(env.id, id);
+  assert.equal(env.ok, false);
+  assert.equal(typeof env.error.code, 'string');
+  assert.equal(typeof env.error.message, 'string');
 });

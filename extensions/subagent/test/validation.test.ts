@@ -114,12 +114,10 @@ test("findSuggestedAgentName: unicode characters in comparison", () => {
 	const agents: AgentConfig[] = [
 		{ name: "über-agent", description: "unicode", systemPrompt: "", source: "user", filePath: "/a.md" },
 	];
-	// Case-insensitive comparison with unicode — lowercasing may not handle ß/Ü correctly
-	// This tests that the simple .toLowerCase() works for basic Latin-1
+	// The real implementation trims + lowercases both sides. toLowerCase() folds
+	// \u00dc (Ü) -> \u00fc (ü), so "Über-Agent" normalizes to "über-agent" and matches.
 	const result = findSuggestedAgentName("Über-Agent", agents);
-	// May or may not find it depending on locale; document the behavior
-	assert.ok(result === "über-agent" || result === undefined,
-		`Unicode case folding: got ${result}, either exact match or undefined is acceptable`);
+	assert.equal(result, "über-agent");
 });
 
 test("findSuggestedAgentName: agents with duplicate-like names", () => {

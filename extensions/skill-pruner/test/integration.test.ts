@@ -13,6 +13,14 @@ const require = createRequire(import.meta.url);
 const { default: skillPruner, __setFormatter, __setToolSeams, __setCompleteFn, resetForTesting, setConfigForTesting } = require("../index.ts") as typeof import("../index.js");
 
 function installSdkResolverForTests(): void {
+	// Isolate from host extension-toggle state. When tests run inside the
+	// running editor, the host exports PIE_EXTENSION_TOGGLES_JSON with
+	// skill-pruner disabled, which makes shouldSkipPruning() short-circuit the
+	// before_agent_start handler to `undefined` before any pruning runs.
+	// These tests drive on/off/auto/shadow via config.mode and never exercise
+	// the toggle, so neutralize it for the duration of this test process.
+	delete process.env.PIE_EXTENSION_TOGGLES_JSON;
+
 	const mockDir = mkdtempSync(path.join(tmpdir(), "skill-pruner-sdk-mock-"));
 
 	// Mock pi-coding-agent SDK

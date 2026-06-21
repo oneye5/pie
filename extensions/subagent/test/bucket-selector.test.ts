@@ -18,40 +18,11 @@ import {
   parseProviderToggles,
   getDisabledProviders,
   getAllowedModelIdsForProviders,
+  nearestSupportedThinking,
   PROVIDER_TOGGLES_ENV,
 } from "../bucket-selector.js";
 import type { ThinkingLevel, ModelProviderRef } from "../bucket-selector.js";
 import type { BucketAssignments, SimpleModelConfig } from "../bridge.js";
-
-// ============================================================
-// Re-implementation of nearestSupportedThinking for direct testing
-// (not exported from bucket-selector.ts)
-// ============================================================
-
-const THINKING_ORDER: ThinkingLevel[] = [
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-];
-
-function nearestSupportedThinking(
-  requested: ThinkingLevel,
-  supported: ThinkingLevel[],
-): ThinkingLevel | undefined {
-  if (supported.length === 0) return undefined;
-  if (supported.includes(requested)) return requested;
-
-  const reqIndex = THINKING_ORDER.indexOf(requested);
-  for (let offset = 1; offset < THINKING_ORDER.length; offset++) {
-    const lower = THINKING_ORDER[reqIndex - offset];
-    const higher = THINKING_ORDER[reqIndex + offset];
-    if (lower && supported.includes(lower)) return lower;
-    if (higher && supported.includes(higher)) return higher;
-  }
-  return undefined;
-}
 
 // ============================================================
 // nearestSupportedThinking

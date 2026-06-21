@@ -168,7 +168,7 @@ export function getAllowedModelIdsForProviders(
  * and returns the closest supported level. If no levels are supported,
  * returns undefined.
  */
-function nearestSupportedThinking(
+export function nearestSupportedThinking(
   requested: ThinkingLevel,
   supported: ThinkingLevel[],
 ): ThinkingLevel | undefined {

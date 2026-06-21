@@ -1,9 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { EffectRunner, type EffectRunnerDeps } from '../src/host/core/effect-runner';
+import { EffectRunner, type EffectRunnerDeps, type TimerSink, type TimerHandle } from '../src/host/core/effect-runner';
 import type { Effect } from '../src/host/core/effects';
 import type { EffectResultEvent, CommandEvent, Event } from '../src/host/core/events';
+
+/** Deterministic timer sink: records scheduled timers and fires them on
+ *  `runAll()` instead of waiting on wall-clock time. Eliminates real-timer
+ *  waits and the flakes they cause under load. */
+class FakeTimerSink implements TimerSink {
+  private readonly pending: { fn: () => void; cancelled: boolean }[] = [];
+  schedule(fn: () => void, _ms: number): TimerHandle {
+    const handle = { fn, cancelled: false };
+    this.pending.push(handle);
+    return handle;
+  }
+  cancel(handle: TimerHandle): void {
+    const h = handle as { fn: () => void; cancelled: boolean };
+    h.cancelled = true;
+    const i = this.pending.indexOf(h);
+    if (i >= 0) this.pending.splice(i, 1);
+  }
+  /** Fire all pending timers synchronously (earliest-scheduled first). */
+  runAll(): void {
+    const ready = this.pending.splice(0);
+    for (const h of ready) {
+      if (!h.cancelled) {
+        h.cancelled = true;
+        h.fn();
+      }
+    }
+  }
+  get size(): number { return this.pending.length; }
+}
 
 type Call =
   | { kind: 'lifecycle' }
@@ -16,7 +45,7 @@ type Call =
   | { kind: 'onModelConfigChanged'; sessionPath: string; modelId: string; thinkingLevel: string }
   | { kind: 'handleSelectionFailure'; token: string; notice: string };
 
-function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; modalChoice?: string | undefined; optimisticOpTimeoutMs?: number } = {}): {
+function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; modalChoice?: string | undefined; optimisticOpTimeoutMs?: number; timer?: TimerSink } = {}): {
   deps: EffectRunnerDeps;
   calls: Call[];
   events: EffectResultEvent[];
@@ -92,6 +121,7 @@ function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; mo
     dispatchCommand: (cmd) => commands.push(cmd),
     dispatchEvent: () => {},
     optimisticOpTimeoutMs: opts.optimisticOpTimeoutMs,
+    timer: opts.timer,
   };
   return { deps, calls, events, commands };
 }
@@ -462,9 +492,9 @@ test('EffectRunner DrainBackendReadyQueue re-dispatches Send Commands for each e
   }
 });
 
-test('EffectRunner StartBackendReadyWatchdog starts a timer that dispatches BackendReadyWatchdogFired on fire', async () => {
-  // Use a fake timer to avoid waiting 30s.
-  const { deps, events } = makeDeps();
+test('EffectRunner StartBackendReadyWatchdog starts a timer that dispatches BackendReadyWatchdogFired on fire', () => {
+  const timers = new FakeTimerSink();
+  const { deps } = makeDeps({ timer: timers });
   const dispatchedEvents: Event[] = [];
   const runner = new EffectRunner({
     ...deps,
@@ -472,15 +502,16 @@ test('EffectRunner StartBackendReadyWatchdog starts a timer that dispatches Back
   });
 
   runner.run({ kind: 'StartBackendReadyWatchdog', corrId: 'watchdog', timeoutMs: 10 });
-  // Wait for the 10ms timer to fire.
-  await new Promise<void>((r) => setTimeout(r, 50));
+  // Fire the scheduled timer synchronously.
+  timers.runAll();
 
   assert.equal(dispatchedEvents.length, 1);
   assert.equal(dispatchedEvents[0]?.kind, 'BackendReadyWatchdogFired');
 });
 
-test('EffectRunner CancelBackendReadyWatchdog prevents the timer from firing', async () => {
-  const { deps } = makeDeps();
+test('EffectRunner CancelBackendReadyWatchdog prevents the timer from firing', () => {
+  const timers = new FakeTimerSink();
+  const { deps } = makeDeps({ timer: timers });
   const dispatchedEvents: Event[] = [];
   const runner = new EffectRunner({
     ...deps,
@@ -489,7 +520,8 @@ test('EffectRunner CancelBackendReadyWatchdog prevents the timer from firing', a
 
   runner.run({ kind: 'StartBackendReadyWatchdog', corrId: 'watchdog', timeoutMs: 10 });
   runner.run({ kind: 'CancelBackendReadyWatchdog', corrId: 'watchdog' });
-  await new Promise<void>((r) => setTimeout(r, 50));
+  // A cancelled timer must not fire.
+  timers.runAll();
 
   assert.equal(dispatchedEvents.length, 0);
 });
@@ -497,16 +529,20 @@ test('EffectRunner CancelBackendReadyWatchdog prevents the timer from firing', a
 // ─── Optimistic-op TTL ──────────────────────────────────────────────────────
 
 test('EffectRunner SendRpc starts an optimistic-op timer that is cancelled on success', async () => {
+  const timers = new FakeTimerSink();
   const { deps, events } = makeDeps({
-    requestImpl: () => new Promise((r) => setTimeout(() => r({ requestId: 'req-1' }), 5)),
+    requestImpl: () => Promise.resolve({ requestId: 'req-1' }),
     optimisticOpTimeoutMs: 50,
+    timer: timers,
   });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'SendRpc', corrId: 'c-ttl-ok', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
   await settle();
-  // Wait past the timeout window to ensure no spurious timeout event fires.
-  await new Promise<void>((r) => setTimeout(r, 100));
+  // The success path must have cancelled the timer; firing pending timers must
+  // not produce a spurious timeout.
+  assert.equal(timers.size, 0);
+  timers.runAll();
 
   assert.equal(events.length, 1);
   assert.equal(events[0]?.kind, 'SendResult');
@@ -518,15 +554,18 @@ test('EffectRunner SendRpc starts an optimistic-op timer that is cancelled on su
 });
 
 test('EffectRunner SendRpc dispatches SendResult{ok:false} on timeout when backend hangs', async () => {
+  const timers = new FakeTimerSink();
   const { deps, events } = makeDeps({
     requestImpl: () => new Promise(() => {}), // never resolves
     optimisticOpTimeoutMs: 50,
+    timer: timers,
   });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'SendRpc', corrId: 'c-ttl-hang', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
-  // Wait long enough for the 50ms timer to fire.
-  await new Promise<void>((r) => setTimeout(r, 120));
+  await settle();
+  // Fire the optimistic-op TTL timer synchronously.
+  timers.runAll();
 
   assert.equal(events.length, 1);
   assert.equal(events[0]?.kind, 'SendResult');
@@ -538,14 +577,17 @@ test('EffectRunner SendRpc dispatches SendResult{ok:false} on timeout when backe
 });
 
 test('EffectRunner EditRpc dispatches EditResult{ok:false} on timeout when backend hangs', async () => {
+  const timers = new FakeTimerSink();
   const { deps, events } = makeDeps({
     requestImpl: () => new Promise(() => {}), // never resolves
     optimisticOpTimeoutMs: 50,
+    timer: timers,
   });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'EditRpc', corrId: 'c-ttl-edit', sessionPath: '/a', messageId: 'msg-1', text: 'edited', localId: 'loc-e1' });
-  await new Promise<void>((r) => setTimeout(r, 120));
+  await settle();
+  timers.runAll();
 
   assert.equal(events.length, 1);
   assert.equal(events[0]?.kind, 'EditResult');
@@ -557,16 +599,20 @@ test('EffectRunner EditRpc dispatches EditResult{ok:false} on timeout when backe
 });
 
 test('EffectRunner SendRpc cancels timer on failure (no spurious timeout)', async () => {
+  const timers = new FakeTimerSink();
   const { deps, events } = makeDeps({
     requestImpl: () => Promise.reject(new Error('boom')),
     optimisticOpTimeoutMs: 50,
+    timer: timers,
   });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'SendRpc', corrId: 'c-ttl-fail', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
   await settle();
-  // Wait past the timeout window to ensure no spurious timeout event fires.
-  await new Promise<void>((r) => setTimeout(r, 100));
+  // The failure path must have cancelled the timer; firing pending timers must
+  // not produce a spurious timeout.
+  assert.equal(timers.size, 0);
+  timers.runAll();
 
   assert.equal(events.length, 1);
   assert.equal(events[0]?.kind, 'SendResult');
@@ -578,18 +624,20 @@ test('EffectRunner SendRpc cancels timer on failure (no spurious timeout)', asyn
 });
 
 test('EffectRunner dispose clears all optimistic-op timers', async () => {
+  const timers = new FakeTimerSink();
   const { deps, events } = makeDeps({
     requestImpl: () => new Promise(() => {}), // never resolves
     optimisticOpTimeoutMs: 1000,
+    timer: timers,
   });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'SendRpc', corrId: 'c-ttl-dispose', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
   await settle();
-  // Dispose before the 1000ms timer can fire.
+  // Dispose before the timer can fire; firing pending timers must not dispatch.
   runner.dispose();
-  // Wait past the timeout window.
-  await new Promise<void>((r) => setTimeout(r, 1100));
+  assert.equal(timers.size, 0);
+  timers.runAll();
 
   assert.equal(events.length, 0);
 });

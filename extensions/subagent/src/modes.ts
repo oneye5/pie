@@ -381,7 +381,7 @@ function makeParallelUpdateEmitter(
 }
 
 /** Compose the final text and structured response for a completed parallel run. */
-function formatParallelResult(results: SingleResult[], makeDetails: MakeDetails): ModeResult {
+export function formatParallelResult(results: SingleResult[], makeDetails: MakeDetails): ModeResult {
 	const successCount = results.filter((r) => r.exitCode === 0).length;
 	const hasFailures = successCount !== results.length;
 	const summaries = results.map(formatParallelSummaryLine);
@@ -510,7 +510,7 @@ function buildChainUpdateCallback(
 }
 
 /** Check trail-loop and session-limit guards for a chain step; return a stop response if either fires. */
-function checkChainPreFlight(
+export function checkChainPreFlight(
 	stepIndex: number,
 	step: NonNullable<SubagentParams["chain"]>[number],
 	taskWithContext: string,
@@ -560,7 +560,7 @@ function checkChainPreFlight(
 }
 
 /** After a chain step finishes, decide whether the chain should stop and report an error. */
-function buildChainStepFailureResponse(
+export function buildChainStepFailureResponse(
 	stepIndex: number,
 	step: NonNullable<SubagentParams["chain"]>[number],
 	result: SingleResult,
@@ -581,7 +581,7 @@ function buildChainStepFailureResponse(
 }
 
 /** Build the final success response for a completed chain run. */
-function formatChainSuccessResult(results: SingleResult[], makeDetails: MakeDetails): ModeResult {
+export function formatChainSuccessResult(results: SingleResult[], makeDetails: MakeDetails): ModeResult {
 	return {
 		content: [
 			{

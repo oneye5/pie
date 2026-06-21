@@ -357,10 +357,15 @@ test('mixed streaming sequence: thinking → text → tool → text maintains pa
 const noop = () => undefined;
 const noopContextMenu = () => undefined;
 
-async function loadMessageItem() {
-  await import('../src/webview/panel/transcript/register-builtins');
-  const mod = await import('../src/webview/panel/transcript/message-item.tsx');
-  return mod.MessageItem;
+// Hoist the dynamic imports out of the first rendering test (see
+// webview-render.test.ts for rationale): synchronous require at module scope
+// loads them once during module evaluation, which node:test does not bill to
+// any test, instead of billing ~490 ms to the first MessageItem render test.
+require('../src/webview/panel/transcript/register-builtins');
+const messageItemModule: typeof import('../src/webview/panel/transcript/message-item.tsx') = require('../src/webview/panel/transcript/message-item.tsx');
+
+function loadMessageItem() {
+  return messageItemModule.MessageItem;
 }
 
 test('MessageItem renders streaming content from message.parts without overlay', async () => {

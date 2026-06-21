@@ -176,6 +176,21 @@ test('App posts send message when composer submits', () => {
     render(h(App, { adapter }), container);
   });
 
+  // The App seeds first paint from initialState, but handleSend gates on the
+  // active-session ref, which is only populated when the host posts a `state`
+  // message (use-host-sync.ts). Drive that round-trip so the composer submit
+  // actually reaches the host — mirrors the "App handles host state message"
+  // test below.
+  const stateMsg: HostToWebviewMessage = {
+    type: 'state',
+    hostInstanceId: 'host-1',
+    revision: 1,
+    state: sessionViewState(),
+  } as any;
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: stateMsg }));
+  });
+
   const textarea = container.querySelector('textarea');
   assert.ok(textarea);
 
@@ -185,22 +200,15 @@ test('App posts send message when composer submits', () => {
     textarea!.dispatchEvent(new Event('input', { bubbles: true }));
   });
 
-  // Submit via form
-  const form = textarea!.closest('form');
-  if (form) {
-    act(() => {
-      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-    });
-  } else {
-    // Try keyboard submit
-    act(() => {
-      textarea!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    });
-  }
+  // Submit: the composer has no <form>; Enter posts the send.
+  act(() => {
+    textarea!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  });
 
   const sendMsg = adapter.messages.find((m) => m.type === 'send');
-  // May or may not fire depending on composer validation; just verify no crash
-  assert.ok(true, 'Composer submit did not crash');
+  assert.ok(sendMsg, 'Composer submit should post a send message to the host');
+  assert.equal(sendMsg!.text, 'test message');
+  assert.equal(sendMsg!.sessionPath, '/session/a');
 });
 
 test('App renders loading state when backend not ready', () => {

@@ -9,31 +9,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-
-/**
- * Re-implemented from runner.ts for isolated testing.
- * The contract is: process N items with at most C concurrent workers,
- * preserving order of results.
- */
-async function mapWithConcurrencyLimit<TIn, TOut>(
-	items: TIn[],
-	concurrency: number,
-	fn: (item: TIn, index: number) => Promise<TOut>,
-): Promise<TOut[]> {
-	if (items.length === 0) return [];
-	const limit = Math.max(1, Math.min(concurrency, items.length));
-	const results: TOut[] = new Array(items.length);
-	let nextIndex = 0;
-	const workers = new Array(limit).fill(null).map(async () => {
-		while (true) {
-			const current = nextIndex++;
-			if (current >= items.length) return;
-			results[current] = await fn(items[current], current);
-		}
-	});
-	await Promise.all(workers);
-	return results;
-}
+import { mapWithConcurrencyLimit } from "../runner.js";
 
 // ============================================================
 // HAPPY PATHS (preserved from original)

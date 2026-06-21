@@ -10,9 +10,15 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
+import { installDom } from './_helpers/dom';
+installDom();
+
 import DOMPurify from 'dompurify';
-import { h } from 'preact';
+import { h, render } from 'preact';
+import { act } from 'preact/test-utils';
 import renderToString from 'preact-render-to-string';
+
+import { useBufferedText } from '../src/webview/panel/transcript/use-buffered-text';
 
 import { buildTranscriptRows, estimateTranscriptRowSize } from '../src/webview/panel/transcript/virtual-list-rows';
 import { AGENT_ACTIVITY_LABELS, derivePendingActivityLabel, deriveTurnActivityState } from '../src/webview/panel/transcript/activity';
@@ -501,29 +507,64 @@ test('derivePruningResult handles prepassError in current turn', () => {
 
 // ─── Streaming text buffering ────────────────────────────────────────────────
 
-test('useBufferedText returns full text immediately when not streaming', async () => {
-  // Test the hook logic directly by importing and simulating
-  // Since useBufferedText is a Preact hook, we test its behavior via the
-  // constants that control it rather than rendering.
-  const { CHARS_PER_FRAME, MIN_ADVANCE, SNAP_THRESHOLD } = await import(
-    '../src/webview/panel/transcript/use-buffered-text'
-  ).then(() => ({
-    // These are module-level constants; verify they have reasonable values
-    CHARS_PER_FRAME: 100,
-    MIN_ADVANCE: 20,
-    SNAP_THRESHOLD: 40,
-  }));
+test('useBufferedText progressively reveals streamed text and snaps to full when streaming stops', () => {
+  // Deterministic, manually-flushed rAF so each frame's reveal is inspectable
+  // without real timing. The hook reschedules itself while it is behind; we
+  // drain one callback per flush.
+  const queue: Array<(t: number) => void> = [];
+  const origRaf = globalThis.requestAnimationFrame;
+  const origCaf = globalThis.cancelAnimationFrame;
+  globalThis.requestAnimationFrame = ((cb: (t: number) => void) => {
+    queue.push(cb);
+    return queue.length;
+  }) as typeof globalThis.requestAnimationFrame;
+  globalThis.cancelAnimationFrame = (() => {}) as typeof globalThis.cancelAnimationFrame;
 
-  // The streaming rate should be fast enough to keep up with typical responses
-  // At 60fps, CHARS_PER_FRAME of 100 = 6000 chars/sec baseline
-  const charsPerSecond = CHARS_PER_FRAME * 60;
-  assert.ok(charsPerSecond >= 5000, `streaming rate ${charsPerSecond} chars/sec should be >= 5000`);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const flushFrame = () => act(() => { queue.shift()?.(0); });
+  // Coerce to a string for length checks: textContent is `string | null` at
+  // runtime, and `.length` on it trips the project's DOM type setup.
+  const visibleLength = () => (container.textContent ?? '').length;
 
-  // MIN_ADVANCE should prevent single-char stuttering
-  assert.ok(MIN_ADVANCE >= 10, 'MIN_ADVANCE should be >= 10 to avoid stuttering');
+  try {
+    const Harness = (props: { text: string; streaming: boolean }) =>
+      h('span', null, useBufferedText(props.text, props.streaming));
 
-  // SNAP_THRESHOLD should be large enough to avoid trailing lag
-  assert.ok(SNAP_THRESHOLD >= 20, 'SNAP_THRESHOLD should be >= 20 to prevent lag');
+    // Not streaming: the full text is returned immediately, no rAF armed.
+    act(() => render(h(Harness, { text: 'complete response', streaming: false }), container));
+    assert.equal(container.textContent, 'complete response');
+    assert.equal(queue.length, 0, 'no rAF armed while not streaming');
+
+    // Reset for the streaming phase (fresh mount → visibleLength starts at 0).
+    act(() => render(null, container));
+
+    // Mount streaming with empty text, then grow far past one frame's reveal.
+    act(() => render(h(Harness, { text: '', streaming: true }), container));
+    assert.equal(container.textContent, '', 'empty buffer renders nothing');
+    act(() => render(h(Harness, { text: 'x'.repeat(10000), streaming: true }), container));
+    assert.equal(queue.length, 1, 'growth while behind arms exactly one rAF');
+    assert.equal(visibleLength(), 0, 'no reveal until a frame fires');
+
+    // First frame: bounded advance. CHARS_PER_FRAME (100) × max scaleFactor
+    // (8, for remaining=10000) = 800 — capped well below the full buffer.
+    flushFrame();
+    assert.equal(visibleLength(), 800, 'first frame reveals CHARS_PER_FRAME × maxScale');
+    assert.ok(visibleLength() < 10000, 'capped below the full buffer');
+
+    // Second frame keeps advancing toward the target.
+    flushFrame();
+    assert.equal(visibleLength(), 1600, 'second frame advances by another slice');
+
+    // Flipping streaming off snaps to the full text immediately.
+    act(() => render(h(Harness, { text: 'x'.repeat(10000), streaming: false }), container));
+    assert.equal(visibleLength(), 10000, 'streaming=false snaps to full text');
+  } finally {
+    globalThis.requestAnimationFrame = origRaf;
+    globalThis.cancelAnimationFrame = origCaf;
+    render(null, container);
+    container.remove();
+  }
 });
 
 // ─── Pruning banner gates ────────────────────────────────────────────────────

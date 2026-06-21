@@ -26,6 +26,41 @@ beforeEach(() => {
   };
 });
 
+// Minimal fake-timer registry so the draft-post debounce can be flushed
+// deterministically instead of waiting out a real 300 ms timer.
+interface PendingTimeout { fn: () => void; ms: number; id: number }
+let pending: PendingTimeout[] = [];
+let nextId = 1;
+let originalSetTimeout: typeof globalThis.setTimeout;
+let originalClearTimeout: typeof globalThis.clearTimeout;
+
+function installFakeTimers() {
+  originalSetTimeout = globalThis.setTimeout;
+  originalClearTimeout = globalThis.clearTimeout;
+  pending = [];
+  nextId = 1;
+  globalThis.setTimeout = window.setTimeout = ((fn: () => void, ms?: number) => {
+    const id = nextId++;
+    pending.push({ fn, ms: ms ?? 0, id });
+    return id as unknown as number;
+  }) as typeof globalThis.setTimeout;
+  globalThis.clearTimeout = window.clearTimeout = ((id: number) => {
+    pending = pending.filter((t) => t.id !== id);
+  }) as typeof globalThis.clearTimeout;
+}
+
+function restoreTimers() {
+  globalThis.setTimeout = window.setTimeout = originalSetTimeout;
+  globalThis.clearTimeout = window.clearTimeout = originalClearTimeout;
+}
+
+/** Flush every pending timer in registration order. */
+function flushTimers() {
+  const ready = pending;
+  pending = [];
+  for (const t of ready) t.fn();
+}
+
 interface TestHarnessProps {
   sessionPath: string | null;
   draftText: string;
@@ -75,22 +110,7 @@ test('useComposerInput seeds text from draftText on mount and session switch', (
 
 test('useComposerInput posts setComposerDraft after debounced typing', async () => {
   const posted: WebviewToHostMessage[] = [];
-  const originalSetTimeout = globalThis.setTimeout;
-  const originalClearTimeout = globalThis.clearTimeout;
-
-  type PendingTimeout = { fn: () => void; ms: number; id: number };
-  let pending: PendingTimeout[] = [];
-  let nextId = 1;
-
-  globalThis.setTimeout = window.setTimeout = ((fn: () => void, ms?: number) => {
-    const id = nextId++;
-    pending.push({ fn, ms: ms ?? 0, id });
-    return id as unknown as number;
-  }) as typeof globalThis.setTimeout;
-
-  globalThis.clearTimeout = window.clearTimeout = ((id: number) => {
-    pending = pending.filter((t) => t.id !== id);
-  }) as typeof globalThis.clearTimeout;
+  installFakeTimers();
 
   try {
     act(() => {
@@ -126,35 +146,41 @@ test('useComposerInput posts setComposerDraft after debounced typing', async () 
     assert.equal((draftMsg as any).sessionPath, '/s');
     assert.equal((draftMsg as any).text, 'typed draft');
   } finally {
-    globalThis.setTimeout = window.setTimeout = originalSetTimeout;
-    globalThis.clearTimeout = window.clearTimeout = originalClearTimeout;
+    restoreTimers();
   }
 });
 
 test('useComposerInput does not post setComposerDraft when sessionPath is null', async () => {
   const posted: WebviewToHostMessage[] = [];
+  installFakeTimers();
 
-  act(() => {
-    render(
-      h(TestHarness, {
-        sessionPath: null,
-        draftText: '',
-        postMessage: (msg) => { posted.push(msg); },
-      }),
-      container,
-    );
-  });
+  try {
+    act(() => {
+      render(
+        h(TestHarness, {
+          sessionPath: null,
+          draftText: '',
+          postMessage: (msg) => { posted.push(msg); },
+        }),
+        container,
+      );
+    });
 
-  const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
-  assert.ok(textarea);
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    assert.ok(textarea);
 
-  act(() => {
-    textarea.value = 'orphan text';
-    textarea.dispatchEvent(new Event('input', { bubbles: true }));
-  });
+    act(() => {
+      textarea.value = 'orphan text';
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
 
-  // Wait long enough that any 300 ms debounce would have fired.
-  await new Promise((resolve) => window.setTimeout(resolve, 350));
+    // Advance the debounce deterministically instead of a real 350 ms wait.
+    act(() => {
+      flushTimers();
+    });
 
-  assert.equal(posted.some((m) => m.type === 'setComposerDraft'), false);
+    assert.equal(posted.some((m) => m.type === 'setComposerDraft'), false);
+  } finally {
+    restoreTimers();
+  }
 });
