@@ -11,6 +11,7 @@ This folder mixes design contracts, implementation plans (some completed, some o
 ## Active plans (in progress)
 
 - [EXPANDED-SECTION-UI-PLAN.md](EXPANDED-SECTION-UI-PLAN.md) — audit + grilling decisions for the bash/terminal tool pane and reasoning preview: bound reasoning with the resizable model, shared `expandedSectionMaxHeight` pref across all four expanded sections, reduced default max-height, and removed the "hold close while turn active" logic (per-command grace-then-slow-close) so open panes stop dominating the transcript. Secondary findings (ANSI, exitCode, long-line handling, stderr) deferred.
+- [CHANGED-FILES-UI-PLAN.md](CHANGED-FILES-UI-PLAN.md) — grilling decisions for the right-side changed-files rail: peek-vs-pin split (zero reserved space mid-turn, hover-overlay peek, click-to-pin), thin count + diff-bar sliver as the collapsed floor, ephemeral drag-resizable width (mirroring the height precedent), removed auto-open-on-arrival (pulse is the mid-turn signal), aggregate header + per-file diff bar for glanceability, and a tap=peek/pin-button=pin touch fallback. Auto-open machinery (`autoOpenFileChangesRail` + `autoExpandedBySession`) slated for removal.
 
 ## Archived plans (removed — see git history)
 
