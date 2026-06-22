@@ -42,13 +42,14 @@ Full decision record lives in the plan doc. Summary:
   space); pin = host state `ViewState.fileChangesExpanded` (in-flow reserved).
   A type-level pin in `sync-contract.test.ts` fails to compile if a
   `fileChangesPeek*` field is ever promoted into ViewState.
-- **D2** Collapsed sliver ~28px, full-height: count at top + an A/M/D kind
-  legend (one row per present kind, glyph + count, reusing the per-row status
-  vocabulary). Refined from the original stacked +/- diff bar: the green/red/
-  dark-track "health-bar" read as noise and conveyed no magnitude at a glance;
-  the legend surfaces what kind of work happened (created vs modified vs
-  deleted) instead. Magnitude lives in the tooltip (`N · A3 M7 D2 · +X / -Y`)
-  and the expanded aggregate header.
+- **D2** Collapsed sliver ~28px, full-height: count at top + total `+N`/`-N`
+  churn (how much changed, always visible) + an A/M/D kind legend (one row per
+  present kind, glyph + count, reusing the per-row status vocabulary). Refined
+  from the original stacked +/- diff bar: the green/red dark-track "health-bar"
+  read as noise and conveyed no magnitude at a glance; the legend surfaces what
+  kind of work happened (created vs modified vs deleted) and the `+N`/`-N`
+  totals carry the magnitude. The sliver `title` carries the full summary
+  (`N · A3 M7 D2 · +X / -Y`).
 - **D3** Peek is `position: absolute` over the transcript edge (not a push);
   hover region = rail subtree (sliver ∪ overlay); dismiss on mouse-leave /
   click-outside / Escape.
@@ -60,8 +61,13 @@ Full decision record lives in the plan doc. Summary:
   `autoExpandedBySession` host state + `shouldAutoOpen` block + 3 send resets
   + cleanup spreads + settings toggle — all deleted. `hasNewChanges` pulse is
   the mid-turn signal.
-- **D7** Aggregate header (`N files · +A / -D`) + per-row horizontal diff bar
-  (scaled to the session's largest row); edit-chronology order, no sort.
+- **D7** Aggregate header (`N files · +A / -D`) + per-row `+N`/`-N` line stats.
+  **Post-impl revision:** the per-row red/green diff bar was removed — it
+  restated the `+N`/`-N` numbers beside it and wasted ~40px/row; that space is
+  reclaimed for the (ellipsized) file path so more of the path shows at rest.
+  Edit-chronology order, no sort. Detail (full path + description + stats +
+  diff hint; per-kind breakdown) surfaces on hover via `Tooltip` (a `triggerClass`
+  prop was added so the wrapper span can act as a flex child).
 - **D8** Touch (`matchMedia (hover: hover)` false): tap sliver = peek; pin
   button in peek header = pin. Desktop: hover = peek, click sliver = pin.
 

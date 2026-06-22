@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { FileChangeEntry, FileChangeKind } from '../../shared/protocol';
 import { cx } from './utils/cx';
 import { ResizeHandle } from './components/resize-handle';
+import { Tooltip } from './components/tooltip';
 import { useResizableWidth } from './components/use-resizable-width';
 
 interface FileChangesPanelProps {
@@ -39,52 +40,82 @@ const PEEK_CLOSE_DELAY = 120;
 interface DiffTotals {
   additions: number;
   deletions: number;
-  /** Largest single-file (additions + deletions) — ceiling for per-row bars
-   *  so they are comparable by magnitude. */
-  maxRowTotal: number;
+}
+
+/** Per-kind counts + line churn, for the aggregate header tooltip breakdown. */
+interface KindStats {
+  count: number;
+  additions: number;
+  deletions: number;
 }
 
 export function computeDiffTotals(changes: FileChangeEntry[]): DiffTotals {
   let additions = 0;
   let deletions = 0;
-  let maxRowTotal = 0;
   for (const c of changes) {
-    const a = c.additions ?? 0;
-    const d = c.deletions ?? 0;
-    additions += a;
-    deletions += d;
-    const total = a + d;
-    if (total > maxRowTotal) maxRowTotal = total;
+    additions += c.additions ?? 0;
+    deletions += c.deletions ?? 0;
   }
-  return { additions, deletions, maxRowTotal };
+  return { additions, deletions };
+}
+
+export function computeKindStats(
+  changes: FileChangeEntry[],
+): Record<FileChangeKind, KindStats> {
+  const stats: Record<FileChangeKind, KindStats> = {
+    created: { count: 0, additions: 0, deletions: 0 },
+    modified: { count: 0, additions: 0, deletions: 0 },
+    deleted: { count: 0, additions: 0, deletions: 0 },
+  };
+  for (const c of changes) {
+    const s = stats[c.kind];
+    s.count += 1;
+    s.additions += c.additions ?? 0;
+    s.deletions += c.deletions ?? 0;
+  }
+  return stats;
+}
+
+/** Long-form kind name for tooltips (KIND_ORDER carries the short glyph). */
+const KIND_LABEL: Record<FileChangeKind, string> = {
+  created: 'Added',
+  modified: 'Modified',
+  deleted: 'Deleted',
+};
+
+/**
+ * Rich tooltip for a single row. Discloses the full (un-ellipsized) path,
+ * kind, line stats, and the agent's change description — everything the compact
+ * row omits — plus a click-to-view-diff hint. The row stays lean; the tooltip
+ * carries detail on demand.
+ */
+function formatRowTooltip(change: FileChangeEntry): string {
+  const lines: string[] = [`${KIND_LABEL[change.kind]}: ${change.path}`];
+  const a = change.additions ?? 0;
+  const d = change.deletions ?? 0;
+  if (a || d) lines.push(`+${a} / -${d}`);
+  if (change.description) lines.push(change.description);
+  lines.push('Click to view diff');
+  return lines.join('\n');
 }
 
 /**
- * A horizontal +/- diff bar — green (additions) + red (deletions) — shown
- * per-row inside the drawer, scaled to the session's largest row so bars are
- * comparable by magnitude. The collapsed sliver no longer renders a diff bar:
- * it shows an A/M/D kind legend instead (see the sliver markup). Replaces the
- * former stacked vertical "health-bar" (green/red on a dark track) that read
- * as noise without conveying magnitude at a glance.
+ * Aggregate breakdown tooltip for the drawer header. The header shows the
+ * headline totals; hovering reveals per-kind counts and per-kind line churn —
+ * progressive disclosure that keeps the header calm.
  */
-function DiffBar({
-  additions,
-  deletions,
-  scale,
-}: {
-  additions: number;
-  deletions: number;
-  scale: number;
-}) {
-  const denom = scale > 0 ? scale : 1;
-  const addPct = Math.min(100, (additions / denom) * 100);
-  const delPct = Math.min(100, (deletions / denom) * 100);
-  return (
-    <span class="file-change-diff-bar is-horizontal" aria-hidden="true">
-      <span class="diff-bar-add" style={{ width: `${addPct}%` }} />
-      <span class="diff-bar-del" style={{ width: `${delPct}%` }} />
-    </span>
-  );
+function formatAggregateTooltip(
+  count: number,
+  kindStats: Record<FileChangeKind, KindStats>,
+): string {
+  const lines: string[] = [`${count} changed file${count === 1 ? '' : 's'}`];
+  for (const { kind, label } of KIND_ORDER) {
+    const s = kindStats[kind];
+    if (!s.count) continue;
+    const churn = s.additions || s.deletions ? ` (+${s.additions}/-${s.deletions})` : '';
+    lines.push(`${label}: ${s.count}${churn}`);
+  }
+  return lines.join('\n');
 }
 
 function LineStats({ additions, deletions }: { additions?: number; deletions?: number }) {
@@ -248,11 +279,7 @@ export function FileChangesPanel({
 
   const totals = useMemo(() => computeDiffTotals(fileChanges), [fileChanges]);
 
-  const byKind = useMemo(() => {
-    const counts: Record<FileChangeKind, number> = { created: 0, modified: 0, deleted: 0 };
-    for (const c of fileChanges) counts[c.kind]++;
-    return counts;
-  }, [fileChanges]);
+  const kindStats = useMemo(() => computeKindStats(fileChanges), [fileChanges]);
 
   const { elRef, width: dragWidth, minWidth, maxWidth, startResize, resizeBy, reset } =
     useResizableWidth<HTMLDivElement>({ minWidth: 160, maxWidth: 480 });
@@ -359,7 +386,10 @@ export function FileChangesPanel({
   };
 
   const kindBreakdown = KIND_ORDER
-    .map(({ kind, glyph }) => (byKind[kind] ? `${glyph}${byKind[kind]}` : ''))
+    .map(({ kind, glyph }) => {
+      const n = kindStats[kind].count;
+      return n ? `${glyph}${n}` : '';
+    })
     .filter(Boolean)
     .join(' ');
   const sliverTitle =
@@ -389,9 +419,15 @@ export function FileChangesPanel({
           title={sliverTitle}
         >
           <span class="file-changes-sliver-count">{count}</span>
+          {(totals.additions > 0 || totals.deletions > 0) && (
+            <span class="file-changes-sliver-magnitude">
+              {totals.additions > 0 ? <span class="sliver-add">+{totals.additions}</span> : null}
+              {totals.deletions > 0 ? <span class="sliver-del">-{totals.deletions}</span> : null}
+            </span>
+          )}
           <span class="file-changes-sliver-legend">
             {KIND_ORDER.map(({ kind, glyph, label }) => {
-              const n = byKind[kind];
+              const n = kindStats[kind].count;
               if (!n) return null;
               return (
                 <span key={kind} class={`sliver-kind kind-${kind}`} title={`${label}: ${n}`}>
@@ -428,13 +464,19 @@ export function FileChangesPanel({
           style={innerWidth ? { width: `${innerWidth}px` } : undefined}
         >
           <div class="file-changes-header">
-            <span class="file-changes-aggregate">
-              <span class="file-changes-aggregate-count">{count} file{count === 1 ? '' : 's'}</span>
-              <span class="file-changes-aggregate-diff">
-                <span class="stat-additions">+{totals.additions}</span>
-                <span class="stat-deletions">-{totals.deletions}</span>
+            <Tooltip
+              content={formatAggregateTooltip(count, kindStats)}
+              placement="bottom"
+              triggerClass="file-changes-aggregate-trigger"
+            >
+              <span class="file-changes-aggregate">
+                <span class="file-changes-aggregate-count">{count} file{count === 1 ? '' : 's'}</span>
+                <span class="file-changes-aggregate-diff">
+                  <span class="stat-additions">+{totals.additions}</span>
+                  <span class="stat-deletions">-{totals.deletions}</span>
+                </span>
               </span>
-            </span>
+            </Tooltip>
             {peeking && !pinned ? (
               <button
                 class="action-btn icon-only file-changes-pin"
@@ -468,19 +510,20 @@ export function FileChangesPanel({
               <div key={change.path} class={`file-change-item kind-${change.kind}`} role="listitem">
                 <div class="file-change-main">
                   <StatusLabel kind={change.kind} />
-                  <button
-                    class="file-change-path"
-                    type="button"
-                    title={`${change.kind}: ${change.path}\n${change.description}`}
-                    onClick={() => onOpenDiff(change.path)}
+                  <Tooltip
+                    content={formatRowTooltip(change)}
+                    placement="top"
+                    triggerClass="file-change-path-trigger"
                   >
-                    <FilePath path={change.path} />
-                  </button>
-                  <DiffBar
-                    additions={change.additions ?? 0}
-                    deletions={change.deletions ?? 0}
-                    scale={totals.maxRowTotal}
-                  />
+                    <button
+                      class="file-change-path"
+                      type="button"
+                      aria-label={`${KIND_LABEL[change.kind]}: ${change.path}`}
+                      onClick={() => onOpenDiff(change.path)}
+                    >
+                      <FilePath path={change.path} />
+                    </button>
+                  </Tooltip>
                   <LineStats additions={change.additions} deletions={change.deletions} />
                 </div>
                 <div class="file-change-actions">

@@ -371,32 +371,41 @@
   font-weight: 500;
 }
 
-/* ── Diff bar (per-row) ─────────────────────────────────────────────────── */
+/* ── Collapsed magnitude (how-much at a glance) ───────────────────────────── */
+/* Replaces the former per-row red/green diff bar. That bar restated the +N/-N
+   numbers already shown beside it and consumed ~40px of horizontal space per
+   row — space now reclaimed for the file path. Magnitude instead lives in the
+   collapsed sliver (total +/- churn, always visible) and in the per-row +N/-N
+   numbers; the full path + per-kind breakdown surface on hover via tooltips
+   (see .file-change-path-trigger / .file-changes-aggregate-trigger below). */
 
-.file-change-diff-bar {
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--panel-ink-4) 55%, transparent);
-  overflow: hidden;
-}
-
-/* Horizontal (per-row): a fixed-width track; additions (left) + deletions
-   (right) scale to the session's largest row so bars are comparable by
-   magnitude. The collapsed sliver no longer renders a vertical bar — it shows
-   a kind legend instead (see .file-changes-sliver-legend above). */
-.file-change-diff-bar.is-horizontal {
-  display: inline-flex;
-  flex-direction: row;
-  width: 36px;
-  height: 4px;
+.file-changes-sliver-magnitude {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
   flex-shrink: 0;
+  font-family: var(--panel-font-mono);
+  font-size: 9px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
 }
 
-.diff-bar-add {
-  background: var(--panel-success);
+.sliver-add {
+  color: var(--panel-success);
 }
 
-.diff-bar-del {
-  background: var(--panel-danger);
+.sliver-del {
+  color: var(--panel-danger);
+}
+
+/* Tooltip triggers that double as flex children: the wrapper span must fill the
+   row / header so the tooltip's hover target matches the visible path/summary
+   and the inner content keeps its flex + ellipsis behavior. */
+.file-change-path-trigger,
+.file-changes-aggregate-trigger {
+  flex: 1;
+  min-width: 0;
 }
 
 /* ── Action buttons ───────────────────────────────────────────────────────── */

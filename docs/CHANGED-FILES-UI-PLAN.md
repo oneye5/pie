@@ -1,6 +1,9 @@
 # Changed-files UI plan — minimal-footprint rail, drag-resize, hover-peek
 
-**Status:** Open (planning, grilling complete). Not yet implemented.
+**Status:** Implemented. The code in `webview/panel/file-changes-panel.tsx` is
+authoritative; this plan captures the original decisions and rationale. See
+**Post-implementation revisions** below for the one change that superseded
+D2/D7 after the initial build.
 
 Grilling decisions for the right-side changed-files rail
 (`webview/panel/file-changes-panel.tsx`). Scope is the user-reported pain: the
@@ -10,6 +13,37 @@ glanceable when the task is done.
 
 The code is the authoritative record once implemented; this plan captures the
 decisions and their rationale while the work is in progress.
+
+---
+
+## Post-implementation revisions
+
+These supersede the original decisions after the first implementation, driven
+by a user audit of the rendered rail:
+
+- **Per-row red/green diff bar removed (supersedes D7).** The per-file `+`/`-`
+  bar restated the `+N`/`-N` numbers already shown beside it and consumed
+  ~40px of horizontal space per row — space reclaimed for the (ellipsized)
+  file path so more of the path is visible at rest. The `DiffBar` component,
+  the `maxRowTotal` scale field on `DiffTotals`, and the `.file-change-diff-bar`
+  CSS were deleted; `computeDiffTotals` now returns only `{ additions, deletions }`.
+- **Magnitude moved into the collapsed sliver (extends D2).** The sliver now
+  shows total `+N`/`-N` churn (green/red numbers, consistent with the rows and
+  header) between the count and the A/M/D kind legend, so "how much changed" is
+  visible at a glance without hovering. D2's stacked `+`/`-` *bar* was already
+  replaced by the A/M/D legend pre-implementation; the magnitude is now numbers,
+  not a bar (the user found red/green bars uninformative).
+- **Tooltips carry the detail (progressive disclosure).** A `triggerClass` prop
+  was added to `Tooltip` (`components/tooltip.tsx`) so the wrapper span can act
+  as a flex child. The row path is wrapped in a `Tooltip` disclosing the full
+  un-ellipsized path + kind + description + line stats + a "click to view diff"
+  hint; the aggregate header is wrapped in a `Tooltip` disclosing the per-kind
+  breakdown with per-kind churn. Row + header stay calm; detail surfaces on hover.
+- **"Roughly what file" is served three ways:** more path visible per row at
+  rest (reclaimed space), the full path on hover (tooltip), and the full list
+  via the existing hover-peek / pin. A filename in the *zero-interaction*
+  collapsed sliver was rejected as it would widen the sliver against the
+  compact-footprint goal; revisit if the hover-peek proves too passive.
 
 ---
 

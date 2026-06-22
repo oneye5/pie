@@ -24,12 +24,11 @@ function entry(path: string, additions: number, deletions: number, kind: FileCha
 // computeDiffTotals — pure helper driving the aggregate header + diff bars.
 // ---------------------------------------------------------------------------
 
-test('computeDiffTotals sums additions/deletions and tracks the largest row', () => {
-  assert.deepEqual(computeDiffTotals([]), { additions: 0, deletions: 0, maxRowTotal: 0 });
+test('computeDiffTotals sums additions/deletions', () => {
+  assert.deepEqual(computeDiffTotals([]), { additions: 0, deletions: 0 });
   assert.deepEqual(computeDiffTotals([entry('a', 20, 5), entry('b', 10, 7)]), {
     additions: 30,
     deletions: 12,
-    maxRowTotal: 25, // max(20+5, 10+7)
   });
 });
 
@@ -46,7 +45,6 @@ test('computeDiffTotals treats missing line stats as zero', () => {
   assert.deepEqual(computeDiffTotals([noStats, entry('d', 4, 1)]), {
     additions: 4,
     deletions: 1,
-    maxRowTotal: 5,
   });
 });
 
@@ -79,18 +77,21 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.match(html, /\+30/);
   assert.match(html, /-12/);
   assert.doesNotMatch(html, /−/);
-  // Collapsed sliver shows a kind (A/M/D) legend, not a diff bar: both test
-  // entries are modified, so only the M row renders. The stacked vertical
-  // "health-bar" is gone; the per-row horizontal bar inside the drawer stays.
-  assert.doesNotMatch(html, /file-change-diff-bar is-vertical/);
-  assert.match(html, /file-change-diff-bar is-horizontal/);
+  // Collapsed sliver carries the count, total +/- magnitude (how much changed
+  // at a glance), and the A/M/D kind legend. Both entries are modified, so
+  // only the M row renders.
+  assert.match(html, /file-changes-sliver-magnitude/);
+  assert.match(html, /sliver-add">\+30/);
+  assert.match(html, /sliver-del">-12/);
   assert.match(html, /sliver-kind kind-modified/);
   assert.match(html, /sliver-kind-glyph/);
   assert.match(html, /sliver-kind-count">2</);
   // Zero-count kinds are omitted from the legend (only modified is present).
   assert.doesNotMatch(html, /sliver-kind kind-created/);
   assert.doesNotMatch(html, /sliver-kind kind-deleted/);
-  // Tooltip carries the full summary: count + kind breakdown + line totals.
+  // The per-row red/green diff bar is gone (space reclaimed for the path).
+  assert.doesNotMatch(html, /file-change-diff-bar/);
+  // Sliver title carries the full summary: count + kind breakdown + line totals.
   assert.match(html, /title="2 changed files · M2 · \+30 \/ -12"/);
 });
 
