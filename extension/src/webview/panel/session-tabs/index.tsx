@@ -442,6 +442,33 @@ export function SessionTabs({
     };
   }, [openTabPaths, sessions]);
 
+  // Tabs: VS Code-style wheel scrolling. The strip scrolls natively only on
+  // horizontal / shift+wheel input; translate plain vertical wheel deltas into
+  // horizontal scrolling so hovering the tab bar and scrolling moves tabs
+  // left/right. When the strip isn't overflowing the wheel passes through to the
+  // page; while overflowing we trap it (preventDefault) so the tab bar owns the
+  // gesture instead of scrolling the transcript behind it. Non-passive so we
+  // can call preventDefault.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const onWheel = (event: WheelEvent) => {
+      // Let native horizontal input (trackpad / shift+wheel) handle itself.
+      if (event.deltaX !== 0) return;
+      if (event.deltaY === 0) return;
+      if (strip.scrollWidth - strip.clientWidth <= 1) return;
+      // At a matching scroll limit, let the wheel pass through to the page
+      // (transcript) instead of trapping it — avoids the overscroll trap.
+      const atLeft = strip.scrollLeft <= 1;
+      const atRight = strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 1;
+      if ((atLeft && event.deltaY < 0) || (atRight && event.deltaY > 0)) return;
+      event.preventDefault();
+      strip.scrollLeft += event.deltaY;
+    };
+    strip.addEventListener('wheel', onWheel, { passive: false });
+    return () => strip.removeEventListener('wheel', onWheel);
+  }, []);
+
   // Tabs-5: roving-tabindex keyboard navigation (WAI-ARIA Tabs). Arrow keys
   // move focus and select the adjacent tab; Home/End jump to the ends; Delete
   // closes the focused tab and restores focus to its neighbor (which the host

@@ -128,21 +128,47 @@ body.session-tab-dragging {
 .session-tabs-strip {
   --session-tab-min-width: 120px;
   --session-tab-max-width: 232px;
+  /* Height reserved for the thin bottom scrollbar (VS Code-style file
+     tabs). Kept as a token so the strip's min-height always leaves room for
+     it, preventing the 34px tabs from being clipped when the strip overflows. */
+  --session-tabs-scrollbar-height: 6px;
   display: flex;
   overflow-x: auto;
   flex: 1;
   min-width: 0;
-  min-height: 34px;
-  scrollbar-width: none;
-  align-items: stretch;
+  /* 34px tabs + scrollbar gutter. `align-items: flex-start` pins each tab to
+     the top of the strip at its natural 34px height (close button is 24px +
+     5px top/bottom margins); the reserved 6px gutter hosts the scrollbar when
+     overflow appears, so tabs neither shift vertically nor get clipped when
+     overflow toggles. */
+  min-height: calc(34px + var(--session-tabs-scrollbar-height));
+  align-items: flex-start;
   justify-content: flex-start;
   gap: 6px;
   padding: 0 2px;
   position: relative;
+  scrollbar-width: thin;
 }
 
+/* Thin horizontal scrollbar (VS Code-style): transparent track + subtle thumb
+   using the panel's scrollbar tokens. Visible only while the strip overflows
+   (overflow-x: auto). The global ::-webkit-scrollbar already supplies a 6px
+   size; these rules scope the look to the tab strip and keep it self-contained. */
 .session-tabs-strip::-webkit-scrollbar {
-  display: none;
+  height: var(--session-tabs-scrollbar-height);
+}
+
+.session-tabs-strip::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.session-tabs-strip::-webkit-scrollbar-thumb {
+  background: var(--vscode-scrollbarSlider-background);
+  border-radius: 999px;
+}
+
+.session-tabs-strip::-webkit-scrollbar-thumb:hover {
+  background: var(--vscode-scrollbarSlider-hoverBackground);
 }
 
 /* Edge-fade overflow affordance (Tabs-4): when tabs overflow horizontally,
