@@ -205,7 +205,7 @@ function SubagentMessages({
     [singleResult, toolCall.id, index],
   );
   const nestedCollapsibleDefaultsKey = `${prefs.autoExpandReasoning ? 'r1' : 'r0'}-${prefs.autoExpandToolCalls ? 't1' : 't0'}`;
-  const { scrollRef, height, startResize, minHeight, maxHeight, resizeBy, reset } = useResizableHeight<HTMLDivElement>();
+  const { scrollRef, height, startResize, minHeight, maxHeight, canResize, resizeBy, reset } = useResizableHeight<HTMLDivElement>();
   const stickToBottomRef = useRef(true);
 
   const handleScroll = () => {
@@ -243,15 +243,17 @@ function SubagentMessages({
       }}
       onKeyDown={(e) => e.stopPropagation()}
     >
-      <ResizeHandle
-        edge="top"
-        onMouseDown={startResize('top')}
-        height={height}
-        minHeight={minHeight}
-        maxHeight={maxHeight}
-        onResizeBy={resizeBy}
-        onReset={reset}
-      />
+      {canResize && (
+        <ResizeHandle
+          edge="top"
+          onMouseDown={startResize('top')}
+          height={height}
+          minHeight={minHeight}
+          maxHeight={maxHeight}
+          onResizeBy={resizeBy}
+          onReset={reset}
+        />
+      )}
       <div
         class="subagent-messages-scroll"
         ref={scrollRef}
@@ -289,15 +291,17 @@ function SubagentMessages({
           collapsibleKey={nestedCollapsibleDefaultsKey}
         />
       </div>
-      <ResizeHandle
-        edge="bottom"
-        onMouseDown={startResize('bottom')}
-        height={height}
-        minHeight={minHeight}
-        maxHeight={maxHeight}
-        onResizeBy={resizeBy}
-        onReset={reset}
-      />
+      {canResize && (
+        <ResizeHandle
+          edge="bottom"
+          onMouseDown={startResize('bottom')}
+          height={height}
+          minHeight={minHeight}
+          maxHeight={maxHeight}
+          onResizeBy={resizeBy}
+          onReset={reset}
+        />
+      )}
     </div>
   );
 }

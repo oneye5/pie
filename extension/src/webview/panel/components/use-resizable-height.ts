@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'preact/hooks';
+import { useCallback, useLayoutEffect, useRef, useState } from 'preact/hooks';
 import type { RefObject } from 'preact';
 
 export interface UseResizableHeightOptions {
@@ -22,6 +22,12 @@ export interface ResizableHeight<T extends HTMLElement> {
    *  `undefined` when `window` is unavailable (SSR) — the drag/keyboard
    *  handlers re-read the live viewport at call time. */
   maxHeight: number | undefined;
+  /** Whether the resize handles should be rendered. Handles only appear when
+   *  the content overflows the visible area (so a single-line section isn't
+   *  bracketed by grab targets that crowd out its own clickable content), or
+   *  once the user has resized (so they can keep adjusting without the
+   *  handles vanishing the moment content fits). */
+  canResize: boolean;
   /** Returns a mousedown handler bound to the given edge. */
   startResize: (edge: 'top' | 'bottom') => (e: MouseEvent) => void;
   /** Adjust the height by `delta` px, clamped to [minHeight, maxHeight]. Used
@@ -39,18 +45,45 @@ export interface ResizableHeight<T extends HTMLElement> {
  * is intentionally not persisted.
  *
  * Generalises the original subagent top-only handle in tool-call-item.tsx.
+ *
+ * Handles are gated by `canResize`: callers should render the top/bottom
+ * `ResizeHandle` only when `canResize` is true. This keeps short sections
+ * (whose content fits naturally within the CSS max-height) free of the grab
+ * strips that would otherwise crowd their clickable area — a single-line
+ * result has no business being resizable.
  */
 export function useResizableHeight<T extends HTMLElement = HTMLElement>(
   opts: UseResizableHeightOptions = {},
 ): ResizableHeight<T> {
   const { minHeight = 120, maxHeight, onResizeStart } = opts;
   const [height, setHeight] = useState<number | null>(null);
+  // Whether the scroll content currently overflows its visible area. Drives
+  // `canResize` so handles only appear when there is something to scroll (or
+  // the user has already opted into resizing). Measured after every render —
+  // cheap (two layout reads) and stable (setState bails when unchanged), and
+  // it catches streaming content growth that a ResizeObserver would miss
+  // (the border-box stays capped at max-height while scrollHeight keeps
+  // climbing as content streams in).
+  const [contentOverflows, setContentOverflows] = useState(false);
   const scrollRef = useRef<T>(null);
   // Guard `window` for SSR (preact-render-to-string has no window). In the
   // real webview window is always defined so this is a concrete number; the
   // drag + keyboard handlers also re-read the live viewport at call time.
   const resolvedMaxHeight = maxHeight
     ?? (typeof window !== 'undefined' ? Math.round(window.innerHeight * 0.8) : undefined);
+
+  // Re-measure overflow after every render. Runs in a layout effect so the
+  // handle visibility is correct before paint (no flash of the wrong state).
+  // setState bails out when the boolean is unchanged, so there is no render
+  // loop. A 1px tolerance absorbs sub-pixel rounding at the exact boundary.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const overflows = el.scrollHeight - el.clientHeight > 1;
+    setContentOverflows((prev) => (prev === overflows ? prev : overflows));
+  });
+
+  const canResize = contentOverflows || height !== null;
 
   // `edge` is a call-time argument (not a closure dep): each handle binds
   // `startResize('top')` / `startResize('bottom')` once, capturing its edge.
@@ -101,5 +134,5 @@ export function useResizableHeight<T extends HTMLElement = HTMLElement>(
 
   const reset = useCallback(() => setHeight(null), []);
 
-  return { scrollRef, height, minHeight, maxHeight: resolvedMaxHeight, startResize, resizeBy, reset };
+  return { scrollRef, height, minHeight, maxHeight: resolvedMaxHeight, canResize, startResize, resizeBy, reset };
 }

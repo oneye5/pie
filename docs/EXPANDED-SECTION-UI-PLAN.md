@@ -177,6 +177,31 @@ Explicitly left open per "we can play around with this to make it seamless":
   for simplicity and because the slow close makes the double-open brief and
   gentle; revisit if it feels janky.
 
+### D8 — Only show resize handles when content overflows
+
+**Implemented.** The top/bottom `ResizeHandle` pair bracketing each expanded
+section is now gated by a `canResize` flag from `useResizableHeight`. Handles
+render only when the scroll content actually overflows its visible area
+(`scrollHeight - clientHeight > 1`), or once the user has resized (so they are
+never stranded with a pane they can no longer shrink).
+
+- **Why:** for short / single-line sections the two grab strips (6 px each,
+  plus the ±5 px invisible hit-area pseudo-elements) consumed most of the
+  clickable vertical space, forcing users to dodge them to reach the content
+  or buttons inside the section. A section whose content fits naturally has
+  nothing to scroll and therefore nothing to resize.
+- **Measurement:** a dep-less `useLayoutEffect` re-measures after every render
+  (catches streaming growth a `ResizeObserver` would miss — the border-box
+  stays capped at `max-height` while `scrollHeight` keeps climbing).
+  `setState` bails when the boolean is unchanged, so there is no render loop;
+  Preact flushes the layout-effect update before paint, so there is no flash.
+- **`height !== null` opt-out:** once the user has dragged, `canResize` stays
+  `true` regardless of the current overflow reading, so the handles remain
+  available for further adjustment (and for `reset` via double-click).
+- **Scope:** all four expanded sections (reasoning, shell terminal, tool-result
+  `<pre>`, subagent thread). The horizontal `useResizableWidth` (file-changes
+  drawer) is a separate concern and is intentionally untouched.
+
 ---
 
 ## Implementation outline

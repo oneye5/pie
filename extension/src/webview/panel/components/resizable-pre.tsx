@@ -32,21 +32,24 @@ export function ResizablePre({ class: className, minHeight, maxHeight, onScroll,
     height,
     minHeight: minH,
     maxHeight: maxH,
+    canResize,
     startResize,
     resizeBy,
     reset,
   } = useResizableHeight<HTMLPreElement>({ minHeight, maxHeight, onResizeStart });
   return (
     <div class="resizable-scroll-area">
-      <ResizeHandle
-        edge="top"
-        onMouseDown={startResize('top')}
-        height={height}
-        minHeight={minH}
-        maxHeight={maxH}
-        onResizeBy={resizeBy}
-        onReset={reset}
-      />
+      {canResize && (
+        <ResizeHandle
+          edge="top"
+          onMouseDown={startResize('top')}
+          height={height}
+          minHeight={minH}
+          maxHeight={maxH}
+          onResizeBy={resizeBy}
+          onReset={reset}
+        />
+      )}
       <pre
         ref={scrollRef}
         class={cx('resizable-scroll-area-scroll', className)}
@@ -55,15 +58,17 @@ export function ResizablePre({ class: className, minHeight, maxHeight, onScroll,
       >
         {children}
       </pre>
-      <ResizeHandle
-        edge="bottom"
-        onMouseDown={startResize('bottom')}
-        height={height}
-        minHeight={minH}
-        maxHeight={maxH}
-        onResizeBy={resizeBy}
-        onReset={reset}
-      />
+      {canResize && (
+        <ResizeHandle
+          edge="bottom"
+          onMouseDown={startResize('bottom')}
+          height={height}
+          minHeight={minH}
+          maxHeight={maxH}
+          onResizeBy={resizeBy}
+          onReset={reset}
+        />
+      )}
     </div>
   );
 }

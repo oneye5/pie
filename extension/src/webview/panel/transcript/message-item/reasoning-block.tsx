@@ -28,7 +28,7 @@ const REASONING_PARSE_TRAILING_MS = 120;
 
 export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu }: ReasoningBlockProps) {
   const [open, setOpen] = useCollapsibleOpen(collapsibleKey, autoExpand);
-  const { scrollRef, height, startResize, minHeight, maxHeight, resizeBy, reset } = useResizableHeight<HTMLDivElement>();
+  const { scrollRef, height, startResize, minHeight, maxHeight, canResize, resizeBy, reset } = useResizableHeight<HTMLDivElement>();
 
   // Throttled markdown re-parse: leading parse at most once per
   // REASONING_PARSE_THROTTLE_MS while text keeps changing, plus a trailing
@@ -104,15 +104,17 @@ export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu
       }
     >
       <div class="resizable-scroll-area">
-        <ResizeHandle
-          edge="top"
-          onMouseDown={startResize('top')}
-          height={height}
-          minHeight={minHeight}
-          maxHeight={maxHeight}
-          onResizeBy={resizeBy}
-          onReset={reset}
-        />
+        {canResize && (
+          <ResizeHandle
+            edge="top"
+            onMouseDown={startResize('top')}
+            height={height}
+            minHeight={minHeight}
+            maxHeight={maxHeight}
+            onResizeBy={resizeBy}
+            onReset={reset}
+          />
+        )}
         <div
           ref={scrollRef}
           class="message-body reasoning-scroll"
@@ -120,15 +122,17 @@ export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu
           aria-live="polite"
           style={height ? { height: `${height}px`, maxHeight: 'none' } : undefined}
         />
-        <ResizeHandle
-          edge="bottom"
-          onMouseDown={startResize('bottom')}
-          height={height}
-          minHeight={minHeight}
-          maxHeight={maxHeight}
-          onResizeBy={resizeBy}
-          onReset={reset}
-        />
+        {canResize && (
+          <ResizeHandle
+            edge="bottom"
+            onMouseDown={startResize('bottom')}
+            height={height}
+            minHeight={minHeight}
+            maxHeight={maxHeight}
+            onResizeBy={resizeBy}
+            onReset={reset}
+          />
+        )}
       </div>
     </Collapsible>
   );

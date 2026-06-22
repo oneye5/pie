@@ -93,6 +93,13 @@ Play with these for seamlessness:
 - New-command-during-grace edge case: recommendation (a) accepted — let the
   prior command finish its slow close (brief double-open). Revisit if janky.
 
+### D8 — Resize handles only when content overflows (implemented)
+`useResizableHeight` now exposes `canResize = contentOverflows || height !== null`;
+all four expanded sections gate their top/bottom `ResizeHandle` on it. Short
+sections (content fits naturally) get no grab strips, so their clickable area
+isn't crowded. Handles reappear on overflow, and stay once the user has resized
+(so they're never stranded). Decision record in `EXPANDED-SECTION-UI-PLAN.md`.
+
 ### Secondary findings (deferred — documented, not implemented)
 - ANSI not stripped in the terminal pane (`textFromToolResult`).
 - `exitCode` not surfaced in the terminal UI.
