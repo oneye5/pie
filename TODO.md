@@ -9,8 +9,13 @@ Full decision record lives in the plan doc. Summary:
   space); pin = host state `ViewState.fileChangesExpanded` (in-flow reserved).
   A type-level pin in `sync-contract.test.ts` fails to compile if a
   `fileChangesPeek*` field is ever promoted into ViewState.
-- **D2** Collapsed sliver ~12px, full-height: count + vertical stacked +/- diff
-  bar (add bottom / del top, scaled to add+del).
+- **D2** Collapsed sliver ~28px, full-height: count at top + an A/M/D kind
+  legend (one row per present kind, glyph + count, reusing the per-row status
+  vocabulary). Refined from the original stacked +/- diff bar: the green/red/
+  dark-track "health-bar" read as noise and conveyed no magnitude at a glance;
+  the legend surfaces what kind of work happened (created vs modified vs
+  deleted) instead. Magnitude lives in the tooltip (`N · A3 M7 D2 · +X / -Y`)
+  and the expanded aggregate header.
 - **D3** Peek is `position: absolute` over the transcript edge (not a push);
   hover region = rail subtree (sliver ∪ overlay); dismiss on mouse-leave /
   click-outside / Escape.
