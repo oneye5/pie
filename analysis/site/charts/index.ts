@@ -7,6 +7,7 @@ import { errorCharts } from './errors.ts';
 import { fileTypeCharts } from './filetypes.ts';
 import { interruptionCharts } from './interruptions.ts';
 import { inputCharts } from './inputs.ts';
+import { questionCharts } from './questions.ts';
 import { settingsCharts } from './settings.ts';
 import { throughputCharts } from './throughput.ts';
 
@@ -29,5 +30,6 @@ export const newCharts: ChartEntry[] = [
   ...fileTypeCharts,
   ...interruptionCharts,
   ...inputCharts,
+  ...questionCharts,
   ...settingsCharts,
 ];
