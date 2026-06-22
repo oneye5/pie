@@ -3,7 +3,7 @@
 
 import type { ToolCall } from '../../../shared/protocol';
 import { isEmptyToolCallInput } from '../../../shared/chat-message-parts';
-import { normalizeToolCallName } from '../../../shared/tool-call-analysis';
+import { extractExitCode, normalizeToolCallName } from '../../../shared/tool-call-analysis';
 import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
 import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../utils/looks-like-path-token';
@@ -421,9 +421,10 @@ function TerminalOutput({ text, running }: { text: string; running: boolean }) {
 
 interface ToolCallBodyProps {
   toolCall: ToolCall;
+  onOpenFile: (path: string) => void;
 }
 
-function ToolCallBody({ toolCall }: ToolCallBodyProps) {
+function ToolCallBody({ toolCall, onOpenFile }: ToolCallBodyProps) {
   const isShell = isCommandSummaryTool(toolCall.name);
   const isRunning = toolCall.status === 'running';
 
@@ -444,6 +445,19 @@ function ToolCallBody({ toolCall }: ToolCallBodyProps) {
         ? (toolCall.input as { command: string }).command
         : undefined;
 
+    // The SDK's bash tool surfaces a non-zero exit only as text appended to the
+    // result ("Command exited with code N") — it throws on non-zero exit, so
+    // the tool-call status is already 'failed'. extractExitCode recovers the
+    // numeric code (probing result fields, then the text) so the footer can
+    // show the specific code. On success (exit 0) there is no signal, so
+    // nothing is shown — consistent with the "alert on failure, not on
+    // success" header philosophy.
+    const exitCode = !isRunning ? extractExitCode(toolCall.result, text) : null;
+    const showExit = exitCode != null && exitCode !== 0;
+    const fullLogPath = details?.fullOutputPath;
+    const showTruncation = Boolean(truncation?.truncated);
+    const showFooter = showTruncation || showExit;
+
     return (
       <div class="tool-call-body tool-call-body-terminal" onClick={(e) => e.stopPropagation()}>
         {command && (
@@ -459,9 +473,25 @@ function ToolCallBody({ toolCall }: ToolCallBodyProps) {
             <div class="tool-call-terminal-empty">{isRunning ? 'Executing…' : '(no output)'}</div>
           )}
         </div>
-        {truncation?.truncated && (
-          <div class="tool-call-truncated" title={details?.fullOutputPath}>
-            Output truncated — showing {truncation.outputLines ?? '?'} of {truncation.totalLines ?? '?'} lines.{details?.fullOutputPath ? ` Full log: ${details.fullOutputPath}` : ''}
+        {showFooter && (
+          <div class="tool-call-terminal-footer">
+            <div class="tool-call-terminal-footer-main">
+              {showTruncation && (
+                <span class="tool-call-truncated-text" title={fullLogPath}>
+                  Output truncated — showing {truncation?.outputLines ?? '?'} of {truncation?.totalLines ?? '?'} lines
+                </span>
+              )}
+              {showTruncation && fullLogPath && (
+                <span class="tool-call-truncated-fulllog">
+                  <span class="tool-call-truncated-fulllog-sep" aria-hidden="true">·</span>
+                  <span class="tool-call-truncated-fulllog-label">Full log:</span>
+                  <ClickablePathButton path={fullLogPath} displayText={fullLogPath} onOpenFile={onOpenFile} />
+                </span>
+              )}
+            </div>
+            {showExit && (
+              <span class="tool-call-terminal-exit" title="Command exit code" data-exit-nonzero="true">exit {exitCode}</span>
+            )}
           </div>
         )}
       </div>
@@ -771,7 +801,7 @@ export function ToolCallCard({
           }}
         >
           <div class="tool-call-body-inner">
-            <ToolCallBody toolCall={toolCall} />
+            <ToolCallBody toolCall={toolCall} onOpenFile={onOpenFile} />
           </div>
         </div>
       )}

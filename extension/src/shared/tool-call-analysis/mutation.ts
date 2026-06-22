@@ -9,4 +9,4 @@ export {
   getFileMutationFromToolCall,
   mergeFileMutationDelta,
 } from './mutation-file';
-export { getToolCallSizeHint } from './mutation-size';
+export { countTextLines, getToolCallSizeHint } from './mutation-size';

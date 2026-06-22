@@ -3,7 +3,10 @@ import test from 'node:test';
 
 import {
   analyzeToolCall,
+  countTextLines,
+  extractExitCode,
   getToolCallSizeHint,
+  stripAnsiEscapes,
   summarizeSubagentToolCallInput,
   type FileMutationDelta,
 } from '../src/shared/tool-call-analysis';
@@ -416,4 +419,55 @@ test('getToolCallSizeHint suppresses hints for failed tool calls', () => {
 
   assert.equal(readHint, null);
   assert.equal(editHint, null);
+});
+
+// ── extractExitCode ────────────────────────────────────────────────────────
+// The SDK's bash tool surfaces a non-zero exit only as text ("Command exited
+// with code N"); extractExitCode recovers the numeric code by probing result
+// fields first, then falling back to a regex on the text.
+
+test('extractExitCode reads a numeric exit code from result fields', () => {
+  assert.equal(extractExitCode({ exitCode: 1 }, ''), 1);
+  assert.equal(extractExitCode({ code: 42 }, ''), 42);
+  assert.equal(extractExitCode({ status: 0 }, ''), 0);
+});
+
+test('extractExitCode ignores non-numeric field values and falls through to the text regex', () => {
+  // `status: 'failed'` is a string, not a number, so it is skipped and the
+  // regex runs against the text.
+  assert.equal(extractExitCode({ status: 'failed' }, 'Command exited with code 7'), 7);
+});
+
+test('extractExitCode recovers the code from the appended status text', () => {
+  assert.equal(extractExitCode({}, '...output\n\nCommand exited with code 127'), 127);
+  assert.equal(extractExitCode({}, 'exit code 2'), 2);
+  assert.equal(extractExitCode({}, 'exited with code -1'), -1);
+});
+
+test('extractExitCode returns null when no exit code is present', () => {
+  assert.equal(extractExitCode({}, 'no signal here'), null);
+  assert.equal(extractExitCode(null, ''), null);
+  assert.equal(extractExitCode(undefined, ''), null);
+});
+
+// ── stripAnsiEscapes ────────────────────────────────────────────────────────
+// Shared by failure-analysis excerpts and terminal/tool-result display so
+// forced-color tools (e.g. `ls --color=always`) don't leak raw ESC sequences.
+
+test('stripAnsiEscapes removes CSI color and cursor sequences', () => {
+  assert.equal(stripAnsiEscapes('hello \x1b[31mred\x1b[0m world'), 'hello red world');
+  assert.equal(stripAnsiEscapes('\x1b[2Kline\x1b[1G'), 'line');
+  assert.equal(stripAnsiEscapes('plain text'), 'plain text');
+  assert.equal(stripAnsiEscapes(''), '');
+});
+
+// ── countTextLines ──────────────────────────────────────────────────────────
+// Reused by tool-call size hints and the reasoning collapsed `~N lines` hint.
+
+test('countTextLines counts newline-separated lines and ignores a trailing newline', () => {
+  assert.equal(countTextLines(''), 0);
+  assert.equal(countTextLines('one'), 1);
+  assert.equal(countTextLines('a\nb\nc'), 3);
+  assert.equal(countTextLines('a\nb\nc\n'), 3);
+  assert.equal(countTextLines('a\r\nb'), 2);
 });

@@ -1230,3 +1230,145 @@ test('rendered TurnActivityStrip covers all tones, standalone/inline variants, a
   assert.match(noDetailHtml, /aria-label="Activity status: running tools"/);
   assert.doesNotMatch(noDetailHtml, /turn-activity-strip-detail/);
 });
+
+// ── Terminal footer: exit code, clickable full-log, truncation ──────────────
+// The SDK's bash tool throws on non-zero exit, appending "Command exited with
+// code N" to the result text; the footer recovers that code via extractExitCode
+// and renders a danger-tinted badge. The old plain-text "Full log: path" is now
+// a ClickablePathButton. Only non-zero codes are surfaced (alert on failure).
+
+test('ToolCallCard terminal footer surfaces exit code, clickable full-log path, and truncation', () => {
+  const html = renderToString(h(toolCallCardModule.ToolCallCard, {
+    toolCall: toolCall({
+      id: 'footer-exit-trunc',
+      name: 'bash',
+      input: { command: 'grep missing src' },
+      status: 'failed',
+      result: {
+        content: [{ type: 'text', text: 'no matches\n\nCommand exited with code 1' }],
+        details: {
+          truncation: { truncated: true, totalLines: 100, outputLines: 10 },
+          fullOutputPath: '/tmp/bash-output-abc.log',
+        },
+      },
+    }),
+    autoExpand: true,
+    workingDirectory: '/repo',
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+  }));
+
+  assert.match(html, /tool-call-terminal-footer/);
+  assert.match(html, /tool-call-terminal-exit/);
+  assert.match(html, /exit 1/);
+  assert.match(html, /Output truncated.+showing 10 of 100 lines/);
+  assert.match(html, /Full log:/);
+  // The full-log path is a ClickablePathButton: the file leaf is a link button.
+  assert.match(html, /transcript-header-summary-link/);
+  assert.match(html, /bash-output-abc\.log/);
+});
+
+test('ToolCallCard terminal footer shows the exit-code badge without a truncation notice when output fits', () => {
+  const html = renderToString(h(toolCallCardModule.ToolCallCard, {
+    toolCall: toolCall({
+      id: 'footer-exit-only',
+      name: 'bash',
+      input: { command: 'false' },
+      status: 'failed',
+      result: { content: [{ type: 'text', text: 'Command exited with code 2' }] },
+    }),
+    autoExpand: true,
+    workingDirectory: '/repo',
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+  }));
+
+  assert.match(html, /tool-call-terminal-footer/);
+  assert.match(html, /exit 2/);
+  assert.doesNotMatch(html, /Output truncated/);
+  assert.doesNotMatch(html, /Full log:/);
+});
+
+test('ToolCallCard terminal footer is absent for a successful command with no exit signal', () => {
+  const html = renderToString(h(toolCallCardModule.ToolCallCard, {
+    toolCall: toolCall({
+      id: 'footer-success',
+      name: 'bash',
+      input: { command: 'echo hi' },
+      status: 'completed',
+      result: { content: [{ type: 'text', text: 'hi' }] },
+    }),
+    autoExpand: true,
+    workingDirectory: '/repo',
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+  }));
+
+  assert.doesNotMatch(html, /tool-call-terminal-footer/);
+  assert.doesNotMatch(html, /tool-call-terminal-exit/);
+});
+
+test('ToolCallCard terminal pane strips ANSI escape sequences from streamed output', () => {
+  const html = renderToString(h(toolCallCardModule.ToolCallCard, {
+    toolCall: toolCall({
+      id: 'footer-ansi',
+      name: 'bash',
+      input: { command: 'ls --color=always' },
+      status: 'completed',
+      result: { content: [{ type: 'text', text: '\x1b[31mred banner\x1b[0m\nfile.txt' }] },
+    }),
+    autoExpand: true,
+    workingDirectory: '/repo',
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+  }));
+
+  assert.match(html, /red banner/);
+  assert.match(html, /file\.txt/);
+  assert.ok(!html.includes('\x1b'), 'raw ANSI ESC sequences must not reach the rendered terminal pane');
+});
+
+// ── Reasoning: collapsed size hint + expanded streaming cursor ──────────────
+
+test('ReasoningBlock shows a ~N lines hint when collapsed for multi-line reasoning', () => {
+  const html = renderToString(h(messageItemModule.ReasoningBlock, {
+    text: 'first line of reasoning\nsecond line\nthird line',
+    autoExpand: false,
+    collapsibleKey: 'reasoning:hint-multi',
+    onContextMenu: noopContextMenu,
+  }));
+  assert.match(html, /Reasoning/);
+  assert.match(html, /~3 lines/);
+});
+
+test('ReasoningBlock omits the size hint for single-line reasoning', () => {
+  const html = renderToString(h(messageItemModule.ReasoningBlock, {
+    text: 'a single short thought',
+    autoExpand: false,
+    collapsibleKey: 'reasoning:hint-single',
+    onContextMenu: noopContextMenu,
+  }));
+  assert.doesNotMatch(html, /~1 line/);
+  assert.doesNotMatch(html, /~\d+ lines/);
+});
+
+test('ReasoningBlock renders a streaming cursor while open and streaming', () => {
+  const html = renderToString(h(messageItemModule.ReasoningBlock, {
+    text: 'thinking through the plan',
+    autoExpand: true,
+    collapsibleKey: 'reasoning:cursor-streaming',
+    streaming: true,
+    onContextMenu: noopContextMenu,
+  }));
+  assert.match(html, /reasoning-stream-cursor/);
+});
+
+test('ReasoningBlock omits the streaming cursor when not streaming', () => {
+  const html = renderToString(h(messageItemModule.ReasoningBlock, {
+    text: 'thinking through the plan',
+    autoExpand: true,
+    collapsibleKey: 'reasoning:cursor-idle',
+    onContextMenu: noopContextMenu,
+  }));
+  assert.doesNotMatch(html, /reasoning-stream-cursor/);
+});

@@ -127,14 +127,14 @@ reserved height (`height: var(--activity-tail-content-min-height)` +
 stay visible and wrapped overflow clips at the top. The composite header
 (`label ▸ input`) stays a clipped one-liner.
 
-### Secondary finding (deferred — documented, not implemented)
-- The truncation top fade is gated on `truncated && hasContent && lines.length >= 2`,
-  which was tuned for the old per-row layout. A single long source line (e.g. a
-  ~140-char reasoning burst with no newline) can now wrap to ≥3 rows and hard-clip
-  at the top with **no** soft fade, because `lines.length === 1` defeats the gate.
-  Newest text + caret still visible (bottom-anchored); purely cosmetic. Fix would
-  need a visual-overflow check (ResizeObserver / `scrollHeight > clientHeight`)
-  to drive the fade, rather than the source-line-count proxy.
+### Secondary finding (implemented)
+- The truncation top fade is now driven by actual rendered overflow rather than
+  the source-line-count proxy. `turn-activity-tail.tsx` measures the wrapped
+  content height vs the reserved block height (via a `useContentOverflow` hook
+  on `ResizeObserver`; initial state seeded from `lines.length >= 2` so static
+  `renderToString` renders behave as before). This catches both "many short
+  source lines" and "one long line that wraps across several rows" — the case
+  the old `lines.length >= 2` gate missed (`lines.length === 1`).
 
 Implemented: D1–D6.
 - D1: reasoning bounded with a resizable `<div>` (uses `useResizableHeight`
@@ -165,11 +165,24 @@ sections (content fits naturally) get no grab strips, so their clickable area
 isn't crowded. Handles reappear on overflow, and stay once the user has resized
 (so they're never stranded). Decision record in `EXPANDED-SECTION-UI-PLAN.md`.
 
-### Secondary findings (deferred — documented, not implemented)
-- ANSI not stripped in the terminal pane (`textFromToolResult`).
-- `exitCode` not surfaced in the terminal UI.
-- Long-line handling inconsistency (command truncates vs output wraps).
-- stderr not distinguished from stdout.
-- Truncation "Full log: path" is plain text, not a clickable path.
-- Reasoning collapsed summary has no size hint (tool calls show `~543 lines`).
-- Reasoning expanded has no streaming cursor.
+### Secondary findings (implemented / blocked)
+- ✅ ANSI stripped in the terminal pane — new shared `stripAnsiEscapes` applied in
+  `textFromToolResult` (highlight.ts), the single display chokepoint, so the
+  terminal pane, error detail, and activity tail all render clean text.
+- ✅ `exitCode` surfaced — exported `extractExitCode` recovers the numeric code
+  (the SDK appends "Command exited with code N" on failure); rendered as a
+  danger-tinted `exit N` badge in the terminal footer. Only non-zero (alert on
+  failure).
+- ✅ Long-line handling — terminal output now `white-space: pre` + horizontal
+  scroll (`overflow-x: auto`) instead of `pre-wrap` + `overflow-wrap: anywhere`,
+  preserving table/column/progress alignment.
+- ⛔ stderr not distinguished from stdout — BLOCKED: the SDK's bash tool pipes
+  `child.stdout` and `child.stderr` to the same `onData` handler and merges them
+  into one `content` text blob with no discriminator. Distinguishing requires an
+  SDK change; a webview heuristic would only guess.
+- ✅ "Full log: path" clickable — threaded `onOpenFile` into `ToolCallBody`; the
+  path renders as a `ClickablePathButton` (consistent with the header).
+- ✅ Reasoning collapsed size hint — `~N lines` in the collapsed header (reuses
+  exported `countTextLines`); shown only for multi-line reasoning.
+- ✅ Reasoning expanded streaming cursor — `streaming` prop (from the owning
+  message's active-streaming state) appends a blinking `.reasoning-stream-cursor`.

@@ -9,12 +9,16 @@ import { Collapsible } from '../../components/collapsible';
 import { ResizeHandle } from '../../components/resize-handle';
 import { useResizableHeight } from '../../components/use-resizable-height';
 import { useCollapsibleOpen } from '../use-collapsible-open';
+import { countTextLines } from '../../../../shared/tool-call-analysis';
 
 interface ReasoningBlockProps {
   text: string;
   autoExpand: boolean;
   collapsibleKey: string;
   onContextMenu: (e: MouseEvent) => void;
+  /** True while the owning assistant message is still streaming AND this is the
+   *  actively-growing part. Drives the expanded streaming cursor. */
+  streaming?: boolean;
 }
 
 /** Reasoning streams token-by-token; re-parsing the full markdown on every
@@ -26,7 +30,7 @@ const REASONING_PARSE_THROTTLE_MS = 100;
  *  always rendered, even without an explicit streaming-end signal. */
 const REASONING_PARSE_TRAILING_MS = 120;
 
-export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu }: ReasoningBlockProps) {
+export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu, streaming = false }: ReasoningBlockProps) {
   const [open, setOpen] = useCollapsibleOpen(collapsibleKey, autoExpand);
   const { scrollRef, height, startResize, minHeight, maxHeight, canResize, resizeBy, reset } = useResizableHeight<HTMLDivElement>();
 
@@ -85,6 +89,18 @@ export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu
     }
   }, []);
 
+  // Collapsed size hint mirrors tool calls (`~543 lines`): a quick magnitude
+  // signal before expanding. Only for multi-line reasoning — a single line is
+  // trivially small and a hint would just be noise.
+  const lineCount = countTextLines(text);
+  const showLineHint = !open && lineCount > 1;
+  // Streaming cursor (polish): a blinking block at the end of the rendered
+  // markdown while the assistant is still emitting reasoning tokens. Appended
+  // after sanitization so the trusted span survives DOMPurify.
+  const renderedHtml = streaming && open
+    ? `${html}<span class="reasoning-stream-cursor" aria-hidden="true"></span>`
+    : html;
+
   return (
     <Collapsible
       open={open}
@@ -98,8 +114,14 @@ export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu
         <>
           <span class="transcript-header-label">Reasoning</span>
           {!open ? (
-            <span class="transcript-header-summary min-w-0 truncate">{reasoningSummary(text)}</span>
+            <span class="transcript-header-summary min-w-0 flex-1 truncate">{reasoningSummary(text)}</span>
           ) : null}
+          {showLineHint && (
+            <span
+              class="ml-auto flex-none whitespace-nowrap font-mono text-[10px] text-muted/50"
+              title={`${lineCount} lines`}
+            >~{lineCount} {lineCount === 1 ? 'line' : 'lines'}</span>
+          )}
         </>
       }
     >
@@ -118,7 +140,7 @@ export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu
         <div
           ref={scrollRef}
           class="message-body reasoning-scroll"
-          dangerouslySetInnerHTML={{ __html: html }}
+          dangerouslySetInnerHTML={{ __html: renderedHtml }}
           aria-live="polite"
           style={height ? { height: `${height}px`, maxHeight: 'none' } : undefined}
         />

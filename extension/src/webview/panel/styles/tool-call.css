@@ -363,8 +363,12 @@
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: 12px;
   line-height: 1.5;
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  /* Terminal output preserves alignment (tables, columns, progress) by
+     scrolling horizontally instead of wrapping — wrapping mangles
+     terminal-style output. Long lines get an horizontal scrollbar; vertical
+     overflow still scrolls (and stays pinned to the bottom while streaming). */
+  white-space: pre;
+  overflow-x: auto;
   color: var(--panel-foreground);
 }
 
@@ -398,14 +402,65 @@
   box-shadow: inset 0 1px 0 0 color-mix(in srgb, var(--panel-accent) 35%, transparent);
 }
 
-.tool-call-truncated {
+/* Terminal footer: a truncation notice (with a clickable full-log path) and/or
+   a non-zero exit-code badge. The full-log path is a ClickablePathButton
+   (consistent with the header) rather than plain text. The exit-code badge
+   surfaces the specific numeric code the SDK appends as text on failure
+   ("Command exited with code N"); only shown for non-zero codes, matching the
+   "alert on failure, not on success" header philosophy. */
+.tool-call-terminal-footer {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
   padding: 4px 10px;
   font-size: 10.5px;
   color: var(--panel-muted);
   border-top: 1px solid var(--panel-border-subtle);
+}
+
+.tool-call-terminal-footer-main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tool-call-truncated-text {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.tool-call-truncated-fulllog {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  min-width: 0;
+}
+
+.tool-call-truncated-fulllog-sep,
+.tool-call-truncated-fulllog-label {
+  color: var(--panel-muted);
+  opacity: 0.8;
+}
+
+.tool-call-terminal-exit {
+  flex: 0 0 auto;
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--panel-danger) 30%, transparent);
+  border-radius: var(--panel-radius-sm);
+  background: color-mix(in srgb, var(--panel-danger) 10%, transparent);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--panel-danger);
 }
 
 /* ── Syntax highlighting for structured tool input/output ────────────────── */

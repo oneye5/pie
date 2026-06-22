@@ -31,6 +31,7 @@ import goLang from 'highlight.js/lib/languages/go';
 import rustLang from 'highlight.js/lib/languages/rust';
 import rubyLang from 'highlight.js/lib/languages/ruby';
 import { stringify as stringifyYaml } from 'yaml';
+import { stripAnsiEscapes } from '../../../shared/tool-call-analysis';
 
 // Order matters: typescript extends javascript, so javascript must register
 // first. Registering is idempotent.
@@ -185,20 +186,26 @@ export interface ToolResultContentPartLike {
  * Extract concatenated text from a tool result's `content` parts (the SDK's
  * standard result shape). Returns `undefined` when there is no text content,
  * so callers can fall back to structured formatting.
+ *
+ * ANSI CSI escape sequences are stripped here so forced-color tool output
+ * (e.g. `ls --color=always`, test runners with `--color`) renders as plain
+ * text instead of leaking raw `\x1b[..m` codes. This is the single display
+ * chokepoint for human-readable tool-result text, so all render paths
+ * (terminal pane, error detail, activity tail) get clean text.
  */
 export function textFromToolResult(result: unknown): string | undefined {
   if (result == null) {
     return undefined;
   }
   if (typeof result === 'string') {
-    return result || undefined;
+    return stripAnsiEscapes(result) || undefined;
   }
   if (typeof result !== 'object') {
     return undefined;
   }
   const content = (result as { content?: unknown }).content;
   if (typeof content === 'string') {
-    return content || undefined;
+    return stripAnsiEscapes(content) || undefined;
   }
   if (Array.isArray(content)) {
     const text = content
@@ -209,7 +216,8 @@ export function textFromToolResult(result: unknown): string | undefined {
       .filter((part) => part.type === 'text' && typeof part.text === 'string')
       .map((part) => part.text ?? '')
       .join('\n\n');
-    return text || undefined;
+    const cleaned = stripAnsiEscapes(text);
+    return cleaned || undefined;
   }
   return undefined;
 }

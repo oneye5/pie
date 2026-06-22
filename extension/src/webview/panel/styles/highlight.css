@@ -52,6 +52,20 @@
   min-height: 0;
 }
 
+/* Blinking block cursor appended to the end of expanded reasoning while the
+   assistant is still streaming tokens. Polish — the message-level activity
+   indicator also signals streaming; this gives the expanded block its own
+   "still writing" affordance. Uses the shared `blink` keyframes. */
+.reasoning-stream-cursor {
+  display: inline-block;
+  width: 7px;
+  height: 1em;
+  margin-left: 1px;
+  vertical-align: text-bottom;
+  background: var(--panel-accent);
+  animation: blink 1s step-end infinite;
+}
+
 /* ── hljs token theme (scoped to .hljs-scope) ───────────────────────────── */
 
 .hljs-scope .hljs {

@@ -13,7 +13,7 @@ import {
 
 type SizeHintPrefix = '+' | '-' | '';
 
-function countTextLines(text: string): number {
+export function countTextLines(text: string): number {
   if (text.length === 0) {
     return 0;
   }

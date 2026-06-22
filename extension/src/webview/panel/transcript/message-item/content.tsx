@@ -45,6 +45,7 @@ function AssistantParts({
               text={part.text}
               autoExpand={prefs.autoExpandReasoning}
               collapsibleKey={`reasoning:${messageId}:${index}`}
+              streaming={isCurrentlyStreaming && index === parts.length - 1}
               onContextMenu={(e) => onContextMenu('reasoning', part.text, e)}
             />
           );

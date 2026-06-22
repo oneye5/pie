@@ -10,6 +10,7 @@ import {
   summarizeUnknown,
 } from './summary';
 import {
+  countTextLines,
   createEmptyFileMutationDelta,
   getFileExtensionFromToolCall,
   getFileMutationFromToolCall,
@@ -28,6 +29,7 @@ import {
 
 export type { VerificationCommandKind, FileMutationDelta, SubagentTaskScoreRollup, FileExtensionAnalysis };
 export {
+  countTextLines,
   normalizeToolCallName,
   summarizeSubagentToolCallInput,
   summarizeStringList,
@@ -148,7 +150,16 @@ function stringifyResultText(result: unknown): string {
   }
 }
 
-function extractExitCode(result: unknown, text: string): number | null {
+/** Strip ANSI CSI escape sequences (colors, cursor moves, etc.) from text.
+ *  Used both for failure-analysis excerpts and for terminal/tool-result
+ *  display so forced-color tools (e.g. `ls --color=always`, test runners with
+ *  `--color`) don't leak raw `\x1b[..m` codes into the UI. */
+export function stripAnsiEscapes(text: string): string {
+  // eslint-disable-next-line no-control-regex -- intentionally matching ANSI ESC sequences
+  return text.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '');
+}
+
+export function extractExitCode(result: unknown, text: string): number | null {
   if (isRecord(result)) {
     for (const key of ['exitCode', 'code', 'status']) {
       const value = result[key];
@@ -162,9 +173,7 @@ function extractExitCode(result: unknown, text: string): number | null {
 }
 
 function formatErrorExcerpt(text: string, maxLength = 240): string {
-  const normalized = text
-    // eslint-disable-next-line no-control-regex -- intentionally matching ANSI ESC sequences
-    .replace(/\x1b\[[0-9;?]*[A-Za-z]/g, '')
+  const normalized = stripAnsiEscapes(text)
     .replace(/\s+/g, ' ')
     .trim();
   if (!normalized) {
