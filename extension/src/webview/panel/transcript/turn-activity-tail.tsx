@@ -1,6 +1,8 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
+import { useLayoutEffect, useRef, useState } from 'preact/hooks';
+
 import { cx } from '../utils/cx';
 import type { TurnActivityState } from './activity';
 import type { TurnActivityTail } from './activity-tail';
@@ -26,7 +28,10 @@ interface TurnActivityTailBodyProps {
  *
  * Truncation ("more output exists above") is conveyed by a gentle top fade on
  * the content block rather than a dedicated `…` row, so the preview reads
- * seamlessly. The fade only applies with ≥2 content lines.
+ * seamlessly. The fade is driven by the actual rendered overflow: any time the
+ * wrapped content is taller than the reserved block, the oldest (top) content
+ * fades out. This catches both "many short source lines" and "one long line
+ * that wraps across several rows".
  *
  * The body wraps to fill the reserved width and collapses source newlines
  * (joined with a space) so the limited preview rows carry as much of the recent
@@ -35,13 +40,14 @@ interface TurnActivityTailBodyProps {
  * the newest text and the caret stay visible, bottom-aligned.
  */
 export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
-  const { kind, label, inputLine, lines, cursor, truncated } = tail;
+  const { kind, label, inputLine, lines, cursor } = tail;
   const hasComposite = Boolean(label);
   const hasContent = lines.length > 0;
   // The caret sits on the composite row while no output has arrived, otherwise
   // at the end of the flowing body text.
   const caretOnComposite = Boolean(cursor) && !hasContent;
-  const showFade = truncated && hasContent && lines.length >= 2;
+  const [overflows, overflowRefs] = useContentOverflow(hasContent, lines.length >= 2);
+  const showFade = hasContent && overflows;
   // Collapse source newlines into spaces so the body flows as a single wrapping
   // run that fills the reserved width, instead of one clipped row per source line.
   // Blank source lines are dropped (they would only add stray gaps in a wrap).
@@ -67,9 +73,12 @@ export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
         at the end. The lone-caret branch covers the rare case of a tail with no
         composite and no content but a live cursor.
       */}
-      <div class={cx('turn-activity-tail-content', showFade && 'truncated')}>
+      <div
+        ref={overflowRefs.containerRef}
+        class={cx('turn-activity-tail-content', showFade && 'truncated')}
+      >
         {hasContent ? (
-          <span class="turn-activity-tail-text" title={joined}>
+          <span ref={overflowRefs.textRef} class="turn-activity-tail-text" title={joined}>
             {joined}
             {cursor && <span class="turn-activity-tail-cursor" aria-hidden="true" />}
           </span>
@@ -83,6 +92,37 @@ export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
       </div>
     </div>
   );
+}
+
+interface OverflowRefs {
+  containerRef: { current: HTMLDivElement | null };
+  textRef: { current: HTMLSpanElement | null };
+}
+
+function useContentOverflow(hasContent: boolean, initialOverflows: boolean): [boolean, OverflowRefs] {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const textRef = useRef<HTMLSpanElement | null>(null);
+  const [overflows, setOverflows] = useState(initialOverflows);
+
+  useLayoutEffect(() => {
+    if (typeof ResizeObserver === 'undefined') return;
+    const content = containerRef.current;
+    const text = textRef.current;
+    if (!content || !text || !hasContent) return;
+
+    const check = () => {
+      const next = text.clientHeight > content.clientHeight + 0.5;
+      setOverflows((prev) => (prev !== next ? next : prev));
+    };
+
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(content);
+    ro.observe(text);
+    return () => ro.disconnect();
+  }, [hasContent]);
+
+  return [overflows, { containerRef, textRef }];
 }
 
 interface TurnActivityBlockProps {

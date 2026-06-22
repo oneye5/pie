@@ -105,12 +105,12 @@ test('deriveStreamingTail marks truncated when reasoning exceeds the line cap', 
 });
 
 test('deriveStreamingTail marks truncated when a single segment exceeds the char cap', () => {
-  const huge = 'x'.repeat(1000);
+  const huge = 'x'.repeat(2000);
   const result = deriveStreamingTail([{ kind: 'text', text: huge }]);
   assert.ok(result);
   assert.equal(result.tail.truncated, true);
   assert.equal(result.tail.lines.length, 1);
-  assert.equal(result.tail.lines[0]!.length, 140);
+  assert.equal(result.tail.lines[0]!.length, 480);
 });
 
 // ── deriveToolTail ───────────────────────────────────────────────────────────
@@ -281,7 +281,7 @@ test('estimateActivityTailHeight scales with rendered rows and is zero without a
   const height = estimateActivityTailHeight(withRows.tail);
   assert.ok(height > 0);
   // Tools reserve a 3-row block (label ▸ input on row 1 + two output rows).
-  assert.equal(height, 3 * 13 + 8);
+  assert.equal(height, 3 * 18 + 8);
 });
 
 // ── deriveTurnActivityState integration ─────────────────────────────────────

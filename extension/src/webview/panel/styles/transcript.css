@@ -471,10 +471,10 @@
   flex-direction: column;
   min-width: 0;
   font-family: var(--vscode-editor-font-family, monospace);
-  font-size: 10px;
-  line-height: 13px;
-  color: color-mix(in srgb, var(--panel-foreground) 58%, var(--panel-muted) 42%);
-  opacity: 0.9;
+  font-size: 12px;
+  line-height: 18px;
+  color: color-mix(in srgb, var(--panel-foreground) 64%, var(--panel-muted) 36%);
+  opacity: 0.95;
 }
 
 .turn-activity-tail-row {
@@ -517,10 +517,10 @@
 /* Reserved output rows: the content block reserves the configured content-row
    budget (2 by default) so the block height stays constant as content streams
    in. --activity-tail-content-min-height is the host-set pref var (driven by
-   activityTailLines in app-body as content rows × the 13px row height); 26px
-   is the bundled :root default (2 rows × 13px) used before the effect runs. */
+   activityTailLines in app-body as content rows × the 18px row height); 36px
+   is the bundled :root default (2 rows × 18px) used before the effect runs. */
 :root {
-  --activity-tail-content-min-height: 26px;
+  --activity-tail-content-min-height: 36px;
 }
 
 .turn-activity-tail-content {
@@ -555,15 +555,15 @@
    more output exists above without spending a line. Only the oldest visible
    row (top) fades; the newest content and the caret stay fully opaque. */
 .turn-activity-tail-content.truncated {
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 11px);
-  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 11px);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 14px);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.35), #000 14px);
   -webkit-mask-repeat: no-repeat;
   mask-repeat: no-repeat;
 }
 
 .turn-activity-tail.reasoning {
   font-style: italic;
-  opacity: 0.72;
+  opacity: 0.82;
 }
 
 .turn-activity-tail.reasoning .turn-activity-tail-composite .turn-activity-tail-text {
@@ -574,7 +574,7 @@
   flex: 0 0 auto;
   display: inline-block;
   width: 6px;
-  height: 12px;
+  height: 14px;
   background: var(--panel-accent, var(--vscode-foreground));
   opacity: 0.8;
   animation: turn-activity-cursor-blink 1.05s steps(2, start) infinite;

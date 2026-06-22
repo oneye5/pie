@@ -30,12 +30,16 @@ import {
  *  threaded through the derive functions as `lineBudget`; this constant is the
  *  fallback when none is supplied. */
 export const ACTIVITY_TAIL_MAX_LINES = 2;
-/** Maximum characters of streaming text/reasoning considered for the tail. */
-export const ACTIVITY_TAIL_MAX_CHARS = 140;
+/**
+ * Maximum characters of streaming text/reasoning considered for the tail.
+ * Kept generous so the wrapped preview can actually fill the available width
+ * rather than leaving most of the row budget empty.
+ */
+export const ACTIVITY_TAIL_MAX_CHARS = 480;
 /** Soft cap for a single rendered line before CSS ellipsis takes over. */
-export const ACTIVITY_TAIL_LINE_MAX_CHARS = 90;
+export const ACTIVITY_TAIL_LINE_MAX_CHARS = 180;
 /** Estimated rendered height of a single tail row, in px (matches CSS line-height). */
-export const ACTIVITY_TAIL_ROW_HEIGHT_PX = 13;
+export const ACTIVITY_TAIL_ROW_HEIGHT_PX = 18;
 
 export interface TurnActivityTail {
   /** Semantic kind; drives styling (e.g. reasoning renders muted/italic). */
