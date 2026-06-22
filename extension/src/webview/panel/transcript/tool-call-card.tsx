@@ -449,10 +449,12 @@ function ToolCallBody({ toolCall, onOpenFile }: ToolCallBodyProps) {
     // result ("Command exited with code N") — it throws on non-zero exit, so
     // the tool-call status is already 'failed'. extractExitCode recovers the
     // numeric code (probing result fields, then the text) so the footer can
-    // show the specific code. On success (exit 0) there is no signal, so
-    // nothing is shown — consistent with the "alert on failure, not on
-    // success" header philosophy.
-    const exitCode = !isRunning ? extractExitCode(toolCall.result, text) : null;
+    // show the specific code. Gate on status === 'failed' (not just !isRunning):
+    // a *completed* command whose own output coincidentally contains that phrase
+    // must not trigger a false-positive badge. On success there is no signal, so
+    // nothing is shown — consistent with the "alert on failure, not on success"
+    // header philosophy.
+    const exitCode = toolCall.status === 'failed' ? extractExitCode(toolCall.result, text) : null;
     const showExit = exitCode != null && exitCode !== 0;
     const fullLogPath = details?.fullOutputPath;
     const showTruncation = Boolean(truncation?.truncated);

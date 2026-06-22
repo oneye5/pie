@@ -1308,6 +1308,48 @@ test('ToolCallCard terminal footer is absent for a successful command with no ex
   assert.doesNotMatch(html, /tool-call-terminal-exit/);
 });
 
+test('ToolCallCard terminal footer does not badge a successful command whose output coincidentally contains the exit phrase', () => {
+  // The SDK only surfaces a non-zero exit by throwing (status 'failed') with
+  // "Command exited with code N" appended. A completed command whose own
+  // output contains that phrase must NOT trigger a false-positive badge.
+  const html = renderToString(h(toolCallCardModule.ToolCallCard, {
+    toolCall: toolCall({
+      id: 'footer-false-positive',
+      name: 'bash',
+      input: { command: 'echo "Command exited with code 5"' },
+      status: 'completed',
+      result: { content: [{ type: 'text', text: 'Command exited with code 5' }] },
+    }),
+    autoExpand: true,
+    workingDirectory: '/repo',
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+  }));
+
+  assert.doesNotMatch(html, /tool-call-terminal-exit/);
+  assert.doesNotMatch(html, /exit 5/);
+  assert.doesNotMatch(html, /tool-call-terminal-footer/);
+});
+
+test('ToolCallCard terminal footer badges a non-zero exit code carried in a result field', () => {
+  const html = renderToString(h(toolCallCardModule.ToolCallCard, {
+    toolCall: toolCall({
+      id: 'footer-exit-field',
+      name: 'bash',
+      input: { command: 'npm test' },
+      status: 'failed',
+      result: { exitCode: 7, content: [{ type: 'text', text: 'tests failed' }] },
+    }),
+    autoExpand: true,
+    workingDirectory: '/repo',
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+  }));
+
+  assert.match(html, /tool-call-terminal-exit/);
+  assert.match(html, /exit 7/);
+});
+
 test('ToolCallCard terminal pane strips ANSI escape sequences from streamed output', () => {
   const html = renderToString(h(toolCallCardModule.ToolCallCard, {
     toolCall: toolCall({
