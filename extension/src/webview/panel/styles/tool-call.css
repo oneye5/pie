@@ -32,6 +32,52 @@
   will-change: opacity;
 }
 
+/* ── Tool-call header (expand/collapse hitbox) ──────────────────────── */
+/* The entire header row is the click-to-toggle hitbox: a single role=button
+   spanning the full card width, with a clear hover/focus affordance so the
+   clickable region is obvious, and a generous min-height (set inline) so it
+   covers enough vertical space to hit comfortably.
+
+   Sticky: when an open card is taller than the viewport (a large file read,
+   a terminal pane the user resized tall, or simply scrolling the transcript
+   past the card), the header pins to the top of the transcript scroll
+   viewport so the collapse control stays reachable without scrolling back to
+   the top. This works because the card root uses `overflow: clip` (not
+   `hidden`): it still rounds/clips its corners but is NOT a scroll container,
+   so it does not trap the sticky header. The opaque card-surface background
+   + z-index keep the body/streaming content from showing through the pinned
+   header; the virtual row's `transform` scopes the z-index so a stuck header
+   never bleeds over neighbouring cards (and it un-sticks exactly as the next
+   card arrives, so there is no inter-row overlap). */
+
+.tool-call-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  /* Opaque so content scrolling beneath the pinned header is hidden. Matches
+     the card's `bg-card` surface so the resting (non-stuck) look is unchanged. */
+  background: var(--panel-card-surface);
+  transition: background var(--panel-transition-fast);
+}
+
+.tool-call-header:hover {
+  background: var(--panel-control-hover);
+}
+
+/* Mirror the card's hover state on the header so the opaque sticky header
+   doesn't read as a darker strip when the body (not the header) is hovered.
+   Hovering the header itself also triggers the card hover, so this single
+   rule covers both. */
+.tool-call-card:hover .tool-call-header {
+  background: var(--panel-control-hover);
+}
+
+/* Inset outline so the focus ring stays inside the card's clipped corners. */
+.tool-call-header:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: -1px;
+}
+
 /* ── Tool-call body ──────────────────────────────────────────────────────── */
 
 .tool-call-body {

@@ -322,27 +322,34 @@ export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, sum
       ? formatDuration(durationMs)
       : null;
 
+  // The entire header row is one expand/collapse hitbox: a single
+  // role=button spanning the full card width with a clear hover/focus
+  // affordance (see `.tool-call-header` in tool-call.css) and a generous
+  // min-height so it covers enough space to hit comfortably. The StatusChip
+  // (copy-error) and ClickablePathButton (open file) live *inside* the toggle
+  // but stop propagation, so they keep their own behaviour without collapsing
+  // the card. The header is sticky (top:0) so a tall open body never strands
+  // the collapse control off-screen — the card root uses `overflow: clip`
+  // (not `hidden`) so its rounded corners still clip without becoming a scroll
+  // container that would trap the sticky header.
   return (
-    <div class="flex min-h-[32px] cursor-pointer select-none items-center gap-[7px] rounded-md px-2 py-[5px]">
-      <div
-        class="flex min-w-0 flex-1 items-center gap-[7px]"
-        role="button"
-        aria-expanded={open}
-        tabIndex={0}
-        onClick={onToggle}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
-      >
-        <div class={cx('flex min-w-0 flex-1 items-center gap-2', (showSummary || showSizeHint) && 'gap-1.5')}>
-          <span class="transcript-header-title-mono min-w-0 flex-[0_1_auto] truncate" title={nameTitle}>{name}</span>
-          {showSummary && collapsedSummaryModel ? (
-            <CollapsedSummary model={collapsedSummaryModel} summaryPath={summaryPath} onOpenFile={onOpenFile} />
-          ) : null}
-          {showSizeHint && <span class="ml-auto block min-w-0 max-w-[var(--tool-call-size-column-width)] flex-[0_0_var(--tool-call-size-column-width)] truncate text-right font-mono text-[10px] text-muted/50">{sizeHint}</span>}
-        </div>
-        {durationLabel && <span class="ml-auto flex-none whitespace-nowrap font-mono text-[10px] text-muted/60 [font-variant-numeric:tabular-nums]" title="Tool execution time">{durationLabel}</span>}
-        {status !== 'failed' && <ToolCallStatusGlyph status={status} />}
-        <CollapsibleChevron open={open} class="ml-0.5 shrink-0" />
+    <div
+      class="tool-call-header flex w-full min-h-[36px] cursor-pointer select-none items-center gap-[7px] px-2.5 py-[7px]"
+      role="button"
+      aria-expanded={open}
+      tabIndex={0}
+      onClick={onToggle}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
+    >
+      <div class={cx('flex min-w-0 flex-1 items-center', (showSummary || showSizeHint) ? 'gap-1.5' : 'gap-2')}>
+        <span class="transcript-header-title-mono min-w-0 flex-[0_1_auto] truncate" title={nameTitle}>{name}</span>
+        {showSummary && collapsedSummaryModel ? (
+          <CollapsedSummary model={collapsedSummaryModel} summaryPath={summaryPath} onOpenFile={onOpenFile} />
+        ) : null}
+        {showSizeHint && <span class="ml-auto block min-w-0 max-w-[var(--tool-call-size-column-width)] flex-[0_0_var(--tool-call-size-column-width)] truncate text-right font-mono text-[10px] text-muted/50">{sizeHint}</span>}
       </div>
+      {durationLabel && <span class="ml-auto flex-none whitespace-nowrap font-mono text-[10px] text-muted/60 [font-variant-numeric:tabular-nums]" title="Tool execution time">{durationLabel}</span>}
+      {status !== 'failed' && <ToolCallStatusGlyph status={status} />}
       {statusTone && statusLabel && (
         <StatusChip
           tone={statusTone}
@@ -352,6 +359,7 @@ export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, sum
           copyAriaLabel={errorDetail ? 'Copy tool-call error detail' : undefined}
         />
       )}
+      <CollapsibleChevron open={open} class="ml-0.5 shrink-0" />
     </div>
   );
 }
@@ -706,7 +714,17 @@ export function ToolCallCard({
   return (
     <div
       class={cx(
-        'overflow-hidden rounded-xl border-l-2 border-l-transparent bg-card shadow-sm transition-all duration-150 hover:bg-control-hover hover:shadow-md',
+        // `overflow-clip` (not `hidden`): clips children to the rounded card
+        // corners identically, but — unlike `overflow: hidden` — does NOT
+        // establish a scroll container, so the sticky `.tool-call-header`
+        // inside can pin to the transcript scroll viewport instead of being
+        // trapped by the card.
+        'overflow-clip rounded-xl border-l-2 border-l-transparent bg-card shadow-sm transition-all duration-150 hover:bg-control-hover hover:shadow-md',
+        // Stable hook so the sticky header can mirror the card's hover state
+        // (see `.tool-call-card:hover .tool-call-header` in tool-call.css) —
+        // without it the opaque header would keep `bg-card` while the card
+        // body lifts to `bg-control-hover`, leaving a darker strip at the top.
+        'tool-call-card',
         'forced-colors:border forced-colors:border-[ButtonText]',
         toolCall.status === 'failed' && 'border-l-danger/50',
         toolCall.status === 'completed' && 'border-l-success/60',

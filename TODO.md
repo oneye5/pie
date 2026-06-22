@@ -1,5 +1,31 @@
 # TODO — Deferred work
 
+## Sticky expand/collapse header — extend to reasoning + subagent (follow-up)
+
+**Implemented (tool-call cards):** the tool-call expand/collapse hitbox is now a
+single full-width `role=button` with a clear hover/focus affordance and a
+larger min-height, and the header is `position: sticky; top: 0` so a tall open
+body never strands the collapse control off-screen. The card root switched
+`overflow: hidden` → `overflow: clip` (clips to rounded corners identically but
+is NOT a scroll container, so it doesn't trap the sticky header). See commit
+`refactor(panel): clear, full-width + sticky tool-call expand/collapse hitbox`.
+
+**Deferred — same treatment for the other expandable sections:**
+- **Reasoning blocks** (`reasoning-block.tsx`, via the generic `Collapsible`):
+  its hitbox is already a clear full-width `<button>` with hover/focus, so only
+  the *sticky* part is missing. Reasoning is capped at
+  `--expanded-section-max-height` (240px) so sticky rarely triggers, but for
+  consistency a `stickyHeader` opt-in on `Collapsible` (opaque header bg when
+  stuck) would help long blocks the user resizes tall. The generic `Collapsible`
+  has no `overflow` trap, so sticky works without an `overflow: clip` change
+  there — the only design question is the opaque header background (reasoning's
+  open body is `bg-control/60` translucent, so a pinned header needs a chosen
+  opaque surface).
+- **Subagent threads** (`tool-call-item.tsx` `SubagentBlock` + `.subagent-header`):
+  can be very tall (nested transcript) but use a different header component and
+  a wrapper with `overflow-hidden` (which would trap sticky — needs the same
+  `overflow: clip` swap). Revisit if the tool-call sticky pattern reads well.
+
 ## Provider-agnostic analytics leaderboard
 
 **Implemented:** the analytics leaderboard (both the site-data `createModelLeaderboard`
