@@ -8,6 +8,10 @@ This folder mixes design contracts, implementation plans (some completed, some o
 - [STATE_CONTRACT.md](STATE_CONTRACT.md) — authoritative rules for host ↔ webview state sync. Any change here requires matching tests in `extension/test/` (see `sync-contract.test.ts`).
 - [internal/ARCH-OVERVIEW.md](internal/ARCH-OVERVIEW.md) — concise developer-onboarding file map. Spine file locations, glossary table, and "where to make changes" quick-reference.
 
+## Active plans (in progress)
+
+- [EXPANDED-SECTION-UI-PLAN.md](EXPANDED-SECTION-UI-PLAN.md) — audit + grilling decisions for the bash/terminal tool pane and reasoning preview: bound reasoning with the resizable model, shared `expandedSectionMaxHeight` pref across all four expanded sections, reduced default max-height, and removed the "hold close while turn active" logic (per-command grace-then-slow-close) so open panes stop dominating the transcript. Secondary findings (ANSI, exitCode, long-line handling, stderr) deferred.
+
 ## Archived plans (removed — see git history)
 
 Historical migration and planning documents were removed from the tree after completion. Check git history for the original content:
