@@ -140,9 +140,11 @@ export interface ChatPrefs {
   extensionToggles: Record<string, boolean>;
   /** Per-provider enabled/disabled toggles. Keys are provider names. */
   providerToggles: Record<string, boolean>;
-  /** When true, the file-changes rail auto-opens when the first change is
-   *  reported for a session. Reset when the user sends a new message. */
-  autoOpenFileChangesRail: boolean;
+  /** Content rows reserved in the live activity-tail preview (the streaming
+   *  reasoning/reply text or a running tool/subagent's output shown at the
+   *  bottom of a turn). Tools/subagents add one header row on top. Default 2
+   *  reproduces the bundled 2-row (reasoning) / 3-row (tool) preview. */
+  activityTailLines: number;
 }
 
 /** Environment key used to expose pie provider toggles to in-process pi extensions. */
@@ -190,7 +192,7 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   uiDensity: 'comfortable',
   extensionToggles: {},
   providerToggles: {},
-  autoOpenFileChangesRail: true,
+  activityTailLines: 2,
 };
 
 export const DEFAULT_PRUNING_SETTINGS: PruningSettings = {

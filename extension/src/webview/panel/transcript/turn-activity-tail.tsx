@@ -12,11 +12,11 @@ interface TurnActivityTailBodyProps {
 /**
  * Render the live-activity tail as a fixed-height, terminal-style block.
  *
- * The block reserves a constant row budget per kind (2 rows for reasoning /
- * reply text, 3 rows for a running tool / subagent) so its height never
- * changes as content streams in — that is what stops the transcript from
- * jumping around while the agent works. Rows render top-to-bottom; the blinking
- * caret attaches to the newest row.
+ * The block reserves a constant row budget per kind (the configured content-row
+ * count for reasoning / reply text, plus one header row for a running tool /
+ * subagent) so its height never changes as content streams in — that is what
+ * stops the transcript from jumping around while the agent works. Rows render
+ * top-to-bottom; the blinking caret attaches to the newest row.
  *
  * Tool / subagent tails merge their label (tool / agent name) and input (the
  * command / task) onto the first row as `label ▸ input`, so the caller and its

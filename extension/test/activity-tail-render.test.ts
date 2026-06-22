@@ -11,7 +11,7 @@ import type { TurnActivityTail } from '../src/webview/panel/transcript/activity-
 function tail(
   overrides: Partial<TurnActivityTail> & { kind: TurnActivityTail['kind'] },
 ): TurnActivityTail {
-  return { lines: [], truncated: false, cursor: true, ...overrides };
+  return { lines: [], truncated: false, cursor: true, reservedRows: 2, ...overrides };
 }
 
 function countCaret(html: string): number {

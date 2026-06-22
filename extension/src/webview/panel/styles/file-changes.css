@@ -1,30 +1,26 @@
 /* ── Right-side file-changes rail ────────────────────────────────────────── */
+/* Peek-vs-pin policy (CHANGED-FILES-UI-PLAN D1):
+ *  - Collapsed: a thin full-height sliver (count + stacked +/- diff bar, D2)
+ *    — the only persistent footprint when not pinned.
+ *  - Peek (hover/tap): an ephemeral overlay floating over the transcript
+ *    edge (D3); reserves no layout space.
+ *  - Pin (click / header pin button): in-flow, flex-reserved (shrinks the
+ *    transcript), drag-resizable via a left-edge handle (D5).
+ * The durable pin (ViewState.fileChangesExpanded) is host state; peek and the
+ * drag width are webview-local (STATE_CONTRACT § Webview-Local State). */
 
 .file-changes-rail {
-  --file-changes-handle-width: 30px;
-  --file-changes-drawer-width: 250px;
+  --file-changes-sliver-width: 12px;
+  --file-changes-drawer-width: 200px;
 
   position: relative;
   display: flex;
   flex-direction: row;
-  flex: 0 0 auto;
-  /* Collapsed: only the compact handle chip shows — no full-height bar,
-     background, or left border, so there is no empty vertical strip. The
-     rail sizes to the chip (content height, top-aligned) until expanded. */
-  align-items: flex-start;
-  align-self: flex-start;
-  min-height: 0;
-  /* The rail is a transparent layout container; only the chip (collapsed) or
-     the drawer (expanded) receive pointer events, so the empty gutter below
-     the chip never swallows clicks. */
-  pointer-events: none;
-  color: var(--panel-foreground);
-}
-
-/* Expanded: stretch to full height so the drawer can host a scrollable list.
-   The drawer itself carries the card surface + left border. */
-.file-changes-rail.is-expanded {
+  align-items: stretch;
   align-self: stretch;
+  flex: 0 0 auto;
+  min-height: 0;
+  color: var(--panel-foreground);
 }
 
 /* Hide when there is nothing to show. The component itself also returns null
@@ -33,22 +29,24 @@
   display: none;
 }
 
-/* ── Collapsed handle ────────────────────────────────────────────────────── */
+/* ── Collapsed sliver (D2) ────────────────────────────────────────────────── */
+/* A thin full-height strip: a count at the top and a stacked +/- diff bar
+   filling the rest. ~12px is the minimum that keeps a 2-digit count legible
+   while reading as a near-zero footprint. */
 
-.file-changes-handle {
+.file-changes-sliver {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--panel-gap-xs);
-  width: var(--file-changes-handle-width);
-  padding: var(--panel-gap-sm) 0;
-  border: 1px solid var(--panel-border-subtle);
-  border-radius: var(--panel-radius-md);
-  background: var(--panel-control-surface);
+  width: var(--file-changes-sliver-width);
+  padding: var(--panel-gap-xs) 0;
+  border: none;
+  border-left: 1px solid transparent;
+  background: transparent;
   color: var(--panel-foreground-soft);
   cursor: pointer;
   flex-shrink: 0;
-  margin: var(--panel-gap-xs);
   pointer-events: auto;
   transition:
     background var(--panel-transition-fast),
@@ -56,90 +54,86 @@
     border-color var(--panel-transition-fast);
 }
 
-/* When expanded the drawer header carries the collapse affordance, so the
-   handle chip is hidden — no leftover bar or strip in either state. */
-.file-changes-rail.is-expanded .file-changes-handle {
-  display: none;
-}
-
-.file-changes-handle:hover {
+.file-changes-sliver:hover,
+.file-changes-rail.is-peeking .file-changes-sliver {
   background: var(--panel-control-hover);
   color: var(--panel-foreground);
+  border-left-color: var(--panel-accent);
 }
 
-.file-changes-handle svg {
-  flex-shrink: 0;
-  transition: transform var(--panel-transition-fast);
-}
-
-/* The chevron sits grouped with the count (no margin-top:auto) since the
-   handle is now a compact chip; it is hidden entirely when expanded. */
-.file-changes-handle svg.file-changes-handle-chevron {
-  opacity: 0.65;
-}
-
-.file-changes-handle-count {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 17px;
-  height: 17px;
-  padding: 0 5px;
-  border-radius: 999px;
-  background: var(--panel-ink-5);
-  border: 1px solid var(--panel-border-subtle);
+.file-changes-sliver-count {
   font-size: 9px;
   font-weight: 650;
   line-height: 1;
   font-variant-numeric: tabular-nums;
-  color: var(--panel-foreground-soft);
-  transition:
-    background var(--panel-transition-fast),
-    border-color var(--panel-transition-fast),
-    color var(--panel-transition-fast);
+  color: inherit;
+  transition: color var(--panel-transition-fast);
 }
 
-/* Promote the count to an accent pill when there are unseen changes, so the
-   collapsed handle signals activity at a glance (static — no animation). */
-.file-changes-rail.has-new-changes:not(.is-expanded) .file-changes-handle-count {
-  background: color-mix(in srgb, var(--panel-accent) 18%, var(--panel-ink-4));
-  border-color: color-mix(in srgb, var(--panel-accent) 32%, transparent);
+/* hasNewChanges pulse: the count is the mid-turn "review me" signal (D6/D9).
+   Subtle opacity pulse on the accent-colored count; respects reduced motion. */
+.file-changes-rail.has-new-changes:not(.is-pinned) .file-changes-sliver-count {
   color: var(--panel-accent-strong);
+  animation: file-changes-new-pulse 1.8s ease-in-out infinite;
 }
 
-/* ── Expanded drawer ─────────────────────────────────────────────────────── */
-/* The drawer is a flex sibling of the handle (not an overlay), so when it
-   expands the transcript reserves space and shrinks rather than being
-   covered. The drawer animates its own width from 0 → drawer-width with
-   overflow:hidden; the inner wrapper holds the fixed-width content so the
-   contents never reflow during the animation (only the clip widens). */
+@keyframes file-changes-new-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .file-changes-rail.has-new-changes:not(.is-pinned) .file-changes-sliver-count {
+    animation: none;
+  }
+}
+
+/* ── Drawer (peek overlay + pin in-flow) ─────────────────────────────────── */
+/* One content surface (D4): the same header + file list renders in both
+   modes — only the positioning differs. */
 
 .file-changes-drawer {
+  /* Hidden by default (not pinned, not peeking): zero width, no pointer
+     events, fully clipped — contributes no layout footprint. */
   flex: 0 0 auto;
-  align-self: stretch;
   width: 0;
-  /* Collapsed: zero size so the drawer contributes no height — the rail
-     shrinks to just the handle chip. Height resets to auto (stretch) when
-     expanded. */
-  height: 0;
-  overflow: hidden;
+  height: 100%;
   opacity: 0;
+  overflow: hidden;
   pointer-events: none;
-  border-left: 1px solid var(--panel-border);
+  border-left: 1px solid transparent;
   background: var(--panel-card-surface);
-  transition:
-    width var(--panel-duration-normal) var(--panel-ease-out-expo),
-    opacity var(--panel-duration-normal) var(--panel-ease-out-expo);
+  transition: opacity var(--panel-transition-fast);
 }
 
-.file-changes-rail.is-expanded .file-changes-drawer {
-  width: var(--file-changes-drawer-width);
-  height: auto;
+/* Pin: in-flow flex sibling, shrinks to the inner content width (which carries
+   the drag or default width). Reserves layout space — shrinks the transcript. */
+.file-changes-drawer.is-pinned {
+  width: auto;
   opacity: 1;
   pointer-events: auto;
+  border-left-color: var(--panel-border);
 }
 
-/* Fixed-width content so the drawer's widening clip doesn't reflow text. */
+/* Peek: transient overlay floating over the transcript edge (D3). Reserves no
+   layout space; z-index clears the transcript's floating jump-to-latest
+   button (z-index 280) — both live in .panel-main's isolated stacking
+   context, so this sits above it. */
+.file-changes-drawer.is-peek {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: var(--file-changes-drawer-width);
+  z-index: 300;
+  opacity: 1;
+  pointer-events: auto;
+  border-left-color: var(--panel-border);
+  box-shadow: -10px 0 28px rgba(0, 0, 0, 0.28);
+}
+
+/* Fixed-width content so a drag / widening clip doesn't reflow text. The
+   drag width overrides this via an inline style when pinned. */
 .file-changes-drawer-inner {
   width: var(--file-changes-drawer-width);
   height: 100%;
@@ -147,7 +141,7 @@
   flex-direction: column;
 }
 
-/* ── Drawer header ────────────────────────────────────────────────────────── */
+/* ── Drawer header + aggregate (D7) ──────────────────────────────────────── */
 
 .file-changes-header {
   display: flex;
@@ -159,14 +153,32 @@
   flex-shrink: 0;
 }
 
-.file-changes-title {
+.file-changes-aggregate {
+  display: inline-flex;
+  align-items: baseline;
+  gap: var(--panel-gap-sm);
+  flex: 1;
+  min-width: 0;
+}
+
+.file-changes-aggregate-count {
   font-size: 12px;
   font-weight: 600;
   color: var(--panel-foreground);
 }
 
+.file-changes-aggregate-diff {
+  display: inline-flex;
+  gap: 4px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
+.file-changes-pin,
 .file-changes-close {
   margin-left: auto;
+  flex-shrink: 0;
 }
 
 /* ── File list ──────────────────────────────────────────────────────────── */
@@ -307,6 +319,45 @@
   font-weight: 500;
 }
 
+/* ── Diff bar (sliver + per-row, shared visual language — D2/D7) ─────────── */
+
+.file-change-diff-bar {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--panel-ink-4) 55%, transparent);
+  overflow: hidden;
+}
+
+/* Vertical (sliver): fills the available height; additions anchor the bottom,
+   deletions stack above. Scaled to add+del so the bar always fills and shows
+   the add/del split. */
+.file-change-diff-bar.is-vertical {
+  flex: 1;
+  width: 4px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column-reverse;
+  justify-content: flex-end;
+}
+
+/* Horizontal (per-row): a fixed-width track; additions (left) + deletions
+   (right) scale to the session's largest row so bars are comparable by
+   magnitude. */
+.file-change-diff-bar.is-horizontal {
+  display: inline-flex;
+  flex-direction: row;
+  width: 36px;
+  height: 4px;
+  flex-shrink: 0;
+}
+
+.diff-bar-add {
+  background: var(--panel-success);
+}
+
+.diff-bar-del {
+  background: var(--panel-danger);
+}
+
 /* ── Action buttons ───────────────────────────────────────────────────────── */
 
 .file-change-actions .action-btn.icon-only {
@@ -378,8 +429,8 @@
 /* ── Forced-colors mode ──────────────────────────────────────────────────── */
 
 @media (forced-colors: active) {
-  .file-changes-handle {
-    border-color: ButtonText;
+  .file-changes-sliver {
+    border-left-color: ButtonText;
   }
   .file-changes-drawer {
     border-color: ButtonText;
@@ -390,7 +441,8 @@
   }
   .file-change-open,
   .file-change-copy,
-  .file-change-revert {
+  .file-change-revert,
+  .file-changes-pin {
     color: ButtonText;
   }
 }

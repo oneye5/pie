@@ -3,31 +3,42 @@
 
 import { cx } from '../utils/cx';
 
+type ResizeEdge = 'top' | 'bottom' | 'left' | 'right';
+
 interface ResizeHandleProps {
-  edge: 'top' | 'bottom';
+  edge: ResizeEdge;
   onMouseDown: (e: MouseEvent) => void;
   class?: string;
   label?: string;
-  /** Current height in px (for aria-valuenow); null until the user resizes. */
+  /** Current height in px (vertical handles); null until the user resizes. */
   height?: number | null;
-  /** Min/max for aria-valuemin/aria-valuemax (and keyboard clamp). */
+  /** Min/max height for aria-valuemin/aria-valuemax (vertical handles). */
   minHeight?: number;
   maxHeight?: number;
-  /** Keyboard resize: adjust height by delta px (clamped to min/max). */
+  /** Current width in px (horizontal handles); null until the user resizes. */
+  width?: number | null;
+  /** Min/max width for aria-valuemin/aria-valuemax (horizontal handles). */
+  minWidth?: number;
+  maxWidth?: number;
+  /** Keyboard resize: adjust the relevant dimension by delta px (clamped to
+   *  min/max). Direction matches the edge — see keyboard handler below. */
   onResizeBy?: (delta: number) => void;
-  /** Reset to the CSS default height (double-click). */
+  /** Reset to the CSS default (double-click). */
   onReset?: () => void;
 }
 
 /**
- * Visual + a11y wrapper for a vertical resize drag handle. Paired with
- * `useResizableHeight` (top + bottom handles) so any scrollable expanded
- * section can be grown in place from either edge. Styling lives under
+ * Visual + a11y wrapper for a resize drag handle, vertical (top/bottom edges,
+ * resizes height, paired with `useResizableHeight`) or horizontal (left/right
+ * edges, resizes width, paired with `useResizableWidth`). Styling lives under
  * `.resize-handle` in styles/highlight.css so every handle looks identical.
  *
  * Beyond pointer drag, the handle is keyboard-operable (role="separator"):
- * ArrowUp/ArrowDown nudge the height by 10px (direction matches the edge — up
- * grows a top handle, down grows a bottom handle) and double-click resets.
+ *  - vertical: ArrowUp/ArrowDown nudge height by 10px (up grows a top handle,
+ *    down grows a bottom handle)
+ *  - horizontal: ArrowLeft/ArrowRight nudge width by 10px (left grows a left
+ *    handle, right grows a right handle)
+ * Double-click resets to the CSS default.
  */
 export function ResizeHandle({
   edge,
@@ -37,32 +48,48 @@ export function ResizeHandle({
   height,
   minHeight = 0,
   maxHeight,
+  width,
+  minWidth = 0,
+  maxWidth,
   onResizeBy,
   onReset,
 }: ResizeHandleProps) {
+  const isVertical = edge === 'top' || edge === 'bottom';
+
   const handleKeyDown = (e: KeyboardEvent) => {
     if (!onResizeBy) return;
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      // Up grows a top handle (pull its edge up) and shrinks a bottom handle.
-      onResizeBy(edge === 'top' ? 10 : -10);
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      onResizeBy(edge === 'top' ? -10 : 10);
+    if (isVertical) {
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        // Up grows a top handle (pull its edge up) and shrinks a bottom handle.
+        onResizeBy(edge === 'top' ? 10 : -10);
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        onResizeBy(edge === 'top' ? -10 : 10);
+      }
+    } else {
+      if (e.key === 'ArrowLeft') {
+        e.preventDefault();
+        // Left grows a left handle (pull its edge left) and shrinks a right handle.
+        onResizeBy(edge === 'left' ? 10 : -10);
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault();
+        onResizeBy(edge === 'left' ? -10 : 10);
+      }
     }
   };
 
   return (
     <div
-      class={cx('resize-handle', edge === 'top' ? 'resize-handle-top' : 'resize-handle-bottom', className)}
+      class={cx('resize-handle', `resize-handle-${edge}`, className)}
       role="separator"
-      aria-orientation="horizontal"
+      aria-orientation={isVertical ? 'horizontal' : 'vertical'}
       aria-label={label}
       title={label}
       tabIndex={0}
-      aria-valuemin={minHeight}
-      aria-valuemax={maxHeight}
-      aria-valuenow={height ?? undefined}
+      aria-valuemin={isVertical ? minHeight : minWidth}
+      aria-valuemax={isVertical ? maxHeight : maxWidth}
+      aria-valuenow={(isVertical ? height : width) ?? undefined}
       onMouseDown={onMouseDown}
       onKeyDown={handleKeyDown}
       onDblClick={onReset}

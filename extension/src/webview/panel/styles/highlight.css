@@ -220,6 +220,32 @@
   border-bottom-color: var(--panel-border-subtle);
 }
 
+/* Horizontal handles (left/right edges) — the width analogue of the vertical
+   top/bottom handles. Used by the pinned file-changes drawer. */
+.resize-handle-left,
+.resize-handle-right {
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  /* Reset the vertical-handle hairlines so only the relevant edge shows. */
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.resize-handle-left {
+  border-left-color: var(--panel-border-subtle);
+}
+
+.resize-handle-right {
+  border-right-color: var(--panel-border-subtle);
+}
+
+/* Expand the grab target horizontally (mirrors the vertical ::before). */
+.resize-handle-left::before,
+.resize-handle-right::before {
+  inset: 0 -5px;
+}
+
 .resize-handle:hover,
 .resize-handle:active {
   background: color-mix(in srgb, var(--panel-accent) 22%, transparent);
@@ -227,9 +253,24 @@
   border-bottom-color: var(--panel-accent);
 }
 
+.resize-handle-left:hover,
+.resize-handle-left:active,
+.resize-handle-right:hover,
+.resize-handle-right:active {
+  border-left-color: var(--panel-accent);
+  border-right-color: var(--panel-accent);
+}
+
 @media (forced-colors: active) {
   .resize-handle {
     border-top-color: ButtonText;
     border-bottom-color: ButtonText;
+  }
+  .resize-handle-left,
+  .resize-handle-right {
+    border-top-color: transparent;
+    border-bottom-color: transparent;
+    border-left-color: ButtonText;
+    border-right-color: ButtonText;
   }
 }

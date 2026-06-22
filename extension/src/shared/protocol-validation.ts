@@ -136,7 +136,6 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     'suppressCompletionNotifications',
     'showPruningMessages',
     'subagentAlwaysParentModel',
-    'autoOpenFileChangesRail',
   ];
   const toggleKeys: Array<keyof ChatPrefs> = [
     'extensionToggles',
@@ -148,6 +147,7 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     expandedSectionMaxHeight: [120, 720],
     uiMessageWidth: [60, 100],
     uiCornerRadius: [0, 20],
+    activityTailLines: [1, 6],
   };
   const stringKeys: Array<keyof ChatPrefs> = [
     'uiFontSans',

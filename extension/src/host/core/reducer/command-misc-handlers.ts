@@ -36,7 +36,6 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
   if (isPendingTabPath(cmd.sessionPath)) {
     const nextState = produce(state, (draft) => {
       appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.composedText, cmd.userParts, new Date(cmd.timestamp).toISOString());
-      draft.fileChanges.autoExpandedBySession[cmd.sessionPath] = false;
       draft.pending.sendQueueBySession[cmd.sessionPath] = [
         ...(draft.pending.sendQueueBySession[cmd.sessionPath] ?? []),
         {
@@ -68,7 +67,6 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
   if (!state.settings.backendReady) {
     const nextState = produce(state, (draft) => {
       appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.composedText, cmd.userParts, new Date(cmd.timestamp).toISOString());
-      draft.fileChanges.autoExpandedBySession[cmd.sessionPath] = false;
       draft.pending.backendReadyQueueBySession[cmd.sessionPath] = [
         ...(draft.pending.backendReadyQueueBySession[cmd.sessionPath] ?? []),
         {
@@ -106,7 +104,6 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
       text: cmd.text,
     };
     draft.sessions.runningSessionPaths = nextRunningPaths;
-    draft.fileChanges.autoExpandedBySession[cmd.sessionPath] = false;
     delete draft.composer.draftTextBySession[cmd.sessionPath];
   });
 

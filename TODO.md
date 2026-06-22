@@ -2,42 +2,50 @@
 
 ## Changed-files UI (from docs/CHANGED-FILES-UI-PLAN.md)
 
-**Planning complete (grilling); implementation NOT started.** Decisions D1–D8
-settled; D9 (tuning) open. Summary of the agreed design:
+**Implemented: D1–D8.** Reviewer-audited; build / typecheck / tests green.
+Full decision record lives in the plan doc. Summary:
 
-- **D1** Peek-vs-pin split: zero reserved space mid-turn; hover/tap = ephemeral
-  overlay peek; click = persisted pin (`fileChangesExpanded`).
-- **D2** Collapsed floor = thin count + `+`/`-` diff-bar sliver (~8–12px).
-- **D3** Peek is an overlay over the transcript edge (not a push); hover region
-  = sliver ∪ overlay.
-- **D4** Peek renders the full file list (one content model with pin).
-- **D5** Drag-resize width via left-edge handle; ephemeral per-session
-  (mirrors resizable-height precedent). Default ~200px, range ~160–480px.
-- **D6** Remove auto-open (`autoOpenFileChangesRail` pref + `autoExpandedBySession`
-  host state); `hasNewChanges` pulse is the mid-turn signal.
-- **D7** Aggregate header (`N files · +x / −y`) + per-file diff bar; edit-chronology
-  order, no sort.
-- **D8** Touch: tap = peek, pin button in peek header = pin.
+- **D1** Peek-vs-pin: peek = transient webview-local overlay (reserves no
+  space); pin = host state `ViewState.fileChangesExpanded` (in-flow reserved).
+  A type-level pin in `sync-contract.test.ts` fails to compile if a
+  `fileChangesPeek*` field is ever promoted into ViewState.
+- **D2** Collapsed sliver ~12px, full-height: count + vertical stacked +/- diff
+  bar (add bottom / del top, scaled to add+del).
+- **D3** Peek is `position: absolute` over the transcript edge (not a push);
+  hover region = rail subtree (sliver ∪ overlay); dismiss on mouse-leave /
+  click-outside / Escape.
+- **D4** One content model — peek and pin render the same header + file list.
+- **D5** Drag-resize width via left-edge `ResizeHandle` (new
+  `useResizableWidth`, ephemeral). Default 200px, range 160–480px. Peek ignores
+  the drag width (transient; resizing peek is out of scope).
+- **D6** Auto-open removed: `autoOpenFileChangesRail` pref +
+  `autoExpandedBySession` host state + `shouldAutoOpen` block + 3 send resets
+  + cleanup spreads + settings toggle — all deleted. `hasNewChanges` pulse is
+  the mid-turn signal.
+- **D7** Aggregate header (`N files · +A / -D`) + per-row horizontal diff bar
+  (scaled to the session's largest row); edit-chronology order, no sort.
+- **D8** Touch (`matchMedia (hover: hover)` false): tap sliver = peek; pin
+  button in peek header = pin. Desktop: hover = peek, click sliver = pin.
 
-### D9 — Tuning parameters (open)
-- Hover-intent delay (~150–250ms) + peek dismiss delay.
-- Default drawer width + drag bounds (placeholders: 200px / 160–480px).
-- Whether `hasNewChanges` should animate (today static) — needs
-  `prefers-reduced-motion` guard.
+### D9 — Tuning parameters (chosen; revisit if felt)
+- Hover-intent open delay 160ms, close delay 120ms.
+- Default drawer width 200px, drag bounds 160–480px.
+- `hasNewChanges` pulse: subtle 1.8s opacity pulse on the accent-colored
+  count, `prefers-reduced-motion` guarded.
 
-### Contract change required at implementation time
-- Add transient peek/hover-overlay visibility to `STATE_CONTRACT.md §
-  Webview-Local State` allowlist (analogous to `contextMenu`), with a matching
-  `sync-contract.test.ts` entry. (Drag width is already covered by `drag state`.)
+### Contract change (done)
+- `STATE_CONTRACT.md § Webview-Local State` allowlist gained a peek/hover-overlay
+  bullet (analogous to `contextMenu`); matching type-level pin in
+  `sync-contract.test.ts`. Drag width already covered by `drag state`.
 
-### Secondary findings (deferred — documented, not implemented)
-- Sort by magnitude / status (sort-UX question; revisit if D7 doesn't satisfy).
-- Group by status (Created/Modified/Deleted) — alternative glanceability aid.
+### Secondary findings (still deferred — documented, not implemented)
+- Sort by magnitude / status; group by status — revisit if D7 doesn't satisfy.
 - `hasNewChanges` is per-component (keyed by `activeSessionPath`), doesn't
   survive tab-switch; move to host state only if reported.
-- Peek overlay stacking vs sticky headers / composer popovers — confirm z-index
-  at implementation (`.panel-main` already `isolation: isolate`).
 - Resize-handle on peek (out of scope; could "pin on drag" later).
+- Peek overlay stacking confirmed vs the floating jump-to-latest button
+  (z-index 280) — peek bumped to z-index 300 to clear it (within
+  `.panel-main`'s isolated stacking context). No sticky headers exist.
 
 ## Expanded-section UI (from docs/EXPANDED-SECTION-UI-PLAN.md)
 

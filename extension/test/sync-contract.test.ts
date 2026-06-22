@@ -14,6 +14,7 @@ import {
   type SessionAnalyticsFactors,
   type SessionOpenedPayload,
   type ToolFinishedPayload,
+  type ViewState,
   type WebviewToHostMessage,
 } from '../src/shared/protocol';
 
@@ -416,4 +417,16 @@ test('HostToWebviewMessage.sendRejected restores only the text draft payload', (
     assert.equal(msg.sessionPath, '/workspace/a.ts');
     assert.equal(msg.text, 'hello');
   }
+});
+
+test('changed-files peek/hover overlay is webview-local, not host state', () => {
+  // STATE_CONTRACT § Webview-Local State: the changed-files rail's transient
+  // peek/hover overlay is webview-local (analogous to contextMenu) and must
+  // not cross the host↔webview boundary. Only the durable pin
+  // (ViewState.fileChangesExpanded) is host state. This type-level assertion
+  // fails to compile if a peek field is ever promoted into ViewState — the
+  // signal to update STATE_CONTRACT and reconsider the boundary.
+  type PeekField = Extract<keyof ViewState, `fileChangesPeek${string}`>;
+  const isWebviewLocal: [PeekField] extends [never] ? true : false = true;
+  assert.equal(isWebviewLocal, true);
 });

@@ -442,6 +442,23 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
         />
         <div class="toolbar-settings-item-hint">Max height of expanded sections — reasoning, tool output, and subagent threads.</div>
       </div>
+      <div class="toolbar-settings-ui-control">
+        <div class="toolbar-settings-ui-control-head">
+          <span class="toolbar-settings-ui-control-label">Activity rows</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.activityTailLines}</span>
+        </div>
+        <input
+          type="range"
+          class="toolbar-settings-slider toolbar-settings-ui-slider"
+          min="1"
+          max="6"
+          step="1"
+          value={prefs.activityTailLines}
+          onInput={(e) => onSetPrefs({ activityTailLines: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Activity preview rows"
+        />
+        <div class="toolbar-settings-item-hint">Rows shown in the live activity preview at the bottom of a turn.</div>
+      </div>
 
       <UiGroupLabel label="Typography" />
       <div class="toolbar-settings-ui-control">

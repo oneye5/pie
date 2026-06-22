@@ -83,3 +83,24 @@ test('expanded-section max-height pref is wired to a CSS var with a :root defaul
   );
   assert.match(appBody, /prefs\.expandedSectionMaxHeight,/);
 });
+
+test('activity-tail preview-rows pref is wired to a CSS var with a :root default', async () => {
+  const transcriptCss = await readStyleSource('transcript.css');
+  const appBody = await readWebviewSource('app-body.tsx');
+
+  // The :root default (2 content rows × 13px row height) lands the preview at
+  // its bundled height before the host effect runs.
+  assert.match(transcriptCss, /--activity-tail-content-min-height:\s*26px/);
+  assert.match(
+    transcriptCss,
+    /\.turn-activity-tail-content\s*\{[^}]*min-height:\s*var\(--activity-tail-content-min-height\)/,
+  );
+
+  // The host emits the var from the pref (content rows × row-height constant),
+  // and the pref is an effect dependency so updates propagate live.
+  assert.match(
+    appBody,
+    /setProperty\(['"]--activity-tail-content-min-height['"],\s*`\$\{prefs\.activityTailLines\s*\*\s*ACTIVITY_TAIL_ROW_HEIGHT_PX\}px`\)/,
+  );
+  assert.match(appBody, /prefs\.activityTailLines,/);
+});

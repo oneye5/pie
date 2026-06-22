@@ -61,6 +61,7 @@
 The webview must not hold logic state in local `useState`/`useReducer`. Only the following ephemeral UI concerns are allowed as webview-local state:
 
 - **contextMenu** — position and type of the currently open context menu (dismissed on click-outside/Escape)
+- **peek / hover overlay** — transient overlay visibility for the changed-files rail (and analogous hover-peek surfaces), dismissed on mouse-leave / tap-outside / Escape. It is an overlay, not a layout push — it reserves no horizontal space; only an explicit pin (`ViewState.fileChangesExpanded`) durably reserves space. The moral equivalent of `contextMenu`.
 - **scrollPosition / autoScroll** — viewport scroll tracking
 - **input focus / caret position** — DOM focus state
 - **drag state** — transient tab drag-and-drop position

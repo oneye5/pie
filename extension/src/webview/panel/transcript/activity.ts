@@ -53,7 +53,7 @@ export interface TurnActivityState {
 interface PendingActivityOptions {
   busy: boolean;
   transcript: readonly ChatMessage[];
-  prefs: Pick<ChatPrefs, 'extensionToggles'>;
+  prefs: Pick<ChatPrefs, 'extensionToggles' | 'activityTailLines'>;
   pruningSettings: Pick<PruningSettings, 'mode'>;
   pendingAssistantModelId?: string;
   pendingAssistantThinkingLevel?: ChatMessage['thinkingLevel'];
@@ -131,7 +131,7 @@ export function deriveTurnActivityState({
   if (assistant) {
     if (assistant.status === 'streaming') {
       const pendingModelLabel = formatModelLabel(assistant.modelId || pendingAssistantModelId, assistant.thinkingLevel || pendingAssistantThinkingLevel);
-      const streaming = deriveStreamingTail(assistantPartsFromMessage(assistant));
+      const streaming = deriveStreamingTail(assistantPartsFromMessage(assistant), prefs.activityTailLines);
       if (streaming) {
         const isReasoning = streaming.tail.kind === 'reasoning';
         return {
@@ -160,7 +160,7 @@ export function deriveTurnActivityState({
       if (runningTools.length === 1) {
         const tool = runningTools[0]!;
         const toolName = tool.name;
-        const derived = deriveRunningToolTail(tool);
+        const derived = deriveRunningToolTail(tool, prefs.activityTailLines);
         if (derived) {
           return {
             phase,
@@ -182,7 +182,7 @@ export function deriveTurnActivityState({
         };
       } else {
         const summary = `running ${runningTools.length} tools`;
-        const derived = deriveMultiToolTail(runningTools);
+        const derived = deriveMultiToolTail(runningTools, prefs.activityTailLines);
         return {
           phase,
           label: summary,

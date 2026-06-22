@@ -51,7 +51,7 @@ function deriveFor(transcript: ChatMessage[]) {
   return deriveTurnActivityState({
     busy: true,
     transcript,
-    prefs: { extensionToggles: {} },
+    prefs: { extensionToggles: {}, activityTailLines: 2 },
     pruningSettings: { mode: 'auto' },
   });
 }

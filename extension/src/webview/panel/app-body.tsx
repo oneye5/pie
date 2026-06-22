@@ -16,6 +16,7 @@ import { ExtensionUIPrompt } from './extension-ui-prompt';
 import { resolvePanelSurface, resolveLoadingStatus, type PanelSurface } from './panel-state';
 import { TranscriptHost } from './transcript/transcript-host';
 import { isTranscriptHydrating } from './transcript/state';
+import { ACTIVITY_TAIL_ROW_HEIGHT_PX } from './transcript/activity-tail';
 import { ContextMenu, type ContextMenuState } from './components/context-menu';
 import { LoadingIndicator } from './components/loading-indicator';
 import { resolveComposerModelState } from './composer/model-state';
@@ -418,6 +419,7 @@ export function AppBody({ adapter }: AppBodyProps) {
     const root = document.documentElement.style;
     root.setProperty('--expanded-font-size', `${prefs.expandedSectionFontSize}px`);
     root.setProperty('--expanded-section-max-height', `${prefs.expandedSectionMaxHeight}px`);
+    root.setProperty('--activity-tail-content-min-height', `${prefs.activityTailLines * ACTIVITY_TAIL_ROW_HEIGHT_PX}px`);
     if (prefs.uiFontSans) {
       root.setProperty('--panel-font-sans', prefs.uiFontSans);
     } else {
@@ -506,6 +508,7 @@ export function AppBody({ adapter }: AppBodyProps) {
   }, [
     prefs.expandedSectionFontSize,
     prefs.expandedSectionMaxHeight,
+    prefs.activityTailLines,
     prefs.uiFontSans,
     prefs.uiFontMono,
     prefs.uiAccentColor,

@@ -33,11 +33,11 @@ const prefs: ChatPrefs = {
   uiDensity: 'comfortable',
   extensionToggles: {},
   providerToggles: {},
-  autoOpenFileChangesRail: true,
+  activityTailLines: 2,
 };
 
-test('chat pref menu sections expose transcript, notifications, and files toggles', () => {
-  assert.equal(CHAT_PREF_MENU_SECTIONS.length, 3);
+test('chat pref menu sections expose transcript and notifications toggles', () => {
+  assert.equal(CHAT_PREF_MENU_SECTIONS.length, 2);
   assert.equal(CHAT_PREF_MENU_SECTIONS[0]?.id, 'transcript');
   assert.deepEqual(
     CHAT_PREF_MENU_SECTIONS[0]?.items.map((item) => item.key),
@@ -47,11 +47,6 @@ test('chat pref menu sections expose transcript, notifications, and files toggle
   assert.deepEqual(
     CHAT_PREF_MENU_SECTIONS[1]?.items.map((item) => item.key),
     ['suppressCompletionNotifications'],
-  );
-  assert.equal(CHAT_PREF_MENU_SECTIONS[2]?.id, 'files');
-  assert.deepEqual(
-    CHAT_PREF_MENU_SECTIONS[2]?.items.map((item) => item.key),
-    ['autoOpenFileChangesRail'],
   );
 });
 
@@ -73,9 +68,6 @@ test('toggle helpers return partial pref patches without mutating source prefs',
   assert.deepEqual(toggleChatPref(prefs, 'autoExpandReasoning'), { autoExpandReasoning: true });
   assert.deepEqual(toggleChatPref(prefs, 'suppressCompletionNotifications'), {
     suppressCompletionNotifications: true,
-  });
-  assert.deepEqual(toggleChatPref(prefs, 'autoOpenFileChangesRail'), {
-    autoOpenFileChangesRail: false,
   });
   assert.deepEqual(toggleChatPrefForContext(prefs, 'toolCalls'), { autoExpandToolCalls: false });
   assert.deepEqual(toggleChatPrefForContext(prefs, 'subagentCalls'), { autoExpandSubagentCalls: true });
@@ -100,6 +92,6 @@ test('toggle helpers return partial pref patches without mutating source prefs',
     uiDensity: 'comfortable',
     extensionToggles: {},
     providerToggles: {},
-    autoOpenFileChangesRail: true,
+    activityTailLines: 2,
   });
 });

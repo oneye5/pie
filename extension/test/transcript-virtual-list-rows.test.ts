@@ -179,7 +179,7 @@ test('buildTranscriptRows keeps a stable assistant placeholder shell when prunin
   const activityState = deriveTurnActivityState({
     busy: true,
     transcript,
-    prefs: { extensionToggles: {} },
+    prefs: { extensionToggles: {}, activityTailLines: 2 },
     pruningSettings: { mode: 'auto' },
     pendingAssistantModelId: 'gpt-5.4',
     pendingAssistantThinkingLevel: 'xhigh',
@@ -297,7 +297,7 @@ test('buildTranscriptRows shows a pending pruning header in a stable assistant p
   const activityState = deriveTurnActivityState({
     busy: true,
     transcript,
-    prefs: { extensionToggles: {} },
+    prefs: { extensionToggles: {}, activityTailLines: 2 },
     pruningSettings: { mode: 'auto' },
     pendingAssistantModelId: 'gpt-5.4',
     pendingAssistantThinkingLevel: 'xhigh',
@@ -333,7 +333,7 @@ test('buildTranscriptRows suppresses standalone typingIndicator when busy and la
   const activityState = deriveTurnActivityState({
     busy: true,
     transcript,
-    prefs: { extensionToggles: {} },
+    prefs: { extensionToggles: {}, activityTailLines: 2 },
     pruningSettings: { mode: 'auto' },
   });
   const rows = buildTranscriptRows({
@@ -361,7 +361,7 @@ test('buildTranscriptRows suppresses standalone typingIndicator when assistant i
   const activityState = deriveTurnActivityState({
     busy: true,
     transcript,
-    prefs: { extensionToggles: {} },
+    prefs: { extensionToggles: {}, activityTailLines: 2 },
     pruningSettings: { mode: 'auto' },
   });
   const rows = buildTranscriptRows({
@@ -382,7 +382,7 @@ test('buildTranscriptRows shows standalone typingIndicator when busy with empty 
   const activityState = deriveTurnActivityState({
     busy: true,
     transcript: [],
-    prefs: { extensionToggles: {} },
+    prefs: { extensionToggles: {}, activityTailLines: 2 },
     pruningSettings: { mode: 'auto' },
   });
   const rows = buildTranscriptRows({

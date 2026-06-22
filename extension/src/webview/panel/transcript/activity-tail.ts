@@ -24,16 +24,12 @@ import {
   type SubagentSingleResult,
 } from './subagent';
 
-/** Maximum number of content lines rendered in the tail's content block (streaming reasoning/reply text, a tool's output, or a multi-tool `→ name` listing). */
+/** Default number of content lines rendered in the tail's content block
+ *  (streaming reasoning/reply text, a tool's output, or a multi-tool `→ name`
+ *  listing). The live count is overridable via the `activityTailLines` pref,
+ *  threaded through the derive functions as `lineBudget`; this constant is the
+ *  fallback when none is supplied. */
 export const ACTIVITY_TAIL_MAX_LINES = 2;
-/**
- * Reserved row budget for a running-tool / subagent tail block. The block keeps
- * this many rows of height so the transcript stops reflowing as output streams
- * in — a composite row (tool name + command, or `running N tools`) on row 1
- * leaves room for up to two content rows below. Reasoning / reply text uses the
- * smaller {@link ACTIVITY_TAIL_MAX_LINES} budget (no composite row).
- */
-export const ACTIVITY_TAIL_TOOL_ROWS = 3;
 /** Maximum characters of streaming text/reasoning considered for the tail. */
 export const ACTIVITY_TAIL_MAX_CHARS = 140;
 /** Soft cap for a single rendered line before CSS ellipsis takes over. */
@@ -53,18 +49,30 @@ export interface TurnActivityTail {
   label?: string;
   /** Optional one-line input shown beside {@link label} (e.g. a bash command, subagent task). */
   inputLine?: string;
-  /** Tail content lines, already clipped to the kind's row budget. Newest at the bottom. */
+  /** Tail content lines, already clipped to the configured line budget. Newest at the bottom. */
   lines: string[];
   /** True when more content exists above the shown lines (renders the top fade). */
   truncated: boolean;
   /** Show a blinking cursor indicating live streaming/execution. */
   cursor: boolean;
+  /** Reserved total rows the block keeps constant so it never reflows as
+   *  content streams: the content-line budget plus one composite header row
+   *  for tools/subagents (reasoning/reply text has no header). Drives the
+   *  virtualizer's height estimate. */
+  reservedRows: number;
 }
 
 /** A derived tail plus the header label that should replace the strip's default label. */
 export interface DerivedActivityTail {
   tail: TurnActivityTail;
   label: string;
+}
+
+/** Reserved total rows a tail block keeps constant so it never reflows as
+ *  content streams in: the content-line budget plus one composite header row
+ *  for tools/subagents (reasoning/reply text has no header row). */
+function reservedRowCount(kind: TurnActivityTail['kind'], lineBudget: number): number {
+  return kind === 'tool' || kind === 'subagent' ? lineBudget + 1 : lineBudget;
 }
 
 function takeLastChars(text: string, max: number): string {
@@ -111,6 +119,7 @@ function isSdkResultTruncated(result: unknown): boolean {
  */
 export function deriveStreamingTail(
   parts: ChatMessagePart[] | undefined,
+  lineBudget: number = ACTIVITY_TAIL_MAX_LINES,
 ): DerivedActivityTail | null {
   if (!parts || parts.length === 0) return null;
 
@@ -130,7 +139,7 @@ export function deriveStreamingTail(
   const full = target.text;
   const tailText = takeLastChars(full, ACTIVITY_TAIL_MAX_CHARS);
   const split = tailText.split('\n');
-  const { lines, truncated } = clampLines(split, ACTIVITY_TAIL_MAX_LINES);
+  const { lines, truncated } = clampLines(split, lineBudget);
 
   // Drop a trailing empty line (common when deltas end mid-newline) so the
   // cursor sits flush against real content.
@@ -147,6 +156,7 @@ export function deriveStreamingTail(
       lines: cleaned,
       truncated: truncated || full.length > tailText.length,
       cursor: true,
+      reservedRows: reservedRowCount(kind, lineBudget),
     },
   };
 }
@@ -155,13 +165,13 @@ export function deriveStreamingTail(
  * Derive a live tail for a single running (non-subagent) tool call: the tool's
  * one-line input plus the tail of its streaming `partialResult` output.
  */
-export function deriveToolTail(toolCall: ToolCall): DerivedActivityTail | null {
+export function deriveToolTail(toolCall: ToolCall, lineBudget: number = ACTIVITY_TAIL_MAX_LINES): DerivedActivityTail | null {
   const presentation = getToolCallPresentation(toolCall);
   const inputLine = presentation.summary?.trim() || undefined;
 
   const resultText = textFromToolResult(toolCall.result) ?? '';
   const allLines = outputLines(resultText);
-  const { lines, truncated } = clampLines(allLines, ACTIVITY_TAIL_MAX_LINES);
+  const { lines, truncated } = clampLines(allLines, lineBudget);
   const sdkTruncated = isSdkResultTruncated(toolCall.result);
 
   const hasBody = Boolean(inputLine) || lines.length > 0;
@@ -176,6 +186,7 @@ export function deriveToolTail(toolCall: ToolCall): DerivedActivityTail | null {
       lines,
       truncated: truncated || sdkTruncated,
       cursor: true,
+      reservedRows: reservedRowCount('tool', lineBudget),
     },
   };
 }
@@ -209,7 +220,7 @@ function subagentActivityLine(result: SubagentSingleResult, prefixAgent: boolean
  * live {@link SubagentResult}: the task plus the most recent activity of each
  * still-running sub-result (running tools, or the tail of streaming text).
  */
-export function deriveSubagentTail(toolCall: ToolCall): DerivedActivityTail | null {
+export function deriveSubagentTail(toolCall: ToolCall, lineBudget: number = ACTIVITY_TAIL_MAX_LINES): DerivedActivityTail | null {
   const sub = getRenderableSubagentResultFromToolCall(toolCall);
   if (!sub) return null;
 
@@ -225,10 +236,10 @@ export function deriveSubagentTail(toolCall: ToolCall): DerivedActivityTail | nu
   for (const result of running) {
     const line = subagentActivityLine(result, prefixAgent);
     if (line) all.push(line);
-    if (all.length >= ACTIVITY_TAIL_MAX_LINES) break;
+    if (all.length >= lineBudget) break;
   }
 
-  const { lines, truncated } = clampLines(all, ACTIVITY_TAIL_MAX_LINES);
+  const { lines, truncated } = clampLines(all, lineBudget);
 
   const label = primary.agent?.trim() || 'subagent';
   return {
@@ -240,6 +251,7 @@ export function deriveSubagentTail(toolCall: ToolCall): DerivedActivityTail | nu
       lines,
       truncated,
       cursor: true,
+      reservedRows: reservedRowCount('subagent', lineBudget),
     },
   };
 }
@@ -248,11 +260,11 @@ export function deriveSubagentTail(toolCall: ToolCall): DerivedActivityTail | nu
  * Route a single running tool call to the right tail derivation (subagent vs
  * generic tool). Returns null when no meaningful tail can be derived.
  */
-export function deriveRunningToolTail(toolCall: ToolCall): DerivedActivityTail | null {
+export function deriveRunningToolTail(toolCall: ToolCall, lineBudget: number = ACTIVITY_TAIL_MAX_LINES): DerivedActivityTail | null {
   if (normalizeToolCallName(toolCall.name) === 'subagent') {
-    return deriveSubagentTail(toolCall);
+    return deriveSubagentTail(toolCall, lineBudget);
   }
-  return deriveToolTail(toolCall);
+  return deriveToolTail(toolCall, lineBudget);
 }
 
 /**
@@ -262,27 +274,27 @@ export function deriveRunningToolTail(toolCall: ToolCall): DerivedActivityTail |
  * content-block budget so the whole block keeps its fixed 3-row height as tools
  * start/finish.
  */
-export function deriveMultiToolTail(toolCalls: readonly ToolCall[]): DerivedActivityTail {
+export function deriveMultiToolTail(toolCalls: readonly ToolCall[], lineBudget: number = ACTIVITY_TAIL_MAX_LINES): DerivedActivityTail {
   const toolCount = toolCalls.length;
   const all = toolCalls.map((tc) => `→ ${tc.name}`);
-  const { lines, truncated } = clampLines(all, ACTIVITY_TAIL_MAX_LINES);
+  const { lines, truncated } = clampLines(all, lineBudget);
   const label = `running ${toolCount} tools`;
   return {
     label,
-    tail: { kind: 'tool', label, lines, truncated, cursor: true },
+    tail: { kind: 'tool', label, lines, truncated, cursor: true, reservedRows: reservedRowCount('tool', lineBudget) },
   };
 }
 
 /**
- * Reserved row budget for a tail block — drives the CSS `min-height` so the block
- * keeps a constant height as content streams. Tools / subagents reserve a
- * taller block (label ▸ input on row 1 + up to two output rows); reasoning and
- * reply text reserve the smaller streaming budget with no header row.
+ * Reserved row budget carried on the tail — drives the virtualizer's height
+ * estimate so the block keeps a constant height as content streams. Computed
+ * at derivation time from the configured content-line budget (the `lineBudget`
+ * arg of the derive functions, ultimately the `activityTailLines` pref):
+ * tools/subagents reserve a header row plus the content rows; reasoning/reply
+ * text reserves just the content rows.
  */
 export function activityTailRowCount(tail: TurnActivityTail): number {
-  return tail.kind === 'tool' || tail.kind === 'subagent'
-    ? ACTIVITY_TAIL_TOOL_ROWS
-    : ACTIVITY_TAIL_MAX_LINES;
+  return tail.reservedRows;
 }
 
 /**

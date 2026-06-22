@@ -512,14 +512,20 @@
   color: color-mix(in srgb, var(--panel-foreground) 74%, var(--panel-muted) 26%);
 }
 
-/* Reserved output rows: reasoning/reply text reserves 2, and a tool/subagent
-   block reserves 2 below the composite (so the block is 3 rows total). The
-   min-height keeps the block height constant as content streams in. */
+/* Reserved output rows: the content block reserves the configured content-row
+   budget (2 by default) so the block height stays constant as content streams
+   in. --activity-tail-content-min-height is the host-set pref var (driven by
+   activityTailLines in app-body as content rows × the 13px row height); 26px
+   is the bundled :root default (2 rows × 13px) used before the effect runs. */
+:root {
+  --activity-tail-content-min-height: 26px;
+}
+
 .turn-activity-tail-content {
   display: flex;
   flex-direction: column;
   min-width: 0;
-  min-height: 26px;
+  min-height: var(--activity-tail-content-min-height);
 }
 
 /* Truncation: a gentle top fade replaces a dedicated `…` row, signalling that

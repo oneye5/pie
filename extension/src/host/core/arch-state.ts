@@ -154,9 +154,6 @@ export interface FileChangesState {
   bySession: Record<string, FileChangeEntry[]>;
   /** Whether the file-changes rail drawer is expanded per session. */
   expandedBySession: Record<string, boolean>;
-  /** Tracks whether the rail has already auto-expanded for a session so it
-   *  only happens once per turn. Reset on Send. */
-  autoExpandedBySession: Record<string, boolean>;
 }
 
 // ---------------------------------------------------------------------------
@@ -354,7 +351,6 @@ export function createInitialArchState(): ArchState {
     fileChanges: {
       bySession: {},
       expandedBySession: {},
-      autoExpandedBySession: {},
     },
     pending: {
       ops: {},

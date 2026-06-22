@@ -87,7 +87,6 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
   const { [sp]: _rs, ...remainingRunSummaries } = state.composer.activeRunSummaryBySession;
   const { [sp]: _fc, ...remainingFileChanges } = state.fileChanges.bySession;
   const { [sp]: _fce, ...remainingFileChangesExpanded } = state.fileChanges.expandedBySession;
-  const { [sp]: _fca, ...remainingFileChangesAutoExpanded } = state.fileChanges.autoExpandedBySession;
   const { [sp]: _psq, ...remainingPendingSendQueue } = state.pending.sendQueueBySession;
   const { [sp]: _brq, ...remainingBackendReadyQueue } = state.pending.backendReadyQueueBySession;
 
@@ -150,7 +149,6 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         ...state.fileChanges,
         bySession: remainingFileChanges,
         expandedBySession: remainingFileChangesExpanded,
-        autoExpandedBySession: remainingFileChangesAutoExpanded,
       },
       pending: {
         ...state.pending,
