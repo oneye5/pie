@@ -93,7 +93,7 @@ test('activity-tail preview-rows pref is wired to a CSS var with a :root default
   assert.match(transcriptCss, /--activity-tail-content-min-height:\s*26px/);
   assert.match(
     transcriptCss,
-    /\.turn-activity-tail-content\s*\{[^}]*min-height:\s*var\(--activity-tail-content-min-height\)/,
+    /\.turn-activity-tail-content\s*\{[^}]*(?<!min-)height:\s*var\(--activity-tail-content-min-height\)/,
   );
 
   // The host emits the var from the pref (content rows × row-height constant),

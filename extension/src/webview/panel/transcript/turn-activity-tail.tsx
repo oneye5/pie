@@ -26,17 +26,26 @@ interface TurnActivityTailBodyProps {
  *
  * Truncation ("more output exists above") is conveyed by a gentle top fade on
  * the content block rather than a dedicated `…` row, so the preview reads
- * seamlessly. The fade only applies with ≥2 content lines; a single clipped line
- * already surfaces its own trailing ellipsis via `text-overflow`.
+ * seamlessly. The fade only applies with ≥2 content lines.
+ *
+ * The body wraps to fill the reserved width and collapses source newlines
+ * (joined with a space) so the limited preview rows carry as much of the recent
+ * tail as possible, instead of one clipped row per source line. The block keeps
+ * its fixed reserved height; wrapped overflow is clipped at the top (oldest) so
+ * the newest text and the caret stay visible, bottom-aligned.
  */
 export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
   const { kind, label, inputLine, lines, cursor, truncated } = tail;
   const hasComposite = Boolean(label);
   const hasContent = lines.length > 0;
   // The caret sits on the composite row while no output has arrived, otherwise
-  // on the newest content line (handled per-row below).
+  // at the end of the flowing body text.
   const caretOnComposite = Boolean(cursor) && !hasContent;
   const showFade = truncated && hasContent && lines.length >= 2;
+  // Collapse source newlines into spaces so the body flows as a single wrapping
+  // run that fills the reserved width, instead of one clipped row per source line.
+  // Blank source lines are dropped (they would only add stray gaps in a wrap).
+  const joined = lines.filter((l) => l.length > 0).join(' ');
 
   return (
     <div class={cx('turn-activity-tail', kind)} data-kind={kind} aria-hidden="true">
@@ -51,23 +60,19 @@ export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
         </div>
       )}
       {/*
-        The content block always renders so its min-height reserves the output
+        The content block always renders so its reserved height holds the output
         rows (2 for tools/subagents below the composite, 2 for reasoning/reply).
-        Empty when a tool has no output yet; otherwise holds the tail lines with
-        the caret on the newest. The lone-caret branch covers the rare case of
-        a tail with no composite and no content but a live cursor.
+        Empty when a tool has no output yet; otherwise holds the joined tail text
+        (source newlines collapsed) which wraps to fill the width, with the caret
+        at the end. The lone-caret branch covers the rare case of a tail with no
+        composite and no content but a live cursor.
       */}
       <div class={cx('turn-activity-tail-content', showFade && 'truncated')}>
         {hasContent ? (
-          lines.map((line, i) => {
-            const last = i === lines.length - 1;
-            return (
-              <div class="turn-activity-tail-row turn-activity-tail-line" key={i}>
-                <span class="turn-activity-tail-text" title={line}>{line}</span>
-                {cursor && last && <span class="turn-activity-tail-cursor" aria-hidden="true" />}
-              </div>
-            );
-          })
+          <span class="turn-activity-tail-text" title={joined}>
+            {joined}
+            {cursor && <span class="turn-activity-tail-cursor" aria-hidden="true" />}
+          </span>
         ) : (
           !hasComposite && cursor && (
             <div class="turn-activity-tail-row">

@@ -52,7 +52,24 @@ Full decision record lives in the plan doc. Summary:
   (z-index 280) — peek bumped to z-index 300 to clear it (within
   `.panel-main`'s isolated stacking context). No sticky headers exist.
 
-## Expanded-section UI (from docs/EXPANDED-SECTION-UI-PLAN.md)
+## Activity-tail wrapping (preview bar)
+
+Implemented: the live activity-preview body text now wraps to fill the reserved
+width and collapses source newlines (joined with a space; blank lines dropped)
+instead of one ellipsis-clipped row per source line. The block keeps its fixed
+reserved height (`height: var(--activity-tail-content-min-height)` +
+`overflow: hidden`); the text is bottom-anchored so the newest content + caret
+stay visible and wrapped overflow clips at the top. The composite header
+(`label ▸ input`) stays a clipped one-liner.
+
+### Secondary finding (deferred — documented, not implemented)
+- The truncation top fade is gated on `truncated && hasContent && lines.length >= 2`,
+  which was tuned for the old per-row layout. A single long source line (e.g. a
+  ~140-char reasoning burst with no newline) can now wrap to ≥3 rows and hard-clip
+  at the top with **no** soft fade, because `lines.length === 1` defeats the gate.
+  Newest text + caret still visible (bottom-anchored); purely cosmetic. Fix would
+  need a visual-overflow check (ResizeObserver / `scrollHeight > clientHeight`)
+  to drive the fade, rather than the source-line-count proxy.
 
 Implemented: D1–D6.
 - D1: reasoning bounded with a resizable `<div>` (uses `useResizableHeight`

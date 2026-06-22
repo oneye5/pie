@@ -484,12 +484,14 @@
   gap: 4px;
 }
 
+/* Composite header one-liner (`label ▸ input`): nowrap so a long command clips
+   with an ellipsis instead of wrapping into the reserved content rows. The
+   flowing content body overrides this below. */
 .turn-activity-tail-text {
   min-width: 0;
   flex: 0 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* Preserve output alignment/indentation; nowrap so ellipsis can clip long lines. */
   white-space: pre;
 }
 
@@ -522,10 +524,31 @@
 }
 
 .turn-activity-tail-content {
+  position: relative;
   display: flex;
   flex-direction: column;
+  justify-content: flex-end;
   min-width: 0;
-  min-height: var(--activity-tail-content-min-height);
+  height: var(--activity-tail-content-min-height);
+  overflow: hidden;
+}
+
+/* Flowing content body: source lines are joined (newlines collapsed) and the
+   text wraps to fill the reserved width, so the limited preview rows carry as
+   much of the recent tail as possible instead of clipping each source line at
+   the right edge. The text is bottom-anchored (newest + caret stay visible) and
+   wrapped overflow clips at the top (oldest); long unbroken tokens break to
+   avoid spilling past the width. Overrides the composite header's nowrap/ellipsis. */
+.turn-activity-tail-content .turn-activity-tail-text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  flex: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
 }
 
 /* Truncation: a gentle top fade replaces a dedicated `…` row, signalling that
