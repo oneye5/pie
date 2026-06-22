@@ -44,19 +44,23 @@ export function MessageItemShell({
   return (
     <div
       class={cx(
-        'flex w-fit max-w-[var(--message-assistant-width)] min-w-0 flex-col gap-2 rounded-xl px-3 py-2.5',
+        // Width is role-scoped rather than set on the shell and overridden
+        // via the cascade. A previous `w-fit` base fought the streaming
+        // `w-[...]` override: while the agent streamed, the bubble width
+        // tracked its content (growing per token, widening on long code lines),
+        // so the whole transcript column resized horizontally. Assistant
+        // replies now always fill the allowed width (--message-assistant-width)
+        // whether streaming or completed, so the column stays stable whatever
+        // the content. User bubbles stay content-fit; system messages stretch
+        // the full width. No width transition is added (would re-introduce
+        // horizontal motion).
+        'flex min-w-0 flex-col gap-2 rounded-xl px-3 py-2.5',
         'transition-[background-color,box-shadow] duration-[var(--panel-duration-normal)]',
         'forced-colors:border forced-colors:border-[ButtonText]',
-        role === 'assistant' && 'self-start rounded-xl bg-card shadow-sm',
-        role === 'user' && 'self-end rounded-xl bg-accent/15 shadow-none',
+        role === 'assistant' &&
+          'self-start w-[min(var(--message-assistant-width),100%)] max-w-[min(var(--message-assistant-width),100%)] max-[340px]:w-[min(var(--message-assistant-width-narrow),100%)] max-[340px]:max-w-[min(var(--message-assistant-width-narrow),100%)] rounded-xl bg-card shadow-sm',
+        role === 'user' && 'w-fit max-w-[var(--message-assistant-width)] self-end rounded-xl bg-accent/15 shadow-none',
         role === 'system' && 'w-auto max-w-none self-stretch bg-surface shadow-none',
-        isCurrentlyStreaming && 'w-[min(var(--message-assistant-width),100%)] max-[340px]:w-[min(var(--message-assistant-width-narrow),100%)]',
-        // Completed (non-streaming) assistant messages keep a width floor so
-        // short completions don't snap from the streaming width down to
-        // content-width when streaming ends. Mirrors the streaming width
-        // classes above (as a min-width) across normal + narrow viewports. No
-        // width transition is added (avoids horizontal jitter).
-        role === 'assistant' && !isCurrentlyStreaming && 'min-w-[min(var(--message-assistant-width),100%)] max-[340px]:min-w-[min(var(--message-assistant-width-narrow),100%)]',
         isClickableUserMsg && 'cursor-pointer hover:ring-1 hover:ring-border-subtle hover:bg-accent/20',
       )}
       data-message-id={messageId}

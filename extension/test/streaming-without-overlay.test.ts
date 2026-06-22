@@ -436,8 +436,9 @@ test('MessageItem stabilizes layout during streaming via class hooks and footer 
     hasOlder: false,
   }));
 
-  // Streaming activates the fixed-width utility (prevents horizontal token growth).
-  assert.match(html, /w-\[min\(var\(--message-assistant-width\),100%\)\]/, 'streaming width utility should be applied');
+  // Assistant replies always fill the allowed width (prevents horizontal
+  // token growth / column resize while streaming).
+  assert.match(html, /w-\[min\(var\(--message-assistant-width\),100%\)\]/, 'assistant width utility should be applied');
   // The footer slot reserves a constant footer height for the turn.
   assert.match(html, /message-activity-footer/, 'activity footer slot should render');
 });
