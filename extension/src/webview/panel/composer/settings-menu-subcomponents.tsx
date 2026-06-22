@@ -98,6 +98,14 @@ interface FontOption {
 const SANS_FONT_OPTIONS: ReadonlyArray<FontOption> = [
   { label: 'Default', value: '' },
   { label: 'Inter', value: 'Inter, "Segoe UI", system-ui, sans-serif' },
+  { label: 'Roboto', value: 'Roboto, "Segoe UI", system-ui, sans-serif' },
+  { label: 'Open Sans', value: '"Open Sans", "Segoe UI", system-ui, sans-serif' },
+  { label: 'Montserrat', value: 'Montserrat, "Segoe UI", system-ui, sans-serif' },
+  { label: 'Lato', value: 'Lato, "Segoe UI", system-ui, sans-serif' },
+  { label: 'Source Sans 3', value: '"Source Sans 3", "Source Sans Pro", "Segoe UI", sans-serif' },
+  { label: 'Noto Sans', value: '"Noto Sans", "Segoe UI", system-ui, sans-serif' },
+  { label: 'Ubuntu', value: 'Ubuntu, "Segoe UI", system-ui, sans-serif' },
+  { label: 'Calibri', value: 'Calibri, Candara, "Segoe UI", system-ui, sans-serif' },
   { label: 'System UI', value: 'system-ui, -apple-system, BlinkMacSystemFont, sans-serif' },
   { label: 'Segoe UI', value: '"Segoe UI", system-ui, sans-serif' },
   { label: 'Helvetica', value: 'Helvetica, Arial, sans-serif' },
@@ -105,9 +113,13 @@ const SANS_FONT_OPTIONS: ReadonlyArray<FontOption> = [
   { label: 'Verdana', value: 'Verdana, Geneva, sans-serif' },
   { label: 'Tahoma', value: 'Tahoma, Geneva, sans-serif' },
   { label: 'Trebuchet MS', value: '"Trebuchet MS", Helvetica, sans-serif' },
+  { label: 'Century Gothic', value: '"Century Gothic", "Apple Gothic", "Segoe UI", sans-serif' },
+  { label: 'Geneva', value: 'Geneva, Tahoma, Verdana, sans-serif' },
   { label: 'Georgia (serif)', value: 'Georgia, "Times New Roman", serif' },
   { label: 'Times New Roman (serif)', value: '"Times New Roman", Times, serif' },
   { label: 'Garamond (serif)', value: 'Garamond, "Times New Roman", serif' },
+  { label: 'Cambria (serif)', value: 'Cambria, Georgia, serif' },
+  { label: 'Palatino (serif)', value: '"Palatino Linotype", Palatino, Georgia, serif' },
 ];
 
 /** Curated monospace stacks for the code/tool-output font picker. */
@@ -116,11 +128,18 @@ const MONO_FONT_OPTIONS: ReadonlyArray<FontOption> = [
   { label: 'JetBrains Mono', value: '"JetBrains Mono", "Cascadia Code", Consolas, monospace' },
   { label: 'Cascadia Code', value: '"Cascadia Code", "JetBrains Mono", Consolas, monospace' },
   { label: 'Fira Code', value: '"Fira Code", "JetBrains Mono", Consolas, monospace' },
+  { label: 'IBM Plex Mono', value: '"IBM Plex Mono", "JetBrains Mono", Consolas, monospace' },
+  { label: 'Source Code Pro', value: '"Source Code Pro", "JetBrains Mono", Consolas, monospace' },
+  { label: 'Hack', value: 'Hack, "JetBrains Mono", Consolas, monospace' },
+  { label: 'Roboto Mono', value: '"Roboto Mono", "JetBrains Mono", Consolas, monospace' },
+  { label: 'DejaVu Sans Mono', value: '"DejaVu Sans Mono", "JetBrains Mono", Consolas, monospace' },
+  { label: 'Liberation Mono', value: '"Liberation Mono", "DejaVu Sans Mono", Consolas, monospace' },
   { label: 'SF Mono', value: '"SF Mono", ui-monospace, Menlo, monospace' },
   { label: 'ui-monospace', value: 'ui-monospace, SFMono-Regular, Menlo, monospace' },
   { label: 'Consolas', value: 'Consolas, "Courier New", monospace' },
   { label: 'Menlo', value: 'Menlo, Consolas, monospace' },
   { label: 'Monaco', value: 'Monaco, Menlo, monospace' },
+  { label: 'Andale Mono', value: '"Andale Mono", "DejaVu Sans Mono", monospace' },
   { label: 'Courier New', value: '"Courier New", Courier, monospace' },
 ];
 
