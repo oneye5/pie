@@ -17,6 +17,7 @@ import {
 } from './contracts.ts';
 import { existingHashPrefix, hashToPrefix } from './hash.ts';
 import { loadModelPricingMap, estimateRunCostUsd } from './pricing.ts';
+import { loadModelFamilyMap, resolveModelFamily } from './model-family.ts';
 
 function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
@@ -121,11 +122,14 @@ function prepareRun(
   run: RunSnapshot,
   outcomesByRunId: Map<string, RunOutcome>,
   pricingMap: ReturnType<typeof loadModelPricingMap>,
+  familyMap: ReturnType<typeof loadModelFamilyMap>,
 ): PreparedRunRow {
   const outcome = getRunOutcome(run, outcomesByRunId);
   const verificationTotalCount = run.verification.totalCount;
   const verificationFailureCount = run.verification.failureCount;
   const startedDay = toStartedDay(run.startedAt);
+  const normalizedModelId = normalizeNullableText(run.modelId);
+  const modelFamily = resolveModelFamily(normalizedModelId, familyMap);
 
   const dims = ['precision', 'creativity', 'reasoning', 'thoroughness'] as const;
   function meanForDim(dim: typeof dims[number]): number | null {
@@ -155,7 +159,8 @@ function prepareRun(
     finalizationReason: run.finalizationReason ?? null,
     resolution: outcome?.resolution ?? null,
     satisfaction: outcome?.satisfaction ?? null,
-    modelId: normalizeNullableText(run.modelId),
+    modelId: normalizedModelId,
+    modelFamily,
     thinkingLevel: normalizeThinkingLevel(run.thinkingLevel),
     mixedModelConfig: run.mixedModelConfig,
     mixedTreatmentConfig: run.mixedTreatmentConfig,
@@ -576,7 +581,8 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
 
   const dedupedRuns = dedupeRunsById([...source.completedRuns, ...source.openRuns]);
   const pricingMap = loadModelPricingMap();
-  const runs = dedupedRuns.map((run) => prepareRun(run, outcomesByRunId, pricingMap));
+  const familyMap = loadModelFamilyMap();
+  const runs = dedupedRuns.map((run) => prepareRun(run, outcomesByRunId, pricingMap, familyMap));
   const toolUsage: PreparedToolUsageRow[] = [];
   const toolFailures: PreparedToolFailureRow[] = [];
   const verificationUsage: PreparedVerificationUsageRow[] = [];

@@ -320,7 +320,10 @@ export interface PreparedRunRow {
   finalizationReason: RunFinalizationReason | null;
   resolution: RunOutcomeResolution | null;
   satisfaction: number | null;
+  /** Provider-specific model id as recorded (e.g. 'umans-glm-5.2', 'glm-5.2:cloud'). Stored distinctly so provider differences remain investigable. */
   modelId: string | null;
+  /** Canonical, provider-agnostic model family (e.g. 'glm-5.2') resolved from `models.json`'s optional `family` field; falls back to `modelId` when unset, null when `modelId` is null. The leaderboard groups by this, not `modelId`. */
+  modelFamily: string | null;
   thinkingLevel: ThinkingLevel | null;
   mixedModelConfig: boolean;
   mixedTreatmentConfig: boolean;
@@ -732,7 +735,15 @@ export interface LeaderboardDimension {
   n: number;
 }
 
+export interface ModelLeaderboardProviderBreakdown {
+  /** Provider-specific model id (e.g. 'umans-glm-5.2', 'glm-5.2:cloud') collapsed into this row; distinct per provider so provider differences remain investigable. */
+  modelId: string;
+  runCount: number;
+  scoredRunCount: number;
+}
+
 export interface ModelLeaderboardRow {
+  /** Canonical, provider-agnostic model family the row is grouped by (e.g. 'glm-5.2'). Provider-specific ids that collapsed into this row are listed in `providers`. */
   modelId: string;
   thinkingLevel: string;
   runCount: number;
@@ -759,6 +770,8 @@ export interface ModelLeaderboardRow {
   avgSubagentTasksPerRun: number | null;
   medianDurationMs: number | null;
   medianTokenEfficiency: number | null;
+  /** Provider-specific entries collapsed into this provider-agnostic row; always ≥1 entry (the '(unknown)' group yields a single '(unknown)' entry). Use this to drill into provider differences. */
+  providers: ModelLeaderboardProviderBreakdown[];
 }
 
 export interface ModelLeaderboardData {

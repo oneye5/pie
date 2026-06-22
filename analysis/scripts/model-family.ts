@@ -1,0 +1,122 @@
+/**
+ * Canonical model-family resolver for the analysis package.
+ *
+ * The same underlying model is often offered by multiple providers under different ids — e.g.
+ * `umans-glm-5.2` (Umans) and `glm-5.2:cloud` (Ollama Cloud) are both GLM 5.2. Without
+ * normalization the analytics leaderboard would rank them as two separate models, which is
+ * misleading: they are the same model behind different provider facades.
+ *
+ * `models.json` may declare an optional `family` on each model entry to group these together.
+ * Entries without `family` default to their own `id` (kept distinct), so only models that are
+ * explicitly declared as siblings collapse. This module builds a modelId → family lookup so
+ * downstream analytics can collapse provider-specific ids into one canonical family while the
+ * backend keeps storing each provider-specific `modelId` distinctly — leaving the door open to
+ * investigate provider differences later (e.g. via the `providers` breakdown on leaderboard rows
+ * or the `model_family` column in DuckDB).
+ *
+ * Mirrors the structure of `pricing.ts` (same `models.json`, same path resolution) so the two
+ * lookups stay in lockstep.
+ */
+import * as fs from 'node:fs';
+import { resolveModelsJsonPath } from './pricing.ts';
+
+export interface ModelFamilyEntry {
+  /** Canonical, provider-agnostic family id (e.g. 'glm-5.2'). Falls back to the model id when no `family` is declared. */
+  family: string;
+  /**
+   * Provider name from `models.json` (e.g. 'umans', 'ollama', 'github-copilot'); null when the
+   * entry could not be attributed to a provider. Surfaced so analytics can break a family down
+   * by provider when investigating provider-specific differences.
+   */
+  provider: string | null;
+}
+
+function entryFor(id: string, model: Record<string, unknown> | null | undefined, provider: string): ModelFamilyEntry | null {
+  if (!id) return null;
+  const declaredFamily = typeof model?.family === 'string' ? model.family.trim() : '';
+  return { family: declaredFamily || id, provider };
+}
+
+/**
+ * Load a model-id → family map from `models.json`.
+ *
+ * Returns an empty map (never throws) if the file is missing or malformed, so that family
+ * resolution degrades gracefully to "every model is its own family" rather than breaking the
+ * analytics pipeline.
+ */
+export function loadModelFamilyMap(modelsJsonPath?: string): Map<string, ModelFamilyEntry> {
+  const map = new Map<string, ModelFamilyEntry>();
+  const resolvedPath = resolveModelsJsonPath(modelsJsonPath);
+
+  let raw: string;
+  try {
+    raw = fs.readFileSync(resolvedPath, 'utf8');
+  } catch {
+    return map;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return map;
+  }
+
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return map;
+  }
+  const providers = (parsed as Record<string, unknown>).providers;
+  if (!providers || typeof providers !== 'object' || Array.isArray(providers)) {
+    return map;
+  }
+
+  for (const [providerName, providerData] of Object.entries(providers as Record<string, unknown>)) {
+    if (!providerData || typeof providerData !== 'object') {
+      continue;
+    }
+    const provider = providerData as Record<string, unknown>;
+
+    const models = provider.models;
+    if (Array.isArray(models)) {
+      for (const model of models) {
+        if (!model || typeof model !== 'object') {
+          continue;
+        }
+        const m = model as Record<string, unknown>;
+        if (typeof m.id !== 'string') {
+          continue;
+        }
+        const entry = entryFor(m.id, m, providerName);
+        if (entry && !map.has(m.id)) {
+          map.set(m.id, entry);
+        }
+      }
+    }
+
+    const modelOverrides = provider.modelOverrides;
+    if (modelOverrides && typeof modelOverrides === 'object' && !Array.isArray(modelOverrides)) {
+      for (const [id, model] of Object.entries(modelOverrides as Record<string, unknown>)) {
+        const entry = entryFor(id, model && typeof model === 'object' ? (model as Record<string, unknown>) : null, providerName);
+        if (entry && !map.has(id)) {
+          map.set(id, entry);
+        }
+      }
+    }
+  }
+
+  return map;
+}
+
+/**
+ * Resolve the canonical family for a model id. Returns the declared family, or the model id
+ * itself when the model is not in the registry (preserving distinctness for unknown models).
+ * Returns `null` when `modelId` is null/blank so callers can mirror their null-model handling.
+ */
+export function resolveModelFamily(
+  modelId: string | null | undefined,
+  familyMap: Map<string, ModelFamilyEntry>,
+): string | null {
+  const trimmed = modelId?.trim();
+  if (!trimmed) return null;
+  return familyMap.get(trimmed)?.family ?? trimmed;
+}

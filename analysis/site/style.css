@@ -438,6 +438,15 @@ button:hover {
   font-size: 0.75rem;
 }
 
+.model-providers {
+  display: block;
+  margin-top: 1px;
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
 @media (max-width: 1120px) {
   .header {
     grid-template-columns: 1fr;

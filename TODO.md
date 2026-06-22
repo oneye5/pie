@@ -1,5 +1,38 @@
 # TODO — Deferred work
 
+## Provider-agnostic analytics leaderboard
+
+**Implemented:** the analytics leaderboard (both the site-data `createModelLeaderboard`
+and the dashboard's in-browser `leaderboardRows`) now groups by canonical model
+family, not the provider-specific `modelId`. Same underlying model offered by
+multiple providers (e.g. `umans-glm-5.2` via Umans and `glm-5.2:cloud` via Ollama
+Cloud → family `glm-5.2`) collapses into one row. The backend keeps storing each
+run's provider-specific `modelId` distinctly; each leaderboard row exposes a
+`providers` breakdown (provider-specific ids + run/scored counts) so provider
+differences stay investigable. Foundation: optional `family` field in
+`models.json` + `model-family.ts` resolver (mirrors `pricing.ts`) +
+`PreparedRunRow.modelFamily` (resolved at prepare time) + DuckDB `model_family`
+column.
+
+### Deferred — other model-grouped analytics views (out of scope; user asked for the leaderboard only)
+`modelFamily` is now on every `PreparedRunRow`, so these are straightforward
+follow-ups that reuse the same resolver — no new foundation needed:
+- `model-quality.json` (`createModelQuality` in `site-data.ts`) still groups by
+  provider-specific `modelId` → shows two rows for the same family.
+- Dashboard model-grouped views (`modelThinkingRows`, `compositionByModelRows`,
+  `outcomeTimeSummary`, `mutationRows`, time/pareto rows, etc.) and the model
+  filter dropdown still key on `modelId`.
+- `stratified-ranker.ts` (subagent bucket assignment) groups by `modelId`.
+
+### Deferred — local build artifacts need regeneration (gitignored, user workflow)
+`analysis/site/data/`, `analysis/data/exports/`, and `analysis/data/usage.duckdb`
+are gitignored local outputs. After this schema change they are stale
+(`model-leaderboard.json` lacks `providers`, run-summary rows lack
+`modelFamily`, DuckDB lacks `model_family`). Regenerate from the real source via
+`npm run export-site-data -- --storage-dir <path>` (the workspace used for the
+last committed local data was `7161a5ef2dd349b4`). `npm run validate-site-data`
+(default) will flag the stale local data until then.
+
 ## Changed-files UI (from docs/CHANGED-FILES-UI-PLAN.md)
 
 **Implemented: D1–D8.** Reviewer-audited; build / typecheck / tests green.

@@ -738,6 +738,21 @@ function validateModelLeaderboard(leaderboard: unknown): void {
     assert(typeof row.thinkingLevel === 'string', `model-leaderboard.json row ${index} is missing thinkingLevel.`);
     assert(typeof row.runCount === 'number' && row.runCount >= 0, `model-leaderboard.json row ${index} has an invalid runCount.`);
     assert(typeof row.scoredRunCount === 'number' && row.scoredRunCount >= 0, `model-leaderboard.json row ${index} has an invalid scoredRunCount.`);
+    assert(Array.isArray(row.providers), `model-leaderboard.json row ${index} is missing providers.`);
+    let providerRunSum = 0;
+    let providerScoredSum = 0;
+    for (const [pIndex, provider] of row.providers.entries()) {
+      assert(isRecord(provider), `model-leaderboard.json row ${index} providers[${pIndex}] must be an object.`);
+      assert(typeof provider.modelId === 'string', `model-leaderboard.json row ${index} providers[${pIndex}] is missing modelId.`);
+      assert(typeof provider.runCount === 'number' && provider.runCount >= 0, `model-leaderboard.json row ${index} providers[${pIndex}] has an invalid runCount.`);
+      assert(typeof provider.scoredRunCount === 'number' && provider.scoredRunCount >= 0, `model-leaderboard.json row ${index} providers[${pIndex}] has an invalid scoredRunCount.`);
+      providerRunSum += provider.runCount as number;
+      providerScoredSum += provider.scoredRunCount as number;
+    }
+    // Every run is attributed to exactly one provider-specific id, so the breakdown must reconcile
+    // with the row totals — guards against grouping/regrouping bugs.
+    assert(providerRunSum === row.runCount, `model-leaderboard.json row ${index} provider runCount sum (${providerRunSum}) != row.runCount (${row.runCount}).`);
+    assert(providerScoredSum === row.scoredRunCount, `model-leaderboard.json row ${index} provider scoredRunCount sum (${providerScoredSum}) != row.scoredRunCount (${row.scoredRunCount}).`);
     assert(isRecord(row.dimensions), `model-leaderboard.json row ${index} is missing dimensions.`);
     assert(isRecord(row.dimensions.tokenEfficiency), `model-leaderboard.json row ${index} is missing tokenEfficiency dimension.`);
     if (row.rank !== null) {

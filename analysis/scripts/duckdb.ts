@@ -43,6 +43,7 @@ interface DuckDbRunRow {
   resolution: string | null;
   satisfaction: number | null;
   model_id: string | null;
+  model_family: string | null;
   thinking_level: string | null;
   mixed_model_config: boolean;
   mixed_treatment_config: boolean;
@@ -267,6 +268,7 @@ function toDuckDbRunRow(row: PreparedRunRow): DuckDbRunRow {
     resolution: row.resolution,
     satisfaction: row.satisfaction,
     model_id: row.modelId,
+    model_family: row.modelFamily,
     thinking_level: row.thinkingLevel,
     mixed_model_config: row.mixedModelConfig,
     mixed_treatment_config: row.mixedTreatmentConfig,
@@ -561,6 +563,7 @@ CREATE TABLE runs (
   resolution VARCHAR,
   satisfaction DOUBLE,
   model_id VARCHAR,
+  model_family VARCHAR,
   thinking_level VARCHAR,
   mixed_model_config BOOLEAN,
   mixed_treatment_config BOOLEAN,

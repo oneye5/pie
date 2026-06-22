@@ -4,6 +4,7 @@ import {
   type PreparedRunRow,
   type ModelLeaderboardData,
   type ModelLeaderboardRow,
+  type ModelLeaderboardProviderBreakdown,
   type LeaderboardDimension,
 } from './contracts.ts';
 import {
@@ -158,6 +159,8 @@ interface GroupEstimate {
   n: Record<DimensionKey, number>;
   /** Display values: native-scale point estimate, 95% CI lower bound, and sample size per dimension. */
   dimensions: Record<DimensionKey, LeaderboardDimension>;
+  /** Provider-specific entries collapsed into this provider-agnostic row. */
+  providers: ModelLeaderboardProviderBreakdown[];
 }
 
 /**
@@ -171,7 +174,11 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
   const completedRuns = prepared.runs.filter((run) => run.status !== 'open');
   const grouped = new Map<string, PreparedRunRow[]>();
   for (const run of completedRuns) {
-    const key = `${normalizeModelId(run.modelId)}::${normalizeThinkingLevel(run.thinkingLevel)}`;
+    // Group by canonical model family (provider-agnostic), not the provider-specific modelId.
+    // `modelFamily` is resolved at prepare time from models.json's optional `family` field; runs
+    // whose model isn't in the registry fall back to their own modelId (kept distinct).
+    const family = run.modelFamily ?? normalizeModelId(run.modelId);
+    const key = `${family}::${normalizeThinkingLevel(run.thinkingLevel)}`;
     const existing = grouped.get(key) ?? [];
     existing.push(run);
     grouped.set(key, existing);
@@ -193,6 +200,21 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     const [modelId, thinkingLevel] = key.split('::');
     const scoredRuns = runs.filter((run) => run.scored && run.satisfaction !== null);
     const scoredN = scoredRuns.length;
+
+    // Provider breakdown: which provider-specific model ids collapsed into this provider-agnostic
+    // family row. The backend stores each run's modelId distinctly; this surfaces the collapse so
+    // provider differences stay investigable (e.g. Umans vs Ollama Cloud for the same GLM 5.2).
+    const providersByModelId = new Map<string, { runCount: number; scoredRunCount: number }>();
+    for (const run of runs) {
+      const providerModelId = normalizeModelId(run.modelId);
+      const entry = providersByModelId.get(providerModelId) ?? { runCount: 0, scoredRunCount: 0 };
+      entry.runCount += 1;
+      if (run.scored && run.satisfaction !== null) entry.scoredRunCount += 1;
+      providersByModelId.set(providerModelId, entry);
+    }
+    const providers: ModelLeaderboardProviderBreakdown[] = [...providersByModelId.entries()]
+      .map(([providerModelId, counts]) => ({ modelId: providerModelId, runCount: counts.runCount, scoredRunCount: counts.scoredRunCount }))
+      .sort((a, b) => b.runCount - a.runCount || a.modelId.localeCompare(b.modelId));
 
     const satisfactionValues = scoredRuns.map((run) => run.satisfaction!);
     const resolutionValues = scoredRuns.map((run) => resolutionScore(run.resolution));
@@ -292,6 +314,7 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
       observed,
       n,
       dimensions: { satisfaction, resolutionRate, firstAttemptSuccess, toolReliability, verificationPassRate, tokenEfficiency },
+      providers,
     };
   });
 
@@ -348,6 +371,7 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
       avgSubagentTasksPerRun: e.avgSubagentTasksPerRun,
       medianDurationMs: e.medianDurationMs,
       medianTokenEfficiency: e.medianTokenEfficiency,
+      providers: e.providers,
     };
   });
 
@@ -369,6 +393,7 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     weights: WEIGHTS,
     minimumScoredRuns: MINIMUM_SCORED_RUNS,
     notes: [
+      `Rows are provider-agnostic: runs are grouped by canonical model family (e.g. 'glm-5.2'), not the provider-specific modelId. The same underlying model offered by multiple providers (e.g. 'umans-glm-5.2' via Umans and 'glm-5.2:cloud' via Ollama Cloud) collapses into a single row. Families are declared via the optional 'family' field in models.json; models without a family default to their own id (kept distinct). The backend still stores each run's provider-specific modelId distinctly, and each row exposes a 'providers' breakdown (provider-specific ids + run counts) so provider differences stay investigable.`,
       `Composite ranks by expected strength on the hardest work, gated by actual success: a weighted sum of empirical-Bayes shrunk point estimates (prior strength k=${SHRINKAGE_K}). Five non-efficiency dimensions (satisfaction, resolution, first-attempt, verification pass, tool reliability) use blended mastery = ${(1 - MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×rawSuccessRate + ${MASTERY_COMPLEXITY_WEIGHT}×mean(complexity × outcome^${OUTCOME_EXPONENT}). The raw-success component makes actual success matter directly on every dimension — including the 0/1 outcome dims (first-attempt, verification, tool reliability) where the outcome exponent alone is a no-op (0^p=0, 1^p=1). The complexity-weighted component rewards completing the hardest tasks. Together, actual success dominates task complexity: a mediocre performer on very-hard tasks cannot ride its complexity past a strong consistent performer on medium-hard tasks, while a model that completes complex tasks still rises above one that only completes easy ones.`,
       `Estimates are shrunk toward each dimension's cross-model grand mean by the data fraction n/(n+k), curbing small-sample cherry-picking without a harsh multiplicative penalty. Small-sample rows (few scored runs) are therefore pulled toward the population mean regardless of how hard their tasks were.`,
       `Task complexity is a per-run 0–1 score from 6 signals (line mutations, touched files, tool calls, busy duration, verification count, input tokens). When the scored population has no complexity variance, mastery collapses to a uniform rescaling of raw outcomes (no genuine difficulty emphasis); difficultyEmphasized flags whether variance was present.`,

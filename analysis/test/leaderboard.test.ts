@@ -807,3 +807,90 @@ test('leaderboard difficulty emphasis is a no-op when the population has no comp
   const y = leaderboard.rows.find((r) => r.modelId === 'model-y')!;
   assert.ok(x.rank! < y.rank!, 'higher-satisfaction model should still rank higher (no-op adjustment)');
 });
+
+test('leaderboard is provider-agnostic: collapses provider-specific ids sharing a family into one row', async () => {
+  // The same underlying model is offered by multiple providers under different ids (e.g.
+  // `umans-glm-5.2` via Umans and `glm-5.2:cloud` via Ollama Cloud are both GLM 5.2). models.json
+  // declares them as siblings via the optional `family` field; prepare resolves `modelFamily` and
+  // the leaderboard groups by it, while the backend keeps storing each provider-specific `modelId`.
+  const fixture = deepClone(await loadFixture());
+  const baseRun = fixture.completedRuns[0]!;
+  fixture.completedRuns = [];
+  fixture.openRuns = [];
+  fixture.outcomes = [];
+
+  function addScoredRun(runId: string, modelId: string): void {
+    const run = deepClone(baseRun);
+    run.runId = runId;
+    run.taskGroupId = `${runId}-task`;
+    run.modelId = modelId;
+    run.thinkingLevel = 'high';
+    run.status = 'scored';
+    run.scored = true;
+    run.finalizationReason = 'scored';
+    run.finalizedAt = '2026-05-10T14:19:00.000Z';
+    run.outcome = { resolution: 'resolved' as const, satisfaction: 5 };
+    fixture.completedRuns.push(run);
+    fixture.outcomes.push({
+      schemaVersion: 1,
+      kind: 'run_outcome' as const,
+      recordedAt: '2026-05-10T14:19:00.000Z',
+      sessionPath: baseRun.sessionPath,
+      runId: run.runId,
+      taskGroupId: run.taskGroupId,
+      outcome: run.outcome,
+    });
+  }
+
+  // GLM 5.2 across two providers (3 scored runs each) — must collapse into ONE row.
+  addScoredRun('umans-glm-a', 'umans-glm-5.2');
+  addScoredRun('umans-glm-b', 'umans-glm-5.2');
+  addScoredRun('umans-glm-c', 'umans-glm-5.2');
+  addScoredRun('ollama-glm-a', 'glm-5.2:cloud');
+  addScoredRun('ollama-glm-b', 'glm-5.2:cloud');
+  addScoredRun('ollama-glm-c', 'glm-5.2:cloud');
+  // A distinct model (different family) must NOT collapse with GLM 5.2.
+  addScoredRun('gpt-a', 'gpt-5.2');
+  addScoredRun('gpt-b', 'gpt-5.2');
+  addScoredRun('gpt-c', 'gpt-5.2');
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const leaderboard = createModelLeaderboard(prepared);
+
+  const glmRow = leaderboard.rows.find((row) => row.modelId === 'glm-5.2');
+  assert.ok(glmRow, 'GLM 5.2 should appear as a single provider-agnostic row');
+  assert.equal(glmRow!.runCount, 6, 'both providers collapsed into one row');
+  assert.equal(glmRow!.scoredRunCount, 6);
+  assert.ok(glmRow!.rank !== null, 'collapsed row should be ranked');
+
+  // Provider breakdown: both provider-specific ids surfaced so provider differences stay investigable.
+  assert.equal(glmRow!.providers.length, 2, 'providers breakdown lists both provider-specific ids');
+  assert.deepEqual(
+    glmRow!.providers.map((p) => p.modelId).sort(),
+    ['glm-5.2:cloud', 'umans-glm-5.2'],
+  );
+  for (const p of glmRow!.providers) {
+    assert.equal(p.runCount, 3);
+    assert.equal(p.scoredRunCount, 3);
+  }
+  // Breakdown reconciles with row totals — every run is attributed to exactly one provider id.
+  assert.equal(glmRow!.providers.reduce((sum, p) => sum + p.runCount, 0), glmRow!.runCount);
+  assert.equal(glmRow!.providers.reduce((sum, p) => sum + p.scoredRunCount, 0), glmRow!.scoredRunCount);
+
+  // Distinct family stays a separate row (no over-collapsing).
+  const gptRow = leaderboard.rows.find((row) => row.modelId === 'gpt-5.2');
+  assert.ok(gptRow, 'GPT-5.2 should appear as its own row');
+  assert.equal(gptRow!.runCount, 3);
+  assert.equal(gptRow!.providers.length, 1);
+  assert.equal(gptRow!.providers[0]!.modelId, 'gpt-5.2');
+
+  // No provider-specific id leaks as its own row.
+  assert.ok(
+    !leaderboard.rows.some((row) => row.modelId === 'umans-glm-5.2'),
+    'umans-glm-5.2 must not appear as its own row',
+  );
+  assert.ok(
+    !leaderboard.rows.some((row) => row.modelId === 'glm-5.2:cloud'),
+    'glm-5.2:cloud must not appear as its own row',
+  );
+});

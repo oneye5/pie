@@ -50,6 +50,7 @@ function makeRun(overrides: Partial<PreparedRunRow> & { runId: string }): Prepar
     resolution: 'resolved',
     satisfaction: 4,
     modelId: 'model-a',
+    modelFamily: 'model-a',
     thinkingLevel: 'medium',
     mixedModelConfig: false,
     mixedTreatmentConfig: false,

@@ -76,6 +76,7 @@
         {
           "id": "gemini-3-flash-preview:cloud",
           "name": "Ollama Cloud: Gemini 3 Flash Preview",
+          "family": "gemini-3-flash-preview",
           "reasoning": true,
           "input": [
             "text",
@@ -136,6 +137,7 @@
         {
           "id": "glm-5.1:cloud",
           "name": "Ollama Cloud: GLM 5.1",
+          "family": "glm-5.1",
           "reasoning": true,
           "contextWindow": 202752,
           "maxTokens": 65536,
@@ -149,6 +151,7 @@
         {
           "id": "glm-5.2:cloud",
           "name": "Ollama Cloud: GLM 5.2",
+          "family": "glm-5.2",
           "reasoning": true,
           "contextWindow": 999424,
           "maxTokens": 65536,
@@ -205,6 +208,7 @@
         {
           "id": "kimi-k2.6:cloud",
           "name": "Ollama Cloud: Kimi K2.6",
+          "family": "kimi-k2.6",
           "reasoning": true,
           "input": [
             "text",
@@ -222,6 +226,7 @@
         {
           "id": "kimi-k2.7-code:cloud",
           "name": "Ollama Cloud: Kimi K2.7 Code",
+          "family": "kimi-k2.7-code",
           "reasoning": true,
           "input": [
             "text",
@@ -730,6 +735,7 @@
         {
           "id": "umans-kimi-k2.7",
           "name": "Umans: Kimi K2.7 Code",
+          "family": "kimi-k2.7-code",
           "reasoning": true,
           "input": [
             "text",
@@ -755,6 +761,7 @@
         {
           "id": "umans-kimi-k2.6",
           "name": "Umans: Kimi K2.6",
+          "family": "kimi-k2.6",
           "reasoning": true,
           "input": [
             "text",
@@ -780,6 +787,7 @@
         {
           "id": "umans-glm-5.1",
           "name": "Umans: GLM 5.1",
+          "family": "glm-5.1",
           "reasoning": true,
           "input": [
             "text",
@@ -805,6 +813,7 @@
         {
           "id": "umans-glm-5.2",
           "name": "Umans: GLM 5.2",
+          "family": "glm-5.2",
           "reasoning": true,
           "input": [
             "text",

@@ -1908,6 +1908,7 @@ interface LeaderboardCompositeRow {
   meanTaskComplexity: string;
   difficultyEmphasized: boolean;
   subagentRate: string;
+  providersLabel: string;
 }
 
 interface LeaderboardDimensionRow {
@@ -1927,7 +1928,10 @@ function leaderboardRows(runs: PreparedRunRow[]): {
   const completed = runs.filter((r) => r.status !== 'open');
   const groups = new Map<string, PreparedRunRow[]>();
   for (const run of completed) {
-    const mid = run.modelId?.trim() || '(unknown)';
+    // Group by canonical model family (provider-agnostic), not the provider-specific modelId —
+    // e.g. 'umans-glm-5.2' and 'glm-5.2:cloud' collapse into one 'glm-5.2' row. modelFamily is
+    // resolved at prepare time; falls back to modelId when unset (and '(unknown)' when missing).
+    const mid = run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)';
     const tl = normalizeThinkingLevel(run.thinkingLevel) ?? '(unspecified)';
     const key = `${mid}::${tl}`;
     const existing = groups.get(key) ?? [];
@@ -2017,6 +2021,7 @@ function leaderboardRows(runs: PreparedRunRow[]): {
       satMean, resMean, fasSuccesses, toolSuccesses, verifying, verPass, tokenEffMedian,
       subagentUsageRate: groupRuns.length > 0 ? groupRuns.filter((r) => r.subagentCallCount > 0).length / groupRuns.length : 0,
       costValues: groupRuns.map((r) => r.estimatedCostUsd).filter((v): v is number => v !== null && Number.isFinite(v)),
+      providerModelIds: [...new Set(groupRuns.map((r) => (r.modelId ?? '').trim() || '(unknown)'))].sort(),
     };
   });
 
@@ -2065,6 +2070,12 @@ function leaderboardRows(runs: PreparedRunRow[]): {
     const rankLabel = `#${idx + 1}`;
     const scoreLabel = `${(compositeScore! * 100).toFixed(1)}%`;
     const costMedian = e.costValues.length > 0 ? median(e.costValues) : null;
+    // Label the provider-specific ids that collapsed into this provider-agnostic row, so the
+    // collapse is visible and provider differences stay investigable.
+    const providerModelIds = e.providerModelIds;
+    const providersLabel = providerModelIds.length > 1
+      ? `${providerModelIds.length} providers · ${providerModelIds.join(', ')}`
+      : (providerModelIds[0] && providerModelIds[0] !== e.modelId ? providerModelIds[0] : '');
     return {
       label: e.label, axisLabel: axisLabel(e.label, idx), modelId: e.modelId, thinkingLevel: e.thinkingLevel,
       sortOrder: idx, compositeScore: compositeScore!,
@@ -2082,6 +2093,7 @@ function leaderboardRows(runs: PreparedRunRow[]): {
       meanTaskComplexity: e.meanTaskComplexity != null ? `${(e.meanTaskComplexity * 100).toFixed(0)}%` : '—',
       difficultyEmphasized,
       subagentRate: fmtPct(e.subagentUsageRate),
+      providersLabel,
     };
   });
 
@@ -2140,6 +2152,7 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
             <th scope="row">
               <span class="model-name">${escapeHtml(row.modelId)}</span>
               <span class="model-detail">${escapeHtml(row.thinkingLevel)}</span>
+              ${row.providersLabel ? `<span class="model-providers">${escapeHtml(row.providersLabel)}</span>` : ''}
             </th>
             <td class="numeric strong-cell">${escapeHtml(row.scoreLabel)}</td>
             <td class="numeric">${escapeHtml(row.nLabel)}</td>
@@ -4395,7 +4408,13 @@ async function main(): Promise<void> {
   await render();
 }
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  document.body.innerHTML = `<div class="shell"><section class="panel chart-empty">${escapeHtml(message)}</section></div>`;
-});
+// Only auto-run the dashboard entry point in a browser context. Guarding this keeps the
+// module importable in Node (e.g. for unit-testing `leaderboardRows`) without touching `document`.
+if (typeof document !== 'undefined') {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    document.body.innerHTML = `<div class="shell"><section class="panel chart-empty">${escapeHtml(message)}</section></div>`;
+  });
+}
+
+export { leaderboardRows };
