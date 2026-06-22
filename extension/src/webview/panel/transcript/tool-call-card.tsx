@@ -357,7 +357,7 @@ export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, sum
 }
 
 function TerminalOutput({ text, running }: { text: string; running: boolean }) {
-  const { scrollRef, height, startResize, minHeight, maxHeight, resizeBy, reset } = useResizableHeight<HTMLPreElement>();
+  const { scrollRef, height, startResize, minHeight, maxHeight, canResize, resizeBy, reset } = useResizableHeight<HTMLPreElement>();
   const stickToBottomRef = useRef(true);
 
   const handleScroll = () => {
@@ -376,15 +376,17 @@ function TerminalOutput({ text, running }: { text: string; running: boolean }) {
 
   return (
     <div class="resizable-scroll-area">
-      <ResizeHandle
-        edge="top"
-        onMouseDown={startResize('top')}
-        height={height}
-        minHeight={minHeight}
-        maxHeight={maxHeight}
-        onResizeBy={resizeBy}
-        onReset={reset}
-      />
+      {canResize && (
+        <ResizeHandle
+          edge="top"
+          onMouseDown={startResize('top')}
+          height={height}
+          minHeight={minHeight}
+          maxHeight={maxHeight}
+          onResizeBy={resizeBy}
+          onReset={reset}
+        />
+      )}
       <pre
         ref={scrollRef}
         class="tool-call-terminal-pre"
@@ -394,15 +396,17 @@ function TerminalOutput({ text, running }: { text: string; running: boolean }) {
         <code>{text}</code>
         {running && <span class="tool-call-terminal-cursor" aria-hidden="true" />}
       </pre>
-      <ResizeHandle
-        edge="bottom"
-        onMouseDown={startResize('bottom')}
-        height={height}
-        minHeight={minHeight}
-        maxHeight={maxHeight}
-        onResizeBy={resizeBy}
-        onReset={reset}
-      />
+      {canResize && (
+        <ResizeHandle
+          edge="bottom"
+          onMouseDown={startResize('bottom')}
+          height={height}
+          minHeight={minHeight}
+          maxHeight={maxHeight}
+          onResizeBy={resizeBy}
+          onReset={reset}
+        />
+      )}
     </div>
   );
 }
@@ -511,6 +515,11 @@ export const TOOL_CALL_CLOSE_GRACE_MS = 1000;
  *  transition on `.tool-call-body-wrap` in styles/tool-call.css. Exported so
  *  tests can advance virtual clocks in lockstep with the tuning (D7). */
 export const TOOL_CALL_CLOSE_TRANSITION_MS = 300;
+/** Duration (ms) of the one-shot expand animation for the AUTO-shown shell
+ *  body. Opacity-only (see @keyframes tool-call-body-expand in
+ *  styles/tool-call.css) so it doesn't fight streaming height growth. Must
+ *  match the `--panel-duration-entrance` token consumed by the keyframes. */
+export const TOOL_CALL_EXPAND_MS = 280;
 /** How long (ms) the completion pulse highlight remains on the card. */
 const TOOL_CALL_COMPLETION_PULSE_MS = 700;
 
@@ -669,12 +678,18 @@ export function ToolCallCard({
   };
 
   const renderBody = showBody || closing;
+  // The header summary tracks `showBody` (not `renderBody`): suppressed while
+  // the terminal is running/lingering, then revealed the instant the body
+  // begins closing so the command hands off into the header instead of
+  // popping in after the body unmounts — eliminating the swap twitch.
 
   // One-shot expand animation for the AUTO-shown body (symmetric with the
   // post-grace close). When the body first appears while the card is
   // collapsed (!open — i.e. the auto-show path, not a manual open), apply the
-  // `data-expand` flag so the wrapper's @keyframes grow-in runs. Cleared on
-  // animationend (or a fallback timer if the event is missed).
+  // `data-expand` flag so the wrapper's @keyframes opacity fade-in runs. The
+  // fade is opacity-only (no grid track animation) so it doesn't fight the
+  // per-delta height growth while output streams. Cleared on animationend (or
+  // a fallback timer if the event is missed).
   useEffect(() => {
     const wasRendered = renderBodyRef.current;
     renderBodyRef.current = renderBody;
@@ -684,7 +699,7 @@ export function ToolCallCard({
       expandTimerRef.current = setTimeout(() => {
         expandTimerRef.current = null;
         setExpand(false);
-      }, TOOL_CALL_CLOSE_TRANSITION_MS + 60);
+      }, TOOL_CALL_EXPAND_MS + 60);
     }
   }, [renderBody]);
 
@@ -703,7 +718,7 @@ export function ToolCallCard({
     >
       <ToolCallHeader
         open={open}
-        bodyVisible={isShell && renderBody}
+        bodyVisible={isShell && showBody}
         name={presentation.name}
         status={toolCall.status}
         summary={presentation.summary}

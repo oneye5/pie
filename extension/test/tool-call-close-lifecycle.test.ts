@@ -11,7 +11,7 @@ DOMPurify.sanitize = ((html: string) => html) as typeof DOMPurify.sanitize;
 import { h, render } from 'preact';
 import { act } from 'preact/test-utils';
 
-import { ToolCallCard, TOOL_CALL_CLOSE_GRACE_MS, TOOL_CALL_CLOSE_TRANSITION_MS } from '../src/webview/panel/transcript/tool-call-card.tsx';
+import { ToolCallCard, TOOL_CALL_CLOSE_GRACE_MS, TOOL_CALL_CLOSE_TRANSITION_MS, TOOL_CALL_EXPAND_MS } from '../src/webview/panel/transcript/tool-call-card.tsx';
 import { clearCollapsibleCache } from '../src/webview/panel/transcript/use-collapsible-open';
 import type { ToolCall } from '../src/shared/protocol';
 
@@ -243,10 +243,41 @@ test('auto-shown shell body gets the expand animation flag, cleared after the an
 
     // After the expand animation window (transition + fallback slack) the
     // flag is cleared so the streaming transition-suppress can re-engage.
-    timers.advance(TOOL_CALL_CLOSE_TRANSITION_MS + 60 + 60);
+    timers.advance(TOOL_CALL_EXPAND_MS + 60 + 60);
     const wrapAfter = container.querySelector(BODY_WRAP) as HTMLElement;
     assert.ok(wrapAfter, 'body still mounted');
     assert.ok(!wrapAfter.getAttribute('data-expand'), 'expand flag cleared after animation window');
+  } finally {
+    timers.restore();
+  }
+});
+
+test('header command summary hands off into the header as the body begins closing (no post-unmount pop)', () => {
+  const timers = useFakeTimers();
+  try {
+    const SUMMARY = '.transcript-header-summary-command';
+
+    // Running: body auto-shown, summary suppressed (no duplication while visible).
+    renderCard(bashTool('running', 'bash-summary-handoff'));
+    assert.ok(container.querySelector(BODY_WRAP), 'body shown while running');
+    assert.ok(!container.querySelector(SUMMARY), 'summary hidden while body is visible');
+
+    // Complete: lingering — body still present, summary still suppressed.
+    renderCard(bashTool('completed', 'bash-summary-handoff'));
+    assert.ok(container.querySelector(BODY_WRAP), 'body lingers after completion');
+    assert.ok(!container.querySelector(SUMMARY), 'summary still hidden during grace');
+
+    // Grace ends -> body begins closing. The summary is revealed NOW (handoff)
+    // rather than after the body unmounts, so the command never pops in.
+    timers.advance(TOOL_CALL_CLOSE_GRACE_MS);
+    assert.ok(container.querySelector(BODY_WRAP), 'body still mounted while closing');
+    assert.ok(container.querySelector(`${BODY_WRAP}[data-closing="true"]`), 'wrapper is closing');
+    assert.ok(container.querySelector(SUMMARY), 'summary revealed as the body begins closing');
+
+    // After the close transition: body unmounts, summary persists (no pop).
+    timers.advance(TOOL_CALL_CLOSE_TRANSITION_MS + 60 + 60);
+    assert.ok(!container.querySelector(BODY_WRAP), 'body unmounted after close');
+    assert.ok(container.querySelector(SUMMARY), 'summary persists after the body unmounts — no pop');
   } finally {
     timers.restore();
   }
