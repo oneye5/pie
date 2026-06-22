@@ -283,4 +283,28 @@ test('validateWebviewToHostMessage validates setPrefs patches and rejects unknow
     false,
     'uiCornerRadius above 20 should be rejected',
   );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 240 } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 120 } }).ok,
+    true,
+    'expandedSectionMaxHeight at the 120 floor should validate',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 720 } }).ok,
+    true,
+    'expandedSectionMaxHeight at the 720 ceiling should validate',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 100 } }).ok,
+    false,
+    'expandedSectionMaxHeight below the 120 floor should be rejected',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 800 } }).ok,
+    false,
+    'expandedSectionMaxHeight above the 720 ceiling should be rejected',
+  );
 });

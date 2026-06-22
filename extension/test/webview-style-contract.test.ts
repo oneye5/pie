@@ -62,3 +62,24 @@ test('panel chip styling is centralized instead of embedded in feature component
     assert.doesNotMatch(source, /text-\[10px\] font-(bold|semibold) uppercase tracking-wider text-muted/, `${name} should not duplicate chip typography utilities`);
   }
 });
+
+test('expanded-section max-height pref is wired to a CSS var with a :root default', async () => {
+  const highlightCss = await readStyleSource('highlight.css');
+  const appBody = await readWebviewSource('app-body.tsx');
+
+  // The :root default mirrors --expanded-font-size (both expanded-section
+  // theme tokens live together in highlight.css).
+  assert.match(highlightCss, /--expanded-section-max-height:\s*240px/);
+  assert.match(
+    highlightCss,
+    /\.reasoning-scroll\s*\{[^}]*max-height:\s*var\(--expanded-section-max-height\)/,
+  );
+
+  // The host emits the var from the pref (alongside --expanded-font-size),
+  // and the pref is an effect dependency so updates propagate.
+  assert.match(
+    appBody,
+    /setProperty\(['"]--expanded-section-max-height['"],\s*`\$\{prefs\.expandedSectionMaxHeight\}px`\)/,
+  );
+  assert.match(appBody, /prefs\.expandedSectionMaxHeight,/);
+});

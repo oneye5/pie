@@ -6,6 +6,8 @@ import { useEffect, useRef, useState } from 'preact/hooks';
 import { renderMarkdown, reasoningSummary } from '../../markdown';
 import { cx } from '../../utils/cx';
 import { Collapsible } from '../../components/collapsible';
+import { ResizeHandle } from '../../components/resize-handle';
+import { useResizableHeight } from '../../components/use-resizable-height';
 import { useCollapsibleOpen } from '../use-collapsible-open';
 
 interface ReasoningBlockProps {
@@ -26,6 +28,7 @@ const REASONING_PARSE_TRAILING_MS = 120;
 
 export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu }: ReasoningBlockProps) {
   const [open, setOpen] = useCollapsibleOpen(collapsibleKey, autoExpand);
+  const { scrollRef, height, startResize, minHeight, maxHeight, resizeBy, reset } = useResizableHeight<HTMLDivElement>();
 
   // Throttled markdown re-parse: leading parse at most once per
   // REASONING_PARSE_THROTTLE_MS while text keeps changing, plus a trailing
@@ -100,11 +103,33 @@ export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu
         </>
       }
     >
-      <div
-        class="message-body"
-        dangerouslySetInnerHTML={{ __html: html }}
-        aria-live="polite"
-      />
+      <div class="resizable-scroll-area">
+        <ResizeHandle
+          edge="top"
+          onMouseDown={startResize('top')}
+          height={height}
+          minHeight={minHeight}
+          maxHeight={maxHeight}
+          onResizeBy={resizeBy}
+          onReset={reset}
+        />
+        <div
+          ref={scrollRef}
+          class="message-body reasoning-scroll"
+          dangerouslySetInnerHTML={{ __html: html }}
+          aria-live="polite"
+          style={height ? { height: `${height}px`, maxHeight: 'none' } : undefined}
+        />
+        <ResizeHandle
+          edge="bottom"
+          onMouseDown={startResize('bottom')}
+          height={height}
+          minHeight={minHeight}
+          maxHeight={maxHeight}
+          onResizeBy={resizeBy}
+          onReset={reset}
+        />
+      </div>
     </Collapsible>
   );
 }

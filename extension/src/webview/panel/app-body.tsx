@@ -417,6 +417,7 @@ export function AppBody({ adapter }: AppBodyProps) {
   useEffect(() => {
     const root = document.documentElement.style;
     root.setProperty('--expanded-font-size', `${prefs.expandedSectionFontSize}px`);
+    root.setProperty('--expanded-section-max-height', `${prefs.expandedSectionMaxHeight}px`);
     if (prefs.uiFontSans) {
       root.setProperty('--panel-font-sans', prefs.uiFontSans);
     } else {
@@ -504,6 +505,7 @@ export function AppBody({ adapter }: AppBodyProps) {
     root.setProperty('--panel-gap-xl', `${gaps.xl}px`);
   }, [
     prefs.expandedSectionFontSize,
+    prefs.expandedSectionMaxHeight,
     prefs.uiFontSans,
     prefs.uiFontMono,
     prefs.uiAccentColor,

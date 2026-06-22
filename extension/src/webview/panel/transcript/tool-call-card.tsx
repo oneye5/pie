@@ -8,7 +8,7 @@ import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
 import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../utils/looks-like-path-token';
 
-import { useContext, useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 
 import { ClickablePathButton } from '../file-path';
 import { CollapsibleChevron } from '../components/chevron';
@@ -24,7 +24,6 @@ import {
   textFromToolResult,
 } from './highlight';
 import { StatusChip } from './status-chip';
-import { TurnActiveContext } from './turn-active-context';
 import { useCollapsibleOpen } from './use-collapsible-open';
 
 interface ToolCallCardProps {
@@ -507,10 +506,11 @@ function ToolCallBody({ toolCall }: ToolCallBodyProps) {
  *  command finishes, so the user can read/skim the output even for instant
  *  commands. Only applies to the auto-opened shell path — manual opens are
  *  sticky and never auto-close. */
-const TOOL_CALL_CLOSE_GRACE_MS = 1000;
+export const TOOL_CALL_CLOSE_GRACE_MS = 1000;
 /** Duration (ms) of the post-grace collapse animation. Must match the
- *  transition on `.tool-call-body-wrap` in styles/tool-call.css. */
-const TOOL_CALL_CLOSE_TRANSITION_MS = 180;
+ *  transition on `.tool-call-body-wrap` in styles/tool-call.css. Exported so
+ *  tests can advance virtual clocks in lockstep with the tuning (D7). */
+export const TOOL_CALL_CLOSE_TRANSITION_MS = 300;
 /** How long (ms) the completion pulse highlight remains on the card. */
 const TOOL_CALL_COMPLETION_PULSE_MS = 700;
 
@@ -548,12 +548,8 @@ export function ToolCallCard({
   const pulseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const expandTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Wall-clock completion time used to compute the remaining grace when the
-  // close is deferred until the turn goes idle (see effect below).
+  // close is scheduled (see effect below).
   const completedAtRef = useRef<number | null>(null);
-  // `busy` from the owning transcript: while the turn is still active the
-  // auto-close is deferred. `undefined` (no provider, e.g. nested subagent
-  // transcripts) keeps the legacy completion-relative grace.
-  const turnActive = useContext(TurnActiveContext);
 
   const renderBodyRef = useRef(false);
 
@@ -613,39 +609,31 @@ export function ToolCallCard({
       return;
     }
 
-    // Schedule (or defer) the post-completion auto-close. The grace is
-    // measured from completion so earlier tools close first, but the close
-    // is HELD while the owning turn is still active (turnActive === true) to
-    // avoid collapse→re-expand churn when the agent runs consecutive
-    // commands. turnActive === undefined (no provider, e.g. nested subagent
-    // transcripts) keeps the legacy completion-relative behaviour.
+    // Schedule the post-completion auto-close. The grace is measured from
+    // completion so earlier commands close first. The close fires after the
+    // grace regardless of turn activity (consecutive commands no longer stack
+    // open panes mid-turn); only the currently-running or just-finished
+    // (in-grace) pane stays open.
     const isLingering = justCompleted ? true : lingeringRef.current;
     const completedAt = completedAtRef.current;
     if (isLingering && !closingRef.current && !openRef.current && completedAt !== null) {
-      const canClose = turnActive === undefined ? true : !turnActive;
-      if (canClose) {
-        const elapsed = Date.now() - completedAt;
-        const remaining = Math.max(0, TOOL_CALL_CLOSE_GRACE_MS - elapsed);
-        if (graceTimerRef.current) clearTimeout(graceTimerRef.current);
-        graceTimerRef.current = setTimeout(() => {
-          graceTimerRef.current = null;
-          setLingering(false);
-          setClosing(true);
-          // Fallback in case transitionend doesn't fire (e.g. the tab was
-          // backgrounded). The body must unmount eventually.
-          if (closeFallbackTimerRef.current) clearTimeout(closeFallbackTimerRef.current);
-          closeFallbackTimerRef.current = setTimeout(() => {
-            closeFallbackTimerRef.current = null;
-            setClosing(false);
-          }, TOOL_CALL_CLOSE_TRANSITION_MS + 60);
-        }, remaining);
-      } else {
-        // Turn still active: cancel any pending close so the body stays open
-        // while the agent keeps producing.
-        if (graceTimerRef.current) { clearTimeout(graceTimerRef.current); graceTimerRef.current = null; }
-      }
+      const elapsed = Date.now() - completedAt;
+      const remaining = Math.max(0, TOOL_CALL_CLOSE_GRACE_MS - elapsed);
+      if (graceTimerRef.current) clearTimeout(graceTimerRef.current);
+      graceTimerRef.current = setTimeout(() => {
+        graceTimerRef.current = null;
+        setLingering(false);
+        setClosing(true);
+        // Fallback in case transitionend doesn't fire (e.g. the tab was
+        // backgrounded). The body must unmount eventually.
+        if (closeFallbackTimerRef.current) clearTimeout(closeFallbackTimerRef.current);
+        closeFallbackTimerRef.current = setTimeout(() => {
+          closeFallbackTimerRef.current = null;
+          setClosing(false);
+        }, TOOL_CALL_CLOSE_TRANSITION_MS + 60);
+      }, remaining);
     }
-  }, [toolCall.status, isShell, turnActive]);
+  }, [toolCall.status, isShell]);
 
   // Cancel any pending auto-close when the user manually opens the body, so
   // an explicit expand is sticky.

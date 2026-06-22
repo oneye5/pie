@@ -9,6 +9,11 @@
 
 :root {
   --expanded-font-size: 12px;
+  /* Max height for expanded collapsible sections (reasoning, shell terminal,
+     tool-result pres, subagent thread). Caps any one pane so it can't
+     dominate the transcript; per-pane drag overrides stay ephemeral. The host
+     sets it from the `expandedSectionMaxHeight` chat pref. Default 240px. */
+  --expanded-section-max-height: 240px;
 }
 
 /* ── Expanded-section font size ──────────────────────────────────────────── */
@@ -33,6 +38,18 @@
 
 .collapsible-body .message-body {
   font-size: inherit;
+}
+
+/* Reasoning prose is bounded + resizable like tool-call output: a
+   max-height-capped scroll region bracketed by top/bottom resize handles
+   (useResizableHeight in reasoning-block.tsx). Short reasoning grows to
+   content (no scroll); long reasoning scrolls instead of dominating the
+   viewport. Shares the expanded-section max-height token. */
+.reasoning-scroll {
+  max-height: var(--expanded-section-max-height);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
 }
 
 /* ── hljs token theme (scoped to .hljs-scope) ───────────────────────────── */

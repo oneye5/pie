@@ -406,6 +406,23 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
         />
         <div class="toolbar-settings-item-hint">Max width of chat bubbles. Narrow view scales up to keep content readable.</div>
       </div>
+      <div class="toolbar-settings-ui-control">
+        <div class="toolbar-settings-ui-control-head">
+          <span class="toolbar-settings-ui-control-label">Expanded height</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.expandedSectionMaxHeight}px</span>
+        </div>
+        <input
+          type="range"
+          class="toolbar-settings-slider toolbar-settings-ui-slider"
+          min="120"
+          max="720"
+          step="20"
+          value={prefs.expandedSectionMaxHeight}
+          onInput={(e) => onSetPrefs({ expandedSectionMaxHeight: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Expanded section max height"
+        />
+        <div class="toolbar-settings-item-hint">Max height of expanded sections — reasoning, tool output, and subagent threads.</div>
+      </div>
 
       <UiGroupLabel label="Typography" />
       <div class="toolbar-settings-ui-control">

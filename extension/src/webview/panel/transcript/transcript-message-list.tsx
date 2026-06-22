@@ -4,7 +4,6 @@
 import type { ChatMessage, ChatPrefs } from '../../../shared/protocol';
 
 import { MessageItem } from './message-item';
-import { TurnActiveContext } from './turn-active-context';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
 
 export interface TranscriptMessageListProps {
@@ -50,7 +49,7 @@ export function TranscriptMessageList({
   collapsibleKey,
 }: TranscriptMessageListProps) {
   return (
-    <TurnActiveContext.Provider value={undefined}>
+    <>
       {messages.map((message) => (
         <MessageItem
           key={collapsibleKey ? `${message.id}-${collapsibleKey}` : message.id}
@@ -68,6 +67,6 @@ export function TranscriptMessageList({
           renderToolCall={renderToolCall}
         />
       ))}
-    </TurnActiveContext.Provider>
+    </>
   );
 }

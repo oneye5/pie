@@ -102,6 +102,11 @@ export interface ChatPrefs {
    *  reasoning, system prompts, pruning raw output, and code blocks. Smaller
    *  than the 13px raw agent output since expanded text is lower priority. */
   expandedSectionFontSize: number;
+  /** Max height (px) for expanded collapsible sections — reasoning, shell
+   *  terminal output, tool-result pres, and the subagent message thread. Caps
+   *  how tall any one expanded pane can grow so a single block can't dominate
+   *  the transcript; per-pane drag overrides remain ephemeral. Default 240. */
+  expandedSectionMaxHeight: number;
   /** Override for the sans-serif UI font stack (sets --panel-font-sans).
    *  Empty string falls back to the bundled default (Inter / Segoe UI / system). */
   uiFontSans: string;
@@ -173,6 +178,7 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   subagentAlwaysParentModel: false,
   completionSoundVolume: 50,
   expandedSectionFontSize: 12,
+  expandedSectionMaxHeight: 240,
   uiFontSans: '',
   uiFontMono: '',
   uiAccentColor: '',

@@ -13,7 +13,6 @@ import { streamingContentSignature } from '../composer/indicator-signature';
 import { handleTranscriptClick } from './transcript-click-handler';
 import { cx } from '../utils/cx';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
-import { TurnActiveContext } from './turn-active-context';
 import { TranscriptVirtualRow } from './virtual-list-row';
 import { buildTranscriptRows, estimateTranscriptRowSize, type TranscriptRow } from './virtual-list-rows';
 
@@ -404,7 +403,6 @@ export function TranscriptVirtualList({
       ref={scrollRef}
       onClick={handleTranscriptClick}
     >
-      <TurnActiveContext.Provider value={busy}>
       <div class="transcript-virtual-inner" style={{ height: `${totalSize}px` }}>
         {virtualRows.map((virtualRow) => (
           <VirtualRow
@@ -447,7 +445,6 @@ export function TranscriptVirtualList({
           <span aria-hidden="true">↓</span>
         </button>
       )}
-      </TurnActiveContext.Provider>
     </div>
   );
 }

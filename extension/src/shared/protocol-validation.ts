@@ -145,6 +145,7 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
   const numericRanges: Record<string, [number, number]> = {
     completionSoundVolume: [0, 100],
     expandedSectionFontSize: [8, 24],
+    expandedSectionMaxHeight: [120, 720],
     uiMessageWidth: [60, 100],
     uiCornerRadius: [0, 20],
   };
