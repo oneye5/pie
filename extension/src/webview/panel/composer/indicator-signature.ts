@@ -53,6 +53,14 @@ export function transcriptUsageSignature(transcript: readonly ChatMessage[]): st
  * result legitimately changes as the streaming content grows: the context-window
  * breakdown's ESTIMATED branch (when no live `contextUsage.tokens` is reported)
  * and the live cost estimate. Empty when nothing is streaming.
+ *
+ * Uses `markdown.length` + `thinking.length` (not a BPE estimate) deliberately:
+ * streaming prose is APPEND-ONLY (the reducer concatenates deltas), so its
+ * length strictly grows every delta and the signature changes every delta —
+ * exactly when the gated result (an `estimateTextTokens` estimate of that same
+ * prose) legitimately changes. A same-length content swap of a streaming
+ * message's prose cannot occur mid-stream, so the length proxy is sound here
+ * and avoids re-running BPE in the signature on every tick.
  */
 export function streamingContentSignature(transcript: readonly ChatMessage[]): string {
   const parts: string[] = [];
@@ -64,16 +72,24 @@ export function streamingContentSignature(transcript: readonly ChatMessage[]): s
 }
 
 /**
- * O(prompts). Guards the context-window breakdown's system-prompt contributor.
- * System prompts are a small, flat list that rarely changes (config edits, not
- * mid-stream), so a length + per-entry availability + text-length signature is
- * a faithful proxy for the `estimateTextTokens(prompt.text)` sum the breakdown
- * computes — and far cheaper than re-walking the whole transcript.
+ * O(total prompt text) — prompts are few and small. Guards the context-window
+ * breakdown's system-prompt contributor, whose value is
+ * `estimateTextTokens(prompt.text)` (a real cl100k_base BPE count, which is
+ * CONTENT-dependent, not length-dependent). A `text.length` proxy would be
+ * unsound: two same-length prompts can tokenize to different token counts, so
+ * a same-length system-prompt edit would change the breakdown but not the
+ * signature → a stale tooltip. Including each prompt's availability + full text
+ * is unambiguously faithful (any content change is detected) and cheaper than
+ * re-running BPE in the signature. It is intentionally over-faithful — a
+ * same-token-count text edit needlessly recomputes the breakdown — because
+ * system-prompt edits are rare (config edits, not mid-stream) and the cost of
+ * including the text is far below the O(transcript) BPE walk this signature
+ * gates.
  */
 export function systemPromptsSignature(systemPrompts: readonly SystemPromptEntry[]): string {
   let acc = `${systemPrompts.length}`;
   for (const p of systemPrompts) {
-    acc += `|${p.availability}:${p.text.length}`;
+    acc += `|${p.availability}:${p.text}`;
   }
   return acc;
 }

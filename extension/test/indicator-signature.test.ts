@@ -91,15 +91,27 @@ test('systemPromptsSignature is stable for byte-identical content under a fresh 
   assert.equal(systemPromptsSignature(a), systemPromptsSignature(b));
 });
 
-test('systemPromptsSignature changes when availability or text length changes', () => {
+test('systemPromptsSignature changes when availability or text content changes', () => {
   const base = [prompt({ text: 'hello', availability: 'available' })];
   const sig = systemPromptsSignature(base);
   const hidden = structuredClone(base);
   hidden[0].availability = 'hidden';
   assert.notEqual(systemPromptsSignature(hidden), sig);
-  const longer = structuredClone(base);
-  longer[0].text = 'hello world';
-  assert.notEqual(systemPromptsSignature(longer), sig);
+  const edited = structuredClone(base);
+  edited[0].text = 'hello world';
+  assert.notEqual(systemPromptsSignature(edited), sig);
+});
+
+test('systemPromptsSignature detects a same-length content edit (a length proxy would miss this)', () => {
+  // Regression guard: the context-window breakdown values the system-prompt
+  // contributor via estimateTextTokens (a content-dependent BPE count), so a
+  // same-length system-prompt text edit changes the breakdown. A text.length
+  // signature would not change here → a stale tooltip. Including the full text
+  // detects any edit regardless of length.
+  const a = [prompt({ text: 'aaaaaaaaaaaaaaaaaaaa' })];
+  const b = [prompt({ text: 'bbbbbbbbbbbbbbbbbbbb' })];
+  assert.equal(a[0].text.length, b[0].text.length, 'sanity: same length');
+  assert.notEqual(systemPromptsSignature(a), systemPromptsSignature(b));
 });
 
 // ── subagentCostSignature ───────────────────────────────────────────────────

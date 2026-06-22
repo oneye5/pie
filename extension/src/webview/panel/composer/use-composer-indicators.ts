@@ -121,7 +121,11 @@ export function useComposerIndicators({
     // Primitive/signature deps — NOT the raw object refs, which are fresh every
     // structured-cloned snapshot. Stable while the breakdown's content is
     // stable (e.g. contextUsage.tokens reported + only the streaming prose grew).
-    [contextUsage?.tokens, contextUsage?.contextWindow, effectiveContextWindow, sysPromptsSig, breakdownStreamSig, transcriptWindow.isPartial],
+    // `subagentSig` (length + last-message tool-call transitions) captures
+    // appends/removes and a read_file/skill tool call completing on the
+    // streaming message even when contextUsage.tokens is reported, so the
+    // breakdown's contributor rows don't go stale.
+    [contextUsage?.tokens, contextUsage?.contextWindow, effectiveContextWindow, sysPromptsSig, breakdownStreamSig, subagentSig, transcriptWindow.isPartial],
   );
   const contextIndicator = useMemo(() => (
     contextBreakdown
