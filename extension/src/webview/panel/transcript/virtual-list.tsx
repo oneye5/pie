@@ -9,6 +9,7 @@ import { deriveTurnActivityState } from './activity';
 import { ToolCallItem } from './tool-call-item';
 import { useTranscriptScroll } from './use-transcript-scroll';
 import { useTranscriptScrollAnchor } from './use-transcript-scroll-anchor';
+import { streamingContentSignature } from '../composer/indicator-signature';
 import { handleTranscriptClick } from './transcript-click-handler';
 import { cx } from '../utils/cx';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
@@ -324,6 +325,16 @@ export function TranscriptVirtualList({
     pendingAssistantThinkingLevel,
   });
 
+  // A cheap fingerprint of height-relevant transcript content (length + the
+  // streaming message's growing prose). `useSmoothAutoFollow` uses it to skip
+  // the forced-layout `scrollHeight` read on frames where content did not
+  // change. Recomputed each snapshot (the transcript is a fresh structured
+  // clone), but O(streaming messages) — in practice O(1).
+  const contentSignature = useMemo(
+    () => `${transcript.length}|${streamingContentSignature(transcript)}`,
+    [transcript],
+  );
+
   const {
     scrollRef,
     autoFollowRef,
@@ -342,6 +353,7 @@ export function TranscriptVirtualList({
     onLoadOlder,
     onLoadNewer,
     onJumpToLatest,
+    contentSignature,
   });
 
   const virtualizer = useTranscriptVirtualizer(rows, scrollRef);

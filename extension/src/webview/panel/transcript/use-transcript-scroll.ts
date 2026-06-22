@@ -13,6 +13,16 @@ import {
   type MessageScrollAnchor,
 } from './scroll-anchor';
 
+/**
+ * While auto-follow is active but the content signature is stable (nothing
+ * grew this frame), `useSmoothAutoFollow` still re-reads `scrollHeight` on this
+ * cadence to catch height changes the signature can't see (late image /
+ * markdown loads, table renders). Kept well above the ~7/sec streaming delta
+ * cadence so it rarely adds a read while streaming, and low enough that a late
+ * load is caught within a perceptible window.
+ */
+export const AUTO_FOLLOW_FALLBACK_READ_MS = 250;
+
 interface UseTranscriptScrollOptions {
   sessionKey: string | null;
   transcriptWindow: TranscriptWindow;
@@ -21,6 +31,15 @@ interface UseTranscriptScrollOptions {
   onLoadOlder: () => void;
   onLoadNewer: () => void;
   onJumpToLatest: () => void;
+  /**
+   * A cheap fingerprint that changes whenever the transcript's height-relevant
+   * content grows (length + streaming-message prose). `useSmoothAutoFollow`
+   * uses it to skip the forced-layout `scrollHeight` read on frames where
+   * content did not change, falling back to a timed read
+   * ({@link AUTO_FOLLOW_FALLBACK_READ_MS}) for height changes the signature
+   * can't observe (late image / markdown loads).
+   */
+  contentSignature: string;
 }
 
 interface UseTranscriptScrollResult {
@@ -342,10 +361,18 @@ function usePaginationTrackingEffect(
  * bottom while fully idle, re-engaging follow so a later non-busy height change
  * is again caught).
  * `scrollToBottom` / `jumpToLatest` keep doing their own synchronous snaps and
- * do not depend on this loop. While auto-follow is active but nothing is
- * streaming the loop keeps running — cheaply (it only reads metrics and writes
- * nothing while `scrollHeight` is stable) — so it still catches non-busy
- * height changes such as late image/markdown loads.
+ * do not depend on this loop.
+ *
+ * Forced-layout avoidance: reading `el.scrollHeight` forces a layout reflow,
+ * so the loop does NOT read it every frame. It caches the last target and
+ * re-reads only when the content signature changed (the transcript grew —
+ * the common case while streaming) or on the {@link AUTO_FOLLOW_FALLBACK_READ_MS}
+ * fallback cadence (for height changes the signature can't see, like late
+ * image / markdown loads). Between streaming deltas the signature is stable,
+ * so the cached target is reused and the ease still advances every frame
+ * against it — no reflow. This cuts `scrollHeight` reads from ~60/s (per frame)
+ * to ~7/s (per delta) while streaming and to ~4/s when idle, without freezing
+ * the ease (it runs against the cached target until scrollTop catches up).
  */
 function useSmoothAutoFollow(
   scrollRef: { current: HTMLDivElement | null },
@@ -357,11 +384,15 @@ function useSmoothAutoFollow(
   isInitialPositioningRef: { current: boolean },
   isInitialPositioning: boolean,
   busy: boolean,
+  contentSigRef: { current: string },
 ) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     let raf = 0;
+    let lastSig = contentSigRef.current;
+    let lastReadAt = 0;
+    let cachedTarget = 0;
     const tick = () => {
       // Idle gate: stop the loop (do not schedule the next frame) when there is
       // nothing to follow, so the main thread is not woken ~60x/s while idle —
@@ -382,7 +413,20 @@ function useSmoothAutoFollow(
         return;
       }
       if (el.style.scrollBehavior !== 'auto') el.style.scrollBehavior = 'auto';
-      const target = el.scrollHeight;
+      // Re-read scrollHeight only when content may have grown (the signature
+      // changed) or on the fallback cadence, so idle-but-busy frames don't
+      // force a layout reflow. Between streaming deltas the signature is
+      // stable, so the cached target is reused and the ease still advances
+      // every frame against it — no reflow. The fallback catches non-streaming
+      // height changes (late image / markdown loads) the signature can't see.
+      const sig = contentSigRef.current;
+      const now = Date.now();
+      if (sig !== lastSig || now - lastReadAt >= AUTO_FOLLOW_FALLBACK_READ_MS) {
+        cachedTarget = el.scrollHeight;
+        lastSig = sig;
+        lastReadAt = now;
+      }
+      const target = cachedTarget;
       // During the post-session-switch positioning window, snap to the bottom
       // every frame instead of easing. The virtualizer's totalSize grows in
       // sub-200px increments as late ResizeObserver measurements arrive, which
@@ -420,7 +464,7 @@ function useSmoothAutoFollow(
       cancelAnimationFrame(raf);
       el.style.scrollBehavior = '';
     };
-  }, [scrollRef, hasNewer, autoFollowRef, autoFollow, lastScrollTopRef, setIsAtBottom, isInitialPositioningRef, isInitialPositioning, busy]);
+  }, [scrollRef, hasNewer, autoFollowRef, autoFollow, lastScrollTopRef, setIsAtBottom, isInitialPositioningRef, isInitialPositioning, busy, contentSigRef]);
 }
 
 export function useTranscriptScroll({
@@ -431,6 +475,7 @@ export function useTranscriptScroll({
   onLoadOlder,
   onLoadNewer,
   onJumpToLatest,
+  contentSignature,
 }: UseTranscriptScrollOptions): UseTranscriptScrollResult {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [isInitialPositioning, setIsInitialPositioning] = useState(true);
@@ -443,6 +488,13 @@ export function useTranscriptScroll({
   const previousLoadedStartRef = useRef(transcriptWindow.loadedStart);
   const previousLoadedEndRef = useRef(transcriptWindow.loadedEnd);
   const pendingJumpToLatestSnapRef = useRef(false);
+
+  // Live ref to the latest content signature, read inside the useSmoothAutoFollow
+  // rAF tick to decide whether scrollHeight may have grown. Updated each render
+  // (not via an effect) so the tick sees the latest value without rebuilding
+  // the rAF loop on every delta.
+  const contentSigRef = useRef(contentSignature);
+  contentSigRef.current = contentSignature;
 
   const { isAtBottom, setIsAtBottom, autoFollow, setAutoFollow, autoFollowRef, lastScrollTopRef, scrollToBottom } = useScrollState(scrollRef);
   const {
@@ -527,6 +579,7 @@ export function useTranscriptScroll({
     isInitialPositioningRef,
     isInitialPositioning,
     busy,
+    contentSigRef,
   );
 
   return {
