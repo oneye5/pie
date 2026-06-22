@@ -79,9 +79,45 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.match(html, /\+30/);
   assert.match(html, /-12/);
   assert.doesNotMatch(html, /−/);
-  // Shared diff-bar language present in both the sliver (vertical) and rows.
-  assert.match(html, /file-change-diff-bar is-vertical/);
+  // Collapsed sliver shows a kind (A/M/D) legend, not a diff bar: both test
+  // entries are modified, so only the M row renders. The stacked vertical
+  // "health-bar" is gone; the per-row horizontal bar inside the drawer stays.
+  assert.doesNotMatch(html, /file-change-diff-bar is-vertical/);
   assert.match(html, /file-change-diff-bar is-horizontal/);
+  assert.match(html, /sliver-kind kind-modified/);
+  assert.match(html, /sliver-kind-glyph/);
+  assert.match(html, /sliver-kind-count">2</);
+  // Zero-count kinds are omitted from the legend (only modified is present).
+  assert.doesNotMatch(html, /sliver-kind kind-created/);
+  assert.doesNotMatch(html, /sliver-kind kind-deleted/);
+  // Tooltip carries the full summary: count + kind breakdown + line totals.
+  assert.match(html, /title="2 changed files · M2 · \+30 \/ -12"/);
+});
+
+test('FileChangesPanel collapsed: legend renders one row per present kind', () => {
+  const html = renderToString(
+    h(FileChangesPanel, {
+      fileChanges: [
+        entry('a.ts', 5, 0, 'created'),
+        entry('b.ts', 2, 0, 'created'),
+        entry('c.ts', 3, 1, 'modified'),
+        entry('d.ts', 0, 4, 'deleted'),
+      ],
+      expanded: false,
+      onToggleExpanded: noop,
+      onOpenDiff: noop,
+      onOpenInEditor: noop,
+      onRevertFile: noop,
+    }),
+  );
+  // A2 M1 D1 — only present kinds render, in created → modified → deleted order.
+  assert.match(html, /sliver-kind kind-created/);
+  assert.match(html, /sliver-kind kind-modified/);
+  assert.match(html, /sliver-kind kind-deleted/);
+  assert.match(html, /sliver-kind-count">2</);
+  assert.match(html, /sliver-kind-count">1</);
+  // Count at the top is the file total (4), not a per-kind value.
+  assert.match(html, /<span class="file-changes-sliver-count">4<\/span>/);
 });
 
 test('FileChangesPanel pinned: renders left resize handle + close, no sliver', () => {

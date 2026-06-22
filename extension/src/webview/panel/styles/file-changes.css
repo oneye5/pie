@@ -1,6 +1,6 @@
 /* ── Right-side file-changes rail ────────────────────────────────────────── */
 /* Peek-vs-pin policy (CHANGED-FILES-UI-PLAN D1):
- *  - Collapsed: a thin full-height sliver (count + stacked +/- diff bar, D2)
+ *  - Collapsed: a thin full-height sliver (count + A/M/D kind legend, D2)
  *    — the only persistent footprint when not pinned.
  *  - Peek (hover/tap): an ephemeral overlay floating over the transcript
  *    edge (D3); reserves no layout space.
@@ -10,7 +10,7 @@
  * drag width are webview-local (STATE_CONTRACT § Webview-Local State). */
 
 .file-changes-rail {
-  --file-changes-sliver-width: 12px;
+  --file-changes-sliver-width: 28px;
   --file-changes-drawer-width: 200px;
 
   position: relative;
@@ -30,9 +30,11 @@
 }
 
 /* ── Collapsed sliver (D2) ────────────────────────────────────────────────── */
-/* A thin full-height strip: a count at the top and a stacked +/- diff bar
-   filling the rest. ~12px is the minimum that keeps a 2-digit count legible
-   while reading as a near-zero footprint. */
+/* A thin full-height strip: a count at the top and an A/M/D kind legend
+   (one row per present kind) centered below. Widened from 12px to 28px to fit
+   the legend — the user opted for "more informative" over minimal footprint.
+   The former stacked +/- "health-bar" (green/red on a dark track) was removed:
+   it read as noise and didn't convey magnitude at a glance. */
 
 .file-changes-sliver {
   display: flex;
@@ -68,6 +70,56 @@
   font-variant-numeric: tabular-nums;
   color: inherit;
   transition: color var(--panel-transition-fast);
+}
+
+/* ── Collapsed legend: kind breakdown (A/M/D + counts) ────────────────────── */
+/* Replaces the former stacked +/- "health-bar" (green/red on a dark track):
+ * a mini legend of which kinds of change happened and how many, reusing the
+ * A/M/D glyph vocabulary from the rows. Only present kinds render, so a
+ * single-kind turn reads as one line. Wider than the old 12px sliver by design
+ * — the user opted for "more informative" over minimal footprint. */
+.file-changes-sliver-legend {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding-bottom: var(--panel-gap-xs);
+}
+
+.sliver-kind {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  font-family: var(--panel-font-mono);
+  font-size: 9px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: inherit;
+}
+
+.sliver-kind-glyph {
+  font-weight: 600;
+  opacity: 0.9;
+}
+
+.sliver-kind-count {
+  opacity: 0.8;
+}
+
+.sliver-kind.kind-created .sliver-kind-glyph {
+  color: var(--panel-success);
+}
+
+.sliver-kind.kind-modified .sliver-kind-glyph {
+  color: var(--panel-warning);
+}
+
+.sliver-kind.kind-deleted .sliver-kind-glyph {
+  color: var(--panel-danger);
 }
 
 /* hasNewChanges pulse: the count is the mid-turn "review me" signal (D6/D9).
@@ -319,7 +371,7 @@
   font-weight: 500;
 }
 
-/* ── Diff bar (sliver + per-row, shared visual language — D2/D7) ─────────── */
+/* ── Diff bar (per-row) ─────────────────────────────────────────────────── */
 
 .file-change-diff-bar {
   border-radius: 2px;
@@ -327,21 +379,10 @@
   overflow: hidden;
 }
 
-/* Vertical (sliver): fills the available height; additions anchor the bottom,
-   deletions stack above. Scaled to add+del so the bar always fills and shows
-   the add/del split. */
-.file-change-diff-bar.is-vertical {
-  flex: 1;
-  width: 4px;
-  min-height: 0;
-  display: flex;
-  flex-direction: column-reverse;
-  justify-content: flex-end;
-}
-
 /* Horizontal (per-row): a fixed-width track; additions (left) + deletions
    (right) scale to the session's largest row so bars are comparable by
-   magnitude. */
+   magnitude. The collapsed sliver no longer renders a vertical bar — it shows
+   a kind legend instead (see .file-changes-sliver-legend above). */
 .file-change-diff-bar.is-horizontal {
   display: inline-flex;
   flex-direction: row;
@@ -431,6 +472,9 @@
 @media (forced-colors: active) {
   .file-changes-sliver {
     border-left-color: ButtonText;
+  }
+  .sliver-kind-glyph {
+    color: ButtonText;
   }
   .file-changes-drawer {
     border-color: ButtonText;

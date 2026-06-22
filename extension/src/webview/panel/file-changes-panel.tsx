@@ -2,7 +2,7 @@
 /** @jsxImportSource preact */
 
 import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { FileChangeEntry } from '../../shared/protocol';
+import type { FileChangeEntry, FileChangeKind } from '../../shared/protocol';
 import { cx } from './utils/cx';
 import { ResizeHandle } from './components/resize-handle';
 import { useResizableWidth } from './components/use-resizable-width';
@@ -21,6 +21,14 @@ const STATUS_LABELS: Record<FileChangeEntry['kind'], string> = {
   modified: 'M',
   deleted: 'D',
 };
+
+// Legend order in the collapsed sliver: created → modified → deleted, so the
+// (calm → concerning) reading matches the per-row status glyphs.
+const KIND_ORDER: { kind: FileChangeKind; glyph: string; label: string }[] = [
+  { kind: 'created', glyph: 'A', label: 'Added' },
+  { kind: 'modified', glyph: 'M', label: 'Modified' },
+  { kind: 'deleted', glyph: 'D', label: 'Deleted' },
+];
 
 // Hover-intent / dismiss delays for the peek overlay (STATE_CONTRACT
 // § Webview-Local State — peek/hover overlays). Tunable; see
@@ -52,36 +60,25 @@ export function computeDiffTotals(changes: FileChangeEntry[]): DiffTotals {
 }
 
 /**
- * A stacked +/- diff bar — green (additions) + red (deletions). Vertical
- * (collapsed sliver; scaled to add+del so the bar fills and shows the add/del
- * split) or horizontal (per-row; scaled to the session's largest row so bars
- * are comparable by magnitude). Reused across collapsed and expanded states
- * for one magnitude language (CHANGED-FILES-UI-PLAN D2/D7).
+ * A horizontal +/- diff bar — green (additions) + red (deletions) — shown
+ * per-row inside the drawer, scaled to the session's largest row so bars are
+ * comparable by magnitude. The collapsed sliver no longer renders a diff bar:
+ * it shows an A/M/D kind legend instead (see the sliver markup). Replaces the
+ * former stacked vertical "health-bar" (green/red on a dark track) that read
+ * as noise without conveying magnitude at a glance.
  */
 function DiffBar({
   additions,
   deletions,
-  orientation,
   scale,
 }: {
   additions: number;
   deletions: number;
-  orientation: 'v' | 'h';
   scale: number;
 }) {
   const denom = scale > 0 ? scale : 1;
   const addPct = Math.min(100, (additions / denom) * 100);
   const delPct = Math.min(100, (deletions / denom) * 100);
-  if (orientation === 'v') {
-    // column-reverse: additions (first child) anchor the bottom, deletions
-    // stack above — additions-up reads like a growing bar.
-    return (
-      <span class="file-change-diff-bar is-vertical" aria-hidden="true">
-        <span class="diff-bar-add" style={{ height: `${addPct}%` }} />
-        <span class="diff-bar-del" style={{ height: `${delPct}%` }} />
-      </span>
-    );
-  }
   return (
     <span class="file-change-diff-bar is-horizontal" aria-hidden="true">
       <span class="diff-bar-add" style={{ width: `${addPct}%` }} />
@@ -251,6 +248,12 @@ export function FileChangesPanel({
 
   const totals = useMemo(() => computeDiffTotals(fileChanges), [fileChanges]);
 
+  const byKind = useMemo(() => {
+    const counts: Record<FileChangeKind, number> = { created: 0, modified: 0, deleted: 0 };
+    for (const c of fileChanges) counts[c.kind]++;
+    return counts;
+  }, [fileChanges]);
+
   const { elRef, width: dragWidth, minWidth, maxWidth, startResize, resizeBy, reset } =
     useResizableWidth<HTMLDivElement>({ minWidth: 160, maxWidth: 480 });
 
@@ -355,7 +358,14 @@ export function FileChangesPanel({
     }
   };
 
-  const sliverTitle = `${count} changed file${count === 1 ? '' : 's'} · +${totals.additions} / -${totals.deletions}`;
+  const kindBreakdown = KIND_ORDER
+    .map(({ kind, glyph }) => (byKind[kind] ? `${glyph}${byKind[kind]}` : ''))
+    .filter(Boolean)
+    .join(' ');
+  const sliverTitle =
+    `${count} changed file${count === 1 ? '' : 's'}` +
+    (kindBreakdown ? ` · ${kindBreakdown}` : '') +
+    ` · +${totals.additions} / -${totals.deletions}`;
 
   return (
     <div
@@ -379,12 +389,18 @@ export function FileChangesPanel({
           title={sliverTitle}
         >
           <span class="file-changes-sliver-count">{count}</span>
-          <DiffBar
-            additions={totals.additions}
-            deletions={totals.deletions}
-            orientation="v"
-            scale={totals.additions + totals.deletions}
-          />
+          <span class="file-changes-sliver-legend">
+            {KIND_ORDER.map(({ kind, glyph, label }) => {
+              const n = byKind[kind];
+              if (!n) return null;
+              return (
+                <span key={kind} class={`sliver-kind kind-${kind}`} title={`${label}: ${n}`}>
+                  <span class="sliver-kind-glyph" aria-hidden="true">{glyph}</span>
+                  <span class="sliver-kind-count">{n}</span>
+                </span>
+              );
+            })}
+          </span>
         </button>
       )}
 
@@ -463,7 +479,6 @@ export function FileChangesPanel({
                   <DiffBar
                     additions={change.additions ?? 0}
                     deletions={change.deletions ?? 0}
-                    orientation="h"
                     scale={totals.maxRowTotal}
                   />
                   <LineStats additions={change.additions} deletions={change.deletions} />
