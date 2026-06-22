@@ -1,5 +1,6 @@
 import type { ArchState } from './core/arch-state';
 import {
+  computeIdleDisplayState,
   createAccumulator,
   IDLE_STATE,
   shouldResetForRun,
@@ -139,6 +140,25 @@ export class TokenRateService {
         this.statesBySession.delete(path);
         this.accumulators.delete(path);
         this.runIdsBySession.delete(path);
+      }
+    }
+
+    // Seed a latency-bearing idle display state for open sessions that have
+    // never been measured this host session — a transcript loaded from disk, or
+    // one restored after a window reload. Such sessions have no live rate, but
+    // their finished turns still carry an average turn latency that should stay
+    // visible on the speed chip even with no active generation (otherwise the
+    // chip shows the bare '—' placeholder until the next run begins). Once a
+    // session runs it is measured above and `statesBySession` already holds it,
+    // so this is a no-op; the idle state is computed once (the transcript is
+    // static while idle) and retained until a run replaces it.
+    for (const path of openTabs) {
+      if (this.statesBySession.has(path)) continue;
+      const transcript = state.transcript.bySession[path] ?? [];
+      const idleState = computeIdleDisplayState(transcript);
+      this.statesBySession.set(path, idleState);
+      if (path === activePath && idleState !== IDLE_STATE) {
+        activeChanged = true;
       }
     }
 

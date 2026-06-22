@@ -27,6 +27,22 @@ function streamingMessage(id: string, chars: number): ChatMessage {
   };
 }
 
+/** A finished assistant turn carrying the full turn-latency breakdown. */
+function finishedTurn(id: string, latency: {
+  turnLatencyMs: number;
+  overheadMs: number;
+  providerLatencyMs: number;
+}): ChatMessage {
+  return {
+    ...streamingMessage(id, 4),
+    status: 'completed',
+    markdown: 'done',
+    turnLatencyMs: latency.turnLatencyMs,
+    overheadMs: latency.overheadMs,
+    providerLatencyMs: latency.providerLatencyMs,
+  };
+}
+
 function runSummary(runId: string): ActiveRunSummary {
   // Only runId is read by the service; the rest is shape-only.
   return { runId } as unknown as ActiveRunSummary;
@@ -229,4 +245,98 @@ test('a closed session is dropped from the measured set', () => {
   });
   service.tick(BASE_NOW + 1000);
   assert.equal(service.getRate('/a').state, 'idle');
+});
+
+test('a loaded (non-running) session surfaces its average turn latency even with no active generation', () => {
+  // A transcript opened from disk (or restored after a window reload) is not in
+  // `runningSessionPaths`, so without idle-state seeding the speed chip would
+  // fall back to the bare IDLE placeholder ('—') even though its finished turns
+  // carry a measured latency. The host seeds a latency-bearing idle state so
+  // the average stays visible until the next run.
+  const arch = makeArchState({
+    openTabs: ['/a'],
+    running: [],
+    active: '/a',
+    transcripts: {
+      '/a': [
+        finishedTurn('f1', { turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 }),
+        finishedTurn('f2', { turnLatencyMs: 2_000, overheadMs: 300, providerLatencyMs: 1_700 }),
+      ],
+    },
+  });
+  let changeCount = 0;
+  const service = new TokenRateService({
+    getArchState: () => arch,
+    onActiveRateChanged: () => { changeCount += 1; },
+  });
+
+  service.tick(BASE_NOW);
+  const idle = service.getRate('/a');
+  assert.equal(idle.state, 'idle');
+  assert.equal(idle.paused, false);
+  // Inline TTFT: avg provider latency = (900 + 1700) / 2 = 1300ms -> 1.3s.
+  assert.equal(idle.label, '— · 1.3s');
+  assert.match(idle.tooltip, /Avg turn latency: 1\.5s over 2 turns/);
+  // Seeding the active session's latency is a display change -> one notification.
+  assert.equal(changeCount, 1);
+
+  // Idempotent: a subsequent tick must not re-seed or re-notify (the transcript
+  // is static while idle, so the state is retained unchanged).
+  service.tick(BASE_NOW + 1000);
+  assert.equal(service.getRate('/a').label, '— · 1.3s');
+  assert.equal(changeCount, 1);
+});
+
+test('a loaded session with no measured turns stays at the bare idle placeholder', () => {
+  const arch = makeArchState({
+    openTabs: ['/a'],
+    running: [],
+    active: '/a',
+    transcripts: { '/a': [streamingMessage('s1', 0)] },
+  });
+  let changeCount = 0;
+  const service = new TokenRateService({
+    getArchState: () => arch,
+    onActiveRateChanged: () => { changeCount += 1; },
+  });
+
+  service.tick(BASE_NOW);
+  const idle = service.getRate('/a');
+  assert.equal(idle.state, 'idle');
+  assert.equal(idle.label, '—');
+  // Nothing to average -> no display change to notify.
+  assert.equal(changeCount, 0);
+});
+
+test('a run that starts on a previously-idle session replaces the idle state with a measured one', () => {
+  // The idle seed is a placeholder until a run begins; once the session runs it
+  // is measured normally and transitions to generating/paused, with the
+  // historical latency still folded into the average (turn 2+ shows it inline).
+  let arch = makeArchState({
+    openTabs: ['/a'],
+    running: [],
+    active: '/a',
+    transcripts: { '/a': [finishedTurn('f1', { turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 })] },
+  });
+  const service = new TokenRateService({
+    getArchState: () => arch,
+    onActiveRateChanged: () => {},
+  });
+  service.tick(BASE_NOW);
+  assert.equal(service.getRate('/a').state, 'idle');
+  assert.match(service.getRate('/a').label, /0\.9s/);
+
+  // A new run begins: an empty streaming message appears, session is running.
+  arch.transcript.bySession['/a'] = [
+    finishedTurn('f1', { turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 }),
+    streamingMessage('s1', 0),
+  ];
+  arch.sessions.runningSessionPaths = ['/a'];
+  arch.composer.activeRunSummaryBySession['/a'] = runSummary('r1');
+  service.tick(BASE_NOW + 1000);
+  const running = service.getRate('/a');
+  // Empty new message -> paused until output flows, but the historical latency
+  // is still surfaced inline (the idle seed was replaced, not lost).
+  assert.equal(running.state, 'paused');
+  assert.match(running.label, /· 0\.9s/);
 });

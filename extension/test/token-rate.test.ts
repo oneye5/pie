@@ -7,6 +7,7 @@ import {
   tickTokenRate,
   WINDOW_MS,
 } from '../src/webview/panel/composer/use-token-rate';
+import { computeIdleDisplayState, IDLE_STATE } from '../src/shared/token-rate';
 import { countTextTokens } from '../src/shared/tokenize';
 import { encode as bpeEncode, decode as bpeDecode } from 'gpt-tokenizer/encoding/cl100k_base';
 
@@ -512,4 +513,51 @@ test('merged average latency also appears in the paused (tool running) tooltip',
   assert.match(state.tooltip, /Generation paused \(tool running\)/);
   assert.match(state.tooltip, /Last rate: 100 tok\/s/);
   assert.match(state.tooltip, /Avg turn latency: 1\.5s over 2 turns/);
+});
+
+test('computeIdleDisplayState: no measured turns returns the bare idle placeholder', () => {
+  // A transcript with no finished, latency-measured turns has nothing to
+  // average, so the idle state is the plain IDLE placeholder (no inline segment,
+  // no latency tooltip lines) — not a latency chip with a stale dash.
+  const m = streamingMessage();
+  assert.equal(computeIdleDisplayState([]), IDLE_STATE);
+  assert.equal(computeIdleDisplayState([setContent(m, 0)]), IDLE_STATE);
+});
+
+test('computeIdleDisplayState: measured turns surface the average latency with no active generation', () => {
+  // A loaded transcript that is not generating should still show the average
+  // turn latency on the speed chip. The inline time-to-first-token and the
+  // tooltip breakdown match the live generating/paused chip exactly (same
+  // adapters); only the rate prefix differs (here just '—', since there is no
+  // rate) and the state is 'idle' (not 'paused' — nothing is held or resuming).
+  const m = streamingMessage();
+  const finishedTurns: ChatMessage[] = [
+    { ...m, id: 'f1', status: 'completed', markdown: 'done', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 },
+    { ...m, id: 'f2', status: 'completed', markdown: 'done', turnLatencyMs: 2_000, overheadMs: 300, providerLatencyMs: 1_700 },
+  ];
+  const state = computeIdleDisplayState(finishedTurns);
+  assert.equal(state.state, 'idle');
+  assert.equal(state.paused, false);
+  // Inline TTFT: avg provider latency = (900 + 1700) / 2 = 1300ms -> 1.3s.
+  assert.equal(state.label, '— · 1.3s');
+  assert.match(state.ariaLabel, /Generation rate: idle\. Average time to first token 1\.3s\./);
+  assert.match(state.tooltip, /No active generation\./);
+  assert.match(state.tooltip, /Avg turn latency: 1\.5s over 2 turns/);
+  assert.match(state.tooltip, /time to first token: 1\.3s/);
+});
+
+test('computeIdleDisplayState: measured turns without the provider split omit the inline segment but keep the tooltip breakdown', () => {
+  // Mirrors the live chip: a measured total without the provider split omits
+  // the inline `· Xs` segment (no stale dash) while the tooltip still carries
+  // the '—' placeholder so the breakdown is discoverable.
+  const m = streamingMessage();
+  const finishedTurns: ChatMessage[] = [
+    { ...m, id: 'f1', status: 'completed', markdown: 'done', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: undefined },
+  ];
+  const state = computeIdleDisplayState(finishedTurns);
+  assert.equal(state.state, 'idle');
+  assert.equal(state.label, '—');
+  assert.doesNotMatch(state.label, /·/);
+  assert.match(state.tooltip, /Avg turn latency: 1\.0s over 1 turn/);
+  assert.match(state.tooltip, /time to first token: —/);
 });

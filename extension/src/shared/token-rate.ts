@@ -7,8 +7,7 @@ import {
 } from './subagent-result';
 import {
   computeTurnLatencyStats,
-  formatAvgTimeToFirstToken,
-  formatTurnLatencyTooltipLines,
+  latencyDisplay,
   type TurnLatencyStats,
 } from './turn-latency';
 
@@ -303,30 +302,25 @@ function buildState(
   // not just on hover) as ` · 1.3s` appended to the rate label. The latency
   // breakdown is appended to the tooltip for context. No measured turns yet
   // -> ttft is null and latencyLines is empty -> the label and tooltip stay
-  // concise.
-  const ttft = formatAvgTimeToFirstToken(stats);
-  const latencyLines = formatTurnLatencyTooltipLines(stats);
-  const withTtft = (label: string) => (ttft !== null ? `${label} · ${ttft}` : label);
-  const ttftAria = ttft !== null ? ` Average time to first token ${ttft}.` : '';
-  const withLatency = (lines: string[]): string => (
-    latencyLines.length > 0 ? [...lines, ...latencyLines].join('\n') : lines.join('\n')
-  );
+  // concise. The same adapters shape the idle state (see computeIdleDisplayState)
+  // so the inline segment and tooltip lines are consistent across every state.
+  const latency = latencyDisplay(stats);
 
   if (generating) {
     if (rate === null) {
       return {
-        label: withTtft('—'),
-        ariaLabel: `Generation rate: measuring.${ttftAria}`,
-        tooltip: withLatency(['Measuring generation rate…']),
+        label: latency.withTtft('—'),
+        ariaLabel: latency.withTtftAria('Generation rate: measuring.'),
+        tooltip: latency.withLatencyLines(['Measuring generation rate…']),
         state: 'generating',
         paused: false,
       };
     }
     const num = formatRate(rate);
     return {
-      label: withTtft(`${num} tok/s`),
-      ariaLabel: `Generation rate: ${num} tokens per second.${ttftAria}`,
-      tooltip: withLatency([
+      label: latency.withTtft(`${num} tok/s`),
+      ariaLabel: latency.withTtftAria(`Generation rate: ${num} tokens per second.`),
+      tooltip: latency.withLatencyLines([
         `Generation rate: ${num} tok/s`,
         `Average over the last ${windowSec}s of generation.`,
         `${acc.cumTokens} output tokens in ${genSec}s of generation time.`,
@@ -341,9 +335,9 @@ function buildState(
   const reason = describePauseReason(streaming, toolBlocked);
   if (rate === null) {
     return {
-      label: withTtft('—'),
-      ariaLabel: `Generation paused (${reason}).${ttftAria}`,
-      tooltip: withLatency([
+      label: latency.withTtft('—'),
+      ariaLabel: latency.withTtftAria(`Generation paused (${reason}).`),
+      tooltip: latency.withLatencyLines([
         `Generation paused (${reason}).`,
         'Waiting for the model to produce output.',
       ]),
@@ -353,9 +347,9 @@ function buildState(
   }
   const num = formatRate(rate);
   return {
-    label: withTtft(`⏸ ${num} tok/s`),
-    ariaLabel: `Generation paused (${reason}). Last rate ${num} tokens per second.${ttftAria}`,
-    tooltip: withLatency([
+    label: latency.withTtft(`⏸ ${num} tok/s`),
+    ariaLabel: latency.withTtftAria(`Generation paused (${reason}). Last rate ${num} tokens per second.`),
+    tooltip: latency.withLatencyLines([
       `Generation paused (${reason}).`,
       `Last rate: ${num} tok/s`,
       `${acc.cumTokens} output tokens in ${genSec}s of generation time.`,
@@ -452,4 +446,32 @@ export function shouldResetForRun(existingRunId: string | null | undefined, runI
   if (existingRunId === undefined) return true;
   if (existingRunId === null) return runId !== null;
   return runId !== null && runId !== existingRunId;
+}
+
+/**
+ * The speed-chip state for a session that is not currently generating — no run
+ * is active, so there is no live rate to show, but the transcript's measured
+ * turns still carry an average turn latency worth surfacing. Without this, a
+ * loaded transcript (opened from disk, or restored after a window reload) would
+ * show the bare `IDLE_STATE` placeholder (`—`) even when it has historical
+ * latency, so the average would be invisible until the next run began.
+ *
+ * Returns `IDLE_STATE` when no turn has been measured yet (nothing to average).
+ * Otherwise the inline time-to-first-token segment and the tooltip breakdown
+ * are applied through the same `latencyDisplay` adapters as the live
+ * generating/paused states, so the latency reads identically across states —
+ * only the rate prefix differs (here just `—`, since there is no rate). The
+ * state is `idle` (not `paused`): nothing is held or about to resume.
+ */
+export function computeIdleDisplayState(transcript: ChatMessage[]): TokenRateIndicatorState {
+  const stats = computeTurnLatencyStats(transcript);
+  if (stats.count === 0) return IDLE_STATE;
+  const latency = latencyDisplay(stats);
+  return {
+    label: latency.withTtft('—'),
+    ariaLabel: latency.withTtftAria('Generation rate: idle.'),
+    tooltip: latency.withLatencyLines(['No active generation.']),
+    state: 'idle',
+    paused: false,
+  };
 }

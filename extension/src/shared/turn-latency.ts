@@ -141,3 +141,37 @@ export function formatTurnLatencyTooltipLines(stats: TurnLatencyStats): string[]
     `  time to first token: ${ttft} — request prep + network + model first token`,
   ];
 }
+
+/**
+ * Precomputed latency-display adapters for a speed-chip state. Computes the
+ * inline time-to-first-token and the tooltip breakdown once (from {@link stats})
+ * and exposes joins that every chip-state variant — generating, paused, and idle
+ * — applies identically, so the inline segment and tooltip lines stay consistent
+ * across states and there is a single owner of the `· <ttft>` formatting.
+ *
+ * `withTtft` / `withTtftAria` append the inline segment only when a provider
+ * latency was measured (otherwise the segment is omitted, never a stale dash);
+ * `withLatencyLines` appends the breakdown only when at least one turn was
+ * measured. The closures capture the formatted values, so calling them is cheap
+ * and does not re-walk the stats.
+ */
+export interface LatencyDisplay {
+  /** `${label} · <ttft>`, or `label` when no provider latency is measured. */
+  withTtft: (label: string) => string;
+  /** `${aria} Average time to first token <ttft>.`, or `aria` when none. */
+  withTtftAria: (aria: string) => string;
+  /** Base tooltip lines joined with the latency breakdown (when measured). */
+  withLatencyLines: (lines: string[]) => string;
+}
+
+export function latencyDisplay(stats: TurnLatencyStats): LatencyDisplay {
+  const ttft = formatAvgTimeToFirstToken(stats);
+  const latencyLines = formatTurnLatencyTooltipLines(stats);
+  return {
+    withTtft: (label) => (ttft !== null ? `${label} · ${ttft}` : label),
+    withTtftAria: (aria) => (ttft !== null ? `${aria} Average time to first token ${ttft}.` : aria),
+    withLatencyLines: (lines) => (
+      latencyLines.length > 0 ? [...lines, ...latencyLines].join('\n') : lines.join('\n')
+    ),
+  };
+}
