@@ -121,10 +121,12 @@
 }
 
 /* ── Collapsed file list (fills the sliver's vertical space) ─────────────── */
-/* The sliver is full-height; below the summary, list the affected files
-   (truncated basenames + a kind glyph) so the tall sliver isn't wasted space.
-   Read-only glance — peek/pin for the full, interactive list. Each line's
-   title carries the full path for a clever hover preview. */
+/* The sliver is full-height; below the summary, list the affected files. Each
+   file occupies two rows — row 1 is the kind glyph + truncated basename, row 2
+   is the per-file +/- churn — so the tall sliver's vertical room surfaces
+   per-file magnitude (extending the aggregate +/- total down to each file) at
+   a glance. Read-only; peek/pin for the full, interactive list. Each entry's
+   outer span carries the full path as a hover title. */
 .file-changes-sliver-files {
   flex: 1 1 auto;
   min-height: 0;
@@ -139,16 +141,41 @@
 
 .sliver-file {
   display: flex;
-  align-items: baseline;
-  gap: 2px;
+  flex-direction: column;
+  gap: 0;
   min-width: 0;
-  padding: 0 3px;
+  padding: 1px 3px;
   font-family: var(--panel-font-mono);
   font-size: 8px;
   line-height: 1.3;
   color: var(--panel-foreground-soft);
   white-space: nowrap;
   overflow: hidden;
+}
+
+.sliver-file-row {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Row 2: per-file line churn (+N/-N). min-height keeps every entry two rows
+   tall even when a file has no line stats (rare), so the list rhythm stays
+   uniform. */
+.sliver-file-stats {
+  min-height: 1.3em;
+  opacity: 0.8;
+}
+
+.sliver-file-add {
+  color: var(--panel-success);
+}
+
+.sliver-file-del {
+  color: var(--panel-danger);
 }
 
 .sliver-file-glyph {
@@ -203,6 +230,15 @@
   flex: 0 0 auto;
   width: 0;
   height: 100%;
+  /* Flex column so the inner pane flex-fills the drawer's height and the file
+     list scrolls when it overflows, instead of the drawer growing to fit its
+     content. The drawer's height is definite in both modes — stretched by the
+     rail when pinned, and the inset (top:0/bottom:0) when peeking — so the
+     inner flexes against a real bound and the list scrolls rather than
+     overflowing the panel. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   opacity: 0;
   overflow: hidden;
   pointer-events: none;
@@ -238,10 +274,13 @@
 }
 
 /* Fixed-width content so a drag / widening clip doesn't reflow text. The
-   drag width overrides this via an inline style when pinned. */
+   drag width overrides this via an inline style when pinned. Flex-fills the
+   drawer's height (a flex child of the now-column drawer) so the file list
+   scrolls rather than overflows. */
 .file-changes-drawer-inner {
   width: var(--file-changes-drawer-width);
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
 }
@@ -292,6 +331,9 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* Keep the list scroll self-contained so a long list doesn't drag the
+     transcript along at the scroll boundary. */
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 1px;
@@ -446,10 +488,10 @@
 /* ── Collapsed magnitude (how-much at a glance) ───────────────────────────── */
 /* Replaces the former per-row red/green diff bar. That bar restated the +N/-N
    numbers already shown beside it and consumed ~40px of horizontal space per
-   row — space now reclaimed for the file path. Magnitude instead lives in the
-   collapsed sliver (total +/- churn, always visible) and in the per-row +N/-N
-   numbers; the full path + per-kind breakdown surface on hover via tooltips
-   (see .file-change-path-trigger / .file-changes-aggregate-trigger below). */
+   row — space now reclaimed for the file path. Magnitude lives in the
+   collapsed sliver (total +/- churn, always visible, plus per-file +/- on
+   each sliver entry's second row) and in the per-row +N/-N numbers in the
+   expanded list. */
 
 .file-changes-sliver-magnitude {
   display: flex;
@@ -471,14 +513,10 @@
   color: var(--panel-danger);
 }
 
-/* Tooltip triggers that double as flex children: the wrapper span must fill the
-   row / header so the tooltip's hover target matches the visible path/summary
-   and the inner content keeps its flex + ellipsis behavior. */
-.file-change-path-trigger,
-.file-changes-aggregate-trigger {
-  flex: 1;
-  min-width: 0;
-}
+/* Tooltips were removed from the expanded drawer (they obscured the list).
+   The path button (.file-change-path) and aggregate span
+   (.file-changes-aggregate) carry their own flex:1 + min-width:0 + ellipsis,
+   so the former trigger wrappers are gone. */
 
 /* ── Action buttons ───────────────────────────────────────────────────────── */
 

@@ -108,12 +108,14 @@ Full decision record lives in the plan doc. Summary:
   `fileChangesPeek*` field is ever promoted into ViewState.
 - **D2** Collapsed sliver ~48px, full-height: count at top + total `+N`/`-N`
   churn (how much changed, always visible) + an A/M/D kind legend, AND below
-  them a read-only vertical list of the affected files (truncated basenames +
-  a kind glyph) filling the remaining height — the tall sliver no longer
-  wastes vertical space. Peek/pin for the full, interactive list; each sliver
-  line carries its full path as a hover `title`. Refined from the original
-  stacked +/- diff bar (noise, no magnitude at a glance). The sliver `title`
-  carries the full summary (`N · A3 M7 D2 · +X / -Y`).
+  them a read-only vertical list of the affected files, each occupying TWO
+  rows — row 1 = kind glyph + truncated basename, row 2 = per-file `+N`/`-N`
+  churn — filling the remaining height so the tall sliver's vertical room
+  surfaces per-file magnitude (extends the aggregate `+/-` down to each file)
+  at a glance. Peek/pin for the full, interactive list; each sliver entry
+  carries its full path as a hover `title`. Refined from the original stacked
+  +/- diff bar (noise, no magnitude at a glance). The sliver `title` carries
+  the full summary (`N · A3 M7 D2 · +X / -Y`).
 - **D3** Peek is `position: absolute` over the transcript edge (not a push);
   hover region = rail subtree (sliver ∪ overlay); dismiss on mouse-leave /
   click-outside / Escape.
@@ -129,9 +131,16 @@ Full decision record lives in the plan doc. Summary:
   **Post-impl revision:** the per-row red/green diff bar was removed — it
   restated the `+N`/`-N` numbers beside it and wasted ~40px/row; that space is
   reclaimed for the (ellipsized) file path so more of the path shows at rest.
-  Edit-chronology order, no sort. Detail (full path + description + stats +
-  diff hint; per-kind breakdown) surfaces on hover via `Tooltip` (a `triggerClass`
-  prop was added so the wrapper span can act as a flex child).
+  Edit-chronology order, no sort. **Iteration 3 (tooltips removed; list
+  scrolls):** the expanded drawer no longer wraps the path or the aggregate
+  header in `Tooltip` — they obscured the list, so the hover-only detail they
+  carried (full path, per-kind breakdown) is dropped in favor of a calm,
+  scrollable list. Per-file churn now lives inline on the sliver's second row
+  (D2); the drawer's height chain was made flex-based (`display:flex` column +
+  `flex:1` inner + `min-height:0`) so `.file-changes-list` reliably scrolls
+  when it overflows instead of the drawer growing to fit (`overscroll-behavior:
+  contain` keeps the scroll self-contained). The now-dead `triggerClass` prop
+  was removed from `Tooltip`.
   **Iteration 2 (row hover = act mode):** the per-row buttons no longer reserve
   space — `.file-change-actions` is `max-width:0; overflow:hidden; opacity:0`
   at rest so the full path fills the row ("read" mode); on row hover/focus the

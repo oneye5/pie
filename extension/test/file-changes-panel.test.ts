@@ -86,13 +86,19 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.match(html, /sliver-kind kind-modified/);
   assert.match(html, /sliver-kind-glyph/);
   assert.match(html, /sliver-kind-count">2</);
-  // The collapsed sliver also lists the affected files (truncated basenames +
-  // kind glyph) to fill its vertical height; each line carries its full path
-  // as a hover title.
+  // The collapsed sliver also lists the affected files, two rows each: row 1
+  // is the kind glyph + truncated basename; row 2 is the per-file +/- churn,
+  // so the tall sliver surfaces per-file magnitude at a glance. Each entry's
+  // outer span still carries the full path as a hover title.
   assert.match(html, /file-changes-sliver-files/);
   assert.match(html, /sliver-file kind-modified/);
   assert.match(html, /sliver-file-name">a.ts/);
   assert.match(html, /sliver-file-name">b.ts/);
+  assert.match(html, /sliver-file-stats/);
+  assert.match(html, /sliver-file-add">\+20/);
+  assert.match(html, /sliver-file-del">-5/);
+  assert.match(html, /sliver-file-add">\+10/);
+  assert.match(html, /sliver-file-del">-7/);
   // Zero-count kinds are omitted from the legend (only modified is present).
   assert.doesNotMatch(html, /sliver-kind kind-created/);
   assert.doesNotMatch(html, /sliver-kind kind-deleted/);
@@ -133,9 +139,12 @@ test('FileChangesPanel collapsed: legend renders one row per present kind', () =
   assert.match(html, /sliver-kind-count">1</);
   // Count at the top is the file total (4), not a per-kind value.
   assert.match(html, /<span class="file-changes-sliver-count">4<\/span>/);
-  // Collapsed file list renders one entry per file (4 here).
+  // Collapsed file list renders one entry per file (4 here), each with a
+  // second row of per-file +/- churn (a.ts created → +5; d.ts deleted → -4).
   assert.match(html, /file-changes-sliver-files/);
   assert.match(html, /sliver-file-name">a.ts/);
+  assert.match(html, /sliver-file-add">\+5/);
+  assert.match(html, /sliver-file-del">-4/);
 });
 
 test('FileChangesPanel pinned: renders left resize handle + close, no sliver', () => {
@@ -155,6 +164,9 @@ test('FileChangesPanel pinned: renders left resize handle + close, no sliver', (
   assert.match(html, /class="resize-handle resize-handle-left"/);
   // Close (unpin) affordance present.
   assert.match(html, /file-changes-close/);
+  // Tooltips were removed from the expanded drawer (they obscured the list):
+  // neither the path nor the aggregate header is wrapped in a tooltip trigger.
+  assert.doesNotMatch(html, /pie-tooltip-trigger/);
 });
 
 test('FileChangesPanel renders nothing when there are no file changes', () => {

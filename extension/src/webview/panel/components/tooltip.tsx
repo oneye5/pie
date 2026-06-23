@@ -38,12 +38,6 @@ export interface TooltipProps {
    * label keeps updating live, and re-hovering refreshes the snapshot.
    */
   freezeWhileVisible?: boolean;
-  /**
-   * Extra class(es) applied to the trigger wrapper span. Use when the trigger
-   * must participate in a parent flex layout — e.g. `flex: 1; min-width: 0` so
-   * a tooltiped path fills its row and its inner ellipsis keeps working.
-   */
-  triggerClass?: string;
 }
 
 /**
@@ -62,7 +56,6 @@ export function Tooltip({
   delayHide = 50,
   placement = 'bottom',
   freezeWhileVisible = false,
-  triggerClass,
 }: TooltipProps): JSX.Element {
   const [isVisible, setIsVisible] = useState(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
@@ -241,7 +234,7 @@ export function Tooltip({
   return (
     <span
       ref={triggerRef}
-      class={triggerClass ? `pie-tooltip-trigger ${triggerClass}` : 'pie-tooltip-trigger'}
+      class="pie-tooltip-trigger"
       aria-describedby={singleVNode ? undefined : (isVisible ? hostIdRef.current : undefined)}
       onMouseEnter={showTooltip}
       onMouseLeave={hideTooltip}
