@@ -8,9 +8,8 @@
  * createRequire + Module._resolveFilename mock bootstrap as the existing
  * integration.test.ts / copilot-headers.test.ts, then requires pruning.ts.
  *
- * These tests mock the LLM selection inputs as plain data and assert the
- * branches the orchestrator relies on: ceiling clamp, pinned-forced,
- * LLM-omitted exclusion, and the null-vs-explicitly-empty fail-open split.
+ * These tests exercise the prune-list (exclusion) selection model: the LLM
+ * names items to REMOVE; empty/null means keep everything.
  */
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -181,127 +180,115 @@ test("resolveVisibleSkills: disabled skill named in pinned is dropped (not force
 });
 
 // ---------------------------------------------------------------------------
-// applySkillSelection
+// applySkillSelection (prune-list / exclusion semantics)
 // ---------------------------------------------------------------------------
 
-test("applySkillSelection: clamps LLM selection down to the ceiling", () => {
-	const skills = [skill("alpha"), skill("beta"), skill("gamma"), skill("delta"), skill("epsilon")];
-	const r = applySkillSelection(
-		skills,
-		["alpha", "beta", "gamma", "delta", "epsilon"],
-		[],
-		config({ skills: skillsConfig({ ceiling: 2 }) }),
-		false,
-	);
-	assert.ok(r.includedSkillNames.length <= 2, `ceiling 2 but got ${r.includedSkillNames.length}`);
-	assert.equal(r.excludedSkillNames.length, 3);
-	assert.equal(r.failOpenReason, undefined);
-});
-
-test("applySkillSelection: ceiling is raised to at least the pinned count", () => {
-	const skills = [skill("a"), skill("b"), skill("c"), skill("d")];
-	// ceiling 1 but 2 pinned -> all pinned must fit
-	const r = applySkillSelection(
-		skills,
-		["c"],
-		["a", "b"],
-		config({ skills: skillsConfig({ ceiling: 1, pinned: ["a", "b"] }) }),
-		false,
-	);
-	assert.ok(r.includedSkillNames.includes("a"));
-	assert.ok(r.includedSkillNames.includes("b"));
-});
-
-test("applySkillSelection: forces pinned skills in even when LLM omits them", () => {
-	const r = applySkillSelection(
-		visibleSkills,
-		["gamma"],
-		["alpha"],
-		config({ skills: skillsConfig({ pinned: ["alpha"] }) }),
-		false,
-	);
-	assert.ok(r.includedSkillNames.includes("alpha"), "pinned alpha must be included");
-	assert.ok(r.includedSkillNames.includes("gamma"));
-	assert.ok(!r.excludedSkillNames.includes("alpha"));
-});
-
-test("applySkillSelection: excludes LLM-omitted non-pinned skills", () => {
-	const r = applySkillSelection(visibleSkills, ["alpha"], [], config(), false);
-	assert.deepEqual(r.includedSkillNames, ["alpha"]);
-	assert.deepEqual(r.excludedSkillNames, ["beta", "gamma"]);
-});
-
-test("applySkillSelection: null selection -> all included, NO fail-open reason", () => {
-	const r = applySkillSelection(visibleSkills, null, [], config(), false);
+test("applySkillSelection: null prune list -> keep all, no fail-open reason", () => {
+	const r = applySkillSelection(visibleSkills, null, [], config());
 	assert.deepEqual(r.includedSkillNames, ["alpha", "beta", "gamma"]);
 	assert.deepEqual(r.excludedSkillNames, []);
 	assert.equal(r.failOpenReason, undefined);
 });
 
-test("applySkillSelection: explicitly empty selection honored -> all excluded, no fail-open", () => {
-	const r = applySkillSelection(visibleSkills, [], [], config(), true);
-	assert.deepEqual(r.includedSkillNames, []);
-	assert.deepEqual(r.excludedSkillNames, ["alpha", "beta", "gamma"]);
+test("applySkillSelection: empty prune list -> keep all (nothing to prune)", () => {
+	const r = applySkillSelection(visibleSkills, [], [], config());
+	assert.deepEqual(r.includedSkillNames, ["alpha", "beta", "gamma"]);
+	assert.deepEqual(r.excludedSkillNames, []);
 	assert.equal(r.failOpenReason, undefined);
 });
 
-test("applySkillSelection: empty non-explicitly-empty selection -> fail-open keeps all with reason", () => {
-	// Realistic path: LLM responded but every pick was filtered out as unknown,
-	// yielding an empty (non-null, non-explicitly-empty) selection.
-	const r = applySkillSelection(visibleSkills, [], [], config(), false);
+test("applySkillSelection: prunes only the named skills", () => {
+	const r = applySkillSelection(visibleSkills, ["beta"], [], config());
+	assert.deepEqual(r.includedSkillNames, ["alpha", "gamma"]);
+	assert.deepEqual(r.excludedSkillNames, ["beta"]);
+	assert.equal(r.failOpenReason, undefined);
+});
+
+test("applySkillSelection: ignores unknown names in the prune list", () => {
+	const r = applySkillSelection(visibleSkills, ["beta", "nope"], [], config());
+	assert.deepEqual(r.includedSkillNames, ["alpha", "gamma"]);
+	assert.deepEqual(r.excludedSkillNames, ["beta"]);
+});
+
+test("applySkillSelection: pinned skills are protected from pruning", () => {
+	const cfg = config({ skills: skillsConfig({ pinned: ["alpha"] }) });
+	const r = applySkillSelection(visibleSkills, ["alpha", "beta"], ["alpha"], cfg);
+	// alpha is pinned -> not pruned; beta pruned; gamma kept
+	assert.ok(r.includedSkillNames.includes("alpha"));
+	assert.ok(!r.excludedSkillNames.includes("alpha"));
+	assert.deepEqual(r.excludedSkillNames, ["beta"]);
+});
+
+test("applySkillSelection: pruning every visible skill -> fail-open keeps all", () => {
+	const r = applySkillSelection(visibleSkills, ["alpha", "beta", "gamma"], [], config());
 	assert.deepEqual(r.includedSkillNames, ["alpha", "beta", "gamma"]);
 	assert.deepEqual(r.excludedSkillNames, []);
 	assert.ok(r.failOpenReason, "fail-open reason should be set");
 	assert.match(r.failOpenReason!, /fail-open/i);
 });
 
+test("applySkillSelection: pinned survive even when LLM prunes everything else (no fail-open)", () => {
+	const skills = [skill("a"), skill("b"), skill("c")];
+	const r = applySkillSelection(skills, ["a", "b", "c"], ["a"], config());
+	// a pinned -> kept; b,c pruned; something survives so no fail-open
+	assert.deepEqual(r.includedSkillNames, ["a"]);
+	assert.deepEqual(r.excludedSkillNames, ["b", "c"]);
+	assert.equal(r.failOpenReason, undefined);
+});
+
 // ---------------------------------------------------------------------------
-// applyToolSelection
+// applyToolSelection (prune-list / exclusion semantics)
 // ---------------------------------------------------------------------------
 
-test("applyToolSelection: null selection -> all included, no reason", () => {
-	const r = applyToolSelection(allTools, null, config({ tools: toolsConfig() }), false);
+test("applyToolSelection: null prune list -> keep all, no reason", () => {
+	const r = applyToolSelection(allTools, null, config({ tools: toolsConfig() }));
 	assert.deepEqual(r.includedToolNames, allTools.map((t) => t.name));
 	assert.deepEqual(r.excludedToolNames, []);
 	assert.equal(r.failOpenReason, undefined);
 });
 
-test("applyToolSelection: explicit empty honored -> all excluded, no reason", () => {
-	const r = applyToolSelection(allTools, [], config({ tools: toolsConfig() }), true);
-	assert.deepEqual(r.includedToolNames, []);
-	assert.deepEqual(r.excludedToolNames, allTools.map((t) => t.name));
+test("applyToolSelection: empty prune list -> keep all", () => {
+	const r = applyToolSelection(allTools, [], config({ tools: toolsConfig() }));
+	assert.deepEqual(r.includedToolNames, allTools.map((t) => t.name));
+	assert.deepEqual(r.excludedToolNames, []);
 	assert.equal(r.failOpenReason, undefined);
 });
 
-test("applyToolSelection: empty non-explicitly-empty selection -> fail-open keeps all", () => {
-	// Realistic path: LLM responded but every pick was filtered out as unknown,
-	// yielding an empty (non-null, non-explicitly-empty) selection.
-	const r = applyToolSelection(allTools, [], config({ tools: toolsConfig() }), false);
-	assert.deepEqual(r.includedToolNames, allTools.map((t) => t.name));
-	assert.deepEqual(r.excludedToolNames, []);
-	assert.ok(r.failOpenReason);
-});
-
-test("applyToolSelection: alwaysKeep tools included even when LLM omits them", () => {
-	const cfg = config({ tools: toolsConfig({ alwaysKeep: ["web_search"] }) });
-	const r = applyToolSelection(allTools, ["read"], cfg, false);
-	assert.ok(r.includedToolNames.includes("web_search"));
+test("applyToolSelection: prunes only the named tools", () => {
+	const r = applyToolSelection(allTools, ["web_search"], config({ tools: toolsConfig() }));
+	assert.deepEqual(r.excludedToolNames, ["web_search"]);
 	assert.ok(r.includedToolNames.includes("read"));
-	assert.ok(!r.includedToolNames.includes("edit"));
+	assert.ok(!r.includedToolNames.includes("web_search"));
 });
 
-test("applyToolSelection: dependencies pulled in (edit -> read) even when LLM omits them", () => {
+test("applyToolSelection: alwaysKeep tools protected from pruning", () => {
+	const cfg = config({ tools: toolsConfig({ alwaysKeep: ["web_search"] }) });
+	const r = applyToolSelection(allTools, ["web_search", "edit"], cfg);
+	assert.ok(!r.excludedToolNames.includes("web_search"), "alwaysKeep web_search must survive");
+	assert.ok(r.excludedToolNames.includes("edit"));
+});
+
+test("applyToolSelection: dependency of a kept tool is protected from pruning", () => {
+	// edit depends on read; LLM tries to prune read but edit is kept -> read protected
 	const cfg = config({ tools: toolsConfig({ dependencies: { edit: ["read"] } }) });
-	const r = applyToolSelection(allTools, ["edit"], cfg, false);
-	assert.ok(r.includedToolNames.includes("edit"));
-	assert.ok(r.includedToolNames.includes("read"), "read should be pulled in as a dependency of edit");
-	assert.ok(r.excludedToolNames.includes("bash"));
+	const r = applyToolSelection(allTools, ["read"], cfg);
+	assert.ok(!r.excludedToolNames.includes("read"), "read is a dep of kept edit -> protected");
+	assert.deepEqual(r.excludedToolNames, []);
 });
 
-test("applyToolSelection: transitive dependencies expand beyond the configured ceiling", () => {
-	// a -> b -> c -> read chain; ceiling 2; LLM selects only "a"
+test("applyToolSelection: pruning a tool does not drag out its own dependencies", () => {
+	// Pruning edit must not also remove read (read is kept independently).
+	const cfg = config({ tools: toolsConfig({ dependencies: { edit: ["read"] } }) });
+	const r = applyToolSelection(allTools, ["edit"], cfg);
+	assert.deepEqual(r.excludedToolNames, ["edit"]);
+	assert.ok(r.includedToolNames.includes("read"));
+});
+
+test("applyToolSelection: transitive dependency protection across a chain", () => {
+	// a -> b -> c -> read; LLM prunes b and c, but a is kept, so the whole
+	// dep chain (b, c, read) is protected and nothing gets pruned.
 	const cfg = config({
-		tools: toolsConfig({ ceiling: 2, dependencies: { a: ["b"], b: ["c"], c: ["read"] } }),
+		tools: toolsConfig({ dependencies: { a: ["b"], b: ["c"], c: ["read"] } }),
 	});
 	const toolsWithABC = [
 		...allTools,
@@ -309,23 +296,28 @@ test("applyToolSelection: transitive dependencies expand beyond the configured c
 		{ name: "b", description: "db" },
 		{ name: "c", description: "dc" },
 	] as unknown as ToolInfo[];
-	const r = applyToolSelection(toolsWithABC, ["a"], cfg, false);
-	assert.ok(r.includedToolNames.includes("a"));
-	assert.ok(r.includedToolNames.includes("b"));
-	assert.ok(r.includedToolNames.includes("c"));
-	assert.ok(r.includedToolNames.includes("read"));
-	assert.ok(r.includedToolNames.length > 2, "deps expand beyond ceiling");
+	const r = applyToolSelection(toolsWithABC, ["b", "c"], cfg);
+	assert.ok(!r.excludedToolNames.includes("b"), "b is a transitive dep of kept a -> protected");
+	assert.ok(!r.excludedToolNames.includes("c"), "c is a transitive dep of kept a -> protected");
+	assert.deepEqual(r.excludedToolNames, []);
 });
 
-test("applyToolSelection: no tools config -> all included regardless of LLM selection", () => {
-	const r = applyToolSelection(allTools, ["read"], config(), false);
+test("applyToolSelection: pruning every tool -> fail-open keeps all", () => {
+	const r = applyToolSelection(allTools, allTools.map((t) => t.name), config({ tools: toolsConfig() }));
+	assert.deepEqual(r.includedToolNames, allTools.map((t) => t.name));
+	assert.deepEqual(r.excludedToolNames, []);
+	assert.ok(r.failOpenReason);
+});
+
+test("applyToolSelection: no tools config -> keep all regardless of prune list", () => {
+	const r = applyToolSelection(allTools, ["read"], config());
 	assert.deepEqual(r.includedToolNames, allTools.map((t) => t.name));
 	assert.deepEqual(r.excludedToolNames, []);
 	assert.equal(r.failOpenReason, undefined);
 });
 
 test("applyToolSelection: empty allTools -> empty included/excluded", () => {
-	const r = applyToolSelection([], ["read"], config({ tools: toolsConfig() }), false);
+	const r = applyToolSelection([], ["read"], config({ tools: toolsConfig() }));
 	assert.deepEqual(r.includedToolNames, []);
 	assert.deepEqual(r.excludedToolNames, []);
 });

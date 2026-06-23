@@ -185,6 +185,44 @@ test("buildDecision: contextFile omitted when not provided", () => {
 	assert.equal(decision.contextFile, undefined);
 });
 
+test("buildDecision: captures tool pruning data when provided", () => {
+	const decision = buildDecision({
+		sessionId: "s",
+		sessionPath: "p",
+		mode: "auto",
+		query: "q",
+		llmModel: "m",
+		llmThinkingLevel: "minimal",
+		llmResponse: "",
+		llmLatencyMs: 0,
+		included: ["a"],
+		excluded: ["b"],
+		pinned: [],
+		newBlock: "x",
+		originalBlock: "xx",
+		toolIncluded: ["read"],
+		toolExcluded: ["web_search"],
+		toolBlockTokens: 40,
+		originalToolBlockTokens: 60,
+	});
+	assert.deepEqual(decision.toolIncluded, ["read"]);
+	assert.deepEqual(decision.toolExcluded, ["web_search"]);
+	assert.equal(decision.toolBlockTokens, 40);
+	assert.equal(decision.originalToolBlockTokens, 60);
+});
+
+test("buildDecision: tool fields stay undefined when tool pruning did not run", () => {
+	const decision = buildDecision({
+		sessionId: "s", sessionPath: "p", mode: "auto", query: "q",
+		llmModel: "m", llmThinkingLevel: "minimal", llmResponse: "", llmLatencyMs: 0,
+		included: ["a"], excluded: ["b"], pinned: [], newBlock: "x", originalBlock: "xx",
+	});
+	assert.equal(decision.toolIncluded, undefined);
+	assert.equal(decision.toolExcluded, undefined);
+	assert.equal(decision.toolBlockTokens, undefined);
+	assert.equal(decision.originalToolBlockTokens, undefined);
+});
+
 // ---------------------------------------------------------------------------
 // estimateToolTokens
 // ---------------------------------------------------------------------------

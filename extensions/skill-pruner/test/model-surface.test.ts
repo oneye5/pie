@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import Module, { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -13,19 +13,11 @@ const require = createRequire(import.meta.url);
 const { default: skillPruner, __setFormatter, __setToolSeams, __setCompleteFn, resetForTesting, setConfigForTesting } = require("../index.ts") as typeof import("../index.js");
 
 function installSdkResolverForTests(): void {
-	// Isolate from host extension-toggle state. When tests run inside the
-	// running editor, the host exports PIE_EXTENSION_TOGGLES_JSON with
-	// skill-pruner disabled, which makes shouldSkipPruning() short-circuit the
-	// before_agent_start handler to `undefined` before any pruning runs.
-	// These tests drive on/off/auto/shadow via config.mode and never exercise
-	// the toggle, so neutralize it for the duration of this test process.
 	delete process.env.PIE_EXTENSION_TOGGLES_JSON;
 
-	const mockDir = mkdtempSync(path.join(tmpdir(), "skill-pruner-sdk-mock-"));
-
+	const mockDir = mkdtempSync(path.join(tmpdir(), "skill-pruner-modelsurface-mock-"));
 	const sdkPath = path.join(mockDir, "pi-coding-agent.cjs");
 	writeFileSync(sdkPath, "exports.formatSkillsForPrompt = () => { throw new Error('test must call __setFormatter'); };\n", "utf-8");
-
 	const tuiPath = path.join(mockDir, "pi-tui.cjs");
 	writeFileSync(tuiPath, [
 		"class Box {",
@@ -46,12 +38,8 @@ function installSdkResolverForTests(): void {
 	};
 	const originalResolveFilename = moduleWithResolver._resolveFilename;
 	moduleWithResolver._resolveFilename = function resolveFilename(request, parent, isMain, options): string {
-		if (request === "@mariozechner/pi-coding-agent") {
-			return sdkPath;
-		}
-		if (request === "@mariozechner/pi-tui") {
-			return tuiPath;
-		}
+		if (request === "@mariozechner/pi-coding-agent") return sdkPath;
+		if (request === "@mariozechner/pi-tui") return tuiPath;
 		return originalResolveFilename.call(this, request, parent, isMain, options);
 	};
 }
@@ -62,7 +50,7 @@ function testFormatSkillsForPrompt(skills: Skill[]): string {
 	const lines = [
 		"\n\nThe following skills provide specialized instructions for specific tasks.",
 		"Use the read tool to load a skill's file when the task matches its description.",
-		"When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use that absolute path in tool commands.",
+		"When a skill file references a relative path, resolve it against the skill directory (parent of SKILL.md / dirname of the path) and use the absolute path in tool commands.",
 		"",
 		"<available_skills>",
 	];
@@ -110,7 +98,9 @@ function config(overrides: Partial<PruningConfig["skills"]> = {}, mode: PruningC
 		result.tools = {
 			strategy: toolsOverrides.strategy ?? "discretion",
 			ceiling: toolsOverrides.ceiling ?? 10,
-			dependencies: { edit: ["read"], subagent: ["bash"], ...(toolsOverrides?.dependencies ?? {}) },
+			dependencies: toolsOverrides?.dependencies !== undefined
+				? { ...toolsOverrides.dependencies }
+				: { edit: ["read"], subagent: ["bash"] },
 			alwaysKeep: toolsOverrides.alwaysKeep ?? [],
 		};
 	}
@@ -126,7 +116,7 @@ type RegisterResult = {
 	sentMessages: any[];
 };
 
-function register(configOverride: PruningConfig, logPath = path.join(mkdtempSync(path.join(tmpdir(), "skill-pruner-integration-")), "pruning.jsonl")): RegisterResult {
+function register(configOverride: PruningConfig, logPath = path.join(mkdtempSync(path.join(tmpdir(), "skill-pruner-modelsurface-")), "pruning.jsonl")): RegisterResult {
 	resetForTesting();
 	clearPruningTrackingForTesting();
 	setLogPathForTesting(logPath);
@@ -137,16 +127,10 @@ function register(configOverride: PruningConfig, logPath = path.join(mkdtempSync
 	const registeredRenderers = new Map<string, (...args: any[]) => any>();
 	const sentMessages: any[] = [];
 	const pi = {
-		on(eventName: string, handler: Handler) {
-			handlers.set(eventName, handler);
-		},
-		registerMessageRenderer(customType: string, renderer: any) {
-			registeredRenderers.set(customType, renderer);
-		},
+		on(eventName: string, handler: Handler) { handlers.set(eventName, handler); },
+		registerMessageRenderer(customType: string, renderer: any) { registeredRenderers.set(customType, renderer); },
 		registerTool(toolDef: { name: string; execute?: (...args: unknown[]) => Promise<unknown> }) {
-			if (toolDef.execute) {
-				registeredTools.set(toolDef.name, toolDef as { execute: (...args: unknown[]) => Promise<unknown> });
-			}
+			if (toolDef.execute) registeredTools.set(toolDef.name, toolDef as { execute: (...args: unknown[]) => Promise<unknown> });
 		},
 		getAllTools: () => [] as ToolInfo[],
 		getActiveTools: () => [] as string[],
@@ -168,16 +152,13 @@ async function runBeforeAgentStart(handlers: Map<string, Handler>, prompt: strin
 		type: "before_agent_start",
 		prompt,
 		systemPrompt: overrideSystemPrompt ?? systemPrompt(skills),
-		systemPromptOptions: {
-			cwd: "/repo",
-			skills,
-			contextFiles: [{ path: "AGENTS.md", content: "Project context" }],
-		},
+		systemPromptOptions: { cwd: "/repo", skills, contextFiles: [{ path: "AGENTS.md", content: "Project context" }] },
 	}, { cwd: "/repo", sessionManager: { getSessionId: () => "session-1" } });
 }
 
-function mockCompleteFn(response: { skills: string[]; tools?: string[] }) {
-	return async () => ({ text: JSON.stringify({ skills: response.skills, tools: response.tools ?? [] }) });
+/** Create a mock LLM completion function that returns a fixed prune-list response. */
+function mockCompleteFn(response: { pruneSkills?: string[]; pruneTools?: string[] }) {
+	return async () => ({ text: JSON.stringify({ pruneSkills: response.pruneSkills ?? [], pruneTools: response.pruneTools ?? [] }) });
 }
 
 const realisticSkills = [
@@ -194,36 +175,35 @@ const mockToolInfo = [
 	{ name: "web_search", description: "Search the web for information", parameters: { type: "object", properties: {} } },
 ];
 
+const allToolNames = mockToolInfo.map((t) => t.name);
+
 // ---------------------------------------------------------------------------
-// Model-surface fidelity tests
-// These assert that the final pruning state matches (or transparently
-// deviates from) the intent expressed by the pruning LLM.
+// Model-surface fidelity tests (prune-list schema)
+// These assert that the final pruning state matches the intent expressed by
+// the pruning LLM (the prune list), and that the only deviations — pruning
+// everything — are transparently reported via prepassFailOpenReason.
 // ---------------------------------------------------------------------------
 
-test("model returns only unknown skill names → fail-open keeps all skills and reports reason", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["nonexistent-skill"], tools: [] }));
+test("model prunes only unknown skill names → keeps all skills, no deviation reason", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["nonexistent-skill"] }));
 	try {
 		const { handlers } = register(config());
 		const result = await runBeforeAgentStart(handlers, "anything", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
 
 		assert.ok(result?.systemPrompt);
-		// Fail-open: all skills should be present
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
 		assert.match(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
 		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
 
-		assert.ok(result?.message, "feedback message should explain the deviation");
-		assert.equal(result.message.customType, "pruning-result");
-		const details = result.message.details;
-		assert.ok(details.prepassFailOpenReason, "prepassFailOpenReason should be populated when model intent was overridden");
-		assert.ok(String(details.prepassFailOpenReason).includes("skill"), "reason should mention skills");
+		// Unknown prunes are silently ignored (nothing real to remove); not a deviation.
+		assert.equal(result?.message?.details?.prepassFailOpenReason, undefined);
 	} finally {
 		__setCompleteFn(null);
 	}
 });
 
-test("model returns only unknown tool names → fail-open keeps all tools and reports reason", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: [], tools: ["nonexistent-tool"] }));
+test("model prunes only unknown tool names → keeps all tools, no deviation reason", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneTools: ["nonexistent-tool"] }));
 	try {
 		const { handlers } = register(config({}, "auto", { ceiling: 10 }));
 		__setToolSeams({
@@ -234,12 +214,52 @@ test("model returns only unknown tool names → fail-open keeps all tools and re
 
 		const result = await runBeforeAgentStart(handlers, "anything", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
 
-		// Fail-open: all tools should be reported as included
-		assert.ok(result?.message, "feedback message should explain the deviation");
-		const details = result.message.details;
-		assert.deepEqual(details.includedTools.sort(), mockToolInfo.map((t) => t.name).sort());
+		const details = result?.message?.details;
+		assert.deepEqual(details.includedTools.sort(), allToolNames.slice().sort());
 		assert.equal(details.excludedTools.length, 0);
-		assert.ok(details.prepassFailOpenReason, "prepassFailOpenReason should be populated when model intent was overridden");
+		assert.equal(details.prepassFailOpenReason, undefined);
+	} finally {
+		__setCompleteFn(null);
+		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
+	}
+});
+
+test("model prunes every skill → fail-open keeps all skills and reports reason", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["code-simplification", "duckdb-query-optimization", "frontend-design"] }));
+	try {
+		const { handlers } = register(config());
+		const result = await runBeforeAgentStart(handlers, "anything", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
+
+		assert.ok(result?.systemPrompt);
+		// Pruning 100% of skills is almost always a misunderstanding → fail-open.
+		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
+		assert.match(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
+
+		const details = result.message.details;
+		assert.ok(details.prepassFailOpenReason, "prepassFailOpenReason should be populated when pruning was overridden");
+		assert.ok(String(details.prepassFailOpenReason).includes("skill"), "reason should mention skills");
+	} finally {
+		__setCompleteFn(null);
+	}
+});
+
+test("model prunes every tool → fail-open keeps all tools and reports reason", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneTools: [...allToolNames] }));
+	try {
+		const { handlers } = register(config({}, "auto", { ceiling: 10 }));
+		__setToolSeams({
+			getAllTools: () => mockToolInfo as any[],
+			getActiveTools: () => mockToolInfo.map((t) => t.name),
+			setActiveTools: () => {},
+		});
+
+		const result = await runBeforeAgentStart(handlers, "anything", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
+
+		const details = result?.message?.details;
+		assert.deepEqual(details.includedTools.sort(), allToolNames.slice().sort());
+		assert.equal(details.excludedTools.length, 0);
+		assert.ok(details.prepassFailOpenReason, "prepassFailOpenReason should be populated when pruning was overridden");
 		assert.ok(String(details.prepassFailOpenReason).includes("tool"), "reason should mention tools");
 	} finally {
 		__setCompleteFn(null);
@@ -247,67 +267,8 @@ test("model returns only unknown tool names → fail-open keeps all tools and re
 	}
 });
 
-test("model explicitly empties skills and returns unknown tools → skills honored, tools fail-open with reason", async () => {
-	__setCompleteFn(async () => ({ text: '{"skills":[],"tools":["nonexistent-tool"]}' }));
-	try {
-		const { handlers } = register(config({}, "auto", { ceiling: 10 }));
-		__setToolSeams({
-			getAllTools: () => mockToolInfo as any[],
-			getActiveTools: () => mockToolInfo.map((t) => t.name),
-			setActiveTools: () => {},
-		});
-
-		const result = await runBeforeAgentStart(handlers, "anything", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
-
-		assert.ok(result?.systemPrompt);
-		// Skills explicitly empty → no skills in prompt
-		assert.doesNotMatch(result.systemPrompt, /<name>code-simplification<\/name>/);
-		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
-		assert.doesNotMatch(result.systemPrompt, /<name>frontend-design<\/name>/);
-
-		// Tools fail-open
-		assert.ok(result?.message);
-		const details = result.message.details;
-		assert.deepEqual(details.includedTools.sort(), mockToolInfo.map((t) => t.name).sort());
-		assert.equal(details.excludedTools.length, 0);
-		assert.ok(details.prepassFailOpenReason, "prepassFailOpenReason should explain tool fail-open");
-	} finally {
-		__setCompleteFn(null);
-		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
-	}
-});
-
-test("model returns explicitly empty for both categories → fail-open for both with reason", async () => {
-	__setCompleteFn(async () => ({ text: '{"skills":[],"tools":[]}' }));
-	try {
-		const { handlers } = register(config({}, "auto", { ceiling: 10 }));
-		__setToolSeams({
-			getAllTools: () => mockToolInfo as any[],
-			getActiveTools: () => mockToolInfo.map((t) => t.name),
-			setActiveTools: () => {},
-		});
-
-		const result = await runBeforeAgentStart(handlers, "anything", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
-
-		// Both explicitly empty triggers fail-open for both
-		assert.ok(result?.systemPrompt);
-		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
-		assert.match(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
-		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
-
-		assert.ok(result?.message);
-		const details = result.message.details;
-		assert.deepEqual(details.includedTools.sort(), mockToolInfo.map((t) => t.name).sort());
-		assert.equal(details.excludedTools.length, 0);
-		assert.ok(details.prepassFailOpenReason, "prepassFailOpenReason should explain both-category fail-open");
-	} finally {
-		__setCompleteFn(null);
-		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
-	}
-});
-
-test("model returns mixed known and unknown skill names → known kept, unknown dropped, no fail-open", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification", "nonexistent-skill"], tools: [] }));
+test("model prunes a mix of known and unknown → known pruned, unknown ignored, no fail-open", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "nonexistent-skill"] }));
 	try {
 		const { handlers } = register(config());
 		const result = await runBeforeAgentStart(handlers, "refactor", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
@@ -315,20 +276,16 @@ test("model returns mixed known and unknown skill names → known kept, unknown 
 		assert.ok(result?.systemPrompt);
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
 		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
-		assert.doesNotMatch(result.systemPrompt, /<name>frontend-design<\/name>/);
 
-		assert.ok(result?.message);
-		const details = result.message.details;
-		// No fail-open because at least one known skill was selected
-		assert.equal(details.prepassFailOpenReason, undefined);
+		assert.equal(result?.message?.details?.prepassFailOpenReason, undefined);
 	} finally {
 		__setCompleteFn(null);
 	}
 });
 
-test("model returns valid tool selection → setActiveTools matches model intent exactly (plus dependencies)", async () => {
+test("model prunes specific tools → setActiveTools keeps the rest exactly", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: [], tools: ["edit", "bash"] }));
+	__setCompleteFn(mockCompleteFn({ pruneTools: ["read", "subagent", "web_search"] }));
 	try {
 		const { handlers } = register(config({}, "auto", { ceiling: 10, dependencies: {} }));
 		__setToolSeams({
@@ -341,35 +298,29 @@ test("model returns valid tool selection → setActiveTools matches model intent
 
 		assert.ok(setActiveToolsCalls.length > 0);
 		const active = setActiveToolsCalls[0];
-		assert.ok(active.includes("edit"));
-		assert.ok(active.includes("bash"));
-		assert.ok(!active.includes("web_search"));
-		assert.ok(!active.includes("subagent"));
+		assert.deepEqual(active.slice().sort(), ["bash", "edit"]);
 	} finally {
 		__setCompleteFn(null);
 		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
 	}
 });
 
-test("model returns tool selection with dependencies → dependencies are auto-included even if model omitted them", async () => {
+test("dependency of a kept tool is protected from pruning", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: [], tools: ["edit", "subagent"] }));
+	// Model tries to prune read, but edit is kept and depends on read -> read protected.
+	__setCompleteFn(mockCompleteFn({ pruneTools: ["read", "web_search"] }));
 	try {
-		const { handlers } = register(config({}, "auto", { ceiling: 10, dependencies: { edit: ["read"], subagent: ["bash"] } }));
+		const { handlers } = register(config({}, "auto", { ceiling: 10, dependencies: { edit: ["read"] } }));
 		__setToolSeams({
 			getAllTools: () => mockToolInfo as any[],
 			getActiveTools: () => mockToolInfo.map((t) => t.name),
 			setActiveTools: (names: string[]) => { setActiveToolsCalls.push(names); },
 		});
 
-		await runBeforeAgentStart(handlers, "edit and delegate", realisticSkills);
+		await runBeforeAgentStart(handlers, "edit files", realisticSkills);
 
-		assert.ok(setActiveToolsCalls.length > 0);
 		const active = setActiveToolsCalls[0];
-		assert.ok(active.includes("edit"));
-		assert.ok(active.includes("read"), "read should be included as dependency of edit");
-		assert.ok(active.includes("subagent"));
-		assert.ok(active.includes("bash"), "bash should be included as dependency of subagent");
+		assert.ok(active.includes("read"), "read is a dep of kept edit -> protected from pruning");
 		assert.ok(!active.includes("web_search"));
 	} finally {
 		__setCompleteFn(null);
@@ -377,23 +328,24 @@ test("model returns tool selection with dependencies → dependencies are auto-i
 	}
 });
 
-test("model returns fewer skills than ceiling → all model selections honored, no extras", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+test("model prunes a subset of skills → the rest are kept, no fail-open", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"] }));
 	try {
 		const { handlers } = register(config({ ceiling: 5 }));
-		const result = await runBeforeAgentStart(handlers, "refactor", realisticSkills) as { systemPrompt?: string } | undefined;
+		const result = await runBeforeAgentStart(handlers, "refactor", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
 
 		assert.ok(result?.systemPrompt);
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
 		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
 		assert.doesNotMatch(result.systemPrompt, /<name>frontend-design<\/name>/);
+		assert.equal(result?.message?.details?.prepassFailOpenReason, undefined);
 	} finally {
 		__setCompleteFn(null);
 	}
 });
 
-test("model excludes a pinned skill → pinned skill is still included, respecting model for rest", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["duckdb-query-optimization"], tools: [] }));
+test("pinned skill protected even when the model prunes it", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["code-simplification", "frontend-design"] }));
 	try {
 		const { handlers } = register(config({ pinned: ["code-simplification"] }));
 		const result = await runBeforeAgentStart(handlers, "query optimization", realisticSkills) as { systemPrompt?: string } | undefined;
@@ -407,9 +359,9 @@ test("model excludes a pinned skill → pinned skill is still included, respecti
 	}
 });
 
-test("model excludes an always-keep tool → always-keep tool is still included, respecting model for rest", async () => {
+test("alwaysKeep tool protected even when the model prunes it", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: [], tools: ["edit"] }));
+	__setCompleteFn(mockCompleteFn({ pruneTools: ["web_search", "subagent"] }));
 	try {
 		const { handlers } = register(config({}, "auto", { ceiling: 10, alwaysKeep: ["web_search"] }));
 		__setToolSeams({
@@ -420,10 +372,8 @@ test("model excludes an always-keep tool → always-keep tool is still included,
 
 		await runBeforeAgentStart(handlers, "edit files", realisticSkills);
 
-		assert.ok(setActiveToolsCalls.length > 0);
 		const active = setActiveToolsCalls[0];
-		assert.ok(active.includes("edit"));
-		assert.ok(active.includes("web_search"), "always-keep tool should survive");
+		assert.ok(active.includes("web_search"), "alwaysKeep tool should survive pruning");
 		assert.ok(!active.includes("subagent"));
 	} finally {
 		__setCompleteFn(null);
@@ -431,9 +381,9 @@ test("model excludes an always-keep tool → always-keep tool is still included,
 	}
 });
 
-test("model returns tool selection but no tools config exists → tool intent is silently discarded (model-surface gap)", async () => {
+test("model prunes tools but no tools config exists → tool intent silently discarded", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: ["edit", "bash"] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"], pruneTools: ["web_search"] }));
 	try {
 		// config() without toolsOverrides produces a PruningConfig with NO tools field
 		const { handlers } = register(config());
@@ -447,8 +397,7 @@ test("model returns tool selection but no tools config exists → tool intent is
 
 		assert.ok(result?.systemPrompt);
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
-
-		// Because activeConfig.tools is undefined, the model's tool selections are ignored
+		// Because activeConfig.tools is undefined, tool pruning is disabled.
 		assert.equal(setActiveToolsCalls.length, 0, "setActiveTools should NOT be called when tools config is absent");
 	} finally {
 		__setCompleteFn(null);
@@ -456,9 +405,9 @@ test("model returns tool selection but no tools config exists → tool intent is
 	}
 });
 
-test("model returns skill selection but no skills in session → tool intent still applied if tools config present", async () => {
+test("model prunes tools but no skills in session → tool pruning still applies", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: ["nonexistent-skill"], tools: ["edit", "bash"] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["nonexistent-skill"], pruneTools: ["read", "subagent", "web_search"] }));
 	try {
 		const { handlers } = register(config({}, "auto", { ceiling: 10, dependencies: {} }));
 		__setToolSeams({
@@ -471,18 +420,16 @@ test("model returns skill selection but no skills in session → tool intent sti
 
 		assert.ok(setActiveToolsCalls.length > 0);
 		const active = setActiveToolsCalls[0];
-		assert.ok(active.includes("edit"));
-		assert.ok(active.includes("bash"));
-		assert.ok(!active.includes("web_search"));
+		assert.deepEqual(active.slice().sort(), ["bash", "edit"]);
 	} finally {
 		__setCompleteFn(null);
 		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
 	}
 });
 
-test("shadow mode: model intent is measured but not applied → feedback still reports model intent", async () => {
+test("shadow mode: model intent measured but not applied → feedback still reports model intent", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: ["edit"] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"], pruneTools: ["bash", "subagent", "web_search"] }));
 	try {
 		const { handlers } = register(config({}, "shadow", { ceiling: 10 }));
 		__setToolSeams({
@@ -501,7 +448,8 @@ test("shadow mode: model intent is measured but not applied → feedback still r
 		const details = result.message.details;
 		assert.deepEqual(details.includedSkills, ["code-simplification"]);
 		assert.deepEqual(details.excludedSkills, ["duckdb-query-optimization", "frontend-design"]);
-		assert.deepEqual(details.includedTools, ["edit", "read"]);
+		// read is a dep of kept edit -> protected; bash is a dep of pruned subagent -> pruned.
+		assert.deepEqual(details.includedTools, ["read", "edit"]);
 		assert.deepEqual(details.excludedTools, ["bash", "subagent", "web_search"]);
 	} finally {
 		__setCompleteFn(null);
@@ -510,7 +458,7 @@ test("shadow mode: model intent is measured but not applied → feedback still r
 });
 
 test("fail-open reason is absent when model intent is honored exactly", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"] }));
 	try {
 		const { handlers } = register(config());
 		const result = await runBeforeAgentStart(handlers, "refactor", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;

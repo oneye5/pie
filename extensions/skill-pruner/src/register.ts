@@ -108,10 +108,8 @@ export default function register(pi: ExtensionAPI) {
 				forcedTools: activeConfig.tools?.alwaysKeep ?? [],
 			};
 
-			let llmSelectedSkills: string[] | null = null;
-			let llmSelectedTools: string[] | null = null;
-			let skillsExplicitlyEmpty = false;
-			let toolsExplicitlyEmpty = false;
+			let prunedSkills: string[] | null = null;
+			let prunedTools: string[] | null = null;
 
 			const completeFn = getCompleteFn(ctx);
 			if (!completeFn) {
@@ -119,10 +117,8 @@ export default function register(pi: ExtensionAPI) {
 				recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
 			} else {
 				const prepassResult = await runPruningPrepass(ctx, llmInput, activeConfig, completeFn);
-				llmSelectedSkills = prepassResult.selectedSkills;
-				llmSelectedTools = prepassResult.selectedTools;
-				skillsExplicitlyEmpty = prepassResult.skillsExplicitlyEmpty ?? false;
-				toolsExplicitlyEmpty = prepassResult.toolsExplicitlyEmpty ?? false;
+				prunedSkills = prepassResult.prunedSkills;
+				prunedTools = prepassResult.prunedTools;
 				pruningError = prepassResult.error;
 				rawResponse = prepassResult.rawResponse;
 				rawThinking = prepassResult.rawThinking;
@@ -133,38 +129,26 @@ export default function register(pi: ExtensionAPI) {
 			}
 
 			if (!pruningError || pruningError.startsWith("Model") || pruningError.startsWith("LLM pruning failed")) {
-				if (llmSelectedSkills !== null && llmSelectedSkills.length === 0 &&
-					llmSelectedTools !== null && llmSelectedTools.length === 0 &&
-					skillsExplicitlyEmpty && toolsExplicitlyEmpty) {
-					llmSelectedSkills = null;
-					llmSelectedTools = null;
-					skillFailOpenReason = "LLM explicitly returned empty selections for both skills and tools; keeping all as fail-open";
-					toolFailOpenReason = "LLM explicitly returned empty selections for both skills and tools; keeping all as fail-open";
-				}
-
-				const skillSelection = applySkillSelection(visibleSkills, llmSelectedSkills, effectivePinned, activeConfig, skillsExplicitlyEmpty);
+				const skillSelection = applySkillSelection(visibleSkills, prunedSkills, effectivePinned, activeConfig);
 				skillFailOpenReason = skillSelection.failOpenReason ?? skillFailOpenReason;
 
-				const toolSelection = applyToolSelection(allTools, llmSelectedTools, activeConfig, toolsExplicitlyEmpty);
+				const toolSelection = applyToolSelection(allTools, prunedTools, activeConfig);
 				toolFailOpenReason = toolSelection.failOpenReason ?? toolFailOpenReason;
 
+				// --- Skill pruning: rewrite the skills block in the system prompt ---
 				const match = event.systemPrompt.match(SKILLS_BLOCK_RE);
+				let newSkillBlock = "";
+				let originalSkillBlock = "";
 				if (match) {
 					const includedSkills = visibleSkills.filter((s) => skillSelection.includedSkillNames.includes(s.name));
 					const replacement = buildReplacement(getFormatSkillsForPromptImpl()(includedSkills), buildHint(skillSelection.excludedSkillNames));
-					const decision = buildDecision({
-						sessionId, sessionPath, mode: activeConfig.mode, query: event.prompt,
-						contextFilePath: contextFile?.path, llmModel: activeConfig.model,
-						llmThinkingLevel: prepassThinkingLevel, llmResponse: rawResponse, llmLatencyMs: latencyMs,
-						included: skillSelection.includedSkillNames, excluded: skillSelection.excludedSkillNames,
-						pinned: effectivePinned, newBlock: replacement, originalBlock: match[0],
-					});
-					appendDecision(decision);
+					newSkillBlock = replacement;
+					originalSkillBlock = match[0];
 
 					skillResult = {
 						included: skillSelection.includedSkillNames,
 						excluded: skillSelection.excludedSkillNames,
-						tokensSaved: estimateTokens(match[0]) - estimateTokens(replacement),
+						tokensSaved: estimateTokens(originalSkillBlock) - estimateTokens(newSkillBlock),
 					};
 
 					const excludedSkillPaths = skillSelection.excludedSkillNames.map((name) => visibleSkills.find((skill) => skill.name === name)?.filePath).filter(Boolean) as string[];
@@ -176,10 +160,11 @@ export default function register(pi: ExtensionAPI) {
 						skillPruningRan = true;
 					}
 				} else if (skills.length > 0) {
-					console.warn("[skill-pruner] skills block not found in system prompt; skipping pruning");
+					console.warn("[skill-pruner] skills block not found in system prompt; skipping skill pruning");
 					recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
 				}
 
+				// --- Tool pruning: disable pruned tools (auto mode only) ---
 				if (activeConfig.tools && allTools.length > 0) {
 					if (activeConfig.mode === "auto" && toolSelection.excludedToolNames.length > 0) {
 						if (state.setActiveToolsOverride) {
@@ -193,6 +178,28 @@ export default function register(pi: ExtensionAPI) {
 						excluded: toolSelection.excludedToolNames,
 						tokensSaved: estimateToolTokens(allTools, toolSelection.excludedToolNames),
 					};
+				}
+
+				// --- Audit decision: one row covering skills + tools so analytics sees both ---
+				// (Previously only skill data was logged, so tool pruning was invisible to the
+				// dashboard. Tool token estimates mirror the skill-block accounting.)
+				const skillsBlockFound = !!match;
+				const toolsConsidered = !!(activeConfig.tools && allTools.length > 0);
+				if (skillsBlockFound || toolsConsidered) {
+					appendDecision(buildDecision({
+						sessionId, sessionPath, mode: activeConfig.mode, query: event.prompt,
+						contextFilePath: contextFile?.path, llmModel: activeConfig.model,
+						llmThinkingLevel: prepassThinkingLevel, llmResponse: rawResponse, llmLatencyMs: latencyMs,
+						// Skill pruning is only actually applied when the skills block was found;
+						// otherwise report keep-all so the analytics row matches recordKnownSkills.
+						included: skillsBlockFound ? skillSelection.includedSkillNames : visibleSkills.map((s) => s.name),
+						excluded: skillsBlockFound ? skillSelection.excludedSkillNames : [],
+						pinned: effectivePinned, newBlock: newSkillBlock, originalBlock: originalSkillBlock,
+						toolIncluded: toolsConsidered ? toolSelection.includedToolNames : undefined,
+						toolExcluded: toolsConsidered ? toolSelection.excludedToolNames : undefined,
+						toolBlockTokens: toolsConsidered ? estimateToolTokens(allTools, toolSelection.includedToolNames) : undefined,
+						originalToolBlockTokens: toolsConsidered ? estimateToolTokens(allTools, allTools.map((t) => t.name)) : undefined,
+					}));
 				}
 			}
 		} else {

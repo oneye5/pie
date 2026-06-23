@@ -23,8 +23,8 @@ test("buildPruningSystemPrompt includes discretion instruction for discretion st
 	const config = makeConfig();
 	const prompt = buildPruningSystemPrompt(config);
 	assert.ok(prompt.includes("Use discretion"));
-	assert.ok(prompt.includes("prune clearly unrelated"));
-	assert.ok(!prompt.includes("Rank by relevance"));
+	assert.ok(prompt.includes("confident are irrelevant"));
+	assert.ok(!prompt.includes("at most"));
 });
 
 test("buildPruningSystemPrompt includes topK instruction for topK strategy", () => {
@@ -33,15 +33,16 @@ test("buildPruningSystemPrompt includes topK instruction for topK strategy", () 
 		tools: { strategy: "topK", ceiling: 8, dependencies: {}, alwaysKeep: [] },
 	});
 	const prompt = buildPruningSystemPrompt(config);
-	assert.ok(prompt.includes("Rank by relevance and select at most 5 skills and 8 tools"));
+	assert.ok(prompt.includes("at most 5 skills and 8 tools"));
 	assert.ok(!prompt.includes("Use discretion"));
 });
 
 test("buildPruningSystemPrompt always includes core rules", () => {
 	const prompt = buildPruningSystemPrompt(makeConfig());
-	assert.ok(prompt.includes("relevance classifier"));
+	assert.ok(prompt.includes("relevance curator"));
 	assert.ok(prompt.includes("JSON object"));
 	assert.ok(prompt.includes("Do not wrap in markdown"));
+	assert.ok(prompt.includes("REMOVE"), "prompt must frame the task as removal (prune-list)");
 });
 
 test("buildPruningSystemPrompt works with __setPromptTemplate test seam", () => {
@@ -61,7 +62,7 @@ test("buildPruningSystemPrompt works with __setPromptTemplate test seam", () => 
 // buildPruningUserMessage tests
 // ---------------------------------------------------------------------------
 
-test("buildPruningUserMessage includes user request and skill/tool lists", () => {
+test("buildPruningUserMessage includes user request and skill/tool lists framed as removal", () => {
 	const msg = buildPruningUserMessage({
 		userPrompt: "refactor this code",
 		skills: [{ name: "code-simplification", description: "Simplifies code" }],
@@ -69,7 +70,9 @@ test("buildPruningUserMessage includes user request and skill/tool lists", () =>
 		config: makeConfig(),
 	});
 	assert.ok(msg.includes('User request: "refactor this code"'));
+	assert.ok(msg.includes("Available skills (list any to REMOVE):"));
 	assert.ok(msg.includes("- code-simplification: Simplifies code"));
+	assert.ok(msg.includes("Available tools (list any to REMOVE):"));
 	assert.ok(msg.includes("- read: Read files"));
 });
 
@@ -111,44 +114,57 @@ test("buildPruningUserMessage omits context file when not provided", () => {
 	assert.ok(!msg.includes("Context file"));
 });
 
+test("buildPruningUserMessage lists protected (forced) skills/tools as never removed", () => {
+	const msg = buildPruningUserMessage({
+		userPrompt: "refactor",
+		skills: [{ name: "alpha", description: "a" }],
+		tools: [{ name: "read", description: "Read files" }],
+		config: makeConfig(),
+		forcedSkills: ["alpha"],
+		forcedTools: ["read"],
+	});
+	assert.ok(msg.includes("Protected skills (never removed; do not list these): alpha"));
+	assert.ok(msg.includes("Protected tools (never removed; do not list these): read"));
+});
+
 // ---------------------------------------------------------------------------
 // parseLlmResponse tests
 // ---------------------------------------------------------------------------
 
-test("parseLlmResponse parses valid JSON response", () => {
+test("parseLlmResponse parses valid JSON prune-list response", () => {
 	const knownSkills = new Set(["alpha", "beta", "gamma"]);
 	const knownTools = new Set(["read", "edit", "bash"]);
 	const result = parseLlmResponse(
-		'{"skills": ["alpha", "gamma"], "tools": ["read"]}',
+		'{"pruneSkills": ["alpha", "gamma"], "pruneTools": ["read"]}',
 		knownSkills,
 		knownTools,
 	);
-	assert.deepEqual(result.skills, ["alpha", "gamma"]);
-	assert.deepEqual(result.tools, ["read"]);
+	assert.deepEqual(result.pruneSkills, ["alpha", "gamma"]);
+	assert.deepEqual(result.pruneTools, ["read"]);
 });
 
 test("parseLlmResponse filters unknown names", () => {
 	const knownSkills = new Set(["alpha"]);
 	const knownTools = new Set(["read"]);
 	const result = parseLlmResponse(
-		'{"skills": ["alpha", "unknown-skill"], "tools": ["read", "unknown-tool"]}',
+		'{"pruneSkills": ["alpha", "unknown-skill"], "pruneTools": ["read", "unknown-tool"]}',
 		knownSkills,
 		knownTools,
 	);
-	assert.deepEqual(result.skills, ["alpha"]);
-	assert.deepEqual(result.tools, ["read"]);
+	assert.deepEqual(result.pruneSkills, ["alpha"]);
+	assert.deepEqual(result.pruneTools, ["read"]);
 });
 
 test("parseLlmResponse handles JSON in markdown code block", () => {
 	const knownSkills = new Set(["alpha"]);
 	const knownTools = new Set(["read"]);
 	const result = parseLlmResponse(
-		'```json\n{"skills": ["alpha"], "tools": ["read"]}\n```',
+		'```json\n{"pruneSkills": ["alpha"], "pruneTools": ["read"]}\n```',
 		knownSkills,
 		knownTools,
 	);
-	assert.deepEqual(result.skills, ["alpha"]);
-	assert.deepEqual(result.tools, ["read"]);
+	assert.deepEqual(result.pruneSkills, ["alpha"]);
+	assert.deepEqual(result.pruneTools, ["read"]);
 });
 
 
@@ -156,15 +172,17 @@ test("parseLlmResponse extracts embedded JSON from surrounding prose", () => {
 	const knownSkills = new Set(["alpha"]);
 	const knownTools = new Set(["read"]);
 	const result = parseLlmResponse(
-		'Sure — use this: {"skills": ["alpha"], "tools": ["read"]}',
+		'Sure — remove this: {"pruneSkills": ["alpha"], "pruneTools": ["read"]}',
 		knownSkills,
 		knownTools,
 	);
-	assert.deepEqual(result.skills, ["alpha"]);
-	assert.deepEqual(result.tools, ["read"]);
+	assert.deepEqual(result.pruneSkills, ["alpha"]);
+	assert.deepEqual(result.pruneTools, ["read"]);
 });
 
-test("parseLlmResponse falls back to name extraction from raw text", () => {
+test("parseLlmResponse keeps everything when prose mentions names (no scrape)", () => {
+	// Prose usually names items to KEEP, so we must not scrape known names out of
+	// it and treat them as prunes. Keep all instead.
 	const knownSkills = new Set(["code-simplification", "frontend-design"]);
 	const knownTools = new Set(["read", "edit"]);
 	const result = parseLlmResponse(
@@ -172,82 +190,50 @@ test("parseLlmResponse falls back to name extraction from raw text", () => {
 		knownSkills,
 		knownTools,
 	);
-	assert.deepEqual(result.skills, ["code-simplification"]);
-	assert.deepEqual(result.tools, ["read"]);
+	assert.deepEqual(result.pruneSkills, []);
+	assert.deepEqual(result.pruneTools, []);
 });
 
-test("parseLlmResponse returns empty arrays for completely invalid input", () => {
+test("parseLlmResponse returns empty prune lists for completely invalid input", () => {
 	const knownSkills = new Set(["alpha"]);
 	const knownTools = new Set(["read"]);
 	const result = parseLlmResponse("", knownSkills, knownTools);
-	assert.deepEqual(result.skills, []);
-	assert.deepEqual(result.tools, []);
+	assert.deepEqual(result.pruneSkills, []);
+	assert.deepEqual(result.pruneTools, []);
 });
 
-test("parseLlmResponse handles missing skills/tools keys gracefully", () => {
+test("parseLlmResponse handles missing pruneSkills/pruneTools keys gracefully", () => {
 	const knownSkills = new Set(["alpha"]);
 	const knownTools = new Set(["read"]);
-	const result = parseLlmResponse('{"skills": ["alpha"]}', knownSkills, knownTools);
-	assert.deepEqual(result.skills, ["alpha"]);
-	assert.deepEqual(result.tools, []);
-	assert.equal(result.skillsExplicitlyEmpty, false);
-	assert.equal(result.toolsExplicitlyEmpty, false);
-});
-
-test("parseLlmResponse flags explicitly empty skills array", () => {
-	const knownSkills = new Set(["alpha"]);
-	const knownTools = new Set(["read"]);
-	const result = parseLlmResponse('{"skills":[],"tools":["read"]}', knownSkills, knownTools);
-	assert.deepEqual(result.skills, []);
-	assert.deepEqual(result.tools, ["read"]);
-	assert.equal(result.skillsExplicitlyEmpty, true);
-	assert.equal(result.toolsExplicitlyEmpty, false);
-});
-
-test("parseLlmResponse flags explicitly empty tools array", () => {
-	const knownSkills = new Set(["alpha"]);
-	const knownTools = new Set(["read"]);
-	const result = parseLlmResponse('{"skills":["alpha"],"tools":[]}', knownSkills, knownTools);
-	assert.deepEqual(result.skills, ["alpha"]);
-	assert.deepEqual(result.tools, []);
-	assert.equal(result.skillsExplicitlyEmpty, false);
-	assert.equal(result.toolsExplicitlyEmpty, true);
-});
-
-test("parseLlmResponse does not flag explicit empty when array filtered to empty", () => {
-	const knownSkills = new Set(["alpha"]);
-	const knownTools = new Set(["read"]);
-	const result = parseLlmResponse('{"skills":["unknown"],"tools":["unknown-tool"]}', knownSkills, knownTools);
-	assert.deepEqual(result.skills, []);
-	assert.deepEqual(result.tools, []);
-	assert.equal(result.skillsExplicitlyEmpty, false);
-	assert.equal(result.toolsExplicitlyEmpty, false);
+	const result = parseLlmResponse('{"pruneSkills": ["alpha"]}', knownSkills, knownTools);
+	assert.deepEqual(result.pruneSkills, ["alpha"]);
+	assert.deepEqual(result.pruneTools, []);
 });
 
 test("parseLlmResponse extracts reasoning from JSON response", () => {
 	const knownSkills = new Set(["alpha"]);
 	const knownTools = new Set(["read"]);
 	const result = parseLlmResponse(
-		'{"reasoning":"Frontend bug requires UI fixes","skills":["alpha"],"tools":["read"]}',
+		'{"reasoning":"Frontend bug needs no db skill","pruneSkills":["alpha"],"pruneTools":["read"]}',
 		knownSkills,
 		knownTools,
 	);
-	assert.deepEqual(result.skills, ["alpha"]);
-	assert.deepEqual(result.tools, ["read"]);
-	assert.equal(result.reasoning, "Frontend bug requires UI fixes");
+	assert.deepEqual(result.pruneSkills, ["alpha"]);
+	assert.deepEqual(result.pruneTools, ["read"]);
+	assert.equal(result.reasoning, "Frontend bug needs no db skill");
 });
 
 test("parseLlmResponse omits reasoning when absent or empty", () => {
 	const knownSkills = new Set(["alpha"]);
 	const knownTools = new Set(["read"]);
 	const withEmpty = parseLlmResponse(
-		'{"reasoning":"","skills":["alpha"],"tools":["read"]}',
+		'{"reasoning":"","pruneSkills":["alpha"],"pruneTools":["read"]}',
 		knownSkills,
 		knownTools,
 	);
 	assert.equal(withEmpty.reasoning, undefined);
 	const without = parseLlmResponse(
-		'{"skills":["alpha"],"tools":["read"]}',
+		'{"pruneSkills":["alpha"],"pruneTools":["read"]}',
 		knownSkills,
 		knownTools,
 	);
@@ -258,7 +244,7 @@ test("parseLlmResponse omits reasoning when absent or empty", () => {
 // runLlmPruning tests
 // ---------------------------------------------------------------------------
 
-test("runLlmPruning calls completeFn and returns parsed result", async () => {
+test("runLlmPruning calls completeFn and returns parsed prune lists", async () => {
 	const input = {
 		userPrompt: "refactor code",
 		skills: [
@@ -273,15 +259,15 @@ test("runLlmPruning calls completeFn and returns parsed result", async () => {
 	};
 
 	const completeFn = async () => ({
-		text: '{"skills": ["code-simplification"], "tools": ["read", "edit"]}',
-		thinking: 'Refactoring suggests code-simplification skill.',
+		text: '{"pruneSkills": ["frontend-design"], "pruneTools": []}',
+		thinking: 'Frontend skill is irrelevant to a pure refactor.',
 	});
 
 	const result = await runLlmPruning(input, undefined, {}, completeFn);
-	assert.deepEqual(result.selectedSkills, ["code-simplification"]);
-	assert.deepEqual(result.selectedTools, ["read", "edit"]);
+	assert.deepEqual(result.prunedSkills, ["frontend-design"]);
+	assert.deepEqual(result.prunedTools, []);
 	assert.ok(result.latencyMs >= 0);
-	assert.ok(result.rawResponse.includes("code-simplification"));
+	assert.ok(result.rawResponse.includes("frontend-design"));
 });
 
 test("runLlmPruning propagates completion errors", async () => {
@@ -300,7 +286,7 @@ test("runLlmPruning propagates completion errors", async () => {
 	);
 });
 
-test("runLlmPruning handles invalid JSON from model gracefully", async () => {
+test("runLlmPruning keeps everything when the model returns non-JSON prose", async () => {
 	const input = {
 		userPrompt: "test",
 		skills: [{ name: "alpha", description: "Alpha skill" }],
@@ -311,9 +297,9 @@ test("runLlmPruning handles invalid JSON from model gracefully", async () => {
 	const completeFn = async () => ({ text: "not json but alpha and read" });
 
 	const result = await runLlmPruning(input, undefined, {}, completeFn);
-	// Should still extract known names from raw text
-	assert.deepEqual(result.selectedSkills, ["alpha"]);
-	assert.deepEqual(result.selectedTools, ["read"]);
+	// Non-JSON prose is unreadable as a prune list → keep everything.
+	assert.deepEqual(result.prunedSkills, []);
+	assert.deepEqual(result.prunedTools, []);
 });
 
 test("runLlmPruning falls back to JSON reasoning when native thinking is absent", async () => {
@@ -325,13 +311,12 @@ test("runLlmPruning falls back to JSON reasoning when native thinking is absent"
 	};
 
 	const completeFn = async () => ({
-		text: '{"reasoning":"Refactoring needs code-simplification","skills":["code-simplification"],"tools":["read"]}',
+		text: '{"reasoning":"No extra tooling needed","pruneSkills":["code-simplification"],"pruneTools":["read"]}',
 	});
 
 	const result = await runLlmPruning(input, undefined, {}, completeFn);
-	assert.deepEqual(result.selectedSkills, ["code-simplification"]);
-	assert.deepEqual(result.selectedTools, ["read"]);
-	assert.equal(result.rawThinking, "Refactoring needs code-simplification");
+	assert.deepEqual(result.prunedSkills, ["code-simplification"]);
+	assert.equal(result.rawThinking, "No extra tooling needed");
 });
 
 test("runLlmPruning prefers native thinking over JSON reasoning", async () => {
@@ -343,7 +328,7 @@ test("runLlmPruning prefers native thinking over JSON reasoning", async () => {
 	};
 
 	const completeFn = async () => ({
-		text: '{"reasoning":"JSON reasoning","skills":["code-simplification"],"tools":["read"]}',
+		text: '{"reasoning":"JSON reasoning","pruneSkills":["code-simplification"],"pruneTools":["read"]}',
 		thinking: "Native reasoning",
 	});
 

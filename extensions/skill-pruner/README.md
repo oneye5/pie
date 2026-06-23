@@ -4,15 +4,17 @@ Uses an LLM to score and prune skills/tools based on relevance to the current ta
 
 ## How it works
 
-Before each agent turn, `skill-pruner` sends the user prompt + available skill/tool descriptions to an LLM (via `@mariozechner/pi-ai`). The LLM returns relevance scores; `skill-pruner` then:
+Before each agent turn, `skill-pruner` sends the user prompt + available skill/tool descriptions to an LLM (via `@mariozechner/pi-ai`). The LLM returns a **prune list** — the skills and tools it judges safe to *remove* for this turn — and `skill-pruner` then:
 
-1. Includes the top-N skills (respecting `ceiling` + `pinned`)
-2. Includes the top-N tools, expanding dependency chains
-3. Modifies the system prompt to remove the pruned items
-4. Disables pruned tools via `pi.setActiveTools()`
-5. Logs the decision to `data/pruning.jsonl`
+1. Keeps every skill the LLM did **not** prune. `pinned` / `alwaysKeep` skills are protected and can never be pruned.
+2. Keeps every tool the LLM did not prune, additionally protecting any dependency of a kept tool (so pruning a tool never strands a tool that needs it).
+3. Rewrites the system prompt to drop the pruned skills.
+4. Disables pruned tools via `pi.setActiveTools()` (auto mode only).
+5. Logs the decision — including tool pruning — to `data/pruning.jsonl`.
 
-A `request_tool` recovery tool lets the agent re-enable a pruned tool mid-session.
+The model is **keep-biased**: an empty prune list (or an unreadable response) keeps everything, so "return nothing" always means "prune nothing". Pruning 100% of a category is treated as a likely misunderstanding and fails open (keeps all) with a recorded reason.
+
+A `request_tool` recovery tool lets the agent re-enable a pruned tool mid-session; each recovery is logged to `data/pruning.jsonl` as the over-pruning quality signal.
 
 ## Configuration
 
@@ -22,7 +24,7 @@ Add a `pruning` block to `settings.json`:
 {
   "pruning": {
     "mode": "auto",
-    "model": "gpt-4o-mini",
+    "model": "gpt-5.4-mini",
     "provider": "github-copilot",
     "thinkingLevel": "minimal",
     "skills": {
@@ -47,7 +49,7 @@ Add a `pruning` block to `settings.json`:
 | Option | Default | Description |
 |---|---|---|
 | `mode` | `"auto"` | `auto` = prune + apply; `shadow` = log only; `off` = disabled |
-| `model` | `"gpt-4o-mini"` | LLM model for relevance scoring |
+| `model` | `"gpt-5.4-mini"` | LLM model for relevance scoring |
 | `provider` | `"github-copilot"` | Provider for the scoring model |
 | `thinkingLevel` | `"minimal"` | Reasoning effort for the scorer (e.g., `"minimal"`, `"medium"`, `"high"`) |
 
@@ -55,17 +57,18 @@ Add a `pruning` block to `settings.json`:
 
 | Option | Default | Description |
 |---|---|---|
-| `strategy` | `"discretion"` | Scoring strategy (`discretion` = LLM discretion; `topK` = pick top N directly) |
-| `ceiling` | `8` | Maximum number of skills to keep |
-| `pinned` | `[]` | Always-include these skills regardless of score |
+| `strategy` | `"discretion"` | Pruning strategy (`discretion` = keep-biased, prune only clearly irrelevant items; `topK` = also steer toward the ceiling by pruning the least relevant) |
+| `ceiling` | `8` | Soft guidance communicated to the LLM on the effective context size; **not** a hard cap (hard-enforcing it would force over-pruning) |
+| `pinned` | `[]` | Skills protected from pruning regardless of the LLM's list |
 
 ### Tools options
 
 | Option | Default | Description |
 |---|---|---|
-| `strategy` | `"discretion"` | Scoring strategy |
-| `ceiling` | `10` | Maximum number of tools to keep |
-| `dependencies` | `{ edit: [read], subagent: [bash] }` | Tool → dependency mapping; if tool is active, its deps are also included |
+| `strategy` | `"discretion"` | Pruning strategy (see skills) |
+| `ceiling` | `10` | Soft guidance (see skills) |
+| `dependencies` | `{ edit: [read], subagent: [bash] }` | Tool → dependency mapping; a dependency of a **kept** tool is protected from pruning |
+| `alwaysKeep` | `[]` | Tools protected from pruning regardless of the LLM's list |
 
 ## Modes
 
@@ -88,4 +91,4 @@ A `pruning-result` custom message is rendered in the transcript showing what was
 ## Recovery
 
 - **Skills**: Use `/skill:name` on the next turn to explicitly include a skill
-- **Tools**: Call `request_tool({ toolName: "web_search" })` to re-enable a pruned tool for the remainder of the session
+- **Tools**: Call `request_tool({ toolName: "web_search" })` to re-enable a pruned tool for the remainder of the session (the recovery is logged to `data/pruning.jsonl`)

@@ -15,8 +15,9 @@ interface SessionTracking {
 }
 
 type JsonLineEvent = PruningDecision | {
-	event: "skill_read" | "skill_miss" | "shadow_miss_candidate";
-	skillName: string;
+	event: "skill_read" | "skill_miss" | "shadow_miss_candidate" | "tool_recovered";
+	skillName?: string;
+	toolName?: string;
 	sessionId: string;
 	timestamp: string;
 };
@@ -98,6 +99,10 @@ export function recordSkillRead(sessionId: string, readPath: string): void {
 	} else {
 		appendJsonLine({ event: "skill_read", skillName, sessionId, timestamp });
 	}
+}
+
+export function recordToolRecovery(sessionId: string, toolName: string): void {
+	appendJsonLine({ event: "tool_recovered", toolName, sessionId, timestamp: new Date().toISOString() });
 }
 
 export function estimateTokens(text: string): number {

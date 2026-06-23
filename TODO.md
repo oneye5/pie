@@ -1,5 +1,43 @@
 # TODO — Deferred work
 
+## Skill-pruner prune-list refactor — deferred follow-ups
+
+**Implemented:** Flipped the pruner from an inclusion-list (LLM names what to
+KEEP; empty = prune everything) to a **prune-list / exclusion** schema (LLM
+names what to REMOVE; empty/missing = keep all). This fixes the "LLM returns
+nothing → everything pruned" mismatch and makes the pruner keep-biased: the
+system prompt now reasons about the full arc of work and infers implications
+rather than hardcoding skill→task rules. Tool-pruning decisions are now written
+to `data/pruning.jsonl` — the analytics contract already had the optional
+`toolIncluded`/`toolExcluded`/`toolBlockTokens`/`originalToolBlockTokens`
+fields, they were just never populated. `ceiling` is now soft guidance
+communicated to the LLM, not a hard post-hoc clamp (hard-enforcing would force
+over-pruning). Dependency handling switched from expansion to *protection*: a
+dependency of a kept tool is protected from pruning. A `tool_recovered` event
+is logged whenever the agent re-enables a pruned tool via `request_tool`.
+
+### Deferred — analytics ingestion of over-pruning signals (out of scope; data now logged)
+`data/pruning.jsonl` now carries three quality signals the analytics dashboard
+does NOT yet ingest (`analysis/scripts/source.ts` `readPruningDecisions`
+filters to decision-shaped lines, skipping events lacking `included`/`excluded`):
+- `skill_miss` / `shadow_miss_candidate` — the agent read a skill the pruner
+  had pruned (a wrong-prune). Logged since before this refactor; still un-ingested.
+- `tool_recovered` — the agent called `request_tool` to re-enable a pruned tool
+  (new). The most direct over-pruning metric.
+Wiring these into `contracts.ts` / `prepare.ts` / `duckdb.ts` / `site-data.ts` /
+the pruning charts (e.g. a "prunes that were recovered" rate) would close the
+feedback loop. Foundation is in place (events logged with `sessionId` +
+`timestamp`); only the pipeline + chart are missing.
+
+### Deferred — parse-failure observability (minor)
+When the prepass LLM returns non-empty non-JSON prose, `parseLlmResponse` now
+resolves to keep-all (the phase-3 prose-name scrape was removed because prose
+usually names items to KEEP, which would invert intent). This is the safe
+default but is indistinguishable in analytics from "model correctly kept all"
+except by inspecting `llmResponse`. If schema-regression observability matters,
+thread a `keptAllDueToParseFailure` flag from `parseLlmResponse` →
+`runLlmPruning` → `PrepassRunResult` → a `prepassFailOpenReason`-style note.
+
 ## Sticky expand/collapse header — extend to reasoning + subagent (follow-up)
 
 **Implemented (tool-call cards):** the tool-call expand/collapse hitbox is now a

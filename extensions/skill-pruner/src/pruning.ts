@@ -93,93 +93,104 @@ export function resolveVisibleSkills(skills: Skill[], activeConfig: PruningConfi
 
 export function applySkillSelection(
 	visibleSkills: Skill[],
-	llmSelectedSkills: string[] | null,
+	prunedSkills: string[] | null,
 	effectivePinned: string[],
-	activeConfig: PruningConfig,
-	skillsExplicitlyEmpty: boolean,
+	_activeConfig: PruningConfig,
 ): { includedSkillNames: string[]; excludedSkillNames: string[]; failOpenReason?: string } {
-	let includedSkillNames: string[];
-	let excludedSkillNames: string[];
-	let failOpenReason: string | undefined;
-
-	if (llmSelectedSkills !== null) {
-		const forcedSet = new Set(effectivePinned);
-		const orderedSelection = [
-			...effectivePinned,
-			...llmSelectedSkills.filter((name) => !forcedSet.has(name)),
-		];
-		const ceiling = Math.max(activeConfig.skills.ceiling, effectivePinned.length);
-		const finalSet = new Set(orderedSelection.slice(0, ceiling));
-
-		includedSkillNames = visibleSkills.filter((s) => finalSet.has(s.name)).map((s) => s.name);
-		excludedSkillNames = visibleSkills.filter((s) => !finalSet.has(s.name)).map((s) => s.name);
-
-		if (includedSkillNames.length === 0 && visibleSkills.length > 0 && !skillsExplicitlyEmpty) {
-			includedSkillNames = visibleSkills.map((s) => s.name);
-			excludedSkillNames = [];
-			failOpenReason = "All model-selected skills were unknown or invalid; keeping all skills as fail-open";
-		}
-	} else {
-		includedSkillNames = visibleSkills.map((s) => s.name);
-		excludedSkillNames = [];
+	// No usable prepass signal → keep everything.
+	if (prunedSkills === null) {
+		return {
+			includedSkillNames: visibleSkills.map((s) => s.name),
+			excludedSkillNames: [],
+		};
 	}
 
-	return { includedSkillNames, excludedSkillNames, failOpenReason };
+	const protectedNames = new Set(effectivePinned);
+	const visibleNames = new Set(visibleSkills.map((s) => s.name));
+	const pruneSet = new Set(
+		prunedSkills.filter((name) => visibleNames.has(name) && !protectedNames.has(name)),
+	);
+
+	const excludedSkillNames = visibleSkills.filter((s) => pruneSet.has(s.name)).map((s) => s.name);
+	const includedSkillNames = visibleSkills.filter((s) => !pruneSet.has(s.name)).map((s) => s.name);
+
+	// Safety net: pruning every visible skill is almost always a misunderstanding
+	// (the session loaded skills for a reason, and over-pruning is the failure we
+	// guard against). Fail open rather than strip the lot. Pinned skills already
+	// survive, so this only fires when nothing at all would remain.
+	if (includedSkillNames.length === 0 && visibleSkills.length > 0) {
+		return {
+			includedSkillNames: visibleSkills.map((s) => s.name),
+			excludedSkillNames: [],
+			failOpenReason: "LLM pruned every visible skill; keeping all as fail-open",
+		};
+	}
+
+	return { includedSkillNames, excludedSkillNames };
 }
 
 export function applyToolSelection(
 	allTools: ToolInfo[],
-	llmSelectedTools: string[] | null,
+	prunedTools: string[] | null,
 	activeConfig: PruningConfig,
-	toolsExplicitlyEmpty: boolean,
 ): { includedToolNames: string[]; excludedToolNames: string[]; failOpenReason?: string } {
-	let includedToolNames: string[];
-	let excludedToolNames: string[];
-	let failOpenReason: string | undefined;
+	// No tools config (tool pruning disabled) or no tools present → keep everything.
+	if (!activeConfig.tools || allTools.length === 0) {
+		return {
+			includedToolNames: allTools.map((t) => t.name),
+			excludedToolNames: [],
+		};
+	}
 
-	if (activeConfig.tools && allTools.length > 0) {
-		if (llmSelectedTools !== null) {
-			const alwaysKeepTools = activeConfig.tools.alwaysKeep ?? [];
-			const forcedToolSet = new Set(alwaysKeepTools);
-			const orderedTools = [
-				...alwaysKeepTools,
-				...llmSelectedTools.filter((name) => !forcedToolSet.has(name)),
-			];
-			const seedTools = orderedTools.slice(0, Math.max(activeConfig.tools.ceiling, alwaysKeepTools.length));
+	// No usable prepass signal → keep everything.
+	if (prunedTools === null) {
+		return {
+			includedToolNames: allTools.map((t) => t.name),
+			excludedToolNames: [],
+		};
+	}
 
-			const dependencies = activeConfig.tools.dependencies;
-			const queue = [...seedTools];
-			const expanded = new Set(seedTools);
-			while (queue.length > 0) {
-				const tool = queue.shift()!;
-				const deps = dependencies[tool] ?? [];
-				for (const dep of deps) {
-					if (!expanded.has(dep)) {
-						expanded.add(dep);
-						queue.push(dep);
+	const alwaysKeepTools = activeConfig.tools.alwaysKeep ?? [];
+	const protectedBase = new Set(alwaysKeepTools);
+	const allNames = new Set(allTools.map((t) => t.name));
+	const pruneSet = new Set(
+		prunedTools.filter((name) => allNames.has(name) && !protectedBase.has(name)),
+	);
+
+	// A tool that is a dependency (transitively) of a KEPT tool must not be pruned —
+	// pruning it would strand the tool that needs it. Walk to a fixpoint.
+	const dependencies = activeConfig.tools.dependencies;
+	if (dependencies && pruneSet.size > 0) {
+		let changed = true;
+		while (changed) {
+			changed = false;
+			const kept = allTools.filter((t) => !pruneSet.has(t.name)).map((t) => t.name);
+			for (const keptTool of kept) {
+				for (const dep of dependencies[keptTool] ?? []) {
+					if (pruneSet.has(dep)) {
+						pruneSet.delete(dep);
+						changed = true;
 					}
 				}
 			}
-
-			includedToolNames = [...expanded];
-			const includedSet = new Set(includedToolNames);
-			excludedToolNames = allTools.map((t) => t.name).filter((name) => !includedSet.has(name));
-
-			if (includedToolNames.length === 0 && allTools.length > 0 && !toolsExplicitlyEmpty) {
-				includedToolNames = allTools.map((t) => t.name);
-				excludedToolNames = [];
-				failOpenReason = "All model-selected tools were unknown or invalid; keeping all tools as fail-open";
-			}
-		} else {
-			includedToolNames = allTools.map((t) => t.name);
-			excludedToolNames = [];
 		}
-	} else {
-		includedToolNames = allTools.map((t) => t.name);
-		excludedToolNames = [];
 	}
 
-	return { includedToolNames, excludedToolNames, failOpenReason };
+	const excludedToolNames = allTools.filter((t) => pruneSet.has(t.name)).map((t) => t.name);
+	const includedToolNames = allTools.filter((t) => !pruneSet.has(t.name)).map((t) => t.name);
+
+	// Safety net: a coding agent with zero tools is dead. Fail open rather than
+	// strip every tool. alwaysKeep already survives, so this only fires when
+	// nothing at all would remain.
+	if (includedToolNames.length === 0 && allTools.length > 0) {
+		return {
+			includedToolNames: allTools.map((t) => t.name),
+			excludedToolNames: [],
+			failOpenReason: "LLM pruned every tool; keeping all as fail-open",
+		};
+	}
+
+	return { includedToolNames, excludedToolNames };
 }
 
 export function isExtensionDisabledByToggle(extensionId: string): boolean {
@@ -362,10 +373,8 @@ export async function runPruningPrepass(
 	completeFn: CompleteSimpleFn,
 ): Promise<PrepassRunResult> {
 	const emptyResult = (thinkingLevel: string, error: string | null): PrepassRunResult => ({
-		selectedSkills: null,
-		selectedTools: null,
-		skillsExplicitlyEmpty: false,
-		toolsExplicitlyEmpty: false,
+		prunedSkills: null,
+		prunedTools: null,
 		error,
 		rawResponse: "",
 		rawThinking: "",
@@ -394,10 +403,8 @@ export async function runPruningPrepass(
 			}, completeFn);
 
 			latestResult = {
-				selectedSkills: result.selectedSkills,
-				selectedTools: result.selectedTools,
-				skillsExplicitlyEmpty: result.skillsExplicitlyEmpty ?? false,
-				toolsExplicitlyEmpty: result.toolsExplicitlyEmpty ?? false,
+				prunedSkills: result.prunedSkills,
+				prunedTools: result.prunedTools,
 				error: null,
 				rawResponse: result.rawResponse,
 				rawThinking: result.rawThinking,
@@ -420,10 +427,8 @@ export async function runPruningPrepass(
 			if (index < attempts.length - 1) {
 				latestResult = {
 					...latestResult,
-					selectedSkills: null,
-					selectedTools: null,
-					skillsExplicitlyEmpty: false,
-					toolsExplicitlyEmpty: false,
+					prunedSkills: null,
+					prunedTools: null,
 					error: errorMessage,
 					thinkingLevel,
 				};
@@ -433,10 +438,8 @@ export async function runPruningPrepass(
 			console.warn(`[skill-pruner] ${errorMessage}`);
 			return {
 				...latestResult,
-				selectedSkills: null,
-				selectedTools: null,
-				skillsExplicitlyEmpty: false,
-				toolsExplicitlyEmpty: false,
+				prunedSkills: null,
+				prunedTools: null,
 				error: errorMessage,
 				thinkingLevel,
 			};

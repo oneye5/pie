@@ -20,10 +20,10 @@ export interface ToolPruningResult {
 }
 
 export interface PrepassRunResult {
-	selectedSkills: string[] | null;
-	selectedTools: string[] | null;
-	skillsExplicitlyEmpty: boolean;
-	toolsExplicitlyEmpty: boolean;
+	/** Skills the LLM chose to prune (null = no usable prepass signal → keep all). */
+	prunedSkills: string[] | null;
+	/** Tools the LLM chose to prune (null = no usable prepass signal → keep all). */
+	prunedTools: string[] | null;
 	error: string | null;
 	rawResponse: string;
 	rawThinking: string;

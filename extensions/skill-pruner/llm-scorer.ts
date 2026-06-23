@@ -24,15 +24,15 @@ export interface LlmPruningInput {
 	skills: SkillCandidate[];
 	tools: ToolCandidate[];
 	config: PruningConfig;
-	/** Names of skills that are forced-included (pinned / always-keep). The model does not need to reason about these. */
+	/** Names of skills that are protected (pinned / always-keep). The model never needs to prune these. */
 	forcedSkills?: string[];
-	/** Names of tools that are forced-included (always-keep). The model does not need to reason about these. */
+	/** Names of tools that are protected (always-keep). The model never needs to prune these. */
 	forcedTools?: string[];
 }
 
 export interface LlmPruningOutput {
-	selectedSkills: string[];
-	selectedTools: string[];
+	prunedSkills: string[];
+	prunedTools: string[];
 	rawResponse: string;
 	rawThinking: string;
 	systemPrompt: string;
@@ -40,10 +40,6 @@ export interface LlmPruningOutput {
 	latencyMs: number;
 	stopReason?: string;
 	errorMessage?: string;
-	/** True only when the LLM explicitly returned `"skills":[]` in valid JSON. */
-	skillsExplicitlyEmpty?: boolean;
-	/** True only when the LLM explicitly returned `"tools":[]` in valid JSON. */
-	toolsExplicitlyEmpty?: boolean;
 }
 
 export interface CompleteSimpleResult {
@@ -61,12 +57,13 @@ function loadPromptTemplate(): string {
 		return readFileSync(path.join(import.meta.dirname, "pruning-system-prompt.md"), "utf-8").trim();
 	} catch {
 		return [
-			"You are a relevance classifier for a coding agent prompt-pruning prepass.",
-			"Your job is to reduce prompt/tool noise while keeping the skills and tools that are likely to help with the user's current request, interpreted in conversation context.",
+			"You are a relevance curator for a coding agent's prompt-pruning prepass.",
+			"Your job is to decide which skills and tools can be safely REMOVED from the agent's context this turn.",
+			"Default to KEEPING. Only remove an item when you are confident it is irrelevant to the entire arc of the work.",
 			"",
 			"Respond with ONLY a valid JSON object in this exact shape:",
-			'{"reasoning":"1-2 short sentences explaining the classification for debugging","skills":["skill-name"],"tools":["tool-name"]}',
-			"Do not wrap in markdown. Do not include names that are not in the candidate lists.",
+			'{"reasoning":"1-2 short sentences","pruneSkills":["skill-name"],"pruneTools":["tool-name"]}',
+			"List only items to REMOVE. Empty or omitted lists keep everything. Do not wrap in markdown.",
 			"",
 			"{{STRATEGY_INSTRUCTION}}",
 		].join("\n");
@@ -79,9 +76,9 @@ function resolvePromptTemplate(): string {
 
 function buildStrategyInstruction(config: PruningConfig): string {
 	if (config.skills.strategy === "topK") {
-		return `Rank by relevance and select at most ${config.skills.ceiling} skills and ${config.tools?.ceiling ?? 10} tools.`;
+		return `The agent's context is most effective with at most ${config.skills.ceiling} skills and ${config.tools?.ceiling ?? 10} tools. Prefer keeping the most relevant; if you judge more than that as relevant, remove the least relevant to approach the ceiling. Still never remove something the arc of the work plausibly needs.`;
 	}
-	return "Use discretion. Keep plausibly useful items, but prune clearly unrelated skills and tools.";
+	return "Use discretion: remove only items you are confident are irrelevant to the entire arc of the work. You are not expected to remove anything — an empty result is correct when nothing is clearly irrelevant.";
 }
 
 /** Build the system prompt for the pruning LLM call. */
@@ -107,41 +104,40 @@ export function buildPruningUserMessage(input: LlmPruningInput): string {
 		lines.push("", `Context file: ${input.contextFile}`);
 	}
 
-	lines.push("", "Available skills:");
+	lines.push("", "Available skills (list any to REMOVE):");
 	for (const s of input.skills) {
 		lines.push(`- ${s.name}: ${s.description}`);
 	}
 
 	if (input.forcedSkills && input.forcedSkills.length > 0) {
-		lines.push("", `Forced-include skills (always kept regardless of your selection): ${input.forcedSkills.join(", ")}`);
+		lines.push("", `Protected skills (never removed; do not list these): ${input.forcedSkills.join(", ")}`);
 	}
 
-	lines.push("", "Available tools:");
+	lines.push("", "Available tools (list any to REMOVE):");
 	for (const t of input.tools) {
 		lines.push(`- ${t.name}: ${t.description}`);
 	}
 
 	if (input.forcedTools && input.forcedTools.length > 0) {
-		lines.push("", `Forced-include tools (always kept regardless of your selection): ${input.forcedTools.join(", ")}`);
+		lines.push("", `Protected tools (never removed; do not list these): ${input.forcedTools.join(", ")}`);
 	}
 
 	return lines.join("\n");
 }
 
 export interface ParsedLlmResponse {
-	skills: string[];
-	tools: string[];
+	pruneSkills: string[];
+	pruneTools: string[];
 	reasoning?: string;
-	/** True only when the LLM explicitly returned `"skills":[]` in valid JSON. */
-	skillsExplicitlyEmpty: boolean;
-	/** True only when the LLM explicitly returned `"tools":[]` in valid JSON. */
-	toolsExplicitlyEmpty: boolean;
 }
+
+/** Sentinel for "keep everything" — returned whenever the response can't be confidently read as a prune list. */
+const EMPTY_PRUNE: ParsedLlmResponse = { pruneSkills: [], pruneTools: [] };
 
 /**
  * Convert an already-parsed object into a `ParsedLlmResponse`, filtering
- * against the known name sets. Returns `null` if the input is not a plain
- * object, allowing the caller to fall through to the next strategy.
+ * the prune lists against the known name sets. Returns `null` if the input
+ * is not a plain object, allowing the caller to fall through.
  */
 function buildParsedResponse(
 	parsed: unknown,
@@ -149,27 +145,21 @@ function buildParsedResponse(
 	knownTools: Set<string>,
 ): ParsedLlmResponse | null {
 	if (!parsed || typeof parsed !== "object") return null;
-	const rawSkills = Array.isArray((parsed as { skills?: unknown }).skills)
-		? (parsed as { skills: unknown[] }).skills
+	const rawSkills = Array.isArray((parsed as { pruneSkills?: unknown }).pruneSkills)
+		? (parsed as { pruneSkills: unknown[] }).pruneSkills
 		: undefined;
-	const rawTools = Array.isArray((parsed as { tools?: unknown }).tools)
-		? (parsed as { tools: unknown[] }).tools
+	const rawTools = Array.isArray((parsed as { pruneTools?: unknown }).pruneTools)
+		? (parsed as { pruneTools: unknown[] }).pruneTools
 		: undefined;
-	const skills = rawSkills
+	const pruneSkills = rawSkills
 		? rawSkills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s))
 		: [];
-	const tools = rawTools
+	const pruneTools = rawTools
 		? rawTools.filter((t: unknown) => typeof t === "string" && knownTools.has(t))
 		: [];
 	const reasoningRaw = (parsed as { reasoning?: unknown }).reasoning;
-	const reasoning = typeof reasoningRaw === "string" && reasoningRaw.length > 0 ? reasoningRaw : undefined;
-	const result: ParsedLlmResponse = {
-		skills,
-		tools,
-		skillsExplicitlyEmpty: rawSkills !== undefined && rawSkills.length === 0,
-		toolsExplicitlyEmpty: rawTools !== undefined && rawTools.length === 0,
-	};
-	if (reasoning) result.reasoning = reasoning;
+	const result: ParsedLlmResponse = { pruneSkills, pruneTools };
+	if (typeof reasoningRaw === "string" && reasoningRaw.length > 0) result.reasoning = reasoningRaw;
 	return result;
 }
 
@@ -182,24 +172,12 @@ function tryParseJson(candidate: string, knownSkills: Set<string>, knownTools: S
 	}
 }
 
-/** Last-resort: extract known names that appear verbatim in the raw text. */
-function extractKnownNamesFromText(
-	raw: string,
-	knownSkills: Set<string>,
-	knownTools: Set<string>,
-): ParsedLlmResponse {
-	const skills: string[] = [];
-	const tools: string[] = [];
-	for (const name of knownSkills) {
-		if (raw.includes(name)) skills.push(name);
-	}
-	for (const name of knownTools) {
-		if (raw.includes(name)) tools.push(name);
-	}
-	return { skills, tools, skillsExplicitlyEmpty: false, toolsExplicitlyEmpty: false };
-}
-
-/** Parse the LLM response JSON, with fallback regex extraction. */
+/**
+ * Parse the LLM response as a prune list. Any failure to read a valid
+ * prune list resolves to "keep everything" (empty prune lists) — the safe,
+ * hesitant default. We deliberately do NOT scrape known names out of prose,
+ * because prose usually names items to KEEP, which would invert intent.
+ */
 export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownTools: Set<string>): ParsedLlmResponse {
 	// Phase 1: strict JSON parse of the whole response.
 	const strict = tryParseJson(raw, knownSkills, knownTools);
@@ -212,8 +190,8 @@ export function parseLlmResponse(raw: string, knownSkills: Set<string>, knownToo
 		if (extracted) return extracted;
 	}
 
-	// Phase 3: last-resort name extraction from raw text.
-	return extractKnownNamesFromText(raw, knownSkills, knownTools);
+	// Phase 3: unreadable response — keep everything rather than risk misparsing.
+	return EMPTY_PRUNE;
 }
 
 export type CompleteSimpleFn = (
@@ -248,8 +226,8 @@ export async function runLlmPruning(
 	const parsed = parseLlmResponse(response.text, knownSkills, knownTools);
 
 	return {
-		selectedSkills: parsed.skills,
-		selectedTools: parsed.tools,
+		prunedSkills: parsed.pruneSkills,
+		prunedTools: parsed.pruneTools,
 		rawResponse: response.text,
 		rawThinking: response.thinking ?? parsed.reasoning ?? "",
 		systemPrompt,
@@ -257,8 +235,6 @@ export async function runLlmPruning(
 		latencyMs,
 		stopReason: response.stopReason,
 		errorMessage: response.errorMessage,
-		skillsExplicitlyEmpty: parsed.skillsExplicitlyEmpty,
-		toolsExplicitlyEmpty: parsed.toolsExplicitlyEmpty,
 	};
 }
 

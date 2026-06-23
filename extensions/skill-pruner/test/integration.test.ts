@@ -181,9 +181,9 @@ async function runBeforeAgentStart(handlers: Map<string, Handler>, prompt: strin
 	}, { cwd: "/repo", sessionManager: { getSessionId: () => "session-1" } });
 }
 
-/** Create a mock LLM completion function that returns a fixed response. */
-function mockCompleteFn(response: { skills: string[]; tools?: string[] }) {
-	return async () => ({ text: JSON.stringify({ skills: response.skills, tools: response.tools ?? [] }) });
+/** Create a mock LLM completion function that returns a fixed prune-list response. */
+function mockCompleteFn(response: { pruneSkills?: string[]; pruneTools?: string[] }) {
+	return async () => ({ text: JSON.stringify({ pruneSkills: response.pruneSkills ?? [], pruneTools: response.pruneTools ?? [] }) });
 }
 
 const realisticSkills = [
@@ -201,11 +201,11 @@ const mockToolInfo = [
 ];
 
 // ---------------------------------------------------------------------------
-// LLM-based pruning tests
+// LLM-based pruning tests (prune-list schema)
 // ---------------------------------------------------------------------------
 
-test("discretion mode: LLM selects subset → only those skills included", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+test("discretion mode: LLM prunes a subset → only those skills removed", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"] }));
 	try {
 		const { handlers } = register(config());
 		const result = await runBeforeAgentStart(handlers, "Refactor this code for clarity", realisticSkills) as { systemPrompt?: string } | undefined;
@@ -220,14 +220,14 @@ test("discretion mode: LLM selects subset → only those skills included", async
 	}
 });
 
-test("discretion mode: LLM returns empty for both skills and tools → fails open (all included)", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: [], tools: [] }));
+test("empty prune lists for both skills and tools → keep all", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: [], pruneTools: [] }));
 	try {
 		const { handlers } = register(config({ pinned: ["frontend-design"] }));
 		const result = await runBeforeAgentStart(handlers, "simple question", realisticSkills) as { systemPrompt?: string } | undefined;
 
-		// Fail-open: when LLM returns empty for both skills and tools,
-		// treat as a failed prepass and keep everything.
+		// Empty prune lists = nothing to remove = keep everything (the aligned
+		// default; previously an empty inclusion list pruned everything).
 		assert.ok(result?.systemPrompt);
 		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
@@ -237,10 +237,13 @@ test("discretion mode: LLM returns empty for both skills and tools → fails ope
 	}
 });
 
-test("LLM explicitly returns empty skills with non-empty tools → honors empty skills (no fail-open)", async () => {
-	__setCompleteFn(async () => ({ text: '{"skills":[],"tools":["read","edit"]}' }));
+test("empty skill prune-list with non-empty tool prune-list keeps all skills (mismatch fixed)", async () => {
+	// The original bug: {"skills":[],"tools":[...]} (empty keep-list for skills,
+	// non-empty for tools) pruned EVERY skill. Under the prune-list model an empty
+	// skill list means "prune no skills" — all skills are kept.
+	__setCompleteFn(async () => ({ text: '{"pruneSkills":[],"pruneTools":["web_search"]}' }));
 	try {
-		const { handlers } = register(config());
+		const { handlers } = register(config({}, "auto", { ceiling: 10 }));
 		__setToolSeams({
 			getAllTools: () => mockToolInfo as any[],
 			getActiveTools: () => mockToolInfo.map((t) => t.name),
@@ -248,12 +251,11 @@ test("LLM explicitly returns empty skills with non-empty tools → honors empty 
 		});
 		const result = await runBeforeAgentStart(handlers, "simple question", realisticSkills) as { systemPrompt?: string } | undefined;
 
-		// The LLM explicitly said no skills are relevant; we should honor that.
 		assert.ok(result?.systemPrompt);
-		assert.doesNotMatch(result.systemPrompt, /<name>code-simplification<\/name>/);
-		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
-		assert.doesNotMatch(result.systemPrompt, /<name>frontend-design<\/name>/);
-		assert.match(result.systemPrompt, /Pruned skills/);
+		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
+		assert.match(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
+		assert.doesNotMatch(result.systemPrompt, /Pruned skills/);
 	} finally {
 		__setCompleteFn(null);
 		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
@@ -261,13 +263,13 @@ test("LLM explicitly returns empty skills with non-empty tools → honors empty 
 });
 
 test("phantom pinned skill (not in visible skills) does not trigger fail-open", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"] }));
 	try {
 		const { handlers } = register(config({ pinned: ["nonexistent-skill"] }));
 		const result = await runBeforeAgentStart(handlers, "refactor code", realisticSkills) as { systemPrompt?: string } | undefined;
 
 		// The pinned skill doesn't exist in the session, so it should be ignored.
-		// The LLM's selection of code-simplification should still be honored.
+		// The LLM's prune of duckdb/frontend should still be honored.
 		assert.ok(result?.systemPrompt);
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
 		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
@@ -276,22 +278,23 @@ test("phantom pinned skill (not in visible skills) does not trigger fail-open", 
 	}
 });
 
-test("ceiling enforced even if LLM returns more skills", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification", "duckdb-query-optimization", "frontend-design"], tools: [] }));
+test("ceiling is guidance only: pruning nothing keeps all skills even above the ceiling", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: [], pruneTools: [] }));
 	try {
 		const { handlers } = register(config({ ceiling: 2 }));
 		const result = await runBeforeAgentStart(handlers, "do everything", realisticSkills) as { systemPrompt?: string } | undefined;
 
 		assert.ok(result?.systemPrompt);
+		// 3 skills, ceiling 2, but the LLM pruned nothing → keep all 3 (no hard clamp).
 		const matches = result.systemPrompt.match(/<name>[^<]+<\/name>/g) ?? [];
-		assert.ok(matches.length <= 2, `ceiling should limit to 2 skills, got ${matches.length}`);
+		assert.equal(matches.length, 3, "ceiling is no longer hard-enforced; keep-all is honored");
 	} finally {
 		__setCompleteFn(null);
 	}
 });
 
-test("pinned skills always included regardless of LLM output", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["duckdb-query-optimization"], tools: [] }));
+test("pinned skills protected even when the LLM tries to prune them", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["code-simplification", "frontend-design"] }));
 	try {
 		const { handlers } = register(config({ pinned: ["code-simplification"] }));
 		const result = await runBeforeAgentStart(handlers, "query optimization", realisticSkills) as { systemPrompt?: string } | undefined;
@@ -299,14 +302,15 @@ test("pinned skills always included regardless of LLM output", async () => {
 		assert.ok(result?.systemPrompt);
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
 		assert.match(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+		assert.doesNotMatch(result.systemPrompt, /<name>frontend-design<\/name>/);
 	} finally {
 		__setCompleteFn(null);
 	}
 });
 
-test("alwaysKeep skills and tools are preserved even when the LLM omits them", async () => {
+test("alwaysKeep skills and tools protected even when the LLM prunes them", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: ["read"] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["frontend-design", "duckdb-query-optimization"], pruneTools: ["web_search", "subagent"] }));
 	try {
 		const { handlers } = register(config(
 			{ alwaysKeep: ["frontend-design"] },
@@ -322,8 +326,10 @@ test("alwaysKeep skills and tools are preserved even when the LLM omits them", a
 		const result = await runBeforeAgentStart(handlers, "refactor code", realisticSkills) as { systemPrompt?: string } | undefined;
 		assert.ok(result?.systemPrompt);
 		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
+		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
 		assert.ok(setActiveToolsCalls.length > 0);
-		assert.ok(setActiveToolsCalls[0].includes("web_search"));
+		assert.ok(setActiveToolsCalls[0].includes("web_search"), "alwaysKeep web_search protected from pruning");
+		assert.ok(!setActiveToolsCalls[0].includes("subagent"), "subagent was pruned");
 	} finally {
 		__setCompleteFn(null);
 		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
@@ -338,7 +344,7 @@ test("empty prepass response retries with minimal reasoning before failing open"
 		if (reasoningLevels.length === 1) {
 			return { text: "", stopReason: "aborted", errorMessage: "timeout" };
 		}
-		return { text: '{"skills":["code-simplification"],"tools":["read","edit"]}', stopReason: "stop" };
+		return { text: '{"pruneSkills":["duckdb-query-optimization","frontend-design"],"pruneTools":["web_search"]}', stopReason: "stop" };
 	});
 	try {
 		const cfg = config({}, "auto", { ceiling: 10 });
@@ -372,7 +378,7 @@ test("thrown prepass errors also retry with minimal reasoning", async () => {
 		if (reasoningLevels.length === 1) {
 			throw new Error("timeout");
 		}
-		return { text: '{"skills":["code-simplification"],"tools":[]}' };
+		return { text: '{"pruneSkills":["duckdb-query-optimization","frontend-design"],"pruneTools":[]}' };
 	});
 	try {
 		const cfg = config();
@@ -409,7 +415,7 @@ test("LLM failure → graceful fallback (all skills included)", async () => {
 });
 
 test("empty skills array produces no modification", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: [], tools: [] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: [], pruneTools: [] }));
 	try {
 		const { handlers } = register(config());
 		const result = await runBeforeAgentStart(handlers, "anything", [], "Base prompt without skills");
@@ -420,7 +426,7 @@ test("empty skills array produces no modification", async () => {
 });
 
 test("regex no-match case fails open with original prompt unchanged", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization"] }));
 	try {
 		const { handlers } = register(config());
 		const result = await runBeforeAgentStart(handlers, "Refactor code", realisticSkills, "Base prompt without the skills block");
@@ -430,9 +436,42 @@ test("regex no-match case fails open with original prompt unchanged", async () =
 	}
 });
 
-test("tool dependencies honored even when they expand beyond the configured ceiling", async () => {
+test("skills block absent but tools pruned → decision logs tool pruning, skills reported as keep-all", async () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "skill-pruner-integration-"));
+	const logPath = path.join(dir, "pruning.jsonl");
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization"], pruneTools: ["web_search"] }));
+	try {
+		const { handlers } = register(config({}, "auto", { ceiling: 10 }), logPath);
+		__setToolSeams({
+			getAllTools: () => mockToolInfo as any[],
+			getActiveTools: () => mockToolInfo.map((t) => t.name),
+			setActiveTools: () => {},
+		});
+		// systemPrompt WITHOUT the skills block → skill pruning can't apply.
+		await runBeforeAgentStart(handlers, "edit code", realisticSkills, "Base prompt without the skills block");
+
+		const lines = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
+		const decision = lines.find((l) => Array.isArray(l.included) && Array.isArray(l.excluded));
+		assert.ok(decision, "a decision row should be logged because tools were pruned");
+		// Skills were NOT pruned (block absent) → excluded empty, included = all visible
+		// (must match recordKnownSkills, which tracks zero pruned skills).
+		assert.deepEqual(decision.excluded, []);
+		assert.ok(decision.included.includes("code-simplification"));
+		assert.ok(decision.included.includes("duckdb-query-optimization"));
+		// Tool pruning WAS applied and is logged.
+		assert.deepEqual(decision.toolExcluded, ["web_search"]);
+		assert.ok(decision.toolIncluded.includes("read"));
+	} finally {
+		__setCompleteFn(null);
+		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
+		setLogPathForTesting(null);
+		clearPruningTrackingForTesting();
+	}
+});
+
+test("tool pruning keeps dependencies of kept tools", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: ["edit", "subagent"] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"], pruneTools: ["web_search"] }));
 	try {
 		const { handlers } = register(config({}, "auto", { ceiling: 2, dependencies: { edit: ["read"], subagent: ["bash"] } }));
 		__setToolSeams({
@@ -444,9 +483,10 @@ test("tool dependencies honored even when they expand beyond the configured ceil
 		assert.ok(setActiveToolsCalls.length > 0);
 		const active = setActiveToolsCalls[0];
 		assert.ok(active.includes("edit"));
-		assert.ok(active.includes("read"), "read should be included as dependency of edit");
+		assert.ok(active.includes("read"), "read is kept (dependency of kept edit)");
 		assert.ok(active.includes("subagent"));
-		assert.ok(active.includes("bash"), "bash should be included as dependency of subagent");
+		assert.ok(active.includes("bash"), "bash is kept (dependency of kept subagent)");
+		assert.ok(!active.includes("web_search"), "web_search was pruned");
 	} finally {
 		__setCompleteFn(null);
 		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
@@ -456,7 +496,7 @@ test("tool dependencies honored even when they expand beyond the configured ceil
 test("shadow mode leaves prompt unchanged and logs decision", async () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "skill-pruner-integration-"));
 	const logPath = path.join(dir, "pruning.jsonl");
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"] }));
 	try {
 		const { handlers } = register(config({}, "shadow"), logPath);
 		const originalPrompt = systemPrompt(realisticSkills);
@@ -478,7 +518,7 @@ test("shadow mode leaves prompt unchanged and logs decision", async () => {
 test("shadow mode: skill read of pruned skill → shadow_miss_candidate", async () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "skill-pruner-integration-"));
 	const logPath = path.join(dir, "pruning.jsonl");
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"] }));
 	try {
 		const { handlers } = register(config({}, "shadow"), logPath);
 		await runBeforeAgentStart(handlers, "Refactor this code for clarity", realisticSkills);
@@ -502,7 +542,7 @@ test("shadow mode: skill read of pruned skill → shadow_miss_candidate", async 
 test("auto mode: pruned skill read → skill_miss; included skill read → skill_read", async () => {
 	const dir = mkdtempSync(path.join(tmpdir(), "skill-pruner-integration-"));
 	const logPath = path.join(dir, "pruning.jsonl");
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"] }));
 	try {
 		const { handlers } = register(config(), logPath);
 		await runBeforeAgentStart(handlers, "Refactor this code for clarity", realisticSkills);
@@ -538,7 +578,7 @@ test("disabled skill excluded from LLM consideration", async () => {
 	];
 	const allSkills = [disabledSkill, ...enabledSkills];
 
-	__setCompleteFn(mockCompleteFn({ skills: ["alpha-tool", "gamma-tool"], tools: [] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: [] }));
 	try {
 		const { handlers } = register(config());
 		const result = await runBeforeAgentStart(handlers, "alpha beta", allSkills) as { systemPrompt?: string } | undefined;
@@ -633,9 +673,9 @@ test("tool_call catches unexpected context errors and continues", async () => {
 	}
 });
 
-test("tool pruning in auto mode calls setActiveTools with LLM selections", async () => {
+test("tool pruning in auto mode calls setActiveTools with the kept tools", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: ["read", "edit", "bash"] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"], pruneTools: ["web_search"] }));
 	try {
 		const { handlers } = register(config({}, "auto", { ceiling: 10 }));
 		__setToolSeams({
@@ -656,7 +696,7 @@ test("tool pruning in auto mode calls setActiveTools with LLM selections", async
 
 test("tool pruning in shadow mode does not call setActiveTools", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: ["read", "edit"] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization"], pruneTools: ["web_search"] }));
 	try {
 		const { handlers } = register(config({}, "shadow", { ceiling: 10 }));
 		__setToolSeams({
@@ -674,7 +714,7 @@ test("tool pruning in shadow mode does not call setActiveTools", async () => {
 
 test("tool pruning without tools config does not call setActiveTools", async () => {
 	const setActiveToolsCalls: string[][] = [];
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: ["read"] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization"] }));
 	try {
 		const { handlers } = register(config()); // no tools config
 		__setToolSeams({
@@ -695,24 +735,29 @@ test("request_tool recovery tool is registered", async () => {
 	assert.ok(registeredTools.has("request_tool"));
 });
 
-test("request_tool execute enables a pruned tool", async () => {
-	const setActiveToolsCalls: string[][] = [];
-	const { registeredTools } = register(config({}, "auto", { ceiling: 3 }));
+test("request_tool execute enables a pruned tool and logs the recovery", async () => {
+	const dir = mkdtempSync(path.join(tmpdir(), "skill-pruner-integration-"));
+	const logPath = path.join(dir, "pruning.jsonl");
+	const { registeredTools } = register(config({}, "auto", { ceiling: 3 }), logPath);
 	const toolDef = registeredTools.get("request_tool");
 	assert.ok(toolDef);
 
 	__setToolSeams({
 		getAllTools: () => mockToolInfo as any[],
 		getActiveTools: () => ["read", "edit", "bash"],
-		setActiveTools: (names: string[]) => { setActiveToolsCalls.push(names); },
+		setActiveTools: () => {},
 	});
 
 	try {
-		const result = await toolDef.execute("call-1", { toolName: "web_search" }, undefined, undefined, undefined) as any;
+		const result = await toolDef.execute("call-1", { toolName: "web_search" }, undefined, undefined, { sessionManager: { getSessionId: () => "session-1" } }) as any;
 		assert.ok(result.content[0].text.includes("web_search"));
-		assert.ok(setActiveToolsCalls[0].includes("web_search"));
+
+		// The recovery is logged to the pruning log for analytics.
+		const lines = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
+		assert.ok(lines.some((line) => line.event === "tool_recovered" && line.toolName === "web_search"), "tool recovery should be logged");
 	} finally {
 		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
+		setLogPathForTesting(null);
 	}
 });
 
@@ -755,7 +800,7 @@ test("request_tool execute returns message when tool is already active", async (
 });
 
 test("UI feedback message is returned in event result when skills are pruned", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification"], tools: [] }));
+	__setCompleteFn(mockCompleteFn({ pruneSkills: ["duckdb-query-optimization", "frontend-design"] }));
 	try {
 		const { handlers } = register(config());
 		const result = await runBeforeAgentStart(handlers, "Refactor this code for clarity", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
@@ -771,8 +816,8 @@ test("UI feedback message is returned in event result when skills are pruned", a
 	}
 });
 
-test("feedback message returned even when nothing is pruned (all selected by LLM)", async () => {
-	__setCompleteFn(mockCompleteFn({ skills: ["code-simplification", "duckdb-query-optimization", "frontend-design"], tools: [] }));
+test("feedback message returned even when nothing is pruned (LLM prunes nothing)", async () => {
+	__setCompleteFn(mockCompleteFn({ pruneSkills: [], pruneTools: [] }));
 	try {
 		const { handlers } = register(config());
 		const result = await runBeforeAgentStart(handlers, "do everything", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
@@ -889,7 +934,7 @@ test("github-copilot model without headers: copilot headers injected via model r
 	const captureCompleteFn = async (model: unknown, _context: unknown, options: Record<string, unknown>) => {
 		capturedModel = model;
 		capturedOptions = options;
-		return { text: JSON.stringify({ skills: ["code-simplification"], tools: [] }) };
+		return { text: JSON.stringify({ pruneSkills: [], pruneTools: [] }) };
 	};
 
 	__setCompleteFn(captureCompleteFn);

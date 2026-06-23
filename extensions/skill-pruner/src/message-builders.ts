@@ -123,6 +123,14 @@ export function buildDecision(input: {
 	pinned: string[];
 	newBlock: string;
 	originalBlock: string;
+	/** Tool names kept this turn (undefined when tool pruning did not run). */
+	toolIncluded?: string[];
+	/** Tool names pruned this turn (undefined when tool pruning did not run). */
+	toolExcluded?: string[];
+	/** Estimated tokens of the kept tool descriptions. */
+	toolBlockTokens?: number;
+	/** Estimated tokens of the original (pre-prune) tool descriptions. */
+	originalToolBlockTokens?: number;
 }): PruningDecision {
 	return {
 		timestamp: new Date().toISOString(),
@@ -140,6 +148,10 @@ export function buildDecision(input: {
 		excluded: input.excluded,
 		skillBlockTokens: estimateTokens(input.newBlock),
 		originalBlockTokens: estimateTokens(input.originalBlock),
+		toolIncluded: input.toolIncluded,
+		toolExcluded: input.toolExcluded,
+		toolBlockTokens: input.toolBlockTokens,
+		originalToolBlockTokens: input.originalToolBlockTokens,
 	};
 }
 
@@ -147,15 +159,17 @@ export function buildDecision(input: {
 const TOOL_FRAMING_TOKENS = 13;
 
 /**
- * Token count for tool descriptions that the pruner suppressed, used for
- * "tokens saved" reporting. Counts name + description via the real BPE
- * tokenizer plus a small per-tool framing constant for the JSON wrapper.
+ * Total tokens for the descriptions of the tools whose names appear in `names`
+ * (kept, pruned, or all — the caller chooses the subset). Used both for "tokens
+ * saved" reporting (the pruned subset) and for the skill-parallel block-token
+ * accounting (the kept / all subsets). Counts name + description via the real
+ * BPE tokenizer plus a small per-tool framing constant for the JSON wrapper.
  */
-export function estimateToolTokens(allTools: ToolInfo[], excludedToolNames: string[]): number {
-	const excludedSet = new Set(excludedToolNames);
+export function estimateToolTokens(allTools: ToolInfo[], names: string[]): number {
+	const nameSet = new Set(names);
 	let tokens = 0;
 	for (const tool of allTools) {
-		if (excludedSet.has(tool.name)) {
+		if (nameSet.has(tool.name)) {
 			tokens += countTokens(tool.name) + countTokens(tool.description ?? "") + TOOL_FRAMING_TOKENS;
 		}
 	}

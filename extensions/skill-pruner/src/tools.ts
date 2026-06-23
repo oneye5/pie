@@ -1,4 +1,6 @@
 import { state, getPiToolSeams } from "./state.js";
+import { getSessionId } from "./pruning.js";
+import { recordToolRecovery } from "../logger.js";
 
 export const requestToolDefinition = {
 	name: "request_tool",
@@ -14,7 +16,7 @@ export const requestToolDefinition = {
 		},
 		required: ["toolName"],
 	},
-	async execute(_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal, _onUpdate: () => void, _ctx: unknown) {
+	async execute(_toolCallId: string, params: Record<string, unknown>, _signal: AbortSignal, _onUpdate: () => void, ctx: unknown) {
 		const toolName = params.toolName as string;
 		const allTools = state.getAllToolsOverride
 			? state.getAllToolsOverride()
@@ -36,6 +38,14 @@ export const requestToolDefinition = {
 			state.setActiveToolsOverride(newActiveTools);
 		} else {
 			getPiToolSeams().setActiveTools(newActiveTools);
+		}
+
+		// Record that the agent had to recover a pruned tool — the key over-pruning
+		// signal for analytics. Best-effort: never let logging break the recovery.
+		try {
+			recordToolRecovery(getSessionId(ctx), toolName);
+		} catch {
+			/* ignore telemetry failures */
 		}
 
 		return { content: [{ type: "text" as const, text: `Tool '${toolName}' has been enabled and is now available.` }] };
