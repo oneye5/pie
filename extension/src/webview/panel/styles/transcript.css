@@ -566,13 +566,16 @@
   mask-repeat: no-repeat;
 }
 
+/* Reasoning is natural-language prose, not terminal output, so render it in
+   the proportional UI font (matching the ReasoningBlock body) at a readable
+   contrast — the dim monospace-italic it inherited made the preview
+   unreadable as reasoning streamed in. Font size (12px) and line-height
+   (18px) are unchanged so the reserved row height / virtualizer math hold. */
 .turn-activity-tail.reasoning {
-  font-style: italic;
-  opacity: 0.82;
-}
-
-.turn-activity-tail.reasoning .turn-activity-tail-composite .turn-activity-tail-text {
-  font-style: italic;
+  font-family: var(--panel-font-sans);
+  font-style: normal;
+  color: color-mix(in srgb, var(--panel-foreground) 82%, var(--panel-muted) 18%);
+  opacity: 1;
 }
 
 .turn-activity-tail-cursor {
