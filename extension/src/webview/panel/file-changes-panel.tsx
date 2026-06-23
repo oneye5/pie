@@ -83,24 +83,60 @@ const KIND_LABEL: Record<FileChangeKind, string> = {
   deleted: 'Deleted',
 };
 
-function LineStats({ additions, deletions }: { additions?: number; deletions?: number }) {
+function LineStats({
+  additions,
+  deletions,
+  path,
+  onDiff,
+}: {
+  additions?: number;
+  deletions?: number;
+  path: string;
+  onDiff: () => void;
+}) {
   if (!additions && !deletions) return null;
   return (
-    <span class="file-change-stats">
+    <button
+      class="file-change-stats"
+      type="button"
+      aria-label={`View diff of ${path}`}
+      onClick={onDiff}
+    >
       {additions ? <span class="stat-additions">+{additions}</span> : null}
       {deletions ? <span class="stat-deletions">-{deletions}</span> : null}
-    </span>
+    </button>
   );
 }
 
-function FilePath({ path }: { path: string }) {
+function FileName({
+  path,
+  kind,
+  disabled,
+  onClick,
+}: {
+  path: string;
+  kind: FileChangeKind;
+  disabled?: boolean;
+  onClick: () => void;
+}) {
   const parts = path.split(/[/\\]/);
   const name = parts.pop() ?? path;
   const dir = parts.join('/');
+  const label = disabled
+    ? `${KIND_LABEL[kind]}: ${path} (deleted)`
+    : `${KIND_LABEL[kind]}: open ${path} in the editor`;
   return (
-    <span class="file-change-path-text">
+    <span class="file-change-path-text" title={path}>
       {dir ? <span class="file-change-dir">{dir}/</span> : null}
-      <span class="file-change-name">{name}</span>
+      <button
+        class="file-change-name"
+        type="button"
+        disabled={disabled}
+        aria-label={label}
+        onClick={onClick}
+      >
+        {name}
+      </button>
     </span>
   );
 }
@@ -254,13 +290,6 @@ function FileChangeContextMenu({
   );
 }
 
-function StatusLabel({ kind }: { kind: FileChangeEntry['kind'] }) {
-  return (
-    <span class={`file-change-status file-change-status-${kind}`} role="img" aria-label={kind}>
-      {STATUS_LABELS[kind]}
-    </span>
-  );
-}
 
 export function FileChangesPanel({
   fileChanges,
@@ -437,13 +466,15 @@ export function FileChangesPanel({
           aria-label={`File changes: ${count}. ${peeking ? 'Peeking' : canHover ? 'Hover or click to view' : 'Tap to view'}.`}
           title={sliverTitle}
         >
-          <span class="file-changes-sliver-count">{count}</span>
-          {(totals.additions > 0 || totals.deletions > 0) && (
-            <span class="file-changes-sliver-magnitude">
-              {totals.additions > 0 ? <span class="sliver-add">+{totals.additions}</span> : null}
-              {totals.deletions > 0 ? <span class="sliver-del">-{totals.deletions}</span> : null}
-            </span>
-          )}
+          <span class="file-changes-sliver-summary">
+            <span class="file-changes-sliver-count">{count}</span>
+            {(totals.additions > 0 || totals.deletions > 0) && (
+              <span class="file-changes-sliver-magnitude">
+                {totals.additions > 0 ? <span class="sliver-add">+{totals.additions}</span> : null}
+                {totals.deletions > 0 ? <span class="sliver-del">-{totals.deletions}</span> : null}
+              </span>
+            )}
+          </span>
           <span class="file-changes-sliver-legend">
             {KIND_ORDER.map(({ kind, glyph, label }) => {
               const n = kindStats[kind].count;
@@ -508,33 +539,35 @@ export function FileChangesPanel({
                 <span class="stat-deletions">-{totals.deletions}</span>
               </span>
             </span>
-            {peeking && !pinned ? (
-              <button
-                class="action-btn icon-only file-changes-pin"
-                type="button"
-                aria-label="Keep file changes open (pin)"
-                title="Keep open (pin)"
-                onClick={() => onToggleExpanded(true)}
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M4.5 1.5 H7.5 L6.6 4 V7 L8 8.5 H4 L5.4 7 V4 Z" />
-                  <path d="M6 8.5 V10.5" />
-                </svg>
-              </button>
-            ) : null}
-            {pinned ? (
-              <button
-                class="action-btn icon-only file-changes-close"
-                type="button"
-                aria-label="Collapse file changes"
-                title="Collapse file changes"
-                onClick={() => onToggleExpanded(false)}
-              >
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <polyline points="9,3 6,6 9,9" />
-                </svg>
-              </button>
-            ) : null}
+            <span class="file-changes-header-actions">
+              {peeking && !pinned ? (
+                <button
+                  class="action-btn icon-only file-changes-pin"
+                  type="button"
+                  aria-label="Keep file changes open (pin)"
+                  title="Keep open (pin)"
+                  onClick={() => onToggleExpanded(true)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <path d="M4.5 1.5 H7.5 L6.6 4 V7 L8 8.5 H4 L5.4 7 V4 Z" />
+                    <path d="M6 8.5 V10.5" />
+                  </svg>
+                </button>
+              ) : null}
+              {pinned ? (
+                <button
+                  class="action-btn icon-only file-changes-close"
+                  type="button"
+                  aria-label="Collapse file changes"
+                  title="Collapse file changes"
+                  onClick={() => onToggleExpanded(false)}
+                >
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                    <polyline points="9,3 6,6 9,9" />
+                  </svg>
+                </button>
+              ) : null}
+            </span>
           </div>
           <div class="file-changes-list" role="list">
             {fileChanges.map((change) => (
@@ -544,51 +577,19 @@ export function FileChangesPanel({
                 role="listitem"
                 onContextMenu={(e) => openCtxMenu(e, change)}
               >
-                <div class="file-change-actions">
-                  <button
-                    class="action-btn icon-only file-change-diff"
-                    type="button"
-                    title="View diff"
-                    aria-label={`View diff of ${change.path}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onOpenDiff(change.path);
-                    }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <rect x="2" y="2" width="3.5" height="9" rx="1" />
-                      <rect x="7.5" y="2" width="3.5" height="9" rx="1" />
-                    </svg>
-                  </button>
-                  <button
-                    class="action-btn icon-only file-change-open"
-                    type="button"
-                    title={change.kind === 'deleted' ? `${change.path} was deleted` : `Open ${change.path} in the editor`}
-                    aria-label={change.kind === 'deleted' ? `${change.path} was deleted` : `Open ${change.path} in the editor`}
-                    disabled={change.kind === 'deleted'}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (change.kind !== 'deleted') onOpenInEditor(change.path);
-                    }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M9 4.5 L11.5 2 L11.5 4.5" />
-                      <path d="M11.5 2 L7 6.5" />
-                      <path d="M11 8 V10.5 a0.5 0.5 0 0 1 -0.5 0.5 H2.5 a0.5 0.5 0 0 1 -0.5 -0.5 V2.5 a0.5 0.5 0 0 1 0.5 -0.5 H5" />
-                    </svg>
-                  </button>
-                </div>
                 <div class="file-change-main">
-                  <StatusLabel kind={change.kind} />
-                  <button
-                    class="file-change-path"
-                    type="button"
-                    aria-label={`${KIND_LABEL[change.kind]}: ${change.path}`}
-                    onClick={() => onOpenDiff(change.path)}
-                  >
-                    <FilePath path={change.path} />
-                  </button>
-                  <LineStats additions={change.additions} deletions={change.deletions} />
+                  <FileName
+                    path={change.path}
+                    kind={change.kind}
+                    disabled={change.kind === 'deleted'}
+                    onClick={() => onOpenInEditor(change.path)}
+                  />
+                  <LineStats
+                    additions={change.additions}
+                    deletions={change.deletions}
+                    path={change.path}
+                    onDiff={() => onOpenDiff(change.path)}
+                  />
                 </div>
               </div>
             ))}

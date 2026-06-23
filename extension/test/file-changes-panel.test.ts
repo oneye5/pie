@@ -106,11 +106,18 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.doesNotMatch(html, /file-change-diff-bar/);
   // Sliver title carries the full summary: count + kind breakdown + line totals.
   assert.match(html, /title="2 changed files · M2 · \+30 \/ -12"/);
-  // Drawer rows carry only the two primary hover buttons (View diff, View in
-  // editor); Copy path + Revert moved to the right-click context menu, so their
-  // in-row button classes are absent.
-  assert.match(html, /file-change-diff/);
-  assert.match(html, /file-change-open/);
+  // Drawer rows have no A/M/D status labels and no sliding action buttons.
+  assert.doesNotMatch(html, /file-change-status/);
+  assert.doesNotMatch(html, /file-change-actions/);
+  assert.doesNotMatch(html, /file-change-diff/);
+  assert.doesNotMatch(html, /file-change-open/);
+  // The file name opens the file in the editor and carries its kind label.
+  assert.match(html, /<button class="file-change-name"[^>]*aria-label="Modified: open src\/a\.ts in the editor"/);
+  assert.match(html, /<button class="file-change-name"[^>]*aria-label="Modified: open src\/b\.ts in the editor"/);
+  // ...and the +/- stats open the diff.
+  assert.match(html, /<button class="file-change-stats"[^>]*aria-label="View diff of src\/a\.ts"/);
+  assert.match(html, /<button class="file-change-stats"[^>]*aria-label="View diff of src\/b\.ts"/);
+  // Copy path + Revert remain in the right-click context menu only.
   assert.doesNotMatch(html, /file-change-copy/);
   assert.doesNotMatch(html, /file-change-revert/);
 });

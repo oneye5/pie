@@ -11,7 +11,7 @@
 
 .file-changes-rail {
   --file-changes-sliver-width: 56px;
-  --file-changes-drawer-width: 240px;
+  --file-changes-drawer-width: 260px;
 
   position: relative;
   display: flex;
@@ -43,7 +43,7 @@
   align-items: center;
   gap: var(--panel-gap-xs);
   width: var(--file-changes-sliver-width);
-  padding: var(--panel-gap-sm) 0;
+  padding: var(--panel-gap-sm) 0 var(--panel-gap-xs);
   border: none;
   border-left: 1px solid var(--panel-border-subtle);
   background: color-mix(in srgb, var(--panel-card-surface) 34%, transparent);
@@ -64,14 +64,53 @@
   border-left-color: var(--panel-accent);
 }
 
+/* Tight top summary: count + aggregate churn share one vertical cluster. */
+.file-changes-sliver-summary {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  padding: 0 var(--panel-gap-xs);
+}
+
 .file-changes-sliver-count {
-  font-size: 11px;
-  font-weight: 700;
+  font-size: 12px;
+  font-weight: 800;
   line-height: 1;
   letter-spacing: -0.02em;
   font-variant-numeric: tabular-nums;
   color: var(--panel-foreground);
   transition: color var(--panel-transition-fast);
+}
+
+/* ── Collapsed magnitude (how-much at a glance) ───────────────────────────── */
+/* Replaces the former stacked +/- "health-bar" (green/red on a dark track):
+ * a mini legend of which kinds of change happened and how many, reusing the
+ * A/M/D glyph vocabulary from the rows. Only present kinds render, so a
+ * single-kind turn reads as one line. Renders inside the 56px sliver so the
+ * preview stays compact while surfacing kind counts at a glance. */
+.file-changes-sliver-magnitude {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: var(--panel-radius-sm);
+  background: color-mix(in srgb, var(--panel-foreground) 3%, transparent);
+  font-family: var(--panel-font-mono);
+  font-size: 8px;
+  line-height: 1.25;
+  font-variant-numeric: tabular-nums;
+}
+
+.sliver-add {
+  color: var(--panel-success);
+}
+
+.sliver-del {
+  color: var(--panel-danger);
 }
 
 /* ── Collapsed legend: kind breakdown (A/M/D + counts) ────────────────────── */
@@ -84,18 +123,22 @@
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 2px;
+  align-items: stretch;
+  gap: 1px;
   width: 100%;
-  margin-top: var(--panel-gap-xs);
-  padding: var(--panel-gap-xs) 0 0;
+  margin-top: 2px;
+  padding: 2px var(--panel-gap-xs) 0;
   border-top: 1px solid var(--panel-border-subtle);
 }
 
+/* Use a tiny grid so the glyph and count columns stay aligned across rows. */
 .sliver-kind {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 3px;
+  display: grid;
+  grid-template-columns: 14px 14px;
+  gap: 2px;
+  align-items: center;
+  justify-items: center;
+  padding: 0 2px;
   font-family: var(--panel-font-mono);
   font-size: 9px;
   line-height: 1.2;
@@ -106,14 +149,10 @@
 .sliver-kind-glyph {
   font-weight: 700;
   opacity: 0.9;
-  min-width: 10px;
-  text-align: center;
 }
 
 .sliver-kind-count {
   opacity: 0.85;
-  min-width: 10px;
-  text-align: center;
 }
 
 .sliver-kind.kind-created .sliver-kind-glyph {
@@ -141,14 +180,14 @@
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 1px;
+  gap: 0;
   width: 100%;
   overflow: hidden;
-  margin-top: var(--panel-gap-xs);
+  margin-top: 2px;
   padding: var(--panel-gap-xs) 0;
   border-top: 1px solid var(--panel-border-subtle);
-  mask-image: linear-gradient(to bottom, black calc(100% - 18px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 18px), transparent 100%);
+  mask-image: linear-gradient(to bottom, black calc(100% - 16px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 16px), transparent 100%);
 }
 
 .sliver-file {
@@ -156,11 +195,11 @@
   flex-direction: column;
   gap: 0;
   min-width: 0;
-  padding: 2px 4px;
+  padding: 1px 3px;
   border-radius: var(--panel-radius-sm);
   font-family: var(--panel-font-mono);
   font-size: 9px;
-  line-height: 1.3;
+  line-height: 1.25;
   color: var(--panel-foreground-soft);
   white-space: nowrap;
   overflow: hidden;
@@ -184,8 +223,8 @@
    tall even when a file has no line stats (rare), so the list rhythm stays
    uniform. */
 .sliver-file-stats {
-  min-height: 1.3em;
-  padding-left: 12px;
+  min-height: 1.25em;
+  padding-left: 14px;
   opacity: 0.8;
 }
 
@@ -201,7 +240,7 @@
   flex-shrink: 0;
   font-weight: 700;
   opacity: 0.85;
-  min-width: 10px;
+  min-width: 14px;
   text-align: center;
 }
 
@@ -295,9 +334,11 @@
   z-index: 300;
   opacity: 1;
   pointer-events: auto;
-  border-left-color: var(--panel-border);
+  border-left-color: color-mix(in srgb, var(--panel-border) 86%, var(--panel-accent) 14%);
   border-radius: var(--panel-radius-md) 0 0 var(--panel-radius-md);
-  box-shadow: var(--panel-shadow-overlay), -2px 0 0 rgba(0, 0, 0, 0.06);
+  box-shadow:
+    -18px 0 42px -18px rgba(0, 0, 0, 0.62),
+    -6px 0 16px -8px rgba(0, 0, 0, 0.28);
   transform: translateX(0);
 }
 
@@ -348,9 +389,16 @@
   opacity: 0.85;
 }
 
+.file-changes-header-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--panel-gap-xs);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
 .file-changes-pin,
 .file-changes-close {
-  margin-left: auto;
   flex-shrink: 0;
 }
 
@@ -392,86 +440,12 @@
   min-width: 0;
 }
 
-.file-change-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--panel-gap-xs);
-  flex: 0 0 auto;
-  /* Hidden by default (desktop): the file name fills the row. Buttons slide in
-     on row hover/focus via max-width so they reserve no space when idle. */
-  max-width: 0;
-  overflow: hidden;
-  opacity: 0;
-  pointer-events: none;
-  transition:
-    max-width var(--panel-transition-fast),
-    opacity var(--panel-transition-fast);
-}
-
-/* Desktop (hover-capable): "read" mode shows the full path with no buttons;
-   hovering the row slides the two primary buttons (View diff, View in editor)
-   in from the left and collapses the path to its basename (the directory
-   hides) to make room — content shifts right, buttons appear. Focus-within
-   reveals them for keyboard, too. */
-@media (hover: hover) {
-  .file-change-item:hover .file-change-actions,
-  .file-change-item:focus-within .file-change-actions {
-    max-width: 64px;
-    opacity: 1;
-    pointer-events: auto;
-  }
-  .file-change-item:hover .file-change-dir,
-  .file-change-item:focus-within .file-change-dir {
-    display: none;
-  }
-}
-
-/* Touch (no hover): buttons always visible so they're reachable; the path
-   ellipsizes to make room. */
-@media (hover: none) {
-  .file-change-actions {
-    max-width: 64px;
-    opacity: 1;
-    pointer-events: auto;
-  }
-}
-
-/* ── Status labels (non-color indicator) ─────────────────────────────────── */
-
-/* Status glyph: a single colored mono letter. Kind is legible by glyph
-   (A/M/D) and color — not color alone — without a loud tinted pill, so a
-   long list reads as calm text rather than a row of badges. */
-.file-change-status {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 12px;
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 600;
-  line-height: 1;
-  font-family: var(--panel-font-mono);
-  letter-spacing: 0.02em;
-  opacity: 0.85;
-}
-
-.file-change-status-created {
-  color: var(--panel-success);
-}
-
-.file-change-status-modified {
-  color: var(--panel-warning);
-}
-
-.file-change-status-deleted {
-  color: var(--panel-danger);
-}
+/* No sliding action buttons: the file name opens the file, and the +/- line
+   stats open the diff, so the row stays visually stable. */
 
 /* ── File path ───────────────────────────────────────────────────────────── */
 
-.file-change-path {
-  min-width: 0;
-  flex: 1;
+.file-change-name {
   border: none;
   background: transparent;
   padding: 0;
@@ -480,12 +454,33 @@
   line-height: 1.25;
   text-align: left;
   cursor: pointer;
-  overflow: hidden;
+  white-space: nowrap;
+  font-weight: 500;
 }
 
-.file-change-path:hover .file-change-name {
+.file-change-name:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.file-change-name:disabled,
+.file-change-name[disabled] {
+  cursor: not-allowed;
+  opacity: 0.45;
+  text-decoration: none;
+}
+
+/* The file name encodes the change kind by color (no A/M/D label). */
+.file-change-item.kind-created .file-change-name {
+  color: var(--panel-success);
+}
+
+.file-change-item.kind-modified .file-change-name {
+  color: var(--panel-warning);
+}
+
+.file-change-item.kind-deleted .file-change-name {
+  color: var(--panel-danger);
 }
 
 /* Single-line path: the directory shrinks and ellipsizes while the filename
@@ -508,83 +503,39 @@
   opacity: 0.85;
 }
 
-.file-change-name {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  font-weight: 500;
-}
+/* Tooltips were removed from the expanded drawer (they obscured the list). */
 
-/* ── Collapsed magnitude (how-much at a glance) ───────────────────────────── */
-/* Replaces the former per-row red/green diff bar. That bar restated the +N/-N
-   numbers already shown beside it and consumed ~40px of horizontal space per
-   row — space now reclaimed for the file path. Magnitude lives in the
-   collapsed sliver (total +/- churn, always visible, plus per-file +/- on
-   each sliver entry's second row) and in the per-row +N/-N numbers in the
-   expanded list. */
-
-.file-changes-sliver-magnitude {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0;
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--panel-foreground) 5%, transparent);
-  font-family: var(--panel-font-mono);
-  font-size: 9px;
-  line-height: 1.2;
-  font-variant-numeric: tabular-nums;
-}
-
-.sliver-add {
-  color: var(--panel-success);
-}
-
-.sliver-del {
-  color: var(--panel-danger);
-}
-
-/* Tooltips were removed from the expanded drawer (they obscured the list).
-   The path button (.file-change-path) and aggregate span
-   (.file-changes-aggregate) carry their own flex:1 + min-width:0 + ellipsis,
-   so the former trigger wrappers are gone. */
-
-/* ── Action buttons ───────────────────────────────────────────────────────── */
-
-/* Action buttons are a native 28px hit target (the prior ::after hit-area
-   expansion is gone — it was clipped by .file-change-actions' overflow:hidden,
-   which the max-width:0 collapse needs). Two buttons + gap fit the 64px
-   hover slot. */
-.file-change-actions .action-btn.icon-only {
-  width: 28px;
-  height: 28px;
-  min-height: 28px;
-  border-radius: var(--panel-radius-sm);
-}
-
-.file-change-actions .action-btn svg {
-  width: 12px;
-  height: 12px;
-}
-
-.file-change-open:disabled,
-.file-change-open[disabled] {
-  cursor: not-allowed;
-  opacity: 0.25;
-}
-
-/* ── Line stats ───────────────────────────────────────────────────────────── */
+/* ── Line stats (diff trigger) ───────────────────────────────────────────── */
 
 .file-change-stats {
   display: inline-flex;
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
   font-size: 10px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
+  color: inherit;
+  cursor: pointer;
   opacity: 0.85;
+  transition: opacity var(--panel-transition-fast);
+}
+
+.file-change-stats:hover {
+  opacity: 1;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.file-change-stats:hover .stat-additions {
+  color: var(--panel-success);
+}
+
+.file-change-stats:hover .stat-deletions {
+  color: var(--panel-danger);
 }
 
 .stat-additions {
@@ -597,10 +548,9 @@
 
 /* ── Row context menu (Copy path / Revert) ────────────────────────────────── */
 /* Self-contained right-click menu for changed-file rows. The secondary actions
-   (Copy path, Revert) live here so the per-row hover buttons stay limited to
-   the two primary actions (View diff, View in editor). Rendered at the rail
-   level (position: fixed) so it escapes the drawer's overflow clipping and
-   clears the peek overlay (z-index 300). */
+   (Copy path, Revert) live here; the primary file/diff actions are on the
+   row itself. Rendered at the rail level (position: fixed) so it escapes the
+   drawer's overflow clipping and clears the peek overlay (z-index 300). */
 .file-change-context-menu {
   z-index: 400;
   min-width: 168px;
@@ -632,12 +582,10 @@
   .file-changes-drawer {
     border-color: ButtonText;
   }
-  .file-change-status {
+  .file-change-name,
+  .file-change-stats {
     color: ButtonText;
-    background: transparent;
   }
-  .file-change-open,
-  .file-change-diff,
   .file-changes-pin {
     color: ButtonText;
   }
