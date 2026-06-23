@@ -5,7 +5,19 @@ import { useLayoutEffect, useRef, useState } from 'preact/hooks';
 
 import { cx } from '../utils/cx';
 import type { TurnActivityState } from './activity';
-import type { TurnActivityTail } from './activity-tail';
+import {
+  ACTIVITY_TAIL_MAX_CHARS,
+  collapseSpaces,
+  takeLastChars,
+  type TurnActivityTail,
+} from './activity-tail';
+import { useBufferedText, type BufferedTextRate } from './use-buffered-text';
+
+/** Reveal rate for the activity tail: deliberately slower than streaming
+ *  message bodies so the typing is perceptible in the compact preview, with
+ *  catch-up scaling so fast bursts (e.g. a tool dumping output) don't fall
+ *  behind the live stream. */
+const TAIL_RATE: BufferedTextRate = { charsPerFrame: 8, minAdvance: 4, snapThreshold: 24 };
 
 interface TurnActivityTailBodyProps {
   tail: TurnActivityTail;
@@ -40,20 +52,40 @@ interface TurnActivityTailBodyProps {
  * `translateY` bottom-aligns it and scrolls wrapped overflow up out of view, so
  * the newest text and the caret stay visible. That translate is animated via a
  * CSS `transform` transition, so as tokens stream in the body slides smoothly
- * instead of snapping — making it easy to follow words mid-block.
+ * instead of snapping — making it easy to follow words mid-block. New tokens
+ * are also buffered and revealed character-by-character at a smooth, readable
+ * rate (see `useBufferedText` with `TAIL_RATE`), so the preview types in
+ * rather than popping a full window each snapshot — including while the
+ * source has grown past the preview window and the view is sliding. Characters
+ * are always shown fully opaque (no opacity ramp on the text itself), so the
+ * streamed text stays crisp and legible.
  */
 export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
-  const { kind, label, inputLine, lines, cursor } = tail;
+  const { kind, label, inputLine, lines, cursor, sourceText } = tail;
   const hasComposite = Boolean(label);
   const hasContent = lines.length > 0;
   // The caret sits on the composite row while no output has arrived, otherwise
   // at the end of the flowing body text.
   const caretOnComposite = Boolean(cursor) && !hasContent;
-  // Collapse source newlines into spaces so the body flows as a single wrapping
-  // run that fills the reserved width, instead of one clipped row per source line.
-  // Blank source lines are dropped (they would only add stray gaps in a wrap).
-  const joined = lines.filter((l) => l.length > 0).join(' ');
-  const { overflows, scrollY, refs } = useTailScroll(hasContent, joined, lines.length >= 2);
+  // Smoothly stream the live tail in instead of snapping a full chunk every
+  // snapshot. Reasoning / reply / tool tails carry the raw, monotonically
+  // growing `sourceText`; we buffer that source and re-window the *revealed*
+  // portion, so new tokens type in at the caret even after the source has grown
+  // past the preview window (the sliding-window regime) — instead of jumping
+  // a whole window every snapshot. Subagent / multi-tool tails have no single
+  // growing source, so we buffer their joined status lines directly: they
+  // animate on growth and snap when a line changes. The slower reveal rate
+  // (vs streaming message bodies) makes the typing perceptible in the small
+  // preview while staying well ahead of typical output; characters are always
+  // shown fully opaque (no opacity ramp on the text itself), so the streamed
+  // text stays crisp and readable.
+  const streaming = Boolean(cursor);
+  const rawJoined = lines.filter((l) => l.length > 0).join(' ');
+  const revealed = useBufferedText(sourceText ?? rawJoined, streaming, TAIL_RATE);
+  const joined = sourceText
+    ? collapseSpaces(takeLastChars(revealed, ACTIVITY_TAIL_MAX_CHARS))
+    : revealed;
+  const { overflows, scrollY, refs } = useTailScroll(hasContent, lines.length >= 2);
   const showFade = hasContent && overflows;
 
   return (
@@ -117,7 +149,7 @@ interface TailScroll {
   refs: TailScrollRefs;
 }
 
-function useTailScroll(hasContent: boolean, text: string, initialOverflow: boolean): TailScroll {
+function useTailScroll(hasContent: boolean, initialOverflow: boolean): TailScroll {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLSpanElement | null>(null);
   // Seed the fade for static renders / first paint (before the ResizeObserver
@@ -133,6 +165,13 @@ function useTailScroll(hasContent: boolean, text: string, initialOverflow: boole
     const textEl = textRef.current;
     if (!content || !textEl || !hasContent) return;
 
+    // `joined` is intentionally NOT a dependency: the body now buffers its text
+    // and re-renders per animation frame while streaming in, so depending on the
+    // text here would tear down and recreate this ResizeObserver (plus a sync
+    // forced reflow via measure()) every frame. The observer already fires when
+    // the text element resizes as tokens stream in, and its callback runs before
+    // paint, so the translate stays correct without the churn. This effect only
+    // re-runs when content appears/disappears (hasContent).
     const measure = () => {
       const textH = textEl.clientHeight;
       const contentH = content.clientHeight;
@@ -150,7 +189,7 @@ function useTailScroll(hasContent: boolean, text: string, initialOverflow: boole
     ro.observe(content);
     ro.observe(textEl);
     return () => ro.disconnect();
-  }, [hasContent, text]);
+  }, [hasContent]);
 
   return { overflows, scrollY, refs: { containerRef, textRef } };
 }

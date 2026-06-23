@@ -6,7 +6,12 @@ import renderToString from 'preact-render-to-string';
 
 import { TurnActivityBlock, TurnActivityTailBody } from '../src/webview/panel/transcript/turn-activity-tail.tsx';
 import type { TurnActivityState } from '../src/webview/panel/transcript/activity';
-import type { TurnActivityTail } from '../src/webview/panel/transcript/activity-tail';
+import {
+  ACTIVITY_TAIL_MAX_CHARS,
+  collapseSpaces,
+  takeLastChars,
+  type TurnActivityTail,
+} from '../src/webview/panel/transcript/activity-tail';
 
 function tail(
   overrides: Partial<TurnActivityTail> & { kind: TurnActivityTail['kind'] },
@@ -95,6 +100,33 @@ test('TurnActivityTailBody slides the content via an animated translateY transfo
   }));
   // The scroll offset is applied as a transform so reflow can animate instead of snap.
   assert.match(html, /translateY\(/);
+});
+
+// ── sourceText-driven streaming ───────────────────────────────────────────
+
+test('TurnActivityTailBody renders from sourceText, ignoring the stale lines snapshot', () => {
+  // Reasoning / reply / tool tails carry the raw source; the body re-windows
+  // the *revealed* source itself, so its text follows sourceText rather than
+  // the pre-windowed `lines`. Here `lines` is deliberately stale to prove it.
+  const html = renderToString(h(TurnActivityTailBody, {
+    tail: tail({
+      kind: 'text',
+      lines: ['stale lines snapshot that must not render'],
+      sourceText: 'SOURCE-DRIVEN streaming content the body should render',
+    }),
+  }));
+  assert.match(html, /SOURCE-DRIVEN streaming content the body should render/);
+  assert.doesNotMatch(html, /stale lines snapshot/);
+});
+
+test('TurnActivityTailBody windows a long sourceText to the char budget and collapses newlines', () => {
+  const source = Array.from({ length: 60 }, (_, i) => `line${i}`).join('\n');
+  const expected = collapseSpaces(takeLastChars(source, ACTIVITY_TAIL_MAX_CHARS));
+  const html = renderToString(h(TurnActivityTailBody, {
+    tail: tail({ kind: 'reasoning', lines: ['placeholder'], sourceText: source }),
+  }));
+  assert.ok(html.includes(expected), 'body renders the source-windowed, collapsed preview');
+  assert.doesNotMatch(html, /placeholder/);
 });
 
 // ── TurnActivityBlock: a11y + empty fallback ───────────────────────────────

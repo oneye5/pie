@@ -71,6 +71,7 @@ test('deriveStreamingTail surfaces the tail of the most recent reasoning segment
   assert.equal(result.tail.cursor, true);
   assert.deepEqual(result.tail.lines, ['so we need to do some stuff blah blah blah']);
   assert.equal(result.tail.truncated, false);
+  assert.equal(result.tail.sourceText, 'so we need to do some stuff blah blah blah');
 });
 
 test('deriveStreamingTail switches to the reply text once the model starts emitting text', () => {
@@ -83,6 +84,7 @@ test('deriveStreamingTail switches to the reply text once the model starts emitt
   assert.equal(result.label, 'responding');
   assert.equal(result.tail.kind, 'text');
   assert.deepEqual(result.tail.lines, ['Here is the answer so far']);
+  assert.equal(result.tail.sourceText, 'Here is the answer so far');
 });
 
 test('deriveStreamingTail ignores toolCall parts and returns null when no text/reasoning exists', () => {
@@ -103,6 +105,7 @@ test('deriveStreamingTail collapses multi-line reasoning into a single flowing l
   assert.equal(result.tail.truncated, false);
   assert.equal(result.tail.lines.length, 1);
   assert.deepEqual(result.tail.lines, ['line 0 line 1 line 2 line 3 line 4']);
+  assert.equal(result.tail.sourceText, text);
 });
 
 test('deriveStreamingTail marks truncated when a single segment exceeds the char cap', () => {
@@ -112,6 +115,7 @@ test('deriveStreamingTail marks truncated when a single segment exceeds the char
   assert.equal(result.tail.truncated, true);
   assert.equal(result.tail.lines.length, 1);
   assert.equal(result.tail.lines[0]!.length, 480);
+  assert.equal(result.tail.sourceText, huge);
 });
 
 // ── deriveToolTail ───────────────────────────────────────────────────────────
@@ -134,6 +138,7 @@ test('deriveToolTail shows the bash command plus the tail of streaming output', 
   assert.equal(result.tail.cursor, true);
   assert.deepEqual(result.tail.lines, ['running... somefile.py pass somefile2.py pass']);
   assert.equal(result.tail.truncated, false);
+  assert.equal(result.tail.sourceText, 'running...\nsomefile.py pass\nsomefile2.py pass');
 });
 
 test('deriveToolTail renders the command + a lone cursor before any output arrives', () => {
@@ -143,6 +148,7 @@ test('deriveToolTail renders the command + a lone cursor before any output arriv
   assert.equal(result.tail.inputLine, 'npm run test');
   assert.deepEqual(result.tail.lines, []);
   assert.equal(result.tail.cursor, true);
+  assert.equal(result.tail.sourceText, undefined);
 });
 
 test('deriveToolTail marks truncated when output exceeds the line cap and honors SDK truncation', () => {
@@ -199,6 +205,7 @@ test('deriveToolTail marks truncated and char-bounds output that exceeds the cha
   assert.equal(result.tail.truncated, true);
   assert.equal(result.tail.lines.length, 1);
   assert.equal(result.tail.lines[0]!.length, ACTIVITY_TAIL_MAX_CHARS);
+  assert.equal(result.tail.sourceText, 'x'.repeat(800));
 });
 
 // ── deriveSubagentTail ───────────────────────────────────────────────────────
@@ -303,7 +310,27 @@ test('deriveMultiToolTail lists each running tool and caps to the line budget', 
   assert.equal(result.tail.lines[0], '→ tool2');
 });
 
-// ── estimateActivityTailHeight ──────────────────────────────────────────────
+// ── sourceText: discrete-line tails omit it ─────────────────────────────────
+
+test('deriveSubagentTail and deriveMultiToolTail omit sourceText (discrete status lines, not a growing char stream)', () => {
+  const sub = makeToolCall({
+    name: 'subagent',
+    status: 'running',
+    input: { agent: 'worker', task: 't' },
+    result: subagentResult(['bash', 'read']),
+  });
+  const subResult = deriveSubagentTail(sub);
+  assert.ok(subResult);
+  assert.equal(subResult!.tail.sourceText, undefined);
+
+  const multi = deriveMultiToolTail([
+    makeToolCall({ id: 'tc-0', name: 'bash', input: {} }),
+    makeToolCall({ id: 'tc-1', name: 'read', input: {} }),
+  ]);
+  assert.equal(multi.tail.sourceText, undefined);
+});
+
+// ── estimateActivityTailHeight ────────────────────────────────────────────
 
 test('estimateActivityTailHeight scales with rendered rows and is zero without a tail', () => {
   assert.equal(estimateActivityTailHeight(null), 0);

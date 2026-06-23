@@ -64,6 +64,17 @@ export interface TurnActivityTail {
    *  for tools/subagents (reasoning/reply text has no header). Drives the
    *  virtualizer's height estimate. */
   reservedRows: number;
+  /**
+   * The raw, monotonically-growing source text behind {@link lines} for
+   * reasoning / reply / tool tails (the full streaming segment, or a tool's
+   * accumulated output). When present, the tail body buffers this source and
+   * re-derives its own windowed preview from the *revealed* portion, so new
+   * tokens stream in smoothly at the caret even after the source has grown past
+   * the preview window (the sliding-window regime) — instead of jumping a full
+   * window every snapshot. Omitted for subagent / multi-tool tails, whose
+   * {@link lines} are discrete status lines rather than a growing char stream.
+   */
+  sourceText?: string;
 }
 
 /** A derived tail plus the header label that should replace the strip's default label. */
@@ -79,7 +90,7 @@ function reservedRowCount(kind: TurnActivityTail['kind'], lineBudget: number): n
   return kind === 'tool' || kind === 'subagent' ? lineBudget + 1 : lineBudget;
 }
 
-function takeLastChars(text: string, max: number): string {
+export function takeLastChars(text: string, max: number): string {
   if (text.length <= max) return text;
   return text.slice(text.length - max);
 }
@@ -99,7 +110,7 @@ function clampToLine(text: string, max = ACTIVITY_TAIL_LINE_MAX_CHARS): string {
  *  the preview flows as a single wrapping run that fills the reserved rows,
  *  instead of one clipped row per source line (which left the rows mostly
  *  empty when the source had many short lines). */
-function collapseSpaces(text: string): string {
+export function collapseSpaces(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
@@ -165,6 +176,7 @@ export function deriveStreamingTail(
       truncated: full.length > tailText.length,
       cursor: true,
       reservedRows: reservedRowCount(kind, lineBudget),
+      sourceText: full,
     },
   };
 }
@@ -203,6 +215,7 @@ export function deriveToolTail(toolCall: ToolCall, lineBudget: number = ACTIVITY
       truncated: trimmed.length > tailText.length || sdkTruncated,
       cursor: true,
       reservedRows: reservedRowCount('tool', lineBudget),
+      sourceText: trimmed || undefined,
     },
   };
 }
