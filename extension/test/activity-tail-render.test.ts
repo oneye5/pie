@@ -89,6 +89,14 @@ test('TurnActivityTailBody applies the truncation fade only with >=2 content lin
   assert.match(multi, /turn-activity-tail-content truncated/);
 });
 
+test('TurnActivityTailBody slides the content via an animated translateY transform', () => {
+  const html = renderToString(h(TurnActivityTailBody, {
+    tail: tail({ kind: 'text', lines: ['streaming text that wraps as it grows'] }),
+  }));
+  // The scroll offset is applied as a transform so reflow can animate instead of snap.
+  assert.match(html, /translateY\(/);
+});
+
 // ── TurnActivityBlock: a11y + empty fallback ───────────────────────────────
 
 test('TurnActivityBlock announces status accessibly while keeping the tail decorative', () => {

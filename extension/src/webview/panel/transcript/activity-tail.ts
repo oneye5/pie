@@ -95,11 +95,18 @@ function clampToLine(text: string, max = ACTIVITY_TAIL_LINE_MAX_CHARS): string {
   return `${single.slice(0, max - 1).trimEnd()}…`;
 }
 
-/** Split accumulated output text into display lines, dropping trailing blank noise. */
-function outputLines(text: string): string[] {
-  if (text.length === 0) return [];
-  return text.replace(/\n+$/, '').split('\n');
+/** Collapse all whitespace (including source newlines) into single spaces so
+ *  the preview flows as a single wrapping run that fills the reserved rows,
+ *  instead of one clipped row per source line (which left the rows mostly
+ *  empty when the source had many short lines). */
+function collapseSpaces(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
 }
+
+/** Tool names (normalized, lowercase) that surface their own visible UI (e.g.
+ *  ask_user renders a prompt the user already sees). Omitted from the activity
+ *  preview tail so they don't duplicate that UI in the bottom preview rows. */
+const OMITTED_FROM_TAIL = new Set<string>(['ask_user']);
 
 /**
  * True when the tool result carries the SDK's own truncation metadata
@@ -140,25 +147,22 @@ export function deriveStreamingTail(
   if (!target) return null;
 
   const isReasoning = target.kind === 'reasoning';
-  const full = target.text;
-  const tailText = takeLastChars(full, ACTIVITY_TAIL_MAX_CHARS);
-  const split = tailText.split('\n');
-  const { lines, truncated } = clampLines(split, lineBudget);
-
-  // Drop a trailing empty line (common when deltas end mid-newline) so the
-  // cursor sits flush against real content.
-  const cleaned = lines.length > 0 && lines[lines.length - 1]!.trim() === ''
-    ? lines.slice(0, -1)
-    : lines;
-  if (cleaned.length === 0) return null;
-
   const kind = isReasoning ? 'reasoning' : 'text';
+  const full = target.text;
+  // Take a char-bounded tail and collapse newlines so the preview flows as a
+  // single wrapping run that fills the reserved rows. The old approach split on
+  // newlines and kept only the last `lineBudget` source lines, which left the
+  // reserved rows mostly empty when the source had many short lines.
+  const tailText = takeLastChars(full, ACTIVITY_TAIL_MAX_CHARS);
+  const collapsed = collapseSpaces(tailText);
+  if (collapsed.length === 0) return null;
+
   return {
     label: isReasoning ? 'reasoning' : 'responding',
     tail: {
       kind,
-      lines: cleaned,
-      truncated: truncated || full.length > tailText.length,
+      lines: [collapsed],
+      truncated: full.length > tailText.length,
       cursor: true,
       reservedRows: reservedRowCount(kind, lineBudget),
     },
@@ -170,12 +174,20 @@ export function deriveStreamingTail(
  * one-line input plus the tail of its streaming `partialResult` output.
  */
 export function deriveToolTail(toolCall: ToolCall, lineBudget: number = ACTIVITY_TAIL_MAX_LINES): DerivedActivityTail | null {
+  // Tools that surface their own visible UI (e.g. ask_user) are omitted — the
+  // user already sees the prompt, so a duplicate preview row is noise.
+  if (OMITTED_FROM_TAIL.has(normalizeToolCallName(toolCall.name))) return null;
+
   const presentation = getToolCallPresentation(toolCall);
   const inputLine = presentation.summary?.trim() || undefined;
 
+  // Take a char-bounded tail and collapse newlines so a streaming terminal's
+  // many short lines fill the reserved rows instead of leaving them empty.
   const resultText = textFromToolResult(toolCall.result) ?? '';
-  const allLines = outputLines(resultText);
-  const { lines, truncated } = clampLines(allLines, lineBudget);
+  const trimmed = resultText.replace(/\n+$/, '');
+  const tailText = takeLastChars(trimmed, ACTIVITY_TAIL_MAX_CHARS);
+  const collapsed = collapseSpaces(tailText);
+  const lines = collapsed.length > 0 ? [collapsed] : [];
   const sdkTruncated = isSdkResultTruncated(toolCall.result);
 
   const hasBody = Boolean(inputLine) || lines.length > 0;
@@ -188,7 +200,7 @@ export function deriveToolTail(toolCall: ToolCall, lineBudget: number = ACTIVITY
       label: toolCall.name,
       inputLine,
       lines,
-      truncated: truncated || sdkTruncated,
+      truncated: trimmed.length > tailText.length || sdkTruncated,
       cursor: true,
       reservedRows: reservedRowCount('tool', lineBudget),
     },

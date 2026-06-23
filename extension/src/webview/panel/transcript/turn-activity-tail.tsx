@@ -36,8 +36,11 @@ interface TurnActivityTailBodyProps {
  * The body wraps to fill the reserved width and collapses source newlines
  * (joined with a space) so the limited preview rows carry as much of the recent
  * tail as possible, instead of one clipped row per source line. The block keeps
- * its fixed reserved height; wrapped overflow is clipped at the top (oldest) so
- * the newest text and the caret stay visible, bottom-aligned.
+ * its fixed reserved height; the text is top-anchored and a JS-computed
+ * `translateY` bottom-aligns it and scrolls wrapped overflow up out of view, so
+ * the newest text and the caret stay visible. That translate is animated via a
+ * CSS `transform` transition, so as tokens stream in the body slides smoothly
+ * instead of snapping — making it easy to follow words mid-block.
  */
 export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
   const { kind, label, inputLine, lines, cursor } = tail;
@@ -46,12 +49,12 @@ export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
   // The caret sits on the composite row while no output has arrived, otherwise
   // at the end of the flowing body text.
   const caretOnComposite = Boolean(cursor) && !hasContent;
-  const [overflows, overflowRefs] = useContentOverflow(hasContent, lines.length >= 2);
-  const showFade = hasContent && overflows;
   // Collapse source newlines into spaces so the body flows as a single wrapping
   // run that fills the reserved width, instead of one clipped row per source line.
   // Blank source lines are dropped (they would only add stray gaps in a wrap).
   const joined = lines.filter((l) => l.length > 0).join(' ');
+  const { overflows, scrollY, refs } = useTailScroll(hasContent, joined, lines.length >= 2);
+  const showFade = hasContent && overflows;
 
   return (
     <div class={cx('turn-activity-tail', kind)} data-kind={kind} aria-hidden="true">
@@ -74,11 +77,16 @@ export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
         composite and no content but a live cursor.
       */}
       <div
-        ref={overflowRefs.containerRef}
+        ref={refs.containerRef}
         class={cx('turn-activity-tail-content', showFade && 'truncated')}
       >
         {hasContent ? (
-          <span ref={overflowRefs.textRef} class="turn-activity-tail-text" title={joined}>
+          <span
+            ref={refs.textRef}
+            class="turn-activity-tail-text"
+            title={joined}
+            style={{ transform: `translateY(${scrollY}px)` }}
+          >
             {joined}
             {cursor && <span class="turn-activity-tail-cursor" aria-hidden="true" />}
           </span>
@@ -94,35 +102,57 @@ export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
   );
 }
 
-interface OverflowRefs {
+interface TailScrollRefs {
   containerRef: { current: HTMLDivElement | null };
   textRef: { current: HTMLSpanElement | null };
 }
 
-function useContentOverflow(hasContent: boolean, initialOverflows: boolean): [boolean, OverflowRefs] {
+interface TailScroll {
+  overflows: boolean;
+  /** Vertical translate (px) that bottom-aligns the text and scrolls overflow
+   *  up out of view. Measured from real rendered heights and applied as a
+   *  `transform` (animated via CSS) so reflow slides smoothly instead of
+   *  snapping as tokens stream in. */
+  scrollY: number;
+  refs: TailScrollRefs;
+}
+
+function useTailScroll(hasContent: boolean, text: string, initialOverflow: boolean): TailScroll {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const textRef = useRef<HTMLSpanElement | null>(null);
-  const [overflows, setOverflows] = useState(initialOverflows);
+  // Seed the fade for static renders / first paint (before the ResizeObserver
+  // measures real overflow). Collapsed streaming/tool tails emit a single line
+  // so this stays false for them and the observer is authoritative; subagent /
+  // multi-tool tails can still seed true from multiple item lines.
+  const [overflows, setOverflows] = useState(initialOverflow);
+  const [scrollY, setScrollY] = useState(0);
 
   useLayoutEffect(() => {
     if (typeof ResizeObserver === 'undefined') return;
     const content = containerRef.current;
-    const text = textRef.current;
-    if (!content || !text || !hasContent) return;
+    const textEl = textRef.current;
+    if (!content || !textEl || !hasContent) return;
 
-    const check = () => {
-      const next = text.clientHeight > content.clientHeight + 0.5;
-      setOverflows((prev) => (prev !== next ? next : prev));
+    const measure = () => {
+      const textH = textEl.clientHeight;
+      const contentH = content.clientHeight;
+      const nextOverflow = textH > contentH + 0.5;
+      setOverflows((prev) => (prev !== nextOverflow ? nextOverflow : prev));
+      // contentH - textH: positive (slack) pushes the text down to bottom-align
+      // when it's shorter than the block; negative (overflow) scrolls it up so
+      // the newest content + caret stay pinned to the bottom and the top clips.
+      const nextY = contentH - textH;
+      setScrollY((prev) => (prev === nextY ? prev : nextY));
     };
 
-    check();
-    const ro = new ResizeObserver(check);
+    measure();
+    const ro = new ResizeObserver(measure);
     ro.observe(content);
-    ro.observe(text);
+    ro.observe(textEl);
     return () => ro.disconnect();
-  }, [hasContent]);
+  }, [hasContent, text]);
 
-  return [overflows, { containerRef, textRef }];
+  return { overflows, scrollY, refs: { containerRef, textRef } };
 }
 
 interface TurnActivityBlockProps {

@@ -533,22 +533,27 @@
   overflow: hidden;
 }
 
-/* Flowing content body: source lines are joined (newlines collapsed) and the
-   text wraps to fill the reserved width, so the limited preview rows carry as
-   much of the recent tail as possible instead of clipping each source line at
-   the right edge. The text is bottom-anchored (newest + caret stay visible) and
-   wrapped overflow clips at the top (oldest); long unbroken tokens break to
-   avoid spilling past the width. Overrides the composite header's nowrap/ellipsis. */
+/* Flowing content body: source newlines are collapsed and the text wraps to
+   fill the reserved width, so the limited preview rows carry as much of the
+   recent tail as possible instead of clipping each source line at the right
+   edge. The text is top-anchored and a JS-computed `translateY` (see
+   `useTailScroll` in turn-activity-tail.tsx) bottom-aligns it and scrolls
+   overflow up out of view; a `transform` transition makes reflow slide
+   smoothly as tokens stream in instead of snapping. Long unbroken tokens break
+   to avoid spilling past the width. Overrides the composite header's
+   nowrap/ellipsis. */
 .turn-activity-tail-content .turn-activity-tail-text {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   flex: none;
   overflow: visible;
   text-overflow: clip;
   white-space: pre-wrap;
   overflow-wrap: break-word;
+  transition: transform 120ms ease-out;
+  will-change: transform;
 }
 
 /* Truncation: a gentle top fade replaces a dedicated `…` row, signalling that

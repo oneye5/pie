@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import {
+  ACTIVITY_TAIL_MAX_CHARS,
   ACTIVITY_TAIL_MAX_LINES,
   deriveMultiToolTail,
   deriveRunningToolTail,
@@ -93,15 +94,15 @@ test('deriveStreamingTail ignores toolCall parts and returns null when no text/r
   assert.equal(deriveStreamingTail(undefined), null);
 });
 
-test('deriveStreamingTail marks truncated when reasoning exceeds the line cap', () => {
-  const long = Array.from({ length: ACTIVITY_TAIL_MAX_LINES + 3 }, (_, i) => `line ${i}`).join('\n');
-  const result = deriveStreamingTail([{ kind: 'reasoning', text: long }]);
+test('deriveStreamingTail collapses multi-line reasoning into a single flowing line', () => {
+  const text = Array.from({ length: ACTIVITY_TAIL_MAX_LINES + 3 }, (_, i) => `line ${i}`).join('\n');
+  const result = deriveStreamingTail([{ kind: 'reasoning', text }]);
   assert.ok(result);
-  assert.equal(result.tail.truncated, true);
-  assert.equal(result.tail.lines.length, ACTIVITY_TAIL_MAX_LINES);
-  // Newest content wins — the tail keeps the last lines.
-  assert.deepEqual(result.tail.lines[0], `line 3`);
-  assert.deepEqual(result.tail.lines[result.tail.lines.length - 1], `line ${ACTIVITY_TAIL_MAX_LINES + 2}`);
+  // Fits well within the char budget, so nothing is hidden: source newlines
+  // collapse to spaces and the whole tail flows as one wrapping line.
+  assert.equal(result.tail.truncated, false);
+  assert.equal(result.tail.lines.length, 1);
+  assert.deepEqual(result.tail.lines, ['line 0 line 1 line 2 line 3 line 4']);
 });
 
 test('deriveStreamingTail marks truncated when a single segment exceeds the char cap', () => {
@@ -131,8 +132,8 @@ test('deriveToolTail shows the bash command plus the tail of streaming output', 
   assert.equal(result.tail.label, 'bash');
   assert.equal(result.tail.inputLine, 'npm run test');
   assert.equal(result.tail.cursor, true);
-  assert.deepEqual(result.tail.lines, ['somefile.py pass', 'somefile2.py pass']);
-  assert.equal(result.tail.truncated, true);
+  assert.deepEqual(result.tail.lines, ['running... somefile.py pass somefile2.py pass']);
+  assert.equal(result.tail.truncated, false);
 });
 
 test('deriveToolTail renders the command + a lone cursor before any output arrives', () => {
@@ -153,9 +154,10 @@ test('deriveToolTail marks truncated when output exceeds the line cap and honors
   });
   const result = deriveToolTail(toolCall);
   assert.ok(result);
-  assert.equal(result.tail.truncated, true);
-  assert.equal(result.tail.lines.length, ACTIVITY_TAIL_MAX_LINES);
-  assert.equal(result.tail.lines[result.tail.lines.length - 1], `out ${lines.length - 1}`);
+  // Output fits the char budget, so it is shown in full (collapsed) — not truncated.
+  assert.equal(result.tail.truncated, false);
+  assert.equal(result.tail.lines.length, 1);
+  assert.deepEqual(result.tail.lines, ['out 0 out 1 out 2 out 3']);
 
   const sdkTruncated = makeToolCall({
     name: 'bash',
@@ -173,6 +175,30 @@ test('deriveToolTail marks truncated when output exceeds the line cap and honors
 test('deriveToolTail returns null for a tool with no input summary and no output', () => {
   const toolCall = makeToolCall({ name: 'mystery', input: {} });
   assert.equal(deriveToolTail(toolCall), null);
+});
+
+test('deriveToolTail omits tools that surface their own visible UI (ask_user)', () => {
+  const toolCall = makeToolCall({
+    name: 'ask_user',
+    input: { question: 'pick one', options: ['a', 'b'] },
+    result: { content: [{ type: 'text', text: 'prompt shown to user' }], details: {} },
+  });
+  // The ask_user prompt is already shown to the user, so it is omitted from the
+  // bottom preview tail to avoid duplicate visibility.
+  assert.equal(deriveToolTail(toolCall), null);
+});
+
+test('deriveToolTail marks truncated and char-bounds output that exceeds the char cap', () => {
+  const toolCall = makeToolCall({
+    name: 'bash',
+    input: { command: 'heavy' },
+    result: { content: [{ type: 'text', text: 'x'.repeat(800) }], details: {} },
+  });
+  const result = deriveToolTail(toolCall);
+  assert.ok(result);
+  assert.equal(result.tail.truncated, true);
+  assert.equal(result.tail.lines.length, 1);
+  assert.equal(result.tail.lines[0]!.length, ACTIVITY_TAIL_MAX_CHARS);
 });
 
 // ── deriveSubagentTail ───────────────────────────────────────────────────────
@@ -254,6 +280,17 @@ test('deriveRunningToolTail routes subagent calls to the subagent derivation', (
   assert.equal(routedBash!.label, 'bash');
 });
 
+test('deriveRunningToolTail returns null for an omitted tool (ask_user)', () => {
+  const askUser = makeToolCall({
+    name: 'ask_user',
+    status: 'running',
+    input: { question: 'pick one', options: ['a', 'b'] },
+    result: { content: [{ type: 'text', text: 'prompt shown' }], details: {} },
+  });
+  // Omitted tools fall back to the generic activity strip (no preview tail).
+  assert.equal(deriveRunningToolTail(askUser), null);
+});
+
 test('deriveMultiToolTail lists each running tool and caps to the line budget', () => {
   const tools = Array.from({ length: ACTIVITY_TAIL_MAX_LINES + 2 }, (_, i) =>
     makeToolCall({ id: `tc-${i}`, name: `tool${i}`, input: {} }),
@@ -316,6 +353,27 @@ test('deriveTurnActivityState attaches a tool tail while bash is running', () =>
   assert.ok(state!.tail);
   assert.equal(state!.tail!.kind, 'tool');
   assert.equal(state!.tail!.inputLine, 'npm run test');
+});
+
+test('deriveTurnActivityState omits a tail for a running ask_user (the prompt UI is the surface)', () => {
+  const assistant: ChatMessage = {
+    id: 'assistant-1',
+    role: 'assistant',
+    createdAt: '2026-05-16T00:00:00.000Z',
+    markdown: '',
+    status: 'completed',
+    parts: [
+      { kind: 'toolCall', toolCall: makeToolCall({ id: 'tc-1', name: 'ask_user', status: 'running', input: { question: 'pick one' }, result: { content: [{ type: 'text', text: 'prompt' }], details: {} } }) },
+    ],
+    toolCalls: [],
+  } as unknown as ChatMessage;
+  const state = deriveFor([userMessage(), assistant]);
+  assert.ok(state);
+  assert.equal(state!.phase, 'runningTool');
+  // Falls back to the generic strip label; no preview tail is derived.
+  assert.equal(state!.label, 'running ask_user');
+  assert.equal(state!.runningToolName, 'ask_user');
+  assert.equal(state!.tail, undefined);
 });
 
 test('deriveTurnActivityState attaches a subagent tail while a subagent runs', () => {
