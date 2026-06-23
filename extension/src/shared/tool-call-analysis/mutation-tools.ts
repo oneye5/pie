@@ -134,3 +134,17 @@ export function extractExtensionFromPath(filePath: string): string {
   }
   return basename.slice(dotIndex).toLowerCase();
 }
+
+/**
+ * Deterministic 32-bit FNV-1a hash of a file path, base36-encoded. Used as a stable, non-reversible
+ * key for per-file edit tracking (file-churn signal) so raw file paths are never persisted. Collisions
+ * are negligible for path strings. Dependency-free so this stays browser-safe in `shared/`.
+ */
+export function hashPath(filePath: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < filePath.length; i++) {
+    hash ^= filePath.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193);
+  }
+  return (hash >>> 0).toString(36);
+}

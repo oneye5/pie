@@ -99,6 +99,7 @@ function createMinimalRunSnapshot(overrides: Partial<RunSnapshot> = {}): RunSnap
       lineAdditions: 0,
       lineDeletions: 0,
       lineModifications: 0,
+      editCountsByFile: {},
     },
     fileExtensions: {
       readCountsByExtension: {},

@@ -252,6 +252,18 @@ function prepareRun(
       ? round3((run.cacheReadTokens ?? 0) / ((run.cacheReadTokens ?? 0) + (run.inputTokens ?? 0)))
       : null,
     firstAttemptSuccess: run.interruptedCount === 0 && run.messageEditCount === 0 && run.truncatedAfterCount === 0 && (outcome?.resolution === 'resolved'),
+    editRevisitRate: (() => {
+      // File churn: fraction of attributed EDIT ops that revisited an already-edited file.
+      // 0 = every edit touched a fresh file (no churn); →1 = kept re-editing the same files.
+      // Null when no edits were attributable to a path (legacy runs lack per-file data).
+      const editCountsByFile = run.fileMutation.editCountsByFile ?? {};
+      const counts = Object.values(editCountsByFile);
+      const totalEditOps = counts.reduce((sum, count) => sum + count, 0);
+      if (totalEditOps <= 0) return null;
+      const distinctEditedFiles = counts.length;
+      const revisitOps = totalEditOps - distinctEditedFiles;
+      return round3(Math.max(0, revisitOps) / totalEditOps);
+    })(),
     estimatedCostUsd: estimateRunCostUsd(run.modelId, {
       inputTokens: run.inputTokens ?? 0,
       outputTokens: run.outputTokens ?? 0,

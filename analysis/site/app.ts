@@ -372,7 +372,7 @@ function renderCards(runs: PreparedRunRow[], overview: OverviewData, usePrecompu
 
 function chartConfig() {
   return {
-    autosize: { type: 'fit', contains: 'padding' },
+    autosize: { type: 'pad', contains: 'padding', resize: true },
     background: 'transparent',
     config: {
       view: { stroke: 'transparent' },
@@ -447,8 +447,30 @@ async function renderSpec(
 
   const resolvedSpec = { ...spec };
   if (resolvedSpec.width === 'container') {
-    const measuredWidth = target.clientWidth || target.parentElement?.clientWidth || 0;
-    resolvedSpec.width = Math.max(320, measuredWidth > 0 ? measuredWidth - 8 : 920);
+    const measuredWidth = target.getBoundingClientRect().width || target.parentElement?.getBoundingClientRect().width || 0;
+    if (measuredWidth > 0) {
+      resolvedSpec.width = Math.max(320, Math.floor(measuredWidth - 8));
+    } else {
+      // Keep fallback widths card-relative to avoid giant SVG overflow when initial layout width is unavailable.
+      const isSpanTwoCard = target.closest('.span-2') !== null;
+      resolvedSpec.width = isSpanTwoCard ? 760 : 380;
+    }
+  }
+
+  // Faceted specs often ignore top-level width unless child spec width is explicit.
+  // If the author omitted it, derive a sensible per-facet width from the measured container.
+  if (typeof resolvedSpec.width === 'number' && resolvedSpec.facet && resolvedSpec.spec && typeof resolvedSpec.spec === 'object') {
+    const childSpec = { ...(resolvedSpec.spec as Record<string, unknown>) };
+    if (childSpec.width === undefined) {
+      const facetObj = typeof resolvedSpec.facet === 'object' && resolvedSpec.facet !== null
+        ? resolvedSpec.facet as Record<string, unknown>
+        : null;
+      const columns = typeof facetObj?.columns === 'number' && Number.isFinite(facetObj.columns)
+        ? Math.max(1, Math.floor(facetObj.columns))
+        : 1;
+      childSpec.width = Math.max(280, Math.floor((resolvedSpec.width - 140) / columns));
+      resolvedSpec.spec = childSpec;
+    }
   }
 
   target.innerHTML = '';
@@ -1881,7 +1903,7 @@ function taskSizeTimeRows(runs: PreparedRunRow[]): OutcomeTimeBucketRow[] {
 // ─── Leaderboard data preparation ────────────────────────────────────────────
 
 const DIMENSION_COLORS = ['#8de3ff', '#c0ff72', '#ffd479', '#ff8578', '#c084fc', '#f7b267'];
-const DIMENSION_NAMES = ['Satisfaction', 'Resolution', 'First attempt', 'Tool reliability', 'Verification', 'Token efficiency'];
+const DIMENSION_NAMES = ['Satisfaction', 'Resolution', 'File churn', 'Tool reliability', 'Verification', 'Token efficiency'];
 
 interface LeaderboardCompositeRow {
   label: string;
@@ -1900,7 +1922,7 @@ interface LeaderboardCompositeRow {
   nLabel: string;
   avgSatisfaction: string;
   resolutionRate: string;
-  firstAttemptRate: string;
+  fileChurnRate: string;
   toolReliabilityRate: string;
   verificationPassRate: string;
   tokenEfficiencyRate: string;
@@ -1939,8 +1961,8 @@ function leaderboardRows(runs: PreparedRunRow[]): {
     groups.set(key, existing);
   }
 
-  type DimKey = 'satisfaction' | 'resolutionRate' | 'firstAttemptSuccess' | 'toolReliability' | 'verificationPassRate' | 'tokenEfficiency';
-  const DIM_KEYS: DimKey[] = ['satisfaction', 'resolutionRate', 'firstAttemptSuccess', 'toolReliability', 'verificationPassRate', 'tokenEfficiency'];
+  type DimKey = 'satisfaction' | 'resolutionRate' | 'fileChurn' | 'toolReliability' | 'verificationPassRate' | 'tokenEfficiency';
+  const DIM_KEYS: DimKey[] = ['satisfaction', 'resolutionRate', 'fileChurn', 'toolReliability', 'verificationPassRate', 'tokenEfficiency'];
   type Pair = { complexity: number; outcome: number };
 
   // Pass 0: per-run complexity scores. Outcome dimensions are blended mastery
@@ -1964,7 +1986,6 @@ function leaderboardRows(runs: PreparedRunRow[]): {
     const resValues = scored.map((r) => r.resolution === 'resolved' ? 1 : r.resolution === 'partially_resolved' ? 0.5 : 0);
     const resMean = resValues.length > 0 ? resValues.reduce<number>((s, v) => s + v, 0) / resValues.length : null;
 
-    const fasSuccesses = scored.filter((r) => r.firstAttemptSuccess).length;
     const toolSuccesses = scored.filter((r) => r.toolFailureCount === 0).length;
     const verifying = scored.filter((r) => r.verificationTotalCount > 0);
     const verPass = verifying.filter((r) => r.verificationState === 'passing').length;
@@ -1974,14 +1995,20 @@ function leaderboardRows(runs: PreparedRunRow[]): {
       ? Math.max(0, Math.min(LEADERBOARD_TOKEN_EFFICIENCY_MAX, median(tokenEffValues) ?? 0))
       : null;
 
-    // Per-run (complexity, outcome) pairs for the complexity-weighted dimensions. The five
-    // outcome/process dimensions (satisfaction, resolution, first-attempt, verification pass,
-    // tool reliability) are mastery-weighted; token efficiency stays raw (cost-adjacent efficiency,
-    // not "completing complex tasks").
+    // File churn: mean re-edit rate (fraction of edits that revisited an already-edited file).
+    // Lower = less churn = better; inverted for the composite. Null for runs with no attributable
+    // edits (incl. legacy runs). MEAN (not median) because churn is a long-tail signal.
+    const churnValues = scored.map((r) => r.editRevisitRate).filter((v): v is number => v !== null);
+    const churnMean = churnValues.length > 0 ? churnValues.reduce((s, v) => s + v, 0) / churnValues.length : null;
+
+    // Per-run (complexity, outcome) pairs for the complexity-weighted dimensions. The four
+    // outcome/process dimensions (satisfaction, resolution, verification pass, tool reliability)
+    // are mastery-weighted; token efficiency and file churn stay raw (process metrics, not
+    // "completing complex tasks").
     const pairs: Record<DimKey, Pair[]> = {
       satisfaction: scored.map((r) => ({ complexity: complexityOf(r), outcome: Math.max(0, Math.min(1, (r.satisfaction! - 1) / 4)) })),
       resolutionRate: scored.map((r) => ({ complexity: complexityOf(r), outcome: r.resolution === 'resolved' ? 1 : r.resolution === 'partially_resolved' ? 0.5 : 0 })),
-      firstAttemptSuccess: scored.map((r) => ({ complexity: complexityOf(r), outcome: r.firstAttemptSuccess ? 1 : 0 })),
+      fileChurn: [],
       verificationPassRate: verifying.map((r) => ({ complexity: complexityOf(r), outcome: r.verificationState === 'passing' ? 1 : 0 })),
       toolReliability: scored.map((r) => ({ complexity: complexityOf(r), outcome: r.toolFailureCount === 0 ? 1 : 0 })),
       tokenEfficiency: [],
@@ -2001,7 +2028,7 @@ function leaderboardRows(runs: PreparedRunRow[]): {
     const observed: Record<DimKey, number | null> = {
       satisfaction: masteryOf(satMean !== null ? Math.max(0, Math.min(1, (satMean - 1) / 4)) : null, pairs.satisfaction),
       resolutionRate: masteryOf(resMean, pairs.resolutionRate),
-      firstAttemptSuccess: masteryOf(scored.length > 0 ? fasSuccesses / scored.length : null, pairs.firstAttemptSuccess),
+      fileChurn: churnMean !== null ? Math.max(0, Math.min(1, 1 - churnMean)) : null,
       toolReliability: masteryOf(scored.length > 0 ? toolSuccesses / scored.length : null, pairs.toolReliability),
       verificationPassRate: masteryOf(verifying.length > 0 ? verPass / verifying.length : null, pairs.verificationPassRate),
       tokenEfficiency: tokenEffMedian !== null ? Math.max(0, Math.min(1, 1 - tokenEffMedian / LEADERBOARD_TOKEN_EFFICIENCY_MAX)) : null,
@@ -2009,7 +2036,7 @@ function leaderboardRows(runs: PreparedRunRow[]): {
     const n: Record<DimKey, number> = {
       satisfaction: scored.length,
       resolutionRate: scored.length,
-      firstAttemptSuccess: scored.length,
+      fileChurn: churnValues.length,
       toolReliability: scored.length,
       verificationPassRate: verifying.length,
       tokenEfficiency: tokenEffValues.length,
@@ -2018,7 +2045,7 @@ function leaderboardRows(runs: PreparedRunRow[]): {
     return {
       label, modelId: modelId!, thinkingLevel: formatThinkingLevelLabel(thinkingLevel!),
       runCount: groupRuns.length, scoredRunCount: scored.length, observed, n, meanTaskComplexity,
-      satMean, resMean, fasSuccesses, toolSuccesses, verifying, verPass, tokenEffMedian,
+      satMean, resMean, churnMean, toolSuccesses, verifying, verPass, tokenEffMedian,
       subagentUsageRate: groupRuns.length > 0 ? groupRuns.filter((r) => r.subagentCallCount > 0).length / groupRuns.length : 0,
       costValues: groupRuns.map((r) => r.estimatedCostUsd).filter((v): v is number => v !== null && Number.isFinite(v)),
       providerModelIds: [...new Set(groupRuns.map((r) => (r.modelId ?? '').trim() || '(unknown)'))].sort(),
@@ -2085,7 +2112,7 @@ function leaderboardRows(runs: PreparedRunRow[]): {
       nLabel: `${e.scoredRunCount} scored / ${e.runCount} total`,
       avgSatisfaction: e.satMean != null ? e.satMean.toFixed(2) : '—',
       resolutionRate: fmtPct(e.resMean),
-      firstAttemptRate: fmtPct(e.scoredRunCount > 0 ? e.fasSuccesses / e.scoredRunCount : null),
+      fileChurnRate: e.churnMean != null ? `${(e.churnMean * 100).toFixed(0)}% re-edit` : '—',
       toolReliabilityRate: fmtPct(e.scoredRunCount > 0 ? e.toolSuccesses / e.scoredRunCount : null),
       verificationPassRate: fmtPct(e.verifying.length > 0 ? e.verPass / e.verifying.length : null),
       tokenEfficiencyRate: e.tokenEffMedian != null ? `${e.tokenEffMedian.toFixed(1)} tok/line` : '—',
@@ -2105,7 +2132,7 @@ function leaderboardRows(runs: PreparedRunRow[]): {
     };
     add('Satisfaction', shrunk.satisfaction, `${e.satMean != null ? e.satMean.toFixed(2) : '—'} avg`);
     add('Resolution', shrunk.resolutionRate, `${fmtPct(e.resMean)} rate`);
-    add('First attempt', shrunk.firstAttemptSuccess, `${fmtPct(e.scoredRunCount > 0 ? e.fasSuccesses / e.scoredRunCount : null)} rate`);
+    add('File churn', shrunk.fileChurn, `${e.churnMean != null ? (e.churnMean * 100).toFixed(0) + '% re-edit' : '—'}`);
     add('Tool reliability', shrunk.toolReliability, `${fmtPct(e.scoredRunCount > 0 ? e.toolSuccesses / e.scoredRunCount : null)} clean`);
     add('Verification', shrunk.verificationPassRate, `${fmtPct(e.verifying.length > 0 ? e.verPass / e.verifying.length : null)} pass`);
     add('Token efficiency', shrunk.tokenEfficiency, `${e.tokenEffMedian != null ? e.tokenEffMedian.toFixed(1) : '—'} tok/line`);
@@ -2136,7 +2163,7 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
           <th scope="col">Runs</th>
           <th scope="col">Sat.</th>
           <th scope="col">Resolved</th>
-          <th scope="col">1st try</th>
+          <th scope="col">File churn</th>
           <th scope="col">Tool clean</th>
           <th scope="col">Ver. pass</th>
           <th scope="col">Tok/line</th>
@@ -2158,7 +2185,7 @@ function renderLeaderboardTable(rows: LeaderboardCompositeRow[], renderToken: nu
             <td class="numeric">${escapeHtml(row.nLabel)}</td>
             <td class="numeric">${escapeHtml(row.avgSatisfaction)}</td>
             <td class="numeric">${escapeHtml(row.resolutionRate)}</td>
-            <td class="numeric">${escapeHtml(row.firstAttemptRate)}</td>
+            <td class="numeric">${escapeHtml(row.fileChurnRate)}</td>
             <td class="numeric">${escapeHtml(row.toolReliabilityRate)}</td>
             <td class="numeric">${escapeHtml(row.verificationPassRate)}</td>
             <td class="numeric">${escapeHtml(row.tokenEfficiencyRate)}</td>
@@ -2491,7 +2518,7 @@ async function renderCharts(
             { field: 'nLabel', type: 'nominal', title: 'Runs' },
             { field: 'avgSatisfaction', type: 'nominal', title: 'Avg satisfaction' },
             { field: 'resolutionRate', type: 'nominal', title: 'Resolution rate' },
-            { field: 'firstAttemptRate', type: 'nominal', title: 'First attempt' },
+            { field: 'fileChurnRate', type: 'nominal', title: 'File churn' },
             { field: 'toolReliabilityRate', type: 'nominal', title: 'Tool reliability' },
             { field: 'verificationPassRate', type: 'nominal', title: 'Verification pass' },
             { field: 'tokenEfficiencyRate', type: 'nominal', title: 'Token efficiency' },
@@ -2519,7 +2546,7 @@ async function renderCharts(
     'leaderboard-dimension-note',
     lb.dimensions.length === 0
       ? 'No ranked models to show.'
-      : `6 dimensions per model; dot = empirical-Bayes shrunk estimate (0–1), the value used in the composite. Five non-efficiency dimensions (satisfaction, resolution, first-attempt, verification pass, tool reliability) are blended mastery = ${(1 - LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×raw success rate + ${LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT}×mean(complexity × outcome^${LEADERBOARD_OUTCOME_EXPONENT}); the raw-success component makes actual success dominate task complexity on every dimension (incl. 0/1 outcome dims where the exponent is a no-op), so a mediocre performer on hard tasks can't outrank a strong consistent one. Token efficiency stays raw. Weights: sat ${(LEADERBOARD_WEIGHTS.satisfaction * 100).toFixed(0)}%, res ${(LEADERBOARD_WEIGHTS.resolutionRate * 100).toFixed(0)}%, 1st ${(LEADERBOARD_WEIGHTS.firstAttemptSuccess * 100).toFixed(0)}%, tool ${(LEADERBOARD_WEIGHTS.toolReliability * 100).toFixed(0)}%, ver ${(LEADERBOARD_WEIGHTS.verificationPassRate * 100).toFixed(0)}%, tok ${(LEADERBOARD_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%. Estimates shrink toward the grand mean by n/(n+${LEADERBOARD_SHRINKAGE_K}).`,
+      : `6 dimensions per model; dot = empirical-Bayes shrunk estimate (0–1), the value used in the composite. Four non-efficiency dimensions (satisfaction, resolution, verification pass, tool reliability) are blended mastery = ${(1 - LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×raw success rate + ${LEADERBOARD_MASTERY_COMPLEXITY_WEIGHT}×mean(complexity × outcome^${LEADERBOARD_OUTCOME_EXPONENT}); the raw-success component makes actual success dominate task complexity on every dimension (incl. 0/1 outcome dims where the exponent is a no-op), so a mediocre performer on hard tasks can't outrank a strong consistent one. fileChurn (re-edit rate, lower churn = better) and token efficiency stay raw. Weights: sat ${(LEADERBOARD_WEIGHTS.satisfaction * 100).toFixed(0)}%, res ${(LEADERBOARD_WEIGHTS.resolutionRate * 100).toFixed(0)}%, churn ${(LEADERBOARD_WEIGHTS.fileChurn * 100).toFixed(0)}%, tool ${(LEADERBOARD_WEIGHTS.toolReliability * 100).toFixed(0)}%, ver ${(LEADERBOARD_WEIGHTS.verificationPassRate * 100).toFixed(0)}%, tok ${(LEADERBOARD_WEIGHTS.tokenEfficiency * 100).toFixed(0)}%. Estimates shrink toward the grand mean by n/(n+${LEADERBOARD_SHRINKAGE_K}).`,
     renderToken,
   );
 
@@ -2632,6 +2659,13 @@ async function renderCharts(
   // ── 5. Time vs satisfaction correlation ───────────────────────────────────
   const timeQuality = timeQualityRows(runs);
   const showTimeQualityTrend = timeQuality.length >= 4 && new Set(timeQuality.map((row) => row.busyMinutes)).size >= 2;
+  const logTicks = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 20, 50, 100];
+  const busyMinutes = timeQuality.map((row) => row.busyMinutes).filter((value) => Number.isFinite(value) && value > 0);
+  const minBusyMinutes = busyMinutes.length > 0 ? Math.min(...busyMinutes) : 0.01;
+  const maxBusyMinutes = busyMinutes.length > 0 ? Math.max(...busyMinutes) : 10;
+  const busyDomainMin = [...logTicks].reverse().find((tick) => tick <= minBusyMinutes) ?? 0.01;
+  const busyDomainMax = logTicks.find((tick) => tick >= maxBusyMinutes) ?? maxBusyMinutes;
+  const busyTickValues = logTicks.filter((tick) => tick >= busyDomainMin && tick <= busyDomainMax);
   setNote('time-quality-note', `${timeQuality.length} scored runs; subjective satisfaction view${showTimeQualityTrend ? ' with linear trend' : ''}.`, renderToken);
 
   const timeQualitySpec: Record<string, unknown> | null = timeQuality.length === 0 ? null : {
@@ -2642,8 +2676,14 @@ async function renderCharts(
       {
         mark: { type: 'point', filled: true, opacity: 0.7 },
         encoding: {
-          x: { field: 'busyMinutes', type: 'quantitative', title: 'Busy duration (minutes)', scale: { type: 'log', nice: true } },
-          y: { field: 'satisfaction', type: 'quantitative', title: 'Satisfaction', scale: { domain: [1, 5] } },
+          x: {
+            field: 'busyMinutes',
+            type: 'quantitative',
+            title: 'Busy duration (minutes)',
+            scale: { type: 'log', domain: [busyDomainMin, Math.max(busyDomainMax, busyDomainMin)] },
+            axis: { values: busyTickValues, format: '~g' },
+          },
+          y: { field: 'satisfaction', type: 'quantitative', title: 'Satisfaction', scale: { domain: [1, 5] }, axis: { values: [1, 2, 3, 4, 5], tickMinStep: 1 } },
           color: {
             field: 'resolution',
             type: 'nominal',
@@ -2654,7 +2694,13 @@ async function renderCharts(
             title: 'Resolution',
             legend: { orient: 'bottom', direction: 'horizontal', columns: 4, symbolLimit: 4, labelLimit: 200 },
           },
-          size: { field: 'lineMutationTotal', type: 'quantitative', title: 'Line changes', scale: { range: [50, 400] }, legend: { orient: 'bottom', gradientLength: 120 } },
+          size: {
+            field: 'lineMutationTotal',
+            type: 'quantitative',
+            title: 'Line changes',
+            scale: { range: [45, 320] },
+            legend: { orient: 'bottom', values: [0, 500, 1000, 2000, 4000, 6000], format: ',' },
+          },
           tooltip: [
             { field: 'modelId', type: 'nominal', title: 'Model' },
             { field: 'resolution', type: 'nominal', title: 'Resolution' },
@@ -2669,8 +2715,8 @@ async function renderCharts(
         transform: [{ regression: 'satisfaction', on: 'busyMinutes', method: 'linear' }],
         mark: { type: 'line', strokeDash: [6, 4], strokeWidth: 2, opacity: 0.5 },
         encoding: {
-          x: { field: 'busyMinutes', type: 'quantitative', scale: { type: 'log', nice: true } },
-          y: { field: 'satisfaction', type: 'quantitative', scale: { domain: [1, 5] } },
+          x: { field: 'busyMinutes', type: 'quantitative', scale: { type: 'log', domain: [busyDomainMin, Math.max(busyDomainMax, busyDomainMin)] }, axis: { values: busyTickValues, format: '~g' } },
+          y: { field: 'satisfaction', type: 'quantitative', scale: { domain: [1, 5] }, axis: { values: [1, 2, 3, 4, 5], tickMinStep: 1 } },
           color: { value: CHART_COLORS.accent },
         },
       }] : []),
@@ -3094,7 +3140,7 @@ async function renderCharts(
         {
           mark: { type: 'rule', strokeWidth: 2.2, opacity: 0.72 },
           encoding: {
-            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, title: null, axis: { labelLimit: 260, labelFontSize: 10 } },
+            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, title: null, axis: { labelLimit: 340, labelFontSize: 10 } },
             x: { field: 'ciLower', type: 'quantitative', title: 'Mean satisfaction (95% CI)', scale: { domain: [1, 5] } },
             x2: { field: 'ciUpper' },
             color: { value: CHART_COLORS.accent2 },
@@ -3110,7 +3156,7 @@ async function renderCharts(
         {
           mark: { type: 'point', filled: true },
           encoding: {
-            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, axis: { labelLimit: 260, labelFontSize: 10 } },
+            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, axis: { labelLimit: 340, labelFontSize: 10 } },
             x: { field: 'meanSatisfaction', type: 'quantitative', scale: { domain: [1, 5] } },
             size: { field: 'scoredRunCount', type: 'quantitative', title: 'Scored runs', scale: { range: [60, 240] }, legend: { orient: 'bottom', columns: 6, gradientLength: 160, labelLimit: 120 } },
             color: { value: CHART_COLORS.accent },
@@ -3119,7 +3165,7 @@ async function renderCharts(
         {
           mark: { type: 'text', align: 'left', dx: 8, fontSize: 11, opacity: 0.72, clip: false },
           encoding: {
-            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, axis: { labelLimit: 260, labelFontSize: 10 } },
+            y: { field: 'value', type: 'nominal', sort: { field: 'meanSatisfaction', order: 'descending' }, axis: { labelLimit: 340, labelFontSize: 10 } },
             x: { field: 'ciUpper', type: 'quantitative' },
             text: { field: 'nLabel', type: 'nominal' },
             color: { value: CHART_COLORS.muted },

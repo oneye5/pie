@@ -193,6 +193,7 @@ test('rollup coercers normalize invalid nested records and preserve valid values
     lineAdditions: 4,
     lineDeletions: 5,
     lineModifications: 6,
+    editCountsByFile: {},
   });
   assert.deepEqual(coerceFileMutationRollup(null), createEmptyFileMutationRollup());
 

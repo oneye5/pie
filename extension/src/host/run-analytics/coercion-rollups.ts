@@ -207,6 +207,7 @@ export function createEmptyFileMutationRollup(): FileMutationRollup {
     lineAdditions: 0,
     lineDeletions: 0,
     lineModifications: 0,
+    editCountsByFile: {},
   };
 }
 
@@ -441,6 +442,7 @@ export function coerceFileMutationRollup(value: unknown): FileMutationRollup {
     lineAdditions: toNonNegativeInteger(value.lineAdditions),
     lineDeletions: toNonNegativeInteger(value.lineDeletions),
     lineModifications: toNonNegativeInteger(value.lineModifications),
+    editCountsByFile: coerceExtensionCountRecord(value.editCountsByFile),
   };
 }
 

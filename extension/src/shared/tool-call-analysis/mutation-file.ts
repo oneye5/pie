@@ -11,6 +11,7 @@ import {
   extractFirstPathFromInput,
   getFileExtensionOperation,
   hasToolCallPathInput,
+  hashPath,
   looksLikeCreateTool,
   looksLikeDeleteTool,
   looksLikeEditTool,
@@ -25,11 +26,12 @@ import {
 
 function parsePatchOperations(
   patchText: string,
-): Pick<FileMutationDelta, 'writeCount' | 'editCount' | 'deleteCount' | 'renameCount' | 'touchedFileCount'> {
+): Pick<FileMutationDelta, 'writeCount' | 'editCount' | 'deleteCount' | 'renameCount' | 'touchedFileCount' | 'editCountsByFile'> {
   let writeCount = 0;
   let editCount = 0;
   let deleteCount = 0;
   let renameCount = 0;
+  const editCountsByFile: Record<string, number> = {};
 
   for (const line of patchText.replace(/\r\n?/g, '\n').split('\n')) {
     if (line.startsWith('*** Add File:')) {
@@ -39,6 +41,12 @@ function parsePatchOperations(
 
     if (line.startsWith('*** Update File:')) {
       editCount += 1;
+      // Attribute this edit to its file for the churn signal. Path follows the marker.
+      const filePath = line.slice('*** Update File:'.length).trim();
+      if (filePath.length > 0) {
+        const key = hashPath(filePath);
+        editCountsByFile[key] = (editCountsByFile[key] ?? 0) + 1;
+      }
       continue;
     }
 
@@ -54,7 +62,7 @@ function parsePatchOperations(
 
   const explicitFileOps = writeCount + editCount + deleteCount;
   const touchedFileCount = explicitFileOps > 0 ? explicitFileOps : renameCount;
-  return { writeCount, editCount, deleteCount, renameCount, touchedFileCount };
+  return { writeCount, editCount, deleteCount, renameCount, touchedFileCount, editCountsByFile };
 }
 
 function buildFileMutationDelta(partial: Partial<FileMutationDelta>): FileMutationDelta {
@@ -67,6 +75,7 @@ function buildFileMutationDelta(partial: Partial<FileMutationDelta>): FileMutati
     lineAdditions: partial.lineAdditions ?? 0,
     lineDeletions: partial.lineDeletions ?? 0,
     lineModifications: partial.lineModifications ?? 0,
+    editCountsByFile: partial.editCountsByFile ?? {},
   };
 }
 
@@ -104,7 +113,7 @@ export function getFileMutationFromToolCall(toolCall: ToolCall): FileMutationDel
 
   const hasPathInput = hasToolCallPathInput(toolCall);
   if (!hasPathInput || !(toolCall.input && typeof toolCall.input === 'object' && !Array.isArray(toolCall.input))) {
-    return { ...EMPTY_FILE_MUTATION_DELTA };
+    return createEmptyFileMutationDelta();
   }
 
   const input = toolCall.input as Record<string, unknown>;
@@ -128,16 +137,22 @@ export function getFileMutationFromToolCall(toolCall: ToolCall): FileMutationDel
 
   if (looksLikeEditTool(normalizedToolName)) {
     const combinedStats = getEditStatsFromInput(input);
+    const editCountsByFile: Record<string, number> = {};
+    const filePath = extractFirstPathFromInput(input);
+    if (filePath) {
+      editCountsByFile[hashPath(filePath)] = 1;
+    }
     return buildFileMutationDelta({
       editCount: 1,
       touchedFileCount: 1,
       lineAdditions: combinedStats?.additions ?? 0,
       lineDeletions: combinedStats?.deletions ?? 0,
       lineModifications: combinedStats?.modifications ?? 0,
+      editCountsByFile,
     });
   }
 
-  return { ...EMPTY_FILE_MUTATION_DELTA };
+  return createEmptyFileMutationDelta();
 }
 
 export function mergeFileMutationDelta(
@@ -153,11 +168,23 @@ export function mergeFileMutationDelta(
     lineAdditions: current.lineAdditions + next.lineAdditions,
     lineDeletions: current.lineDeletions + next.lineDeletions,
     lineModifications: current.lineModifications + next.lineModifications,
+    editCountsByFile: mergeEditCountsByFile(current.editCountsByFile, next.editCountsByFile),
   };
 }
 
+function mergeEditCountsByFile(
+  current: Record<string, number>,
+  next: Record<string, number>,
+): Record<string, number> {
+  const merged: Record<string, number> = { ...(current ?? {}) };
+  for (const [key, count] of Object.entries(next ?? {})) {
+    merged[key] = (merged[key] ?? 0) + count;
+  }
+  return merged;
+}
+
 export function createEmptyFileMutationDelta(): FileMutationDelta {
-  return { ...EMPTY_FILE_MUTATION_DELTA };
+  return { ...EMPTY_FILE_MUTATION_DELTA, editCountsByFile: {} };
 }
 
 export function getFileExtensionFromToolCall(toolCall: ToolCall): FileExtensionAnalysis | null {

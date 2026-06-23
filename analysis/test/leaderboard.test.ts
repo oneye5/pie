@@ -14,7 +14,7 @@ test('leaderboard produces ranked rows from fixture data', async () => {
   assert.ok(leaderboard.rows.length > 0, 'should produce at least one row');
   assert.equal(leaderboard.minimumScoredRuns, 3);
   assert.deepEqual(Object.keys(leaderboard.weights).sort(), [
-    'firstAttemptSuccess', 'resolutionRate', 'satisfaction', 'tokenEfficiency', 'toolReliability', 'verificationPassRate',
+    'fileChurn', 'resolutionRate', 'satisfaction', 'tokenEfficiency', 'toolReliability', 'verificationPassRate',
   ]);
 
   // Every row has required fields
@@ -134,7 +134,7 @@ test('leaderboard dimension values are within expected bounds', async () => {
   const leaderboard = createModelLeaderboard(prepared);
 
   for (const row of leaderboard.rows) {
-    const { satisfaction, resolutionRate, firstAttemptSuccess, toolReliability, verificationPassRate, tokenEfficiency } = row.dimensions;
+    const { satisfaction, resolutionRate, fileChurn, toolReliability, verificationPassRate, tokenEfficiency } = row.dimensions;
 
     if (satisfaction.value !== null) {
       assert.ok(satisfaction.value >= 1 && satisfaction.value <= 5, `satisfaction value ${satisfaction.value} out of [1,5]`);
@@ -143,7 +143,7 @@ test('leaderboard dimension values are within expected bounds', async () => {
       assert.ok(satisfaction.lowerBound >= 1 && satisfaction.lowerBound <= 5, `satisfaction lowerBound ${satisfaction.lowerBound} out of [1,5]`);
     }
 
-    for (const dim of [resolutionRate, firstAttemptSuccess, toolReliability, verificationPassRate]) {
+    for (const dim of [resolutionRate, fileChurn, toolReliability, verificationPassRate]) {
       if (dim.value !== null) {
         assert.ok(dim.value >= 0 && dim.value <= 1, `dimension value ${dim.value} out of [0,1]`);
       }
@@ -346,9 +346,10 @@ test('leaderboard proportion dimensions use scored runs only', async () => {
   const fixture = deepClone(await loadFixture());
   const baseRun = fixture.completedRuns[0]!;
 
-  // Create a model where total runs have 0% firstAttemptSuccess but scored runs have 100%
+  // Create a model with 3 scored runs + 7 unscored runs, then assert every dimension's n is
+  // drawn from scored runs only (never the full total of 10).
   const runs: typeof fixture.completedRuns = [];
-  // 3 scored runs with firstAttemptSuccess = true
+  // 3 scored runs (resolved, satisfaction 4)
   for (let i = 0; i < 3; i++) {
     const r = deepClone(baseRun);
     r.runId = `scored-fas-run-${i}`;
@@ -359,7 +360,7 @@ test('leaderboard proportion dimensions use scored runs only', async () => {
     r.outcome = { resolution: 'resolved' as const, satisfaction: 4 };
     runs.push(r);
   }
-  // 7 unscored runs with firstAttemptSuccess = false
+  // 7 unscored runs
   for (let i = 0; i < 7; i++) {
     const r = deepClone(baseRun);
     r.runId = `unscored-no-fas-run-${i}`;
@@ -390,8 +391,9 @@ test('leaderboard proportion dimensions use scored runs only', async () => {
   const row = leaderboard.rows.find((r) => r.modelId === 'pop-test-model');
   assert.ok(row, 'pop-test-model should appear');
 
-  // firstAttemptSuccess dimension.n should be 3 (scored only), not 10 (total)
-  assert.equal(row!.dimensions.firstAttemptSuccess.n, 3, 'firstAttemptSuccess dimension should use scored runs only (n=3)');
+  // fileChurn counts scored runs with attributable edits (a subset of scored, possibly empty for
+  // legacy data without per-file edit tracking), never the full total of 10.
+  assert.ok(row!.dimensions.fileChurn.n <= 3, 'fileChurn dimension should use scored runs only (n <= 3, not total)');
   // toolReliability n should also be scored-only
   assert.equal(row!.dimensions.toolReliability.n, 3, 'toolReliability dimension should use scored runs only (n=3)');
   // verificationPassRate counts scored runs that performed verification (a subset of scored),
@@ -893,4 +895,63 @@ test('leaderboard is provider-agnostic: collapses provider-specific ids sharing 
     !leaderboard.rows.some((row) => row.modelId === 'glm-5.2:cloud'),
     'glm-5.2:cloud must not appear as its own row',
   );
+});
+
+test('leaderboard fileChurn dimension penalizes re-editing the same files', async () => {
+  const fixture = deepClone(await loadFixture());
+  const baseRun = fixture.completedRuns[0]!;
+
+  const makeChurnRuns = (modelId: string, map: Record<string, number>) => {
+    const runs: typeof fixture.completedRuns = [];
+    for (let i = 0; i < 3; i++) {
+      const r = deepClone(baseRun);
+      r.runId = `${modelId}-churn-${i}`;
+      r.taskGroupId = `${modelId}-churn-task-${i}`;
+      r.modelId = modelId;
+      r.thinkingLevel = 'medium';
+      r.scored = true;
+      r.outcome = { resolution: 'resolved' as const, satisfaction: 4 };
+      (r as any).fileMutation.editCountsByFile = map;
+      runs.push(r);
+    }
+    return runs;
+  };
+
+  // Low churn: one edit to one distinct file per run → revisit rate 0.
+  // High churn: 5 edits to a single file per run → revisit rate 0.8.
+  const lowRuns = makeChurnRuns('churn-low', { 'file-a': 1 });
+  const highRuns = makeChurnRuns('churn-high', { 'file-a': 5 });
+  const allRuns = [...lowRuns, ...highRuns];
+  fixture.completedRuns.push(...allRuns);
+  fixture.outcomes.push(
+    ...allRuns.map((run) => ({
+      schemaVersion: 1,
+      kind: 'run_outcome' as const,
+      recordedAt: '2026-05-10T14:19:00.000Z',
+      sessionPath: baseRun.sessionPath,
+      runId: run.runId,
+      taskGroupId: run.taskGroupId,
+      outcome: run.outcome!,
+    })),
+  );
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const leaderboard = createModelLeaderboard(prepared);
+
+  const low = leaderboard.rows.find((r) => r.modelId === 'churn-low')!;
+  const high = leaderboard.rows.find((r) => r.modelId === 'churn-high')!;
+  assert.ok(low, 'churn-low row should exist');
+  assert.ok(high, 'churn-high row should exist');
+
+  // Native value = mean revisit rate (lower = less churn); shrunk is inverted (higher = better).
+  assert.ok(low.dimensions.fileChurn.value! < high.dimensions.fileChurn.value!,
+    'low-churn model should have a lower native re-edit rate');
+  assert.ok(low.dimensions.fileChurn.shrunk! > high.dimensions.fileChurn.shrunk!,
+    'low-churn model should score higher (less churn = better)');
+  assert.equal(low.dimensions.fileChurn.n, 3, 'fileChurn n = scored runs with edit data');
+  assert.equal(high.dimensions.fileChurn.n, 3);
+
+  // All other dimensions equal, the low-churn model should rank above the high-churn model.
+  assert.ok(low.compositeScore! > high.compositeScore!,
+    'low-churn model should rank higher than high-churn model');
 });

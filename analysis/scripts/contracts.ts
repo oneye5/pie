@@ -206,6 +206,9 @@ export interface FileMutationRollup {
   lineAdditions: number;
   lineDeletions: number;
   lineModifications: number;
+  /** Per-file EDIT counts keyed by a path hash. Backs the file-churn signal (re-editing the same
+   *  file repeatedly). Edits only; empty for runs captured before this field existed. */
+  editCountsByFile: Record<string, number>;
 }
 
 export interface FileExtensionRollup {
@@ -403,6 +406,11 @@ export interface PreparedRunRow {
   contextUtilization: number | null;
   cacheHitRatio: number | null;
   firstAttemptSuccess: boolean;
+  /** File-churn signal: fraction of EDIT ops that revisited an already-edited file in this run
+   *   (0 = every edit touched a fresh file, no churn; →1 = kept re-editing the same files). Null
+   *   when the run had no edits or lacked per-file attribution (legacy runs). Derived from
+   *   `fileMutation.editCountsByFile`. Higher = more churn = worse. */
+  editRevisitRate: number | null;
   /** Estimated USD cost derived from token usage × model pricing (null when pricing is unknown for the model). */
   estimatedCostUsd: number | null;
 }
@@ -754,7 +762,7 @@ export interface ModelLeaderboardRow {
   dimensions: {
     satisfaction: LeaderboardDimension;
     resolutionRate: LeaderboardDimension;
-    firstAttemptSuccess: LeaderboardDimension;
+    fileChurn: LeaderboardDimension;
     toolReliability: LeaderboardDimension;
     verificationPassRate: LeaderboardDimension;
     tokenEfficiency: LeaderboardDimension;
@@ -780,7 +788,7 @@ export interface ModelLeaderboardData {
   weights: {
     satisfaction: number;
     resolutionRate: number;
-    firstAttemptSuccess: number;
+    fileChurn: number;
     toolReliability: number;
     verificationPassRate: number;
     tokenEfficiency: number;

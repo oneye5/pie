@@ -411,3 +411,28 @@ test('prepareSourceAnalytics normalizes all supported thinking levels and blank 
   assert.equal(byId.get(targetRuns[6]!.runId)?.thinkingLevel, 'xhigh');
   assert.equal(byId.get(targetRuns[7]!.runId)?.thinkingLevel, null);
 });
+
+test('prepareSourceAnalytics derives editRevisitRate (file churn) from per-file edit counts', async () => {
+  const fixture = deepClone(await loadFixture());
+
+  // run-001: 5 edits across 2 distinct files → 3 revisits → rate 3/5 = 0.6
+  const fm1 = (fixture.completedRuns[0] as any).fileMutation;
+  fm1.editCount = 5;
+  fm1.editCountsByFile = { aaa: 3, bbb: 2 };
+
+  // run-002: single edit to one file → 0 revisits → rate 0
+  const fm2 = (fixture.completedRuns[1] as any).fileMutation;
+  fm2.editCountsByFile = { ccc: 1 };
+
+  // run-003: editCount > 0 but no per-file attribution (legacy run) → null
+  const fm3 = (fixture.completedRuns[2] as any).fileMutation;
+  fm3.editCount = 4;
+  delete fm3.editCountsByFile;
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const byId = new Map<string, PreparedRunRow>(prepared.runs.map((r) => [r.runId, r]));
+
+  assert.ok(Math.abs(byId.get('run-001')!.editRevisitRate! - 0.6) < 1e-3, '5 edits / 2 files → 0.6 revisit rate');
+  assert.equal(byId.get('run-002')!.editRevisitRate, 0, 'single edit to one file → 0 churn');
+  assert.equal(byId.get('run-003')!.editRevisitRate, null, 'legacy run without per-file data → null');
+});

@@ -24,7 +24,7 @@ import {
 type DimensionKey =
   | 'satisfaction'
   | 'resolutionRate'
-  | 'firstAttemptSuccess'
+  | 'fileChurn'
   | 'toolReliability'
   | 'verificationPassRate'
   | 'tokenEfficiency';
@@ -32,7 +32,7 @@ type DimensionKey =
 const DIMENSION_KEYS: DimensionKey[] = [
   'satisfaction',
   'resolutionRate',
-  'firstAttemptSuccess',
+  'fileChurn',
   'toolReliability',
   'verificationPassRate',
   'tokenEfficiency',
@@ -221,7 +221,6 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     const satMean = satisfactionValues.length > 0 ? meanOf(satisfactionValues) : null;
     const resMean = resolutionValues.length > 0 ? meanOf(resolutionValues) : null;
 
-    const fasSuccesses = scoredRuns.filter((run) => run.firstAttemptSuccess).length;
     const toolSuccesses = scoredRuns.filter((run) => run.toolFailureCount === 0).length;
     const verifyingRuns = scoredRuns.filter((run) => run.verificationTotalCount > 0);
     const verPassSuccesses = verifyingRuns.filter((run) => run.verificationState === 'passing').length;
@@ -229,6 +228,14 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     const tokenEfficiencyValues = scoredRuns.map((run) => run.tokenEfficiency).filter((value): value is number => value !== null);
     const tokenEfficiencyMedian = median(tokenEfficiencyValues, 3);
     const tokenEfficiencyClamped = tokenEfficiencyMedian !== null ? clamp(tokenEfficiencyMedian, 0, TOKEN_EFFICIENCY_MAX) : null;
+
+    // File churn: re-edit rate per run (fraction of edits that revisited an already-edited file).
+    // Lower = less churn = better; inverted for the composite so higher = better. Null for runs with
+    // no attributable edits (incl. legacy runs captured before per-file tracking). Aggregated by MEAN
+    // (not median) because churn is a long-tail signal — most runs don't churn, so a median would
+    // collapse to 0 and hide models whose few runs churn badly.
+    const fileChurnValues = scoredRuns.map((run) => run.editRevisitRate).filter((value): value is number => value !== null);
+    const fileChurnMean = fileChurnValues.length > 0 ? meanOf(fileChurnValues) : null;
 
     const satisfaction: LeaderboardDimension = {
       value: satMean !== null ? round(satMean, 2) : null,
@@ -242,7 +249,6 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
       shrunk: null,
       n: scoredN,
     };
-    const firstAttemptSuccess = proportionDimension(fasSuccesses, scoredN);
     const toolReliability = proportionDimension(toolSuccesses, scoredN);
     const verificationPassRate = proportionDimension(verPassSuccesses, verifyingRuns.length);
     const tokenEfficiency: LeaderboardDimension = {
@@ -251,15 +257,23 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
       shrunk: null,
       n: tokenEfficiencyValues.length,
     };
+    // fileChurn native value = mean re-edit rate (0 = no churn, 1 = max churn). lowerBound on the
+    // same native scale; shrunk/inverted handled in observed below.
+    const fileChurn: LeaderboardDimension = {
+      value: fileChurnMean !== null ? round(fileChurnMean, 3) : null,
+      lowerBound: meanLower(fileChurnValues, 0, 1),
+      shrunk: null,
+      n: fileChurnValues.length,
+    };
 
-    // Per-run (complexity, outcome) pairs for the complexity-weighted dimensions. The five
-    // outcome/process dimensions (satisfaction, resolution, first-attempt, verification pass,
-    // tool reliability) are mastery-weighted; token efficiency stays raw (cost-adjacent efficiency,
-    // not "completing complex tasks").
+    // Per-run (complexity, outcome) pairs for the complexity-weighted dimensions. The four
+    // outcome/process dimensions (satisfaction, resolution, verification pass, tool reliability)
+    // are mastery-weighted; token efficiency and file churn stay raw (process metrics, not
+    // "completing complex tasks").
     const pairs: Record<DimensionKey, ComplexityOutcomePair[]> = {
       satisfaction: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: clamp((run.satisfaction! - 1) / 4, 0, 1) })),
       resolutionRate: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: resolutionScore(run.resolution) })),
-      firstAttemptSuccess: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: run.firstAttemptSuccess ? 1 : 0 })),
+      fileChurn: [],
       verificationPassRate: verifyingRuns.map((run) => ({ complexity: complexityOf(run), outcome: run.verificationState === 'passing' ? 1 : 0 })),
       toolReliability: scoredRuns.map((run) => ({ complexity: complexityOf(run), outcome: run.toolFailureCount === 0 ? 1 : 0 })),
       tokenEfficiency: [],
@@ -270,7 +284,7 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     // dims where the exponent is a no-op); the complexity-weighted component rewards completing the
     // hardest tasks. Together, actual success dominates task complexity — a mediocre performer on
     // very-hard tasks cannot ride its complexity past a strong consistent performer on medium-hard
-    // tasks. Token efficiency stays raw (median-based, inverted).
+    // tasks. Token efficiency (median tok/line) and file churn (re-edit rate) stay raw.
     const masteryOf = (rawRate: number | null, p: ComplexityOutcomePair[]): number | null => {
       if (rawRate === null) return null;
       const cwm = complexityWeightedMean(p, OUTCOME_EXPONENT);
@@ -281,7 +295,7 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     const observed: Record<DimensionKey, number | null> = {
       satisfaction: masteryOf(satMean !== null ? clamp((satMean - 1) / 4, 0, 1) : null, pairs.satisfaction),
       resolutionRate: masteryOf(resMean, pairs.resolutionRate),
-      firstAttemptSuccess: masteryOf(scoredN > 0 ? fasSuccesses / scoredN : null, pairs.firstAttemptSuccess),
+      fileChurn: fileChurnMean !== null ? clamp(1 - fileChurnMean, 0, 1) : null,
       toolReliability: masteryOf(scoredN > 0 ? toolSuccesses / scoredN : null, pairs.toolReliability),
       verificationPassRate: masteryOf(verifyingRuns.length > 0 ? verPassSuccesses / verifyingRuns.length : null, pairs.verificationPassRate),
       tokenEfficiency: tokenEfficiencyClamped !== null ? clamp(1 - tokenEfficiencyClamped / TOKEN_EFFICIENCY_MAX, 0, 1) : null,
@@ -289,7 +303,7 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     const n: Record<DimensionKey, number> = {
       satisfaction: scoredN,
       resolutionRate: scoredN,
-      firstAttemptSuccess: scoredN,
+      fileChurn: fileChurnValues.length,
       toolReliability: scoredN,
       verificationPassRate: verifyingRuns.length,
       tokenEfficiency: tokenEfficiencyValues.length,
@@ -313,7 +327,7 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
       meanTaskComplexity,
       observed,
       n,
-      dimensions: { satisfaction, resolutionRate, firstAttemptSuccess, toolReliability, verificationPassRate, tokenEfficiency },
+      dimensions: { satisfaction, resolutionRate, fileChurn, toolReliability, verificationPassRate, tokenEfficiency },
       providers,
     };
   });
@@ -358,7 +372,7 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
       dimensions: {
         satisfaction: shrunkDimensions.satisfaction!,
         resolutionRate: shrunkDimensions.resolutionRate!,
-        firstAttemptSuccess: shrunkDimensions.firstAttemptSuccess!,
+        fileChurn: shrunkDimensions.fileChurn!,
         toolReliability: shrunkDimensions.toolReliability!,
         verificationPassRate: shrunkDimensions.verificationPassRate!,
         tokenEfficiency: shrunkDimensions.tokenEfficiency!,
@@ -394,13 +408,14 @@ export function createModelLeaderboard(prepared: PreparedAnalyticsData): ModelLe
     minimumScoredRuns: MINIMUM_SCORED_RUNS,
     notes: [
       `Rows are provider-agnostic: runs are grouped by canonical model family (e.g. 'glm-5.2'), not the provider-specific modelId. The same underlying model offered by multiple providers (e.g. 'umans-glm-5.2' via Umans and 'glm-5.2:cloud' via Ollama Cloud) collapses into a single row. Families are declared via the optional 'family' field in models.json; models without a family default to their own id (kept distinct). The backend still stores each run's provider-specific modelId distinctly, and each row exposes a 'providers' breakdown (provider-specific ids + run counts) so provider differences stay investigable.`,
-      `Composite ranks by expected strength on the hardest work, gated by actual success: a weighted sum of empirical-Bayes shrunk point estimates (prior strength k=${SHRINKAGE_K}). Five non-efficiency dimensions (satisfaction, resolution, first-attempt, verification pass, tool reliability) use blended mastery = ${(1 - MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×rawSuccessRate + ${MASTERY_COMPLEXITY_WEIGHT}×mean(complexity × outcome^${OUTCOME_EXPONENT}). The raw-success component makes actual success matter directly on every dimension — including the 0/1 outcome dims (first-attempt, verification, tool reliability) where the outcome exponent alone is a no-op (0^p=0, 1^p=1). The complexity-weighted component rewards completing the hardest tasks. Together, actual success dominates task complexity: a mediocre performer on very-hard tasks cannot ride its complexity past a strong consistent performer on medium-hard tasks, while a model that completes complex tasks still rises above one that only completes easy ones.`,
+      `Composite ranks by expected strength on the hardest work, gated by actual success: a weighted sum of empirical-Bayes shrunk point estimates (prior strength k=${SHRINKAGE_K}). Four non-efficiency dimensions (satisfaction, resolution, verification pass, tool reliability) use blended mastery = ${(1 - MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×rawSuccessRate + ${MASTERY_COMPLEXITY_WEIGHT}×mean(complexity × outcome^${OUTCOME_EXPONENT}). The raw-success component makes actual success matter directly on every dimension — including the 0/1 outcome dims (verification, tool reliability) where the outcome exponent alone is a no-op (0^p=0, 1^p=1). The complexity-weighted component rewards completing the hardest tasks. Together, actual success dominates task complexity: a mediocre performer on very-hard tasks cannot ride its complexity past a strong consistent performer on medium-hard tasks, while a model that completes complex tasks still rises above one that only completes easy ones. fileChurn and tokenEfficiency are raw process metrics (not mastery-weighted): fileChurn penalizes rework — repeatedly re-editing the same files, the clearest signal the agent kept getting it wrong — and replaces the former "first-attempt success" dimension, which rewarded trivial 1-prompt sessions and penalized great long-running planning sessions.`,
       `Estimates are shrunk toward each dimension's cross-model grand mean by the data fraction n/(n+k), curbing small-sample cherry-picking without a harsh multiplicative penalty. Small-sample rows (few scored runs) are therefore pulled toward the population mean regardless of how hard their tasks were.`,
       `Task complexity is a per-run 0–1 score from 6 signals (line mutations, touched files, tool calls, busy duration, verification count, input tokens). When the scored population has no complexity variance, mastery collapses to a uniform rescaling of raw outcomes (no genuine difficulty emphasis); difficultyEmphasized flags whether variance was present.`,
       `reliabilityFactor reports sample confidence = scoredRunCount / (scoredRunCount + ${SHRINKAGE_K}); it is a display-only indicator and is NOT applied to the composite.`,
       `meanTaskComplexity reports each model's average task difficulty (0=easy, 1=hard) for transparency ("strength of schedule"); it is not part of the composite. difficultyEmphasized flags whether the composite was complexity-weighted for this row.`,
-      `Dimensions: satisfaction (1–5 → 0–1), resolution rate, first-attempt success, tool reliability (share of runs with zero tool failures), verification pass rate (share of verifying runs whose checks pass — not mere adoption), and token efficiency (1 − median tok/line ÷ ${TOKEN_EFFICIENCY_MAX}). The first five use blended mastery (${(1 - MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×raw rate + ${MASTERY_COMPLEXITY_WEIGHT}×complexity-weighted, outcome^${OUTCOME_EXPONENT}); token efficiency uses a raw median (cost-adjacent efficiency, not task completion).`,
-      `Each dimension exposes value (observed point estimate on its native scale), lowerBound (95% CI lower bound, an uncertainty indicator — not used for ranking), shrunk (empirical-Bayes estimate used in the composite; blended mastery for the first five dims), and n.`,
+      `Dimensions: satisfaction (1–5 → 0–1), resolution rate, file churn (1 − mean re-edit rate; less churn = higher score), tool reliability (share of runs with zero tool failures), verification pass rate (share of verifying runs whose checks pass — not mere adoption), and token efficiency (1 − median tok/line ÷ ${TOKEN_EFFICIENCY_MAX}). The first four use blended mastery (${(1 - MASTERY_COMPLEXITY_WEIGHT).toFixed(1)}×raw rate + ${MASTERY_COMPLEXITY_WEIGHT}×complexity-weighted, outcome^${OUTCOME_EXPONENT}); file churn and token efficiency use raw metrics (process quality, not task completion).`,
+      `Each dimension exposes value (observed point estimate on its native scale), lowerBound (95% CI lower bound, an uncertainty indicator — not used for ranking), shrunk (empirical-Bayes estimate used in the composite; blended mastery for the first four dims, raw for file churn and token efficiency), and n.`,
+      `fileChurn measures rework: for each run the fraction of EDIT operations that revisited an already-edited file (0 = every edit touched a fresh file; →1 = kept re-editing the same files), derived from a per-file edit-count map captured at the tool-call level. It is aggregated by MEAN across a model's runs (churn is a long-tail signal — most runs don't churn, so a median would hide the few that do) and inverted so higher = less churn = better. Runs captured before per-file edit tracking existed (or with no attributable edits) have null churn and are excluded from this dimension, so it activates as new runs accumulate; firstAttemptSuccess remains on each run for the interruptions chart but is no longer part of the composite.`,
       `Models with fewer than ${MINIMUM_SCORED_RUNS} scored runs are shown but unranked (null composite and rank).`,
       `medianCostUsd surfaces per-run cost separately; cost is not part of the composite so rank #1 reflects strength, not cheapness.`,
       'Subagent context shows co-occurrence; subagent model attribution requires pipeline enhancement.',

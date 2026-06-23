@@ -25,7 +25,7 @@ test('LEADERBOARD_WEIGHTS has the expected six dimensions, each with a positive 
   // also be strictly positive so no dimension is a no-op.
   assert.deepEqual(
     Object.keys(LEADERBOARD_WEIGHTS).sort(),
-    ['firstAttemptSuccess', 'resolutionRate', 'satisfaction', 'tokenEfficiency', 'toolReliability', 'verificationPassRate'],
+    ['fileChurn', 'resolutionRate', 'satisfaction', 'tokenEfficiency', 'toolReliability', 'verificationPassRate'],
   );
   for (const [dim, weight] of Object.entries(LEADERBOARD_WEIGHTS)) {
     assert.ok(weight > 0, `weight for "${dim}" must be positive, got ${weight}`);
@@ -41,16 +41,18 @@ test('LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS is a subset of the weighted dimensi
   }
 });
 
-test('LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS contains exactly the five mastery dimensions', () => {
-  // Known-answer: the five outcome/process dimensions that measure "completing complex tasks"
-  // (satisfaction, resolution, first-attempt, verification pass, tool reliability) are
-  // complexity-emphasized so actual success on hard tasks dominates. tokenEfficiency
-  // (cost-adjacent efficiency) is deliberately left raw.
-  assert.equal(LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.size, 5);
-  for (const dim of ['satisfaction', 'resolutionRate', 'firstAttemptSuccess', 'verificationPassRate', 'toolReliability']) {
+test('LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS contains exactly the four mastery dimensions', () => {
+  // Known-answer: the four outcome/process dimensions that measure "completing complex tasks"
+  // (satisfaction, resolution, verification pass, tool reliability) are complexity-emphasized so
+  // actual success on hard tasks dominates. fileChurn (re-edit rate) and tokenEfficiency
+  // (cost-adjacent efficiency) are deliberately left raw — they are process-quality metrics, not
+  // measures of "completing complex tasks".
+  assert.equal(LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.size, 4);
+  for (const dim of ['satisfaction', 'resolutionRate', 'verificationPassRate', 'toolReliability']) {
     assert.ok(LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.has(dim), `expected "${dim}" to be emphasized`);
   }
   assert.ok(!LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.has('tokenEfficiency'), 'tokenEfficiency must NOT be emphasized');
+  assert.ok(!LEADERBOARD_DIFFICULTY_EMPHASIZED_DIMS.has('fileChurn'), 'fileChurn must NOT be emphasized');
 });
 
 test('scalar scoring constants are positive with their known-answer values', () => {

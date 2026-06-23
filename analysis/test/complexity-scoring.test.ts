@@ -81,7 +81,7 @@ test('complexityWeightedMean: outcome exponent > 1 penalizes partial outcomes so
     'completing a hard task perfectly must outrank completing an easy task perfectly');
 });
 
-test('complexityWeightedMean: exponent is a no-op on 0/1 outcomes (tool reliability, first-attempt)', () => {
+test('complexityWeightedMean: exponent is a no-op on 0/1 outcomes (tool reliability, verification pass)', () => {
   // Binary outcomes are unaffected by the exponent (0^p = 0, 1^p = 1), so the exponent targets
   // continuous / partial outcomes (satisfaction, partial resolution) without distorting binary dims.
   const pairs: Pair[] = [{ complexity: 0.8, outcome: 1 }, { complexity: 0.8, outcome: 0 }];

@@ -161,6 +161,9 @@ export interface FileMutationRollup {
   lineAdditions: number;
   lineDeletions: number;
   lineModifications: number;
+  /** Per-file EDIT counts keyed by a path hash. Backs the file-churn signal (re-editing the same
+   *  file repeatedly). Edits only; empty for runs captured before this field existed. */
+  editCountsByFile: Record<string, number>;
 }
 
 export interface FileExtensionRollup {

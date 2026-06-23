@@ -16,6 +16,7 @@ import {
   getToolCallSizeHint,
   lineCountFromRecordKeys,
 } from '../src/shared/tool-call-analysis/mutation-size';
+import { hashPath } from '../src/shared/tool-call-analysis/mutation-tools';
 import type { ToolCall } from '../src/shared/protocol';
 
 function makeToolCall(overrides: Partial<ToolCall>): ToolCall {
@@ -153,6 +154,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineAdditions: 0,
     lineDeletions: 0,
     lineModifications: 0,
+    editCountsByFile: {},
   });
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
@@ -169,6 +171,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineAdditions: 0,
     lineDeletions: 0,
     lineModifications: 1,
+    editCountsByFile: {},
   });
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
@@ -183,6 +186,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineAdditions: 0,
     lineDeletions: 0,
     lineModifications: 0,
+    editCountsByFile: {},
   });
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
@@ -197,6 +201,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineAdditions: 0,
     lineDeletions: 0,
     lineModifications: 0,
+    editCountsByFile: {},
   });
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
@@ -211,8 +216,10 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineAdditions: 2,
     lineDeletions: 0,
     lineModifications: 0,
+    editCountsByFile: {},
   });
 
+  // Edit ops attribute to their file (path-hashed) for the file-churn signal.
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
     name: 'edit_file',
     input: { path: 'src/existing.ts', replacements: [{ ignored: true }] },
@@ -225,6 +232,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineAdditions: 0,
     lineDeletions: 0,
     lineModifications: 0,
+    editCountsByFile: { [hashPath('src/existing.ts')]: 1 },
   });
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
@@ -249,6 +257,7 @@ test('file mutation delta helpers return isolated empties, merge counts, and cla
       lineAdditions: 6,
       lineDeletions: 7,
       lineModifications: 8,
+      editCountsByFile: { aaa: 2 },
     },
     {
       writeCount: 10,
@@ -259,6 +268,7 @@ test('file mutation delta helpers return isolated empties, merge counts, and cla
       lineAdditions: 60,
       lineDeletions: 70,
       lineModifications: 80,
+      editCountsByFile: { aaa: 1, bbb: 3 },
     },
   ), {
     writeCount: 11,
@@ -269,6 +279,7 @@ test('file mutation delta helpers return isolated empties, merge counts, and cla
     lineAdditions: 66,
     lineDeletions: 77,
     lineModifications: 88,
+    editCountsByFile: { aaa: 3, bbb: 3 },
   });
 
   assert.deepEqual(getFileExtensionFromToolCall(makeToolCall({

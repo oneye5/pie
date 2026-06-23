@@ -224,3 +224,44 @@ isn't crowded. Handles reappear on overflow, and stay once the user has resized
   exported `countTextLines`); shown only for multi-line reasoning.
 - ✅ Reasoning expanded streaming cursor — `streaming` prop (from the owning
   message's active-streaming state) appends a blinking `.reasoning-stream-cursor`.
+
+## Model leaderboard file-churn reweight — deferred follow-ups
+
+**Implemented:** Reweighted the model leaderboard composite to weight on more
+indicative factors. Removed `firstAttemptSuccess` (1-prompt success) from the
+composite — it rewarded trivial 1-prompt sessions and penalized great
+long-running planning sessions, so it was not a signal of success. Replaced it
+with a new `fileChurn` dimension at the same 0.15 weight: the mean per-run
+re-edit rate (fraction of EDIT ops that revisited an already-edited file),
+inverted so higher = less churn = better. This is "modifying the same snippet
+over and over" — the clearest signal the agent kept getting it wrong. fileChurn
+is a raw process metric (not mastery-blended, like tokenEfficiency). The signal
+is captured end-to-end: a per-file edit-count map (`editCountsByFile`, keyed by
+a path hash) is populated at the tool-call level in the extension, persisted,
+coerced, and derived into `editRevisitRate` on `PreparedRunRow`. Weights still
+sum to 1.0; a dashboard↔Node parity test now guards the two hand-mirrored
+implementations from drifting. `firstAttemptSuccess` stays on `PreparedRunRow`
+(the interruptions chart uses it) — only the composite dropped it.
+
+### Deferred — propagate the reweight philosophy to the stratified ranker (out of scope)
+`analysis/scripts/stratified-ranker.ts` (subagent bucket selection) is a
+separate composite with its own equal-weight scoring. It still uses
+`firstAttemptSuccess` (weight 1/6) and does not use `fileChurn`/`editRevisitRate`
+at all. Per `AGENTS.md` the two leaderboards are intentionally distinct, so
+this was left unchanged. But the rationale — "1-prompt success is not a signal;
+file churn is the indicative negative" — arguably applies to model selection
+broadly, so the stratified ranker is now philosophically inconsistent with the
+model leaderboard. If the philosophy should propagate, swap `firstAttemptSuccess`
+for `fileChurn` in `computeOutcomeScores` (1/6 weight) and surface
+`editRevisitRate`; its tests pin the 6-dim shape and `firstAttemptSuccess`
+proportion assertion and would need updating.
+
+### Note — fileChurn is dormant on historical data
+`editCountsByFile` is only populated for runs captured after this change (the
+extension was rebuilt). Historical runs lack the map → `editRevisitRate` is null
+→ the fileChurn dimension is skipped for those rows (consistent with how null
+`verificationPassRate`/`tokenEfficiency` dims are dropped, on a <1.0 scale until
+data accumulates). The dimension activates as new runs accumulate. No aggregate
+churn proxy was possible: `touchedFileCount` is actually op-count
+(editCount+writeCount+deleteCount), not distinct files, so per-file capture was
+required.

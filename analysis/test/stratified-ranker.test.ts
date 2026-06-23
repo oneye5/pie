@@ -125,6 +125,7 @@ function makeRun(overrides: Partial<PreparedRunRow> & { runId: string }): Prepar
     contextUtilization: null,
     cacheHitRatio: null,
     firstAttemptSuccess: true,
+    editRevisitRate: null,
     estimatedCostUsd: null,
   };
   return { ...defaults, ...overrides } as PreparedRunRow;
