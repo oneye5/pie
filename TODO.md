@@ -281,3 +281,27 @@ data accumulates). The dimension activates as new runs accumulate. No aggregate
 churn proxy was possible: `touchedFileCount` is actually op-count
 (editCount+writeCount+deleteCount), not distinct files, so per-file capture was
 required.
+
+## composer.draftTextBySession cleanup parity — deferred follow-up
+
+**Fixed (in scope):** the "text cleared when a new session finishes loading"
+bug. `handlePendingPathReplaced` now migrates `composer.draftTextBySession`
+(pending→resolved) like its sibling composer maps, and the webview
+`useComposerInput` `[sessionPath]` seed effect preserves live text across the
+pending→resolved resolution instead of clobbering it with the stale/empty
+draft. Regression tests: `test/arch-pending-path-draft.test.ts`, and the
+pending→resolved case in `test/composer-draft.test.ts`.
+
+**Deferred (out of scope, pre-existing latent leak):** `draftTextBySession` is
+the one per-session composer map that is NOT cleaned on tab close / eviction.
+`handleSessionScopeCleared` (`src/host/core/reducer/session-handlers.ts`) and
+`removeSessionFromState` (`src/host/core/reducer/helpers.ts`) both clean
+`pendingComposerInputsBySession` + `activeRunSummaryBySession` but omit
+`draftTextBySession`; `arch-session-scope-cleanup-parity.test.ts` also omits it
+from its `base` setup + `checks` list. Closed/evicted sessions therefore leak
+their draft text indefinitely. Low impact (small per-entry; paths are unique so
+no stale-revive risk), but it is the same class of bug the parity test exists to
+prevent, and Fix A above now makes `draftTextBySession` a formally "migrating"
+map, so the inconsistency with cleanup is more visible. To close: add a
+`draftTextBySession` destructure+clean to both functions and add it to the
+parity test's `base` + `checks`.

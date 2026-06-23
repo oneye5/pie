@@ -14,6 +14,7 @@ import { useState } from 'preact/hooks';
 
 import { useComposerInput } from '../src/webview/panel/composer/hooks';
 import type { ComposerInputDraft, WebviewToHostMessage } from '../src/shared/protocol';
+import { PENDING_SESSION_PREFIX } from '../src/shared/tab-behavior';
 
 let container: HTMLElement;
 
@@ -180,6 +181,61 @@ test('useComposerInput does not post setComposerDraft when sessionPath is null',
     });
 
     assert.equal(posted.some((m) => m.type === 'setComposerDraft'), false);
+  } finally {
+    restoreTimers();
+  }
+});
+
+test('useComposerInput preserves in-progress text across pending→resolved path resolution', () => {
+  // Regression: while a new session is still loading (active path is the
+  // pending tab path), the user types into the composer. When the backend
+  // resolves the path, the host posts a state snapshot whose draftText for the
+  // resolved path is '' (the debounced setComposerDraft never fired, and the
+  // draft was keyed under the pending path). The composer's [sessionPath] seed
+  // effect must NOT clobber the live `text` with that stale empty draft — the
+  // typed message would otherwise be silently cut off when the session
+  // finished loading.
+  const posted: WebviewToHostMessage[] = [];
+  const PENDING = `${PENDING_SESSION_PREFIX}abc-123`;
+  const RESOLVED = '/workspace/sessions/real-session.jsonl';
+  const post = (m: WebviewToHostMessage) => { posted.push(m); };
+
+  installFakeTimers();
+  try {
+    act(() => {
+      render(h(TestHarness, { sessionPath: PENDING, draftText: '', postMessage: post }), container);
+    });
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    assert.ok(textarea);
+
+    // User types during the loading window. Do NOT flush the 300 ms debounce —
+    // the session resolves mid-typing, before the draft reaches the host.
+    act(() => {
+      textarea.value = 'hello world';
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    assert.equal(textarea.value, 'hello world');
+
+    // Session finishes loading: host swaps the active path pending→resolved and
+    // posts draftText='' for the resolved path (draft was never persisted).
+    act(() => {
+      render(h(TestHarness, { sessionPath: RESOLVED, draftText: '', postMessage: post }), container);
+    });
+
+    // The in-progress text must survive the path resolution.
+    assert.equal(textarea.value, 'hello world');
+
+    // Flushing the debounce now re-posts the draft under the RESOLVED path,
+    // so the host's source of truth catches up to the real session.
+    act(() => {
+      flushTimers();
+    });
+
+    const draftMsgs = posted.filter((m) => m.type === 'setComposerDraft') as Array<{ sessionPath: string; text: string }>;
+    const resolvedDraft = draftMsgs.find((m) => m.sessionPath === RESOLVED);
+    assert.ok(resolvedDraft, 'setComposerDraft should be re-posted under the resolved path');
+    assert.equal(resolvedDraft?.text, 'hello world');
   } finally {
     restoreTimers();
   }

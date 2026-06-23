@@ -7,6 +7,7 @@ import type {
   ComposerInputDraft,
   WebviewToHostMessage,
 } from '../../../shared/protocol';
+import { isPendingTabPath } from '../../../shared/tab-behavior';
 import useUndo from 'use-undo';
 import { shouldHandleGlobalComposerPaste } from './affordances';
 import {
@@ -59,6 +60,10 @@ export function useComposerInput({
   const [attachmentError, setAttachmentError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftPostTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Previous active session path, used to distinguish a pending→resolved path
+  // resolution (same session, path string changed) from a genuine session
+  // switch. See the [sessionPath] seed effect below.
+  const prevSessionPathRef = useRef<string | null>(null);
   // Word-processor-style undo/redo history for the composer text. It lives in a
   // dedicated past/present/future store (use-undo) so it survives the
   // programmatic clear on send — letting Ctrl+Z step back to a prompt that was
@@ -125,7 +130,31 @@ export function useComposerInput({
   // Seed the composer text from the host-persisted draft when the component
   // mounts or the active session changes. Host-backed draftText is the source
   // of truth across reloads and session switches.
+  //
+  // Exception: when the active path is a pending tab resolving to its real
+  // backend path, this is the SAME logical session — not a user-driven switch.
+  // The live `text` (including any keystrokes not yet debounced to the host)
+  // is the most up-to-date source of truth, so preserve it (and its undo
+  // history) instead of re-seeding from the host draft. Re-seeding here would
+  // clobber in-progress typing when the session finishes loading, because the
+  // draft for the just-resolved path lags the last keystrokes by up to the
+  // 300 ms post debounce (and was keyed under the pending path until the host
+  // migrates it on PendingPathReplaced).
   useEffect(() => {
+    const prevSessionPath = prevSessionPathRef.current;
+    prevSessionPathRef.current = sessionPath;
+
+    if (
+      prevSessionPath !== null &&
+      isPendingTabPath(prevSessionPath) &&
+      sessionPath !== null &&
+      !isPendingTabPath(sessionPath)
+    ) {
+      // Pending → resolved: same session, only the path string changed.
+      // Preserve the live composer state (text + undo history).
+      return;
+    }
+
     clearCheckpointTimer();
     // Start a fresh undo history per session — undo never crosses sessions.
     resetHistory(draftText);

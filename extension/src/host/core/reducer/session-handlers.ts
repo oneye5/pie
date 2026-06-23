@@ -509,6 +509,18 @@ export function handlePendingPathReplaced(state: ArchState, event: Extract<Event
       delete draft.composer.activeRunSummaryBySession[oldPendingPath];
     }
 
+    // Move composer draft text. Mirrors the inputs / runSummary migration
+    // above: the user's in-progress draft (posted under the pending path while
+    // the backend was still creating the session) must follow the session to
+    // its real path. Without this, the projected `draftText` for the resolved
+    // session falls back to '' and the webview re-seeds the composer empty —
+    // clobbering whatever the user typed during the loading window.
+    if (Object.prototype.hasOwnProperty.call(draft.composer.draftTextBySession, oldPendingPath)) {
+      draft.composer.draftTextBySession[newSessionPath] =
+        draft.composer.draftTextBySession[oldPendingPath] ?? '';
+      delete draft.composer.draftTextBySession[oldPendingPath];
+    }
+
     // Move analyticsFactors
     if (Object.prototype.hasOwnProperty.call(draft.sessions.analyticsFactorsBySession, oldPendingPath)) {
       draft.sessions.analyticsFactorsBySession[newSessionPath] =
