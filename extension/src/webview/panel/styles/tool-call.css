@@ -574,6 +574,107 @@
   min-height: 0;
 }
 
+/* ── web_search tool ─────────────────────────────────────────────────────── */
+/* Dedicated renderer for web_search: queries render as a readable, wrapped
+   list (not a YAML <pre>) and the synthesised answer renders as bounded
+   markdown prose (not a horizontally-scrolling <pre>), so a search card no
+   longer fills the transcript with a wall of preformatted text. */
+
+.web-search-queries {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.web-search-query {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  padding: 4px 8px;
+  border-radius: var(--panel-radius-sm);
+  background: var(--panel-code-surface);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--panel-foreground-soft);
+  /* Wrap long queries instead of forcing a horizontal scrollbar like the
+     generic YAML <pre> did. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.web-search-query-index {
+  flex: 0 0 auto;
+  min-width: 12px;
+  color: var(--panel-muted);
+  font-size: 10px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.web-search-query-text {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+/* Compact option chips (numResults / provider / recency / …). Only
+   non-default knobs are emitted, so this stays a single muted line. */
+.web-search-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.web-search-option {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--panel-control-hover);
+  border: 1px solid var(--panel-border-subtle);
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 10px;
+  line-height: 1.5;
+  color: var(--panel-muted);
+  white-space: nowrap;
+}
+
+/* Synthesised answer: markdown prose bounded to the shared section max
+   height so a long answer scrolls inside the card instead of pushing the
+   rest of the transcript down. Mirrors the ResizablePre bounding used by the
+   generic result block. */
+.web-search-result {
+  margin-top: 6px;
+  max-height: var(--expanded-section-max-height);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 4px;
+}
+
+/* Streaming (pre-completion) answer: plain wrapped text — no markdown parse
+   per delta. pre-wrap preserves the streamed line breaks while wrapping long
+   lines instead of horizontal-scrolling. */
+.web-search-result-streaming {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--panel-foreground-soft);
+}
+
+.web-search-pending {
+  margin-top: 6px;
+  padding: 4px 2px;
+  font-size: 12px;
+  font-style: italic;
+  color: var(--panel-muted);
+}
+
 @media (forced-colors: active) {
   .tool-call-body {
     border-top-color: ButtonText;
@@ -594,5 +695,9 @@
   .subagent-pool-candidate.chosen {
     border-color: Highlight;
     color: Highlight;
+  }
+  .web-search-query,
+  .web-search-option {
+    border-color: ButtonText;
   }
 }

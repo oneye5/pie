@@ -14,3 +14,4 @@ import './rows/typing-indicator-row';
 import './tools/default-tool';
 import './tools/subagent-tool';
 import './tools/ask-user-tool';
+import './tools/web-search-tool';

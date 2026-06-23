@@ -77,7 +77,7 @@ interface ToolCallHeaderCommandSummaryModel {
   suffix?: string;
 }
 
-type ToolCallHeaderSummaryModel =
+export type ToolCallHeaderSummaryModel =
   | ToolCallHeaderPathSummaryModel
   | ToolCallHeaderTextSummaryModel
   | ToolCallHeaderCommandSummaryModel;
@@ -561,7 +561,7 @@ export const TOOL_CALL_CLOSE_TRANSITION_MS = 300;
  *  match the `--panel-duration-entrance` token consumed by the keyframes. */
 export const TOOL_CALL_EXPAND_MS = 280;
 /** How long (ms) the completion pulse highlight remains on the card. */
-const TOOL_CALL_COMPLETION_PULSE_MS = 700;
+export const TOOL_CALL_COMPLETION_PULSE_MS = 700;
 
 export function ToolCallCard({
   toolCall,
