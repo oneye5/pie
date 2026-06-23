@@ -86,6 +86,13 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.match(html, /sliver-kind kind-modified/);
   assert.match(html, /sliver-kind-glyph/);
   assert.match(html, /sliver-kind-count">2</);
+  // The collapsed sliver also lists the affected files (truncated basenames +
+  // kind glyph) to fill its vertical height; each line carries its full path
+  // as a hover title.
+  assert.match(html, /file-changes-sliver-files/);
+  assert.match(html, /sliver-file kind-modified/);
+  assert.match(html, /sliver-file-name">a.ts/);
+  assert.match(html, /sliver-file-name">b.ts/);
   // Zero-count kinds are omitted from the legend (only modified is present).
   assert.doesNotMatch(html, /sliver-kind kind-created/);
   assert.doesNotMatch(html, /sliver-kind kind-deleted/);
@@ -93,6 +100,13 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.doesNotMatch(html, /file-change-diff-bar/);
   // Sliver title carries the full summary: count + kind breakdown + line totals.
   assert.match(html, /title="2 changed files · M2 · \+30 \/ -12"/);
+  // Drawer rows carry only the two primary hover buttons (View diff, View in
+  // editor); Copy path + Revert moved to the right-click context menu, so their
+  // in-row button classes are absent.
+  assert.match(html, /file-change-diff/);
+  assert.match(html, /file-change-open/);
+  assert.doesNotMatch(html, /file-change-copy/);
+  assert.doesNotMatch(html, /file-change-revert/);
 });
 
 test('FileChangesPanel collapsed: legend renders one row per present kind', () => {
@@ -119,6 +133,9 @@ test('FileChangesPanel collapsed: legend renders one row per present kind', () =
   assert.match(html, /sliver-kind-count">1</);
   // Count at the top is the file total (4), not a per-kind value.
   assert.match(html, /<span class="file-changes-sliver-count">4<\/span>/);
+  // Collapsed file list renders one entry per file (4 here).
+  assert.match(html, /file-changes-sliver-files/);
+  assert.match(html, /sliver-file-name">a.ts/);
 });
 
 test('FileChangesPanel pinned: renders left resize handle + close, no sliver', () => {

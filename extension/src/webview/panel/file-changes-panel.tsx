@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 import type { FileChangeEntry, FileChangeKind } from '../../shared/protocol';
 import { cx } from './utils/cx';
 import { ResizeHandle } from './components/resize-handle';
@@ -140,108 +140,152 @@ function FilePath({ path }: { path: string }) {
   );
 }
 
-function CopyPathButton({ path }: { path: string }) {
+/** Last path segment — the file's name without its directory. */
+function basename(path: string): string {
+  // Find the last path separator ("/" or "\") without a regex literal so the
+  // source has no backslash escapes to mangle across tool/JSON round-trips.
+  let i = path.length;
+  while (i-- > 0) {
+    const c = path.charCodeAt(i);
+    if (c === 47 || c === 92) break; // 47 = forward slash, 92 = backslash
+  }
+  return i < 0 ? path : path.slice(i + 1);
+}
+
+export interface FileChangeContextMenuState {
+  x: number;
+  y: number;
+  path: string;
+  kind: FileChangeKind;
+}
+
+/**
+ * Self-contained right-click menu for a changed-file row. Hosts the secondary
+ * actions (Copy path, Revert) that don't earn a spot in the per-row hover
+ * buttons — those stay limited to the two primary actions (View diff, View in
+ * editor). Revert is a two-step confirm (click -> "Confirm revert?" -> click) to
+ * guard the destructive op, mirroring the old in-row RevertButton. Positioned
+ * and clamped to the viewport, dismissed on click-outside / Escape / scroll /
+ * resize (same posture as the transcript ContextMenu). Rendered at the rail
+ * level (position: fixed) so it escapes the drawer's overflow clipping.
+ */
+function FileChangeContextMenu({
+  menu,
+  onRevert,
+  onClose,
+}: {
+  menu: FileChangeContextMenuState;
+  onRevert: (path: string) => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ top: menu.y, left: menu.x });
+  const [confirming, setConfirming] = useState(false);
   const [copied, setCopied] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    [],
-  );
+  // Clamp to viewport after first paint so the corrected position is what the
+  // user first sees (mirrors the transcript ContextMenu).
+  useLayoutEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const margin = 4;
+    const width = node.offsetWidth;
+    const height = node.offsetHeight;
+    let top = menu.y;
+    let left = menu.x;
+    if (top + height > window.innerHeight - margin) {
+      const flipped = menu.y - height;
+      top = flipped >= margin ? flipped : Math.max(margin, window.innerHeight - margin - height);
+    }
+    if (left + width > window.innerWidth - margin) {
+      const flipped = menu.x - width;
+      left = flipped >= margin ? flipped : Math.max(margin, window.innerWidth - margin - width);
+    }
+    top = Math.max(margin, top);
+    left = Math.max(margin, left);
+    setPos({ top, left });
+  }, [menu.x, menu.y]);
 
-  const onClick = (e: MouseEvent) => {
-    e.stopPropagation();
+  // Focus the first item on open; clear the copied-feedback timer on close.
+  useEffect(() => {
+    ref.current?.querySelector<HTMLButtonElement>('button.context-menu-item')?.focus();
+    return () => {
+      if (copiedTimer.current) clearTimeout(copiedTimer.current);
+    };
+  }, []);
+
+  // Dismiss on click-outside / Escape / scroll / resize.
+  useEffect(() => {
+    const down = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    const key = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    const scroll = () => onClose();
+    const resize = () => onClose();
+    document.addEventListener('mousedown', down);
+    document.addEventListener('keydown', key);
+    window.addEventListener('resize', resize);
+    window.addEventListener('scroll', scroll, true);
+    return () => {
+      document.removeEventListener('mousedown', down);
+      document.removeEventListener('keydown', key);
+      window.removeEventListener('resize', resize);
+      window.removeEventListener('scroll', scroll, true);
+    };
+  }, [onClose]);
+
+  const copyPath = () => {
     if (!navigator.clipboard?.writeText) return;
     void navigator.clipboard
-      .writeText(path)
+      .writeText(menu.path)
       .then(() => {
         setCopied(true);
-        if (timerRef.current) clearTimeout(timerRef.current);
-        timerRef.current = setTimeout(() => setCopied(false), 1100);
+        if (copiedTimer.current) clearTimeout(copiedTimer.current);
+        copiedTimer.current = setTimeout(() => setCopied(false), 1100);
       })
       .catch(() => {
         /* ignore */
       });
   };
 
-  return (
-    <button
-      class={`action-btn icon-only file-change-copy${copied ? ' is-copied' : ''}`}
-      type="button"
-      title={copied ? 'Copied!' : `Copy path: ${path}`}
-      aria-label={copied ? 'Path copied' : `Copy path of ${path}`}
-      onClick={onClick}
-    >
-      {copied ? (
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <polyline points="2.5,7 5.5,10 10.5,3.5" />
-        </svg>
-      ) : (
-        <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <rect x="3" y="3" width="7.5" height="7.5" rx="1" />
-          <path d="M5.5 1.5 H10 a1 1 0 0 1 1 1 V6.5" />
-        </svg>
-      )}
-    </button>
-  );
-}
-
-function RevertButton({ path, onRevert }: { path: string; onRevert: (path: string) => void }) {
-  const [confirming, setConfirming] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (timerRef.current) clearTimeout(timerRef.current);
-    },
-    [],
-  );
-
-  const onClick = (e: MouseEvent) => {
-    e.stopPropagation();
+  const onRevertClick = () => {
     if (confirming) {
-      onRevert(path);
-      setConfirming(false);
-      if (timerRef.current) {
-        clearTimeout(timerRef.current);
-        timerRef.current = null;
-      }
+      onRevert(menu.path);
+      onClose();
     } else {
       setConfirming(true);
-      if (timerRef.current) clearTimeout(timerRef.current);
-      timerRef.current = setTimeout(() => setConfirming(false), 3000);
     }
   };
 
-  if (confirming) {
-    return (
-      <button
-        class="action-btn danger file-change-revert file-change-revert-confirm"
-        type="button"
-        title="Click again to confirm revert"
-        aria-label={`Confirm revert of ${path}`}
-        onClick={onClick}
-      >
-        Confirm?
-      </button>
-    );
-  }
-
   return (
-    <button
-      class="action-btn icon-only file-change-revert"
-      type="button"
-      title={`Revert changes to ${path}`}
-      aria-label={`Revert ${path}`}
-      onClick={onClick}
+    <div
+      ref={ref}
+      class="block-context-menu file-change-context-menu"
+      role="menu"
+      style={`position:fixed;top:${pos.top}px;left:${pos.left}px`}
+      onMouseDown={(e) => e.stopPropagation()}
     >
-      <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <path d="M3 6.5 a4.5 4.5 0 1 1 1.5 3" />
-        <path d="M3 6.5 L3 3 L6 4" />
-      </svg>
-    </button>
+      <div class="file-change-ctx-title" title={menu.path}>
+        {KIND_LABEL[menu.kind]} · {basename(menu.path)}
+      </div>
+      <div class="context-menu-separator" />
+      <button class="context-menu-item" role="menuitem" type="button" onClick={copyPath}>
+        <span class="context-menu-check" aria-hidden="true" />
+        {copied ? 'Copied!' : 'Copy path'}
+      </button>
+      <button
+        class={`context-menu-item${confirming ? ' is-danger' : ''}`}
+        role="menuitem"
+        type="button"
+        onClick={onRevertClick}
+      >
+        <span class="context-menu-check" aria-hidden="true" />
+        {confirming ? 'Confirm revert?' : 'Revert changes'}
+      </button>
+    </div>
   );
 }
 
@@ -280,6 +324,16 @@ export function FileChangesPanel({
   const totals = useMemo(() => computeDiffTotals(fileChanges), [fileChanges]);
 
   const kindStats = useMemo(() => computeKindStats(fileChanges), [fileChanges]);
+
+  // Right-click context menu for a row (Copy path / Revert) — webview-local,
+  // dismissed like the peek overlay (STATE_CONTRACT § Webview-Local State).
+  const [ctxMenu, setCtxMenu] = useState<FileChangeContextMenuState | null>(null);
+  const openCtxMenu = useCallback((e: MouseEvent, change: FileChangeEntry) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, path: change.path, kind: change.kind });
+  }, []);
+  const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
 
   const { elRef, width: dragWidth, minWidth, maxWidth, startResize, resizeBy, reset } =
     useResizableWidth<HTMLDivElement>({ minWidth: 160, maxWidth: 480 });
@@ -437,6 +491,14 @@ export function FileChangesPanel({
               );
             })}
           </span>
+          <span class="file-changes-sliver-files" aria-hidden="true">
+            {fileChanges.map((c) => (
+              <span key={c.path} class={`sliver-file kind-${c.kind}`} title={c.path}>
+                <span class="sliver-file-glyph">{STATUS_LABELS[c.kind]}</span>
+                <span class="sliver-file-name">{basename(c.path)}</span>
+              </span>
+            ))}
+          </span>
         </button>
       )}
 
@@ -507,7 +569,46 @@ export function FileChangesPanel({
           </div>
           <div class="file-changes-list" role="list">
             {fileChanges.map((change) => (
-              <div key={change.path} class={`file-change-item kind-${change.kind}`} role="listitem">
+              <div
+                key={change.path}
+                class={`file-change-item kind-${change.kind}`}
+                role="listitem"
+                onContextMenu={(e) => openCtxMenu(e, change)}
+              >
+                <div class="file-change-actions">
+                  <button
+                    class="action-btn icon-only file-change-diff"
+                    type="button"
+                    title="View diff"
+                    aria-label={`View diff of ${change.path}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenDiff(change.path);
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="2" y="2" width="3.5" height="9" rx="1" />
+                      <rect x="7.5" y="2" width="3.5" height="9" rx="1" />
+                    </svg>
+                  </button>
+                  <button
+                    class="action-btn icon-only file-change-open"
+                    type="button"
+                    title={change.kind === 'deleted' ? `${change.path} was deleted` : `Open ${change.path} in the editor`}
+                    aria-label={change.kind === 'deleted' ? `${change.path} was deleted` : `Open ${change.path} in the editor`}
+                    disabled={change.kind === 'deleted'}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (change.kind !== 'deleted') onOpenInEditor(change.path);
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                      <path d="M9 4.5 L11.5 2 L11.5 4.5" />
+                      <path d="M11.5 2 L7 6.5" />
+                      <path d="M11 8 V10.5 a0.5 0.5 0 0 1 -0.5 0.5 H2.5 a0.5 0.5 0 0 1 -0.5 -0.5 V2.5 a0.5 0.5 0 0 1 0.5 -0.5 H5" />
+                    </svg>
+                  </button>
+                </div>
                 <div class="file-change-main">
                   <StatusLabel kind={change.kind} />
                   <Tooltip
@@ -526,32 +627,14 @@ export function FileChangesPanel({
                   </Tooltip>
                   <LineStats additions={change.additions} deletions={change.deletions} />
                 </div>
-                <div class="file-change-actions">
-                  <button
-                    class="action-btn icon-only file-change-open"
-                    type="button"
-                    title={change.kind === 'deleted' ? `${change.path} was deleted` : `Open ${change.path} in the editor`}
-                    aria-label={change.kind === 'deleted' ? `${change.path} was deleted` : `Open ${change.path} in the editor`}
-                    disabled={change.kind === 'deleted'}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (change.kind !== 'deleted') onOpenInEditor(change.path);
-                    }}
-                  >
-                    <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                      <path d="M9 4.5 L11.5 2 L11.5 4.5" />
-                      <path d="M11.5 2 L7 6.5" />
-                      <path d="M11 8 V10.5 a0.5 0.5 0 0 1 -0.5 0.5 H2.5 a0.5 0.5 0 0 1 -0.5 -0.5 V2.5 a0.5 0.5 0 0 1 0.5 -0.5 H5" />
-                    </svg>
-                  </button>
-                  <CopyPathButton path={change.path} />
-                  <RevertButton path={change.path} onRevert={onRevertFile} />
-                </div>
               </div>
             ))}
           </div>
         </div>
       </div>
+      {ctxMenu && (
+        <FileChangeContextMenu menu={ctxMenu} onRevert={onRevertFile} onClose={closeCtxMenu} />
+      )}
     </div>
   );
 }

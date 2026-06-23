@@ -106,14 +106,14 @@ Full decision record lives in the plan doc. Summary:
   space); pin = host state `ViewState.fileChangesExpanded` (in-flow reserved).
   A type-level pin in `sync-contract.test.ts` fails to compile if a
   `fileChangesPeek*` field is ever promoted into ViewState.
-- **D2** Collapsed sliver ~28px, full-height: count at top + total `+N`/`-N`
-  churn (how much changed, always visible) + an A/M/D kind legend (one row per
-  present kind, glyph + count, reusing the per-row status vocabulary). Refined
-  from the original stacked +/- diff bar: the green/red dark-track "health-bar"
-  read as noise and conveyed no magnitude at a glance; the legend surfaces what
-  kind of work happened (created vs modified vs deleted) and the `+N`/`-N`
-  totals carry the magnitude. The sliver `title` carries the full summary
-  (`N · A3 M7 D2 · +X / -Y`).
+- **D2** Collapsed sliver ~48px, full-height: count at top + total `+N`/`-N`
+  churn (how much changed, always visible) + an A/M/D kind legend, AND below
+  them a read-only vertical list of the affected files (truncated basenames +
+  a kind glyph) filling the remaining height — the tall sliver no longer
+  wastes vertical space. Peek/pin for the full, interactive list; each sliver
+  line carries its full path as a hover `title`. Refined from the original
+  stacked +/- diff bar (noise, no magnitude at a glance). The sliver `title`
+  carries the full summary (`N · A3 M7 D2 · +X / -Y`).
 - **D3** Peek is `position: absolute` over the transcript edge (not a push);
   hover region = rail subtree (sliver ∪ overlay); dismiss on mouse-leave /
   click-outside / Escape.
@@ -132,6 +132,13 @@ Full decision record lives in the plan doc. Summary:
   Edit-chronology order, no sort. Detail (full path + description + stats +
   diff hint; per-kind breakdown) surfaces on hover via `Tooltip` (a `triggerClass`
   prop was added so the wrapper span can act as a flex child).
+  **Iteration 2 (row hover = act mode):** the per-row buttons no longer reserve
+  space — `.file-change-actions` is `max-width:0; overflow:hidden; opacity:0`
+  at rest so the full path fills the row ("read" mode); on row hover/focus the
+  two primary buttons (View diff, View in editor) slide in from the left and
+  the path collapses to its basename. Copy path + Revert moved to a
+  self-contained right-click `FileChangeContextMenu` (two-step revert confirm);
+  the in-row `CopyPathButton`/`RevertButton` were deleted.
 - **D8** Touch (`matchMedia (hover: hover)` false): tap sliver = peek; pin
   button in peek header = pin. Desktop: hover = peek, click sliver = pin.
 

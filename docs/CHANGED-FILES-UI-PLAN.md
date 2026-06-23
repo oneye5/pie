@@ -45,6 +45,31 @@ by a user audit of the rendered rail:
   collapsed sliver was rejected as it would widen the sliver against the
   compact-footprint goal; revisit if the hover-peek proves too passive.
 
+### Iteration 2 — fill the sliver; row hover = act mode; secondary actions to a context menu
+
+A second user audit refined the collapsed sliver and the drawer rows:
+
+- **Collapsed sliver now lists the files (extends D2).** The sliver was widened
+  28→48px and, below the summary (count + `+`/`-` magnitude + A/M/D legend),
+  now renders a read-only vertical list of the affected files (truncated
+  basenames + a kind glyph) filling the full height — the tall sliver no longer
+  wastes vertical space. Peek/pin remain the path to the full, interactive
+  list; each sliver line carries its full path as a hover `title`.
+- **Row hover = act mode (supersedes D7's always-visible row buttons).** The
+  per-row action buttons no longer reserve space at rest: `.file-change-actions`
+  is `max-width:0; overflow:hidden; opacity:0` by default so the full file path
+  fills the row ("read" mode, mouse elsewhere). On row hover/focus-within the
+  two primary buttons (View diff, View in editor) slide in from the left
+  (`max-width` 0→64) and the path collapses to its basename (`.file-change-dir`
+  hides) — content shifts right, buttons appear ("act" mode). Touch
+  (`@media (hover: none)`) keeps the buttons always visible.
+- **Buttons pared to the two primary actions.** Copy path + Revert were
+  removed from the row and moved to a self-contained right-click
+  `FileChangeContextMenu` (Copy path; Revert with a two-step confirm), rendered
+  at the rail level (position: fixed, z-index 400) so it clears the peek overlay
+  and escapes the drawer's overflow clipping. The per-row `CopyPathButton` and
+  `RevertButton` components were deleted.
+
 ---
 
 ## Context: what was audited
