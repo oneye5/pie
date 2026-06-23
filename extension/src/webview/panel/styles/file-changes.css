@@ -113,7 +113,7 @@
   color: var(--panel-danger);
 }
 
-/* ── Collapsed legend: kind breakdown (A/M/D + counts) ────────────────────── */
+/* ── Collapsed legend: kind breakdown (A/M/D + counts) ──────────────────────── */
 /* Replaces the former stacked +/- "health-bar" (green/red on a dark track):
  * a mini legend of which kinds of change happened and how many, reusing the
  * A/M/D glyph vocabulary from the rows. Only present kinds render, so a
@@ -418,14 +418,41 @@
 }
 
 /* Flat modern rows: tight vertical rhythm, rounded hover surface, no
-   divider lines — spacing + hover fill carry the list structure. */
+   divider lines — spacing + hover fill carry the list structure. Each row
+   carries a 2px left accent that communicates kind without a full badge. */
 .file-change-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--panel-gap-xs);
   padding: var(--panel-gap-xs) var(--panel-gap-sm);
   border-radius: var(--panel-radius-sm);
+  overflow: hidden;
   transition: background var(--panel-transition-fast);
+}
+
+.file-change-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 2px;
+  border-radius: 999px;
+  background: var(--panel-muted);
+  opacity: 0.6;
+}
+
+.file-change-item.kind-created::before {
+  background: var(--panel-success);
+}
+
+.file-change-item.kind-modified::before {
+  background: var(--panel-warning);
+}
+
+.file-change-item.kind-deleted::before {
+  background: var(--panel-danger);
 }
 
 .file-change-item:hover {
@@ -440,56 +467,45 @@
   min-width: 0;
 }
 
-/* No sliding action buttons: the file name opens the file, and the +/- line
-   stats open the diff, so the row stays visually stable. */
+.file-change-path-text {
+  flex: 1;
+  display: flex;
+  align-items: baseline;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+}
 
-/* ── File path ───────────────────────────────────────────────────────────── */
-
+/* The file name is the primary action for the row (open in editor). It looks
+   like text until you hover, then hints that it is clickable. Truncation
+   applies to the name only after the directory has shrunk, preserving the
+   most useful part of the path at a glance. */
 .file-change-name {
+  flex: 0 1 auto;
+  min-width: 0;
   border: none;
   background: transparent;
   padding: 0;
   color: inherit;
   font-size: 12px;
-  line-height: 1.25;
-  text-align: left;
-  cursor: pointer;
-  white-space: nowrap;
   font-weight: 500;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: color var(--panel-transition-fast);
 }
 
-.file-change-name:hover {
+.file-change-name:hover:not(:disabled) {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
 
-.file-change-name:disabled,
-.file-change-name[disabled] {
+.file-change-name:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
-  opacity: 0.45;
-  text-decoration: none;
-}
-
-/* The file name encodes the change kind by color (no A/M/D label). */
-.file-change-item.kind-created .file-change-name {
-  color: var(--panel-success);
-}
-
-.file-change-item.kind-modified .file-change-name {
-  color: var(--panel-warning);
-}
-
-.file-change-item.kind-deleted .file-change-name {
-  color: var(--panel-danger);
-}
-
-/* Single-line path: the directory shrinks and ellipsizes while the filename
-   stays fully visible, so rows stay compact and scannable. */
-.file-change-path-text {
-  display: flex;
-  align-items: baseline;
-  min-width: 0;
-  white-space: nowrap;
+  text-decoration: line-through;
 }
 
 .file-change-dir {
@@ -503,10 +519,7 @@
   opacity: 0.85;
 }
 
-/* Tooltips were removed from the expanded drawer (they obscured the list). */
-
-/* ── Line stats (diff trigger) ───────────────────────────────────────────── */
-
+/* Line stats double as the diff action for the row. */
 .file-change-stats {
   display: inline-flex;
   align-items: center;
@@ -515,27 +528,19 @@
   border: none;
   background: transparent;
   padding: 0;
+  color: inherit;
   font-size: 10px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  color: inherit;
-  cursor: pointer;
   opacity: 0.85;
-  transition: opacity var(--panel-transition-fast);
+  cursor: pointer;
+  transition:
+    opacity var(--panel-transition-fast),
+    color var(--panel-transition-fast);
 }
 
 .file-change-stats:hover {
   opacity: 1;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.file-change-stats:hover .stat-additions {
-  color: var(--panel-success);
-}
-
-.file-change-stats:hover .stat-deletions {
-  color: var(--panel-danger);
 }
 
 .stat-additions {
@@ -548,9 +553,10 @@
 
 /* ── Row context menu (Copy path / Revert) ────────────────────────────────── */
 /* Self-contained right-click menu for changed-file rows. The secondary actions
-   (Copy path, Revert) live here; the primary file/diff actions are on the
-   row itself. Rendered at the rail level (position: fixed) so it escapes the
-   drawer's overflow clipping and clears the peek overlay (z-index 300). */
+   (Copy path, Revert) live here so the per-row hover buttons stay limited to
+   the two primary actions (View diff, View in editor). Rendered at the rail
+   level (position: fixed) so it escapes the drawer's overflow clipping and
+   clears the peek overlay (z-index 300). */
 .file-change-context-menu {
   z-index: 400;
   min-width: 168px;
@@ -582,11 +588,15 @@
   .file-changes-drawer {
     border-color: ButtonText;
   }
-  .file-change-name,
-  .file-change-stats {
-    color: ButtonText;
+  .file-change-item::before {
+    background: ButtonText;
   }
+  .file-change-name,
+  .file-change-stats,
   .file-changes-pin {
     color: ButtonText;
+  }
+  .file-change-name:disabled {
+    opacity: 1;
   }
 }
