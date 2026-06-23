@@ -32,6 +32,11 @@ export interface BufferedTextRate {
   minAdvance?: number;
   /** When remaining buffer is at or below this, reveal instantly to avoid trailing lag. */
   snapThreshold?: number;
+  /** Cap on the catch-up scale factor applied when the buffer is large (fast
+   *  bursts). Lower values keep the reveal slow and readable even when a lot of
+   *  text has accumulated, strengthening the "buffer then stream in" feel.
+   *  Defaults to 8 (fast catch-up, matching streaming message bodies). */
+  maxScaleFactor?: number;
 }
 
 /** True when `next` is `prev` grown by appending characters — a clean
@@ -121,8 +126,12 @@ export function useBufferedText(
         next = target;
       } else {
         // Scale rate by how much buffer we have — larger buffers reveal faster
-        // to prevent the visible text falling too far behind.
-        const scaleFactor = Math.min(8, 1 + Math.floor(remaining / 100));
+        // to prevent the visible text falling too far behind. The scale factor
+        // is capped (default 8) so a fast burst can't make the reveal outrun a
+        // readable pace; callers that want a stronger buffer/typing effect pass
+        // a lower `maxScaleFactor`.
+        const maxScaleFactor = rate?.maxScaleFactor ?? 8;
+        const scaleFactor = Math.min(maxScaleFactor, 1 + Math.floor(remaining / 100));
         const advance = Math.max(minAdvance, charsPerFrame * scaleFactor);
         next = Math.min(target, current + advance);
       }

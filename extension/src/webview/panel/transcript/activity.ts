@@ -133,12 +133,14 @@ export function deriveTurnActivityState({
       const pendingModelLabel = formatModelLabel(assistant.modelId || pendingAssistantModelId, assistant.thinkingLevel || pendingAssistantThinkingLevel);
       const streaming = deriveStreamingTail(assistantPartsFromMessage(assistant), prefs.activityTailLines);
       if (streaming) {
-        const isReasoning = streaming.tail.kind === 'reasoning';
+        // `deriveStreamingTail` only surfaces reasoning (reply text is shown in
+        // the message body above, not duplicated here), so a present tail is
+        // always a reasoning tail.
         return {
           phase: 'streaming',
-          label: isReasoning ? 'reasoning' : AGENT_ACTIVITY_LABELS.responding,
+          label: 'reasoning',
           tone: 'active',
-          ariaLabel: isReasoning ? 'Agent is reasoning' : 'Agent is responding',
+          ariaLabel: 'Agent is reasoning',
           pendingModelLabel,
           tail: streaming.tail,
         };

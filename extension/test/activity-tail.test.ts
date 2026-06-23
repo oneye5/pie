@@ -74,17 +74,17 @@ test('deriveStreamingTail surfaces the tail of the most recent reasoning segment
   assert.equal(result.tail.sourceText, 'so we need to do some stuff blah blah blah');
 });
 
-test('deriveStreamingTail switches to the reply text once the model starts emitting text', () => {
+test('deriveStreamingTail does not surface reply text — only reasoning is previewed', () => {
+  // Reply text is rendered in the message body above, so it is intentionally not
+  // duplicated in the compact bottom preview. Once `text` is the last part the
+  // tail falls back to null (the plain "responding" strip renders instead), and
+  // pure reply text with no reasoning is also not surfaced.
   const parts: ChatMessagePart[] = [
     { kind: 'reasoning', text: 'planning the answer' },
     { kind: 'text', text: 'Here is the answer so far' },
   ];
-  const result = deriveStreamingTail(parts);
-  assert.ok(result);
-  assert.equal(result.label, 'responding');
-  assert.equal(result.tail.kind, 'text');
-  assert.deepEqual(result.tail.lines, ['Here is the answer so far']);
-  assert.equal(result.tail.sourceText, 'Here is the answer so far');
+  assert.equal(deriveStreamingTail(parts), null);
+  assert.equal(deriveStreamingTail([{ kind: 'text', text: 'just the answer' }]), null);
 });
 
 test('deriveStreamingTail ignores toolCall parts and returns null when no text/reasoning exists', () => {
@@ -110,7 +110,7 @@ test('deriveStreamingTail collapses multi-line reasoning into a single flowing l
 
 test('deriveStreamingTail marks truncated when a single segment exceeds the char cap', () => {
   const huge = 'x'.repeat(2000);
-  const result = deriveStreamingTail([{ kind: 'text', text: huge }]);
+  const result = deriveStreamingTail([{ kind: 'reasoning', text: huge }]);
   assert.ok(result);
   assert.equal(result.tail.truncated, true);
   assert.equal(result.tail.lines.length, 1);

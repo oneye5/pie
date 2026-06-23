@@ -134,10 +134,21 @@ function isSdkResultTruncated(result: unknown): boolean {
 }
 
 /**
- * Derive a live tail for the currently-streaming assistant message.
- * Selects the most recently grown text/reasoning segment so the tail mirrors
- * what the model is emitting *right now* (reasoning while thinking tokens
- * stream, reply text while answer tokens stream).
+ * Derive a live tail for the currently-streaming assistant message — but only
+ * for *reasoning*. The assistant's reply text is already rendered in the
+ * streaming message body above, so duplicating it in the compact bottom
+ * preview just adds fast-moving noise; reasoning (often collapsed in the
+ * body) and tool/subagent activity (derived separately, see
+ * {@link deriveRunningToolTail} / {@link deriveMultiToolTail}) are the
+ * behind-the-scenes signals worth previewing.
+ *
+ * Reasoning is surfaced only while it is the actively-streaming segment —
+ * i.e. the last part is reasoning — so once reply text takes over the preview
+ * falls back to the plain "responding" strip instead of freezing on already-
+ * completed reasoning. The growing reasoning text is carried as
+ * {@link TurnActivityTail.sourceText} so the body can buffer it and reveal new
+ * tokens smoothly at the caret even after the source has grown past the preview
+ * window.
  */
 export function deriveStreamingTail(
   parts: ChatMessagePart[] | undefined,
@@ -145,21 +156,14 @@ export function deriveStreamingTail(
 ): DerivedActivityTail | null {
   if (!parts || parts.length === 0) return null;
 
-  // Find the most recently appended text/reasoning segment — that is the one
-  // actively growing, so its tail is the freshest signal.
-  let target: Extract<ChatMessagePart, { kind: 'text' | 'reasoning' }> | undefined;
-  for (let i = parts.length - 1; i >= 0; i -= 1) {
-    const part = parts[i];
-    if (part?.kind === 'text' || part?.kind === 'reasoning') {
-      target = part;
-      break;
-    }
-  }
-  if (!target) return null;
+  // Only reasoning, and only while it is the segment currently being produced
+  // (the last part). Reply text (`kind: 'text'`) is intentionally not surfaced
+  // here — see the function doc.
+  const last = parts[parts.length - 1];
+  if (last?.kind !== 'reasoning') return null;
 
-  const isReasoning = target.kind === 'reasoning';
-  const kind = isReasoning ? 'reasoning' : 'text';
-  const full = target.text;
+  const kind = 'reasoning';
+  const full = last.text;
   // Take a char-bounded tail and collapse newlines so the preview flows as a
   // single wrapping run that fills the reserved rows. The old approach split on
   // newlines and kept only the last `lineBudget` source lines, which left the
@@ -169,7 +173,7 @@ export function deriveStreamingTail(
   if (collapsed.length === 0) return null;
 
   return {
-    label: isReasoning ? 'reasoning' : 'responding',
+    label: 'reasoning',
     tail: {
       kind,
       lines: [collapsed],

@@ -13,11 +13,14 @@ import {
 } from './activity-tail';
 import { useBufferedText, type BufferedTextRate } from './use-buffered-text';
 
-/** Reveal rate for the activity tail: deliberately slower than streaming
- *  message bodies so the typing is perceptible in the compact preview, with
- *  catch-up scaling so fast bursts (e.g. a tool dumping output) don't fall
- *  behind the live stream. */
-const TAIL_RATE: BufferedTextRate = { charsPerFrame: 8, minAdvance: 4, snapThreshold: 24 };
+/** Reveal rate for the activity tail: deliberately much slower than streaming
+ *  message bodies so the typing is perceptible and *readable* in the compact
+ *  preview. A low `charsPerFrame` plus a tight `maxScaleFactor` cap means even
+ *  fast bursts (e.g. reasoning dumped in a single chunk) buffer up and then
+ *  stream in over many frames instead of snapping in — the stronger
+ *  buffer/smoothing effect the tail is meant to project. The snap threshold
+ *  is kept small so the trailing tail types out smoothly rather than jumping. */
+const TAIL_RATE: BufferedTextRate = { charsPerFrame: 3, minAdvance: 2, snapThreshold: 14, maxScaleFactor: 2 };
 
 interface TurnActivityTailBodyProps {
   tail: TurnActivityTail;
@@ -53,12 +56,15 @@ interface TurnActivityTailBodyProps {
  * the newest text and the caret stay visible. That translate is animated via a
  * CSS `transform` transition, so as tokens stream in the body slides smoothly
  * instead of snapping — making it easy to follow words mid-block. New tokens
- * are also buffered and revealed character-by-character at a smooth, readable
+ * are also buffered and revealed character-by-character at a slow, readable
  * rate (see `useBufferedText` with `TAIL_RATE`), so the preview types in
  * rather than popping a full window each snapshot — including while the
- * source has grown past the preview window and the view is sliding. Characters
- * are always shown fully opaque (no opacity ramp on the text itself), so the
- * streamed text stays crisp and legible.
+ * source has grown past the preview window and the view is sliding. The
+ * reveal rate is capped tightly so fast bursts buffer up and stream in over
+ * many frames (a deliberate, stronger buffer effect) instead of snapping in
+ * faster than a reader can follow; characters are always shown fully opaque
+ * (no opacity ramp on the text itself), so the streamed text stays crisp and
+ * legible.
  */
 export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
   const { kind, label, inputLine, lines, cursor, sourceText } = tail;
