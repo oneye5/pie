@@ -301,7 +301,7 @@ export function FileChangesPanel({
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
 
   const { elRef, width: dragWidth, minWidth, maxWidth, startResize, resizeBy, reset } =
-    useResizableWidth<HTMLDivElement>({ minWidth: 160, maxWidth: 480 });
+    useResizableWidth<HTMLDivElement>({ minWidth: 180, maxWidth: 520 });
 
   // hasNewChanges: pulse while unpinned and the count grows; clears on pin.
   useEffect(() => {
