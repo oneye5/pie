@@ -266,6 +266,24 @@ function prepareRun(
       const revisitOps = totalEditOps - distinctEditedFiles;
       return round3(Math.max(0, revisitOps) / totalEditOps);
     })(),
+    filesReviewedCount: (() => {
+      // Distinct files reviewed (read) — breadth-of-investigation signal. Counts
+      // distinct path hashes; legacy runs without per-file read data coerce to 0.
+      const readCountsByFile = run.fileMutation.readCountsByFile ?? {};
+      return Object.keys(readCountsByFile).length;
+    })(),
+    readRevisitRate: (() => {
+      // Re-read churn: fraction of attributed READ ops that revisited an already-read file.
+      // 0 = every read touched a fresh file (no churn); →1 = kept re-reading the same files.
+      // Null when no reads were attributable to a path (legacy runs lack per-file data).
+      const readCountsByFile = run.fileMutation.readCountsByFile ?? {};
+      const counts = Object.values(readCountsByFile);
+      const totalReadOps = counts.reduce((sum, count) => sum + count, 0);
+      if (totalReadOps <= 0) return null;
+      const distinctReadFiles = counts.length;
+      const revisitOps = totalReadOps - distinctReadFiles;
+      return round3(Math.max(0, revisitOps) / totalReadOps);
+    })(),
     estimatedCostUsd: estimateRunCostUsd(run.modelId, {
       inputTokens: run.inputTokens ?? 0,
       outputTokens: run.outputTokens ?? 0,

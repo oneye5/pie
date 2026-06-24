@@ -209,6 +209,11 @@ export interface FileMutationRollup {
   /** Per-file EDIT counts keyed by a path hash. Backs the file-churn signal (re-editing the same
    *  file repeatedly). Edits only; empty for runs captured before this field existed. */
   editCountsByFile: Record<string, number>;
+  /** Per-file READ counts keyed by a path hash. Backs the "files reviewed" breadth signal (how
+   *  many distinct files the agent reviewed) and the re-read churn signal (re-opening the same
+   *  file). Reads only; empty for runs captured before this field existed or when no read had an
+   *  extractable path. */
+  readCountsByFile: Record<string, number>;
 }
 
 export interface FileExtensionRollup {
@@ -413,6 +418,16 @@ export interface PreparedRunRow {
    *   when the run had no edits or lacked per-file attribution (legacy runs). Derived from
    *   `fileMutation.editCountsByFile`. Higher = more churn = worse. */
   editRevisitRate: number | null;
+  /** Distinct files reviewed (read) in this run — the count of distinct path hashes in
+   *   `fileMutation.readCountsByFile`. A breadth-of-investigation signal: how many different files
+   *   the agent inspected. 0 for runs with no attributable reads (incl. legacy runs captured before
+   *   per-file read tracking existed). */
+  filesReviewedCount: number;
+  /** Re-read churn: fraction of READ ops that revisited an already-read file in this run
+   *   (0 = every read touched a fresh file, no churn; →1 = kept re-reading the same files). Null
+   *   when the run had no attributable reads or lacked per-file attribution (legacy runs). Derived
+   *   from `fileMutation.readCountsByFile`. Higher = more churn = worse. */
+  readRevisitRate: number | null;
   /** Estimated USD cost derived from token usage × model pricing (null when pricing is unknown for the model). */
   estimatedCostUsd: number | null;
 }

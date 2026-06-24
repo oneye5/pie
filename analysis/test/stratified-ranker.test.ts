@@ -3,7 +3,6 @@ import test from 'node:test';
 
 import type {
   PreparedRunRow,
-  RunOutcomeResolution,
   VerificationCommandKind,
 } from '../scripts/contracts.ts';
 import {
@@ -126,6 +125,8 @@ function makeRun(overrides: Partial<PreparedRunRow> & { runId: string }): Prepar
     cacheHitRatio: null,
     firstAttemptSuccess: true,
     editRevisitRate: null,
+    filesReviewedCount: 0,
+    readRevisitRate: null,
     estimatedCostUsd: null,
   };
   const merged = { ...defaults, ...overrides } as PreparedRunRow;

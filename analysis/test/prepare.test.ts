@@ -436,3 +436,29 @@ test('prepareSourceAnalytics derives editRevisitRate (file churn) from per-file 
   assert.equal(byId.get('run-002')!.editRevisitRate, 0, 'single edit to one file → 0 churn');
   assert.equal(byId.get('run-003')!.editRevisitRate, null, 'legacy run without per-file data → null');
 });
+
+test('prepareSourceAnalytics derives filesReviewedCount and readRevisitRate (re-read churn) from per-file read counts', async () => {
+  const fixture = deepClone(await loadFixture());
+
+  // run-001: 5 reads across 2 distinct files → 3 re-reads → rate 3/5 = 0.6, 2 files reviewed
+  const fm1 = (fixture.completedRuns[0] as any).fileMutation;
+  fm1.readCountsByFile = { aaa: 3, bbb: 2 };
+
+  // run-002: single read of one file → 0 re-reads → rate 0, 1 file reviewed
+  const fm2 = (fixture.completedRuns[1] as any).fileMutation;
+  fm2.readCountsByFile = { ccc: 1 };
+
+  // run-003: reads occurred but no per-file attribution (legacy run) → rate null, 0 files
+  const fm3 = (fixture.completedRuns[2] as any).fileMutation;
+  delete fm3.readCountsByFile;
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const byId = new Map<string, PreparedRunRow>(prepared.runs.map((r) => [r.runId, r]));
+
+  assert.equal(byId.get('run-001')!.filesReviewedCount, 2, '5 reads / 2 files → 2 distinct files reviewed');
+  assert.ok(Math.abs(byId.get('run-001')!.readRevisitRate! - 0.6) < 1e-3, '5 reads / 2 files → 0.6 re-read rate');
+  assert.equal(byId.get('run-002')!.filesReviewedCount, 1, 'single read → 1 file reviewed');
+  assert.equal(byId.get('run-002')!.readRevisitRate, 0, 'single read of one file → 0 churn');
+  assert.equal(byId.get('run-003')!.filesReviewedCount, 0, 'legacy run without per-file data → 0 files');
+  assert.equal(byId.get('run-003')!.readRevisitRate, null, 'legacy run without per-file data → null');
+});

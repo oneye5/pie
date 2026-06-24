@@ -149,7 +149,11 @@
         "touchedFileCount": 1,
         "lineAdditions": 24,
         "lineDeletions": 6,
-        "lineModifications": 3
+        "lineModifications": 3,
+        "readCountsByFile": {
+          "efeqfp": 2,
+          "6wwj4y": 1
+        }
       },
       "fileExtensions": {
         "readCountsByExtension": {

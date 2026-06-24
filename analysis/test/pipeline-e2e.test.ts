@@ -4,13 +4,10 @@ import type { ToolFailureKind, ToolResultIssueKind } from '../scripts/contracts.
 
 import { prepareSourceAnalytics } from '../scripts/prepare.ts';
 import { buildSiteDataBundle, validateSiteDataBundle, writeSiteData, readSiteDataBundle } from '../scripts/site-data.ts';
-import { loadFixture, deepClone, withTempDir } from './helpers.ts';
-import type { 
-  SourceAnalyticsPayload, 
-  RunSnapshot, 
-  RunOutcome, 
-  SiteDataBundle, 
-  PreparedRunRow 
+import { loadFixture, withTempDir } from './helpers.ts';
+import type {
+  SourceAnalyticsPayload,
+  RunSnapshot,
 } from '../scripts/contracts.ts';
 
 // ============================================================================
@@ -100,6 +97,7 @@ function createMinimalRunSnapshot(overrides: Partial<RunSnapshot> = {}): RunSnap
       lineDeletions: 0,
       lineModifications: 0,
       editCountsByFile: {},
+      readCountsByFile: {},
     },
     fileExtensions: {
       readCountsByExtension: {},

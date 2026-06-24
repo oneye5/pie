@@ -15,6 +15,7 @@ import {
   looksLikeCreateTool,
   looksLikeDeleteTool,
   looksLikeEditTool,
+  looksLikeReadTool,
   looksLikeRenameTool,
 } from './mutation-tools';
 import {
@@ -76,6 +77,7 @@ function buildFileMutationDelta(partial: Partial<FileMutationDelta>): FileMutati
     lineDeletions: partial.lineDeletions ?? 0,
     lineModifications: partial.lineModifications ?? 0,
     editCountsByFile: partial.editCountsByFile ?? {},
+    readCountsByFile: partial.readCountsByFile ?? {},
   };
 }
 
@@ -152,6 +154,19 @@ export function getFileMutationFromToolCall(toolCall: ToolCall): FileMutationDel
     });
   }
 
+  if (looksLikeReadTool(normalizedToolName)) {
+    // Reads are not mutations — they don't touch (modify) a file — so only the
+    // per-file read attribution is recorded, mirroring `editCountsByFile` for
+    // the "files reviewed" breadth + re-read churn signals. Reads whose path
+    // can't be extracted still count via `readCountsByExtension`.
+    const readCountsByFile: Record<string, number> = {};
+    const filePath = extractFirstPathFromInput(input);
+    if (filePath) {
+      readCountsByFile[hashPath(filePath)] = 1;
+    }
+    return buildFileMutationDelta({ readCountsByFile });
+  }
+
   return createEmptyFileMutationDelta();
 }
 
@@ -168,11 +183,12 @@ export function mergeFileMutationDelta(
     lineAdditions: current.lineAdditions + next.lineAdditions,
     lineDeletions: current.lineDeletions + next.lineDeletions,
     lineModifications: current.lineModifications + next.lineModifications,
-    editCountsByFile: mergeEditCountsByFile(current.editCountsByFile, next.editCountsByFile),
+    editCountsByFile: mergeCountsByFile(current.editCountsByFile, next.editCountsByFile),
+    readCountsByFile: mergeCountsByFile(current.readCountsByFile, next.readCountsByFile),
   };
 }
 
-function mergeEditCountsByFile(
+function mergeCountsByFile(
   current: Record<string, number>,
   next: Record<string, number>,
 ): Record<string, number> {
@@ -184,7 +200,7 @@ function mergeEditCountsByFile(
 }
 
 export function createEmptyFileMutationDelta(): FileMutationDelta {
-  return { ...EMPTY_FILE_MUTATION_DELTA, editCountsByFile: {} };
+  return { ...EMPTY_FILE_MUTATION_DELTA, editCountsByFile: {}, readCountsByFile: {} };
 }
 
 export function getFileExtensionFromToolCall(toolCall: ToolCall): FileExtensionAnalysis | null {

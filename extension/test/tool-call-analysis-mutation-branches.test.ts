@@ -155,6 +155,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineDeletions: 0,
     lineModifications: 0,
     editCountsByFile: {},
+    readCountsByFile: {},
   });
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
@@ -172,6 +173,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineDeletions: 0,
     lineModifications: 1,
     editCountsByFile: {},
+    readCountsByFile: {},
   });
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
@@ -187,6 +189,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineDeletions: 0,
     lineModifications: 0,
     editCountsByFile: {},
+    readCountsByFile: {},
   });
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
@@ -202,6 +205,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineDeletions: 0,
     lineModifications: 0,
     editCountsByFile: {},
+    readCountsByFile: {},
   });
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
@@ -217,6 +221,7 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineDeletions: 0,
     lineModifications: 0,
     editCountsByFile: {},
+    readCountsByFile: {},
   });
 
   // Edit ops attribute to their file (path-hashed) for the file-churn signal.
@@ -233,7 +238,34 @@ test('getFileMutationFromToolCall covers patch fallbacks, path-based tools, and 
     lineDeletions: 0,
     lineModifications: 0,
     editCountsByFile: { [hashPath('src/existing.ts')]: 1 },
+    readCountsByFile: {},
   });
+
+  // Read ops attribute to their file (path-hashed) for the "files reviewed" +
+  // re-read churn signals. Reads are not mutations: they don't touch (modify) a
+  // file, so only readCountsByFile is populated (no touchedFileCount bump).
+  assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
+    name: 'read',
+    input: { path: 'src/existing.ts' },
+  })), {
+    writeCount: 0,
+    editCount: 0,
+    deleteCount: 0,
+    renameCount: 0,
+    touchedFileCount: 0,
+    lineAdditions: 0,
+    lineDeletions: 0,
+    lineModifications: 0,
+    editCountsByFile: {},
+    readCountsByFile: { [hashPath('src/existing.ts')]: 1 },
+  });
+
+  // Reads without an extractable path still count via readCountsByExtension;
+  // readCountsByFile stays empty (no per-file attribution).
+  assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
+    name: 'read',
+    input: { offset: 10 },
+  })), createEmptyFileMutationDelta());
 
   assert.deepEqual(getFileMutationFromToolCall(makeToolCall({
     name: 'search',
@@ -258,6 +290,7 @@ test('file mutation delta helpers return isolated empties, merge counts, and cla
       lineDeletions: 7,
       lineModifications: 8,
       editCountsByFile: { aaa: 2 },
+      readCountsByFile: { xxx: 2 },
     },
     {
       writeCount: 10,
@@ -269,6 +302,7 @@ test('file mutation delta helpers return isolated empties, merge counts, and cla
       lineDeletions: 70,
       lineModifications: 80,
       editCountsByFile: { aaa: 1, bbb: 3 },
+      readCountsByFile: { xxx: 1, yyy: 3 },
     },
   ), {
     writeCount: 11,
@@ -280,6 +314,7 @@ test('file mutation delta helpers return isolated empties, merge counts, and cla
     lineDeletions: 77,
     lineModifications: 88,
     editCountsByFile: { aaa: 3, bbb: 3 },
+    readCountsByFile: { xxx: 3, yyy: 3 },
   });
 
   assert.deepEqual(getFileExtensionFromToolCall(makeToolCall({

@@ -38,7 +38,6 @@ export const DEFAULT_FIXTURE_PATH = fileURLToPath(new URL('../fixtures/small-run
 export const DEFAULT_SITE_DATA_DIR = fileURLToPath(new URL('../site/data', import.meta.url));
 export const DEFAULT_DUCKDB_PATH = fileURLToPath(new URL('../data/usage.duckdb', import.meta.url));
 export const DEFAULT_STAGING_EXPORTS_DIR = fileURLToPath(new URL('../data/exports', import.meta.url));
-export const DEFAULT_SITE_DIST_DIR = fileURLToPath(new URL('../site/dist', import.meta.url));
 
 const INPUT_KINDS = new Set<InputKind>(['filesystemPathRef', 'imageBlob', 'fileBlob']);
 const THINKING_LEVELS = new Set<ThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
@@ -207,6 +206,7 @@ function createEmptyFileMutationRollup(): FileMutationRollup {
     lineDeletions: 0,
     lineModifications: 0,
     editCountsByFile: {},
+    readCountsByFile: {},
   };
 }
 
@@ -528,6 +528,7 @@ function coerceFileMutationRollup(value: unknown): FileMutationRollup {
     lineDeletions: toNonNegativeInteger(value.lineDeletions),
     lineModifications: toNonNegativeInteger(value.lineModifications),
     editCountsByFile: coerceCountRecord(value.editCountsByFile),
+    readCountsByFile: coerceCountRecord(value.readCountsByFile),
   };
 }
 

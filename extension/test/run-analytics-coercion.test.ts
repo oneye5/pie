@@ -184,7 +184,7 @@ test('rollup coercers normalize invalid nested records and preserve valid values
   assert.equal(toolUsage.subagentTaskScores.creativity.sum, 0);
   assert.equal(toolUsage.subagentTaskScores.reasoning.sum, 0);
 
-  assert.deepEqual(coerceFileMutationRollup({ writeCount: 1.9, editCount: 2.1, deleteCount: 'x', renameCount: -1, touchedFileCount: 3.8, lineAdditions: 4.4, lineDeletions: 5.2, lineModifications: 6.7 }), {
+  assert.deepEqual(coerceFileMutationRollup({ writeCount: 1.9, editCount: 2.1, deleteCount: 'x', renameCount: -1, touchedFileCount: 3.8, lineAdditions: 4.4, lineDeletions: 5.2, lineModifications: 6.7, readCountsByFile: { aaa: 2.5, bbb: -1 } }), {
     writeCount: 1,
     editCount: 2,
     deleteCount: 0,
@@ -194,6 +194,7 @@ test('rollup coercers normalize invalid nested records and preserve valid values
     lineDeletions: 5,
     lineModifications: 6,
     editCountsByFile: {},
+    readCountsByFile: { aaa: 2 },
   });
   assert.deepEqual(coerceFileMutationRollup(null), createEmptyFileMutationRollup());
 

@@ -164,6 +164,11 @@ export interface FileMutationRollup {
   /** Per-file EDIT counts keyed by a path hash. Backs the file-churn signal (re-editing the same
    *  file repeatedly). Edits only; empty for runs captured before this field existed. */
   editCountsByFile: Record<string, number>;
+  /** Per-file READ counts keyed by a path hash. Backs the "files reviewed" breadth signal (how many
+   *  distinct files the agent reviewed) and the re-read churn signal (re-opening the same file).
+   *  Reads only; empty for runs captured before this field existed or when no read had an
+   *  extractable path. */
+  readCountsByFile: Record<string, number>;
 }
 
 export interface FileExtensionRollup {
