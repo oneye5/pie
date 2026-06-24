@@ -342,8 +342,12 @@ function SubagentSingleBlock({
   const subagentCallId = multipleResults ? `${toolCall.id}:${index}` : toolCall.id;
 
   return (
+    // `overflow-clip` (not `hidden`): clips children to the rounded card
+    // corners but does NOT establish a scroll container, so the sticky
+    // `.subagent-header` inside pins to the transcript scroll viewport
+    // instead of being trapped by the card (mirrors `.tool-call-card`).
     <div
-      class={cx('tool-call tool-call-subagent', 'border border-border-subtle rounded-xl bg-card shadow-sm overflow-hidden transition-[border-color,background,box-shadow] duration-150 hover:border-border hover:bg-control-hover hover:shadow-md forced-colors:border forced-colors:border-[ButtonText]', status, hasPendingAskUser && 'pending-ask-user')}
+      class={cx('tool-call tool-call-subagent', 'border border-border-subtle rounded-xl bg-card shadow-sm overflow-clip transition-[border-color,background,box-shadow] duration-150 hover:border-border hover:bg-control-hover hover:shadow-md forced-colors:border forced-colors:border-[ButtonText]', status, hasPendingAskUser && 'pending-ask-user')}
       aria-expanded={open}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
     >

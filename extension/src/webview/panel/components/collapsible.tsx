@@ -21,6 +21,13 @@ export interface CollapsibleProps {
   /** Classes for the header `<button>` (padding, site-specific layout). */
   headerClass?: string;
   bodyClass?: string;
+  /** Pin the header to the top of the transcript scroll viewport while the
+   *  body is in view (`position: sticky`) so the collapse control stays
+   *  reachable inside a tall open body (e.g. reasoning the user resized
+   *  tall). Adds an opaque header surface so scrolling content stays hidden
+   *  beneath the pinned header. Default off — other collapsibles are
+   *  unaffected. */
+  stickyHeader?: boolean;
   onContextMenu?: (e: MouseEvent) => void;
   /** Optional data-* attributes for the outer wrapper (e.g. scroll anchors). */
   dataAttrs?: Record<string, string>;
@@ -49,6 +56,7 @@ export function Collapsible({
   class: className,
   headerClass,
   bodyClass,
+  stickyHeader = false,
   onContextMenu,
   dataAttrs,
   children,
@@ -63,7 +71,7 @@ export function Collapsible({
     >
       <button
         type="button"
-        class={cx('collapsible-header', headerClass)}
+        class={cx('collapsible-header', stickyHeader && 'collapsible-sticky-header', headerClass)}
         aria-expanded={open}
         aria-label={ariaLabel}
         onClick={toggle}

@@ -135,10 +135,38 @@
   padding: 5px 8px;
   border-radius: 8px;
   cursor: pointer;
-  position: relative;
+  /* Sticky (not `relative`): when the expanded subagent thread is taller than
+     the viewport, the header pins to the top of the transcript scroll viewport
+     so the collapse control stays reachable. Works because the card root uses
+     `overflow: clip` (not `hidden`) — clips rounded corners without becoming a
+     scroll container that would trap the sticky header. `sticky` is a
+     positioned value and establishes the containing block exactly as
+     `relative` did, so the pending-ask-user `::after` pulse overlay still
+     anchors to the header. Opaque `--panel-card-surface` (matches the card's
+     `bg-card`) so the tall nested transcript doesn't show through the pinned
+     header; the virtual row's `transform` scopes the z-index so a stuck header
+     never bleeds over neighbouring cards (same scoping as `.tool-call-header`). */
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--panel-card-surface);
   transition:
     background var(--panel-transition-fast),
     box-shadow var(--panel-transition-normal);
+}
+
+.subagent-header:hover {
+  background: var(--panel-control-hover);
+}
+
+/* Mirror the card's hover state on the header so the opaque sticky header
+   doesn't read as a darker strip when the body (not the header) is hovered.
+   Hovering the header itself also triggers the card hover, so this single rule
+   covers both. The collapsed-state hover rule (above, higher specificity) keeps
+   the subagent-specific hover surface when collapsed, so this only governs the
+   expanded/open state. */
+.tool-call.tool-call-subagent:hover .subagent-header {
+  background: var(--panel-control-hover);
 }
 
 .subagent-header-summary {

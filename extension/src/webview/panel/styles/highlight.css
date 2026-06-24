@@ -184,6 +184,36 @@
   }
 }
 
+/* ── Sticky collapsible header (opt-in via `stickyHeader`) ──────────────── */
+/* Mirrors the tool-call card's sticky header (see styles/tool-call.css): when
+   a tall open body (e.g. reasoning the user resized tall) is taller than the
+   viewport, the header pins to the top of the transcript scroll viewport so
+   the collapse control stays reachable while scrolling. The generic
+   `Collapsible` has no `overflow` trap, so sticky works without an
+   `overflow: clip` change on the wrapper — the header pins to the transcript
+   scroll viewport, bounded by its (possibly transformed) virtual row.
+
+   The header gets an opaque `--panel-card-surface` background so scrolling
+   content stays hidden beneath the pinned header. Reasoning's open body is
+   `bg-control/60` translucent, so the opaque pinned header reads as a darker
+   bar above the translucent body (intended contrast). At rest the header is
+   the same opaque surface, matching the tool-call card's always-opaque header.
+   Hover mirrors `--panel-control-hover` for consistency with the tool-call
+   card. These rules are unlayered (above the `base` layer) so the opaque
+   background isn't overridden by the base `.collapsible-header` reset; the
+   hover rule is also unlayered so it wins over the resting background. */
+
+.collapsible-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--panel-card-surface);
+}
+
+.collapsible-sticky-header:hover {
+  background: var(--panel-control-hover);
+}
+
 /* ── Vertical resize handles (top + bottom) ────────────────────────────── */
 /* Bracket any scrollable expanded section so users can grow the visible slice
    in place from either edge. Mirrors the original subagent top handle. */
