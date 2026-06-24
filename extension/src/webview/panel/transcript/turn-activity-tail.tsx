@@ -7,11 +7,20 @@ import { cx } from '../utils/cx';
 import type { TurnActivityState } from './activity';
 import {
   ACTIVITY_TAIL_MAX_CHARS,
-  ACTIVITY_TAIL_ROW_HEIGHT_PX,
   collapseSpaces,
   takeLastChars,
   type TurnActivityTail,
 } from './activity-tail';
+import { useBufferedText, type BufferedTextRate } from './use-buffered-text';
+
+/** Reveal rate for the activity tail: deliberately much slower than streaming
+ *  message bodies so the typing is perceptible and *readable* in the compact
+ *  preview. A low `charsPerFrame` plus a tight `maxScaleFactor` cap means even
+ *  fast bursts (e.g. reasoning dumped in a single chunk) buffer up and then
+ *  stream in over many frames instead of snapping in — the stronger
+ *  buffer/smoothing effect the tail is meant to project. The snap threshold
+ *  is kept small so the trailing tail types out smoothly rather than jumping. */
+const TAIL_RATE: BufferedTextRate = { charsPerFrame: 3, minAdvance: 2, snapThreshold: 14, maxScaleFactor: 2 };
 
 interface TurnActivityTailBodyProps {
   tail: TurnActivityTail;
@@ -42,15 +51,20 @@ interface TurnActivityTailBodyProps {
  * The body wraps to fill the reserved width and collapses source newlines
  * (joined with a space) so the limited preview rows carry as much of the recent
  * tail as possible, instead of one clipped row per source line. The block keeps
- * its fixed reserved height; the text is rendered directly from its source (no
- * per-character buffering) and scrolled like a console: it stays top-anchored
- * while it fits, then jumps up in whole-row increments so the newest row + caret
- * stay pinned to the bottom and the oldest row scrolls off the top on a row
- * boundary (see `useTailScroll`). Because wrapped height only grows by a whole
- * row when a line wraps, the view moves in discrete row steps — never a
- * sub-character slide — which keeps the small preview readable while the agent
- * works. Each row step is animated by the CSS `transform` transition on the
- * text so the scroll glides instead of snapping.
+ * its fixed reserved height; the text is top-anchored and a JS-computed
+ * `translateY` bottom-aligns it and scrolls wrapped overflow up out of view, so
+ * the newest text and the caret stay visible. The translate is applied with NO
+ * transition (see `useTailScroll`), so the view snaps up by whole rows — a
+ * discrete, glide-free row-scroll — instead of sliding continuously as tokens
+ * stream in, which keeps the small preview readable. New tokens are buffered
+ * and revealed character-by-character at a slow, readable rate (see
+ * `useBufferedText` with `TAIL_RATE`), so the preview types into the current
+ * line rather than popping a full window each snapshot — including while the
+ * source has grown past the preview window and the view is stepping. The reveal
+ * rate is capped tightly so fast bursts buffer up and stream in over many frames
+ * (a deliberate, stronger buffer effect) instead of snapping in faster than a
+ * reader can follow; characters are always shown fully opaque (no opacity ramp
+ * on the text itself), so the streamed text stays crisp and legible.
  */
 export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
   const { kind, label, inputLine, lines, cursor, sourceText } = tail;
@@ -59,15 +73,24 @@ export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
   // The caret sits on the composite row while no output has arrived, otherwise
   // at the end of the flowing body text.
   const caretOnComposite = Boolean(cursor) && !hasContent;
-  // Render the tail directly from its source — no per-character buffering. The
-  // preview reads like a console that wraps and scrolls a whole row at a time
-  // (see `useTailScroll`) rather than typing in character-by-character, which
-  // kept the small block perpetually sliding and hard to read.
+  // Smoothly stream the live tail in instead of snapping a full chunk every
+  // snapshot. Reasoning / reply / tool tails carry the raw, monotonically
+  // growing `sourceText`; we buffer that source and re-window the *revealed*
+  // portion, so new tokens type in at the caret even after the source has grown
+  // past the preview window (the sliding-window regime) — instead of jumping
+  // a whole window every snapshot. Subagent / multi-tool tails have no single
+  // growing source, so we buffer their joined status lines directly: they
+  // animate on growth and snap when a line changes. The slower reveal rate
+  // (vs streaming message bodies) makes the typing perceptible in the small
+  // preview while staying well ahead of typical output; characters are always
+  // shown fully opaque (no opacity ramp on the text itself), so the streamed
+  // text stays crisp and readable.
+  const streaming = Boolean(cursor);
   const rawJoined = lines.filter((l) => l.length > 0).join(' ');
-  const source = sourceText ?? rawJoined;
+  const revealed = useBufferedText(sourceText ?? rawJoined, streaming, TAIL_RATE);
   const joined = sourceText
-    ? collapseSpaces(takeLastChars(source, ACTIVITY_TAIL_MAX_CHARS))
-    : rawJoined;
+    ? collapseSpaces(takeLastChars(revealed, ACTIVITY_TAIL_MAX_CHARS))
+    : revealed;
   const { overflows, scrollY, refs } = useTailScroll(hasContent, lines.length >= 2);
   const showFade = hasContent && overflows;
 
@@ -124,11 +147,11 @@ interface TailScrollRefs {
 
 interface TailScroll {
   overflows: boolean;
-  /** Row-snapped vertical translate (px) that scrolls wrapped overflow up out
-   *  of view in whole-row increments — console-style. While the text fits it is
-   *  0 (top-anchored); once it overflows it jumps up by whole rows so the
-   *  newest row + caret stay pinned to the bottom. Applied as a `transform`
-   *  and animated via CSS so each row step glides instead of snapping. */
+  /** Vertical translate (px) that bottom-aligns the text and scrolls overflow
+   *  up out of view. Measured from real rendered heights and applied as a
+   *  `transform` with NO transition, so the view snaps up by whole rows — a
+   *  discrete, glide-free row scroll — instead of sliding continuously as
+   *  tokens stream in. */
   scrollY: number;
   refs: TailScrollRefs;
 }
@@ -149,31 +172,25 @@ function useTailScroll(hasContent: boolean, initialOverflow: boolean): TailScrol
     const textEl = textRef.current;
     if (!content || !textEl || !hasContent) return;
 
-    // `joined` is intentionally NOT a dependency: the body re-renders per
-    // snapshot as the source grows, and depending on the text here would tear
-    // down and recreate this ResizeObserver (plus a sync forced reflow via
-    // measure()) every snapshot. The observer already fires when the text
-    // element resizes — i.e. when a wrapped row is added — and its callback runs
-    // before paint, so the scroll stays correct without the churn. This effect
-    // only re-runs when content appears/disappears (hasContent).
+    // `joined` is intentionally NOT a dependency: the body buffers its text and
+    // re-renders per animation frame while streaming in, so depending on the
+    // text here would tear down and recreate this ResizeObserver (plus a sync
+    // forced reflow via measure()) every frame. The observer already fires when
+    // the text element resizes as tokens stream in, and its callback runs before
+    // paint, so the translate stays correct without the churn. This effect only
+    // re-runs when content appears/disappears (hasContent).
     const measure = () => {
-      const textH = textEl.scrollHeight;
+      const textH = textEl.clientHeight;
       const contentH = content.clientHeight;
-      const overflow = textH - contentH;
-      // Console-style row scrolling. While the wrapped text fits the reserved
-      // block it stays top-anchored (content fills downward like a terminal).
-      // The moment it overflows it jumps up in whole-row increments so the
-      // newest row + caret stay pinned to the bottom and the oldest row scrolls
-      // off the top on a row boundary — never a sub-character slide. Because
-      // wrapped height only grows by a whole row when a line wraps, the
-      // translate changes in row steps (not per character); the CSS `transform`
-      // transition animates each step as a discrete row scroll.
-      const nextY = overflow <= 0.5
-        ? 0
-        : -Math.ceil(overflow / ACTIVITY_TAIL_ROW_HEIGHT_PX) * ACTIVITY_TAIL_ROW_HEIGHT_PX;
-      setScrollY((prev) => (prev === nextY ? prev : nextY));
-      const nextOverflow = nextY < 0;
+      const nextOverflow = textH > contentH + 0.5;
       setOverflows((prev) => (prev !== nextOverflow ? nextOverflow : prev));
+      // contentH - textH: positive (slack) pushes the text down to bottom-align
+      // when it's shorter than the block; negative (overflow) scrolls it up so
+      // the newest content + caret stay pinned to the bottom and the top clips.
+      // Applied with no CSS transition, so the view snaps up by whole rows (a
+      // discrete row-scroll) rather than gliding continuously as tokens stream.
+      const nextY = contentH - textH;
+      setScrollY((prev) => (prev === nextY ? prev : nextY));
     };
 
     measure();

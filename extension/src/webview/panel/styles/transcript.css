@@ -474,8 +474,7 @@
    heights instead of jumping the transcript. The inner fades opacity too, so
    any residual margins/whitespace vanish with the content. */
 .turn-activity-region {
-  display: flex;
-  flex-direction: column;
+  display: block;
   width: 100%;
   min-width: 0;
 }
@@ -572,12 +571,14 @@
 /* Flowing content body: source newlines are collapsed and the text wraps to
    fill the reserved width, so the limited preview rows carry as much of the
    recent tail as possible instead of clipping each source line at the right
-   edge. The text is top-anchored and a JS-computed, row-snapped `translateY`
-   (see `useTailScroll` in turn-activity-tail.tsx) scrolls wrapped overflow up
-   in whole-row increments so the newest row + caret stay pinned to the bottom;
-   a `transform` transition animates each row step so the scroll glides instead
-   of snapping. Long unbroken tokens break to avoid spilling past the width.
-   Overrides the composite header's nowrap/ellipsis. */
+   edge. The text is top-anchored and a JS-computed `translateY` (see
+   `useTailScroll` in turn-activity-tail.tsx) bottom-aligns it and scrolls
+   wrapped overflow up out of view. The translate is applied with NO transition
+   so the view snaps up by whole rows — a discrete, glide-free row-scroll —
+   instead of sliding continuously as tokens stream in (characters still type
+   into the current line via the buffered reveal). Long unbroken tokens break to
+   avoid spilling past the width. Overrides the composite header's
+   nowrap/ellipsis. */
 .turn-activity-tail-content .turn-activity-tail-text {
   position: absolute;
   left: 0;
@@ -588,7 +589,6 @@
   text-overflow: clip;
   white-space: pre-wrap;
   overflow-wrap: break-word;
-  transition: transform 120ms ease-out;
   will-change: transform;
 }
 
