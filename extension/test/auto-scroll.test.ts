@@ -153,13 +153,13 @@ test('resolveScrollAnchorDelta returns null when the anchored item disappears', 
 test('advanceSmoothScrollTop eases toward the target without overshooting', () => {
   const next = advanceSmoothScrollTop(100, 200);
 
-  assert.equal(next, 122);
+  assert.equal(next, 170);
 });
 
 test('advanceSmoothScrollTop moves upward when the target shrinks', () => {
   const next = advanceSmoothScrollTop(220, 120);
 
-  assert.equal(next, 198);
+  assert.equal(next, 150);
 });
 
 test('advanceSmoothScrollTop snaps when already within epsilon of the target', () => {
@@ -172,8 +172,10 @@ test('advanceSmoothScrollTop eases typical tool-body deltas instead of snapping'
   // A ~420px delta (a terminal pane max-height expand/collapse) is below the
   // large-delta snap threshold, so it must ease toward the target rather than
   // jump there in a single frame (the previous 200px threshold snapped this).
+  // With interpolation 0.7 + max step 120 the first step is the capped 120.
   const next = advanceSmoothScrollTop(0, 420);
   assert.ok(next > 0 && next < 420, `expected an eased step < 420, got ${next}`);
+  assert.equal(next, 120);
 });
 
 test('advanceSmoothScrollTop still snaps truly huge one-shot deltas', () => {

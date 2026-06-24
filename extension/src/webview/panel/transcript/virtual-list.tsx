@@ -9,7 +9,6 @@ import { deriveTurnActivityState } from './activity';
 import { ToolCallItem } from './tool-call-item';
 import { useTranscriptScroll } from './use-transcript-scroll';
 import { useTranscriptScrollAnchor } from './use-transcript-scroll-anchor';
-import { streamingContentSignature } from '../composer/indicator-signature';
 import { handleTranscriptClick } from './transcript-click-handler';
 import { cx } from '../utils/cx';
 import type { RenderToolCall, TranscriptContextMenuHandler } from './types';
@@ -324,37 +323,11 @@ export function TranscriptVirtualList({
     pendingAssistantThinkingLevel,
   });
 
-  // A cheap fingerprint of height-relevant transcript content (length + the
-  // streaming message's growing prose). `useSmoothAutoFollow` uses it to skip
-  // the forced-layout `scrollHeight` read on frames where content did not
-  // change. Recomputed each snapshot (the transcript is a fresh structured
-  // clone), but O(streaming messages) — in practice O(1).
-  const contentSignature = useMemo(
-    () => `${transcript.length}|${streamingContentSignature(transcript)}`,
-    [transcript],
-  );
-
-  const {
-    scrollRef,
-    autoFollowRef,
-    isAtBottom,
-    isInitialPositioning,
-    isLoadingOlder,
-    isLoadingNewer,
-    requestOlderPage,
-    requestNewerPage,
-    jumpToLatest,
-  } = useTranscriptScroll({
-    sessionKey,
-    transcriptWindow,
-    transcriptLength: transcript.length,
-    busy,
-    onLoadOlder,
-    onLoadNewer,
-    onJumpToLatest,
-    contentSignature,
-  });
-
+  // Owned here (not inside useTranscriptScroll) so the virtualizer can be
+  // created from it BEFORE the scroll hook runs — letting the hook receive the
+  // virtualizer's `totalSize` as a reactive prop, which drives its follow-target
+  // refresh (every content-height change flows through totalSize).
+  const scrollRef = useRef<HTMLDivElement>(null);
   const virtualizer = useTranscriptVirtualizer(rows, scrollRef);
 
   const renderToolCall = useTranscriptRenderToolCall({
@@ -384,6 +357,27 @@ export function TranscriptVirtualList({
   const virtualRows = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
   const lastRow = rows[rows.length - 1];
+
+  const {
+    autoFollowRef,
+    isAtBottom,
+    isInitialPositioning,
+    isLoadingOlder,
+    isLoadingNewer,
+    requestOlderPage,
+    requestNewerPage,
+    jumpToLatest,
+  } = useTranscriptScroll({
+    scrollRef,
+    sessionKey,
+    transcriptWindow,
+    transcriptLength: transcript.length,
+    busy,
+    onLoadOlder,
+    onLoadNewer,
+    onJumpToLatest,
+    totalSize,
+  });
 
   // Pin the top visible row when the user has scrolled up and a tool body
   // above the viewport resizes (Tier 2). No-op while pinned to the bottom

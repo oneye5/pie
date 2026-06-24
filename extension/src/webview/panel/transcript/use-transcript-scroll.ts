@@ -13,17 +13,11 @@ import {
   type MessageScrollAnchor,
 } from './scroll-anchor';
 
-/**
- * While auto-follow is active but the content signature is stable (nothing
- * grew this frame), `useSmoothAutoFollow` still re-reads `scrollHeight` on this
- * cadence to catch height changes the signature can't see (late image /
- * markdown loads, table renders). Kept well above the ~7/sec streaming delta
- * cadence so it rarely adds a read while streaming, and low enough that a late
- * load is caught within a perceptible window.
- */
-export const AUTO_FOLLOW_FALLBACK_READ_MS = 250;
-
 interface UseTranscriptScrollOptions {
+  /** Owned by the caller (`virtual-list`) so the virtualizer can be created from
+   *  it before this hook runs — letting the hook receive `totalSize` as a
+   *  reactive prop. Attached to the scroll container `<div ref={scrollRef}>`. */
+  scrollRef: { current: HTMLDivElement | null };
   sessionKey: string | null;
   transcriptWindow: TranscriptWindow;
   transcriptLength: number;
@@ -32,18 +26,21 @@ interface UseTranscriptScrollOptions {
   onLoadNewer: () => void;
   onJumpToLatest: () => void;
   /**
-   * A cheap fingerprint that changes whenever the transcript's height-relevant
-   * content grows (length + streaming-message prose). `useSmoothAutoFollow`
-   * uses it to skip the forced-layout `scrollHeight` read on frames where
-   * content did not change, falling back to a timed read
-   * ({@link AUTO_FOLLOW_FALLBACK_READ_MS}) for height changes the signature
-   * can't observe (late image / markdown loads).
+   * The virtualizer's current total content height (`virtualizer.getTotalSize()`).
+   * Every height-relevant change in the transcript — streaming markdown,
+   * tool-body output, reasoning/preview expand-collapse, late image/table
+   * loads, drag-resizes — flows through a row ResizeObserver → `measureElement`
+   * → `totalSize`. The follow-target refresh effect keys on it to re-read the
+   * true bottom exactly once per height change, replacing the previous
+   * data-model content signature (which only saw streaming-message prose and
+   * so drifted up to a 250ms fallback cadence for every other growth source —
+   * the root cause of "scroll drifts from the bottom during regular agent
+   * work": tool output, reasoning, and previews grew unseen between reads).
    */
-  contentSignature: string;
+  totalSize: number;
 }
 
 interface UseTranscriptScrollResult {
-  scrollRef: { current: HTMLDivElement | null };
   /** Live ref to the auto-follow state (true while pinned to the bottom).
    *  Read by scroll-anchoring to know when NOT to pin the top visible row. */
   autoFollowRef: { current: boolean };
@@ -343,6 +340,57 @@ function usePaginationTrackingEffect(
 }
 
 /**
+ * Keeps the auto-follow target (the true bottom = `scrollHeight - clientHeight`,
+ * i.e. the max `scrollTop`) fresh for {@link useSmoothAutoFollow} without the
+ * loop paying for a per-frame forced-layout read.
+ *
+ * Two complementary signals cover the two ways the bottom moves:
+ *
+ * 1. **Content grows** (the common case): keyed on `totalSize`. The
+ *    virtualizer's `totalSize` changes for EVERY height-relevant mutation —
+ *    streaming markdown, tool-body output, reasoning/preview expand-collapse,
+ *    late image/table loads, drag-resizes — because each measured row's
+ *    ResizeObserver → `measureElement` → `totalSize`. A `useLayoutEffect` re-reads
+ *    the true bottom exactly once per change, after the DOM commit (height
+ *    already updated) and before the next rAF tick that consumes it.
+ *
+ * 2. **Viewport resizes** (panel resized, file-changes rail opening, composer
+ *    growing): change `clientHeight` without changing `totalSize`, so the
+ *    `totalSize` effect wouldn't fire. A `ResizeObserver` on the scroll
+ *    container (its border-box == `clientHeight`) re-reads the bottom.
+ *
+ * Together these replace the previous data-model content signature + 250ms
+ * fallback cadence. That signature only observed streaming-message prose, so
+ * every OTHER growth source (tool output, reasoning, previews, late loads) was
+ * seen at most once per 250ms — up to ~250px of persistent drift during regular
+ * agent work. `totalSize` sees all of them immediately, so the follow stays
+ * pinned instead of catching up a quarter-second late.
+ */
+function useRefreshFollowTarget(
+  scrollRef: { current: HTMLDivElement | null },
+  totalSize: number,
+  sessionKey: string | null,
+  cachedTargetRef: { current: number },
+) {
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    cachedTargetRef.current = Math.max(0, el.scrollHeight - el.clientHeight);
+  }, [scrollRef, totalSize, sessionKey, cachedTargetRef]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const refresh = () => {
+      cachedTargetRef.current = Math.max(0, el.scrollHeight - el.clientHeight);
+    };
+    const ro = new ResizeObserver(refresh);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [scrollRef, cachedTargetRef]);
+}
+
+/**
  * rAF loop that eases the transcript toward its bottom whenever auto-follow is
  * active, replacing the previous hard `scrollTop = scrollHeight` snaps that
  * produced visible jumps as streaming content grew. Each frame advances
@@ -363,16 +411,16 @@ function usePaginationTrackingEffect(
  * `scrollToBottom` / `jumpToLatest` keep doing their own synchronous snaps and
  * do not depend on this loop.
  *
- * Forced-layout avoidance: reading `el.scrollHeight` forces a layout reflow,
- * so the loop does NOT read it every frame. It caches the last target and
- * re-reads only when the content signature changed (the transcript grew —
- * the common case while streaming) or on the {@link AUTO_FOLLOW_FALLBACK_READ_MS}
- * fallback cadence (for height changes the signature can't see, like late
- * image / markdown loads). Between streaming deltas the signature is stable,
- * so the cached target is reused and the ease still advances every frame
- * against it — no reflow. This cuts `scrollHeight` reads from ~60/s (per frame)
- * to ~7/s (per delta) while streaming and to ~4/s when idle, without freezing
- * the ease (it runs against the cached target until scrollTop catches up).
+ * Target freshness: the loop NEVER reads `scrollHeight`/`clientHeight` itself
+ * (no per-frame forced reflow). It eases toward `cachedTargetRef` — the true
+ * bottom (`scrollHeight - clientHeight`) — which {@link useRefreshFollowTarget}
+ * refreshes on every content/viewport height change. Easing toward the bottom
+ * (not `scrollHeight`) is load-bearing: a viewport already pinned at the
+ * bottom has `delta == 0`, so there is no phantom `clientHeight`-sized ease
+ * each idle frame, no clamped no-op write, and therefore no drift between the
+ * real `scrollTop` and `lastScrollTopRef` — which keeps the scroll handler's
+ * disengage detection exact (the old ease-toward-`scrollHeight` path could
+ * stale `lastScrollTopRef` by a capped step every pinned-but-idle frame).
  */
 function useSmoothAutoFollow(
   scrollRef: { current: HTMLDivElement | null },
@@ -384,15 +432,12 @@ function useSmoothAutoFollow(
   isInitialPositioningRef: { current: boolean },
   isInitialPositioning: boolean,
   busy: boolean,
-  contentSigRef: { current: string },
+  cachedTargetRef: { current: number },
 ) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     let raf = 0;
-    let lastSig = contentSigRef.current;
-    let lastReadAt = 0;
-    let cachedTarget = 0;
     const tick = () => {
       // Idle gate: stop the loop (do not schedule the next frame) when there is
       // nothing to follow, so the main thread is not woken ~60x/s while idle —
@@ -413,30 +458,16 @@ function useSmoothAutoFollow(
         return;
       }
       if (el.style.scrollBehavior !== 'auto') el.style.scrollBehavior = 'auto';
-      // Re-read scrollHeight only when content may have grown (the signature
-      // changed) or on the fallback cadence, so idle-but-busy frames don't
-      // force a layout reflow. Between streaming deltas the signature is
-      // stable, so the cached target is reused and the ease still advances
-      // every frame against it — no reflow. The fallback catches non-streaming
-      // height changes (late image / markdown loads) the signature can't see.
-      const sig = contentSigRef.current;
-      const now = Date.now();
-      if (sig !== lastSig || now - lastReadAt >= AUTO_FOLLOW_FALLBACK_READ_MS) {
-        cachedTarget = el.scrollHeight;
-        lastSig = sig;
-        lastReadAt = now;
-      }
-      const target = cachedTarget;
+      const target = cachedTargetRef.current;
       // During the post-session-switch positioning window, snap to the bottom
       // every frame instead of easing. The virtualizer's totalSize grows in
-      // sub-200px increments as late ResizeObserver measurements arrive, which
-      // the easing path (advanceSmoothScrollTop) chases slowly — the visible
-      // crawl. Snapping here, in tandem with useSessionResetEffect's per-frame
-      // scrollToBottom, pins the transcript to the bottom while the opacity
-      // mask hides the reflow. The snap-during-positioning is scoped to this
-      // window only; once isInitialPositioningRef clears, normal easing resumes
-      // for ongoing streaming auto-follow. hasNewer sessions return above, so
-      // this never snaps a newer-not-loaded session to its partial bottom.
+      // sub-200px increments as late ResizeObserver measurements arrive; the
+      // opacity mask (transcript-positioning) hides the reflow, and
+      // useRefreshFollowTarget keeps `target` fresh with each increment, so
+      // snapping pins the transcript to the bottom while it settles. Scoped to
+      // this window only; once isInitialPositioningRef clears, normal easing
+      // resumes. hasNewer sessions return above, so this never snaps a
+      // newer-not-loaded session to its partial bottom.
       if (isInitialPositioningRef.current) {
         if (el.scrollTop !== target) {
           el.scrollTop = target;
@@ -456,7 +487,13 @@ function useSmoothAutoFollow(
       }
       const next = advanceSmoothScrollTop(current, target);
       el.scrollTop = next;
-      lastScrollTopRef.current = next;
+      // Read back the actual (possibly browser-clamped) scrollTop so
+      // `lastScrollTopRef` stays exact on BOTH growth (next <= bottom, no clamp)
+      // and shrink (next can exceed the new bottom → browser clamps to it). A
+      // stale-high ref would make the scroll handler's disengage detection
+      // fragile for one frame. scrollTop reads are cheap (no forced reflow,
+      // unlike scrollHeight/clientHeight); scrollToBottom uses the same pattern.
+      lastScrollTopRef.current = el.scrollTop;
       setIsAtBottom(true);
     };
     raf = requestAnimationFrame(tick);
@@ -464,10 +501,11 @@ function useSmoothAutoFollow(
       cancelAnimationFrame(raf);
       el.style.scrollBehavior = '';
     };
-  }, [scrollRef, hasNewer, autoFollowRef, autoFollow, lastScrollTopRef, setIsAtBottom, isInitialPositioningRef, isInitialPositioning, busy, contentSigRef]);
+  }, [scrollRef, hasNewer, autoFollowRef, autoFollow, lastScrollTopRef, setIsAtBottom, isInitialPositioningRef, isInitialPositioning, busy, cachedTargetRef]);
 }
 
 export function useTranscriptScroll({
+  scrollRef,
   sessionKey,
   transcriptWindow,
   transcriptLength,
@@ -475,9 +513,8 @@ export function useTranscriptScroll({
   onLoadOlder,
   onLoadNewer,
   onJumpToLatest,
-  contentSignature,
+  totalSize,
 }: UseTranscriptScrollOptions): UseTranscriptScrollResult {
-  const scrollRef = useRef<HTMLDivElement>(null);
   const [isInitialPositioning, setIsInitialPositioning] = useState(true);
   // Live mirror of `isInitialPositioning` readable inside the useSmoothAutoFollow
   // rAF loop's tick (the positioning snap branch). `isInitialPositioning` (the
@@ -489,12 +526,13 @@ export function useTranscriptScroll({
   const previousLoadedEndRef = useRef(transcriptWindow.loadedEnd);
   const pendingJumpToLatestSnapRef = useRef(false);
 
-  // Live ref to the latest content signature, read inside the useSmoothAutoFollow
-  // rAF tick to decide whether scrollHeight may have grown. Updated each render
-  // (not via an effect) so the tick sees the latest value without rebuilding
-  // the rAF loop on every delta.
-  const contentSigRef = useRef(contentSignature);
-  contentSigRef.current = contentSignature;
+  // The true bottom (scrollHeight - clientHeight) the auto-follow rAF loop
+  // eases toward. Refreshed by useRefreshFollowTarget on every content/viewport
+  // height change (keyed on totalSize + a container ResizeObserver), so the
+  // loop never reads scrollHeight/clientHeight itself — no per-frame forced
+  // reflow, and no stale target drifting a quarter-second behind tool/reasoning/
+  // preview growth.
+  const cachedTargetRef = useRef(0);
 
   const { isAtBottom, setIsAtBottom, autoFollow, setAutoFollow, autoFollowRef, lastScrollTopRef, scrollToBottom } = useScrollState(scrollRef);
   const {
@@ -569,6 +607,8 @@ export function useTranscriptScroll({
     setAutoFollow,
   );
 
+  useRefreshFollowTarget(scrollRef, totalSize, sessionKey, cachedTargetRef);
+
   useSmoothAutoFollow(
     scrollRef,
     autoFollowRef,
@@ -579,11 +619,10 @@ export function useTranscriptScroll({
     isInitialPositioningRef,
     isInitialPositioning,
     busy,
-    contentSigRef,
+    cachedTargetRef,
   );
 
   return {
-    scrollRef,
     autoFollowRef,
     isAtBottom,
     isInitialPositioning,
