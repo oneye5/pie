@@ -114,15 +114,17 @@ export function applySkillSelection(
 	const excludedSkillNames = visibleSkills.filter((s) => pruneSet.has(s.name)).map((s) => s.name);
 	const includedSkillNames = visibleSkills.filter((s) => !pruneSet.has(s.name)).map((s) => s.name);
 
-	// Safety net: pruning every visible skill is almost always a misunderstanding
-	// (the session loaded skills for a reason, and over-pruning is the failure we
-	// guard against). Fail open rather than strip the lot. Pinned skills already
-	// survive, so this only fires when nothing at all would remain.
+	// Keep-all safeguard: when the prepass prunes every visible skill we keep all
+	// rather than strip the lot. This can fire for a legitimate full prune (e.g.
+	// a non-coding query where no skill is relevant to the arc of work), since the
+	// prepass can't reliably distinguish that from an over-prune and the cost of a
+	// wrong keep is only tokens. Pinned skills already survive, so this only fires
+	// when nothing at all would remain.
 	if (includedSkillNames.length === 0 && visibleSkills.length > 0) {
 		return {
 			includedSkillNames: visibleSkills.map((s) => s.name),
 			excludedSkillNames: [],
-			failOpenReason: "LLM pruned every visible skill; keeping all as fail-open",
+			failOpenReason: "LLM pruned every visible skill; keeping all as a safeguard",
 		};
 	}
 
@@ -179,14 +181,14 @@ export function applyToolSelection(
 	const excludedToolNames = allTools.filter((t) => pruneSet.has(t.name)).map((t) => t.name);
 	const includedToolNames = allTools.filter((t) => !pruneSet.has(t.name)).map((t) => t.name);
 
-	// Safety net: a coding agent with zero tools is dead. Fail open rather than
-	// strip every tool. alwaysKeep already survives, so this only fires when
-	// nothing at all would remain.
+	// Keep-all safeguard: a coding agent with zero tools is dead, so when the
+	// prepass prunes every tool we keep all rather than strip the lot. alwaysKeep
+	// already survives, so this only fires when nothing at all would remain.
 	if (includedToolNames.length === 0 && allTools.length > 0) {
 		return {
 			includedToolNames: allTools.map((t) => t.name),
 			excludedToolNames: [],
-			failOpenReason: "LLM pruned every tool; keeping all as fail-open",
+			failOpenReason: "LLM pruned every tool; keeping all as a safeguard",
 		};
 	}
 

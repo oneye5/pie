@@ -66,3 +66,26 @@ Goal: make agents trigger nested subagents more often, safely.
   `<button>` cannot contain button descendants, so this is the established
   pattern. A future pass could split the leading label into a real `<button>`
   toggle and lift action buttons out as siblings (changes hitbox UX).
+
+---
+
+# Pruning keep-all safeguard labeling — done; deferred follow-ups
+
+The prepass panel labeled any 100%-prune keep-all as "Fail-open" with reason
+"keeping all as fail-open", which misframes a *legitimate* full prune (e.g. a
+non-coding query needing zero dev-skills) as an LLM error. Fixed (behavior
+unchanged): label → "Keep-all safeguard", reason strings → "keeping all as a
+safeguard", comments/README/protocol doc reworded, and the skill comment no
+longer claims "almost always a misunderstanding".
+
+Deferred (intentionally NOT done in this pass):
+- **Field rename** `prepassFailOpenReason` / `failOpenReason` → something neutral
+  (e.g. `prepassSafeguardReason`). Kept for protocol/analytics/transcript
+  stability; renaming ripples through webview parser, types, message-builders,
+  analytics schema, and ~15 test assertions. Revisit if the vocabulary drift
+  becomes confusing.
+- **Distinguish legitimate full-prune from over-prune** (declined). The keep-all
+  safeguard still fires for correct 100% prunes. A future heuristic (e.g. detect
+  non-coding queries, or trust the prepass when reasoning explicitly justifies
+  a full prune) could let correct full-prunes through. Tools stay fail-open
+  regardless (zero tools is fatal).

@@ -226,7 +226,7 @@ test("applySkillSelection: pruning every visible skill -> fail-open keeps all", 
 	assert.deepEqual(r.includedSkillNames, ["alpha", "beta", "gamma"]);
 	assert.deepEqual(r.excludedSkillNames, []);
 	assert.ok(r.failOpenReason, "fail-open reason should be set");
-	assert.match(r.failOpenReason!, /fail-open/i);
+	assert.match(r.failOpenReason!, /safeguard/i);
 });
 
 test("applySkillSelection: pinned survive even when LLM prunes everything else (no fail-open)", () => {

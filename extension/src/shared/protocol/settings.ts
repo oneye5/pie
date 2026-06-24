@@ -57,7 +57,7 @@ export interface PruningDetails {
   prepassLatencyMs?: number;
   /** Error message if pruning prepass failed. */
   prepassError?: string;
-  /** Explanation for fail-open behavior when pruning intentionally skipped exclusions. */
+  /** Reason surfaced when a keep-all safeguard retained every item (prepass pruned 100% of a category, or a non-JSON parse failure). */
   prepassFailOpenReason?: string;
 }
 

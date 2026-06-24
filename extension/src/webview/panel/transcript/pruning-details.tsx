@@ -105,7 +105,7 @@ function PruningDiagnosticsContent({ details, rawExpanded, onRawToggle }: Omit<P
           <DetailRow label="Tools kept">{listText(details.includedTools)}</DetailRow>
         </>
       )}
-      {details.prepassFailOpenReason && <DetailRow label="Fail-open">{details.prepassFailOpenReason}</DetailRow>}
+      {details.prepassFailOpenReason && <DetailRow label="Keep-all safeguard">{details.prepassFailOpenReason}</DetailRow>}
       <div class="pruning-detail-row">
         <span class="pruning-detail-hint">Reasoning</span>
         <ResizablePre class="pruning-raw-pre hljs-scope" minHeight={80}>
