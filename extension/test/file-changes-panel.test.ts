@@ -77,23 +77,22 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.match(html, /\+30/);
   assert.match(html, /-12/);
   assert.doesNotMatch(html, /−/);
-  // Collapsed sliver carries the count, total +/- magnitude (how much changed
-  // at a glance), and the color-encoded kind legend (dot + count per present
-  // kind). Both entries are modified, so only the modified chip renders.
+  // Collapsed sliver carries the count and total +/- magnitude (how much
+  // changed at a glance). Kind is encoded by coloring each per-file name —
+  // no dot/bar legend. Both entries are modified.
   assert.match(html, /file-changes-sliver-magnitude/);
   assert.match(html, /sliver-add">\+30/);
   assert.match(html, /sliver-del">-12/);
-  assert.match(html, /sliver-kind kind-modified/);
-  assert.match(html, /sliver-kind-dot/);
+  assert.doesNotMatch(html, /sliver-kind/);
+  assert.doesNotMatch(html, /sliver-kind-dot/);
   assert.doesNotMatch(html, /sliver-kind-glyph/);
-  assert.match(html, /sliver-kind-count">2</);
   // The collapsed sliver also lists the affected files, two rows each: row 1
-  // is the kind dot + truncated basename; row 2 is the per-file +/- churn,
+  // is the kind-colored truncated basename; row 2 is the per-file +/- churn,
   // so the tall sliver surfaces per-file magnitude at a glance. Each entry's
   // outer span carries the full path + kind label as a hover title.
   assert.match(html, /file-changes-sliver-files/);
   assert.match(html, /sliver-file kind-modified/);
-  assert.match(html, /sliver-file-dot/);
+  assert.doesNotMatch(html, /sliver-file-dot/);
   assert.doesNotMatch(html, /sliver-file-glyph/);
   assert.match(html, /sliver-file-name">a.ts/);
   assert.match(html, /sliver-file-name">b.ts/);
@@ -102,9 +101,8 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.match(html, /sliver-file-del">-5/);
   assert.match(html, /sliver-file-add">\+10/);
   assert.match(html, /sliver-file-del">-7/);
-  // Zero-count kinds are omitted from the legend (only modified is present).
-  assert.doesNotMatch(html, /sliver-kind kind-created/);
-  assert.doesNotMatch(html, /sliver-kind kind-deleted/);
+  // The per-kind legend is gone entirely (each per-file name is colored).
+  assert.doesNotMatch(html, /sliver-kind/);
   // The per-row red/green diff bar is gone (space reclaimed for the path).
   assert.doesNotMatch(html, /file-change-diff-bar/);
   // Sliver title carries the full summary: count + kind breakdown + line totals.
@@ -130,7 +128,7 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.doesNotMatch(html, /file-change-revert/);
 });
 
-test('FileChangesPanel collapsed: legend renders one row per present kind', () => {
+test('FileChangesPanel collapsed: per-file list colors one entry per kind', () => {
   const html = renderToString(
     h(FileChangesPanel, {
       fileChanges: [
@@ -146,15 +144,13 @@ test('FileChangesPanel collapsed: legend renders one row per present kind', () =
       onRevertFile: noop,
     }),
   );
-  // 2 added · 1 modified · 1 deleted — only present kinds render, in created →
-  // modified → deleted order; kind is encoded by dot color (no A/M/D letters).
-  assert.match(html, /sliver-kind kind-created/);
-  assert.match(html, /sliver-kind kind-modified/);
-  assert.match(html, /sliver-kind kind-deleted/);
-  assert.match(html, /sliver-kind-count">2</);
-  assert.match(html, /sliver-kind-count">1</);
-  assert.match(html, /sliver-kind-dot/);
-  assert.doesNotMatch(html, /sliver-kind-glyph/);
+  // 2 added · 1 modified · 1 deleted — the per-file list renders one colored
+  // entry per kind (name text colored via `kind-*`); no dot/bar legend remains.
+  assert.match(html, /sliver-file kind-created/);
+  assert.match(html, /sliver-file kind-modified/);
+  assert.match(html, /sliver-file kind-deleted/);
+  assert.doesNotMatch(html, /sliver-kind/);
+  assert.doesNotMatch(html, /sliver-file-dot/);
   // Count at the top is the file total (4), not a per-kind value.
   assert.match(html, /<span class="file-changes-sliver-count">4<\/span>/);
   // Collapsed file list renders one entry per file (4 here), each with a

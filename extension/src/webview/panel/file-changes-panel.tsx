@@ -16,8 +16,8 @@ interface FileChangesPanelProps {
   onRevertFile: (filePath: string) => void;
 }
 
-// Legend order in the collapsed sliver: created → modified → deleted, so the
-// (calm → concerning) reading matches the per-row status colors.
+// Reading order for the collapsed sliver's hover `title` kind breakdown:
+// created → modified → deleted (calm → concerning).
 const KIND_ORDER: { kind: FileChangeKind; label: string }[] = [
   { kind: 'created', label: 'Added' },
   { kind: 'modified', label: 'Modified' },
@@ -35,7 +35,8 @@ interface DiffTotals {
   deletions: number;
 }
 
-/** Per-kind counts + line churn (drives the collapsed sliver's color-encoded kind legend). */
+/** Per-kind counts + line churn (drives the collapsed sliver's hover `title`
+ * kind breakdown; the per-file list colors each name by kind instead). */
 interface KindStats {
   count: number;
   additions: number;
@@ -471,18 +472,6 @@ export function FileChangesPanel({
               </span>
             )}
           </span>
-          <span class="file-changes-sliver-legend">
-            {KIND_ORDER.map(({ kind, label }) => {
-              const n = kindStats[kind].count;
-              if (!n) return null;
-              return (
-                <span key={kind} class={`sliver-kind kind-${kind}`} title={`${label}: ${n}`}>
-                  <span class="sliver-kind-dot" aria-hidden="true" />
-                  <span class="sliver-kind-count">{n}</span>
-                </span>
-              );
-            })}
-          </span>
           <span class="file-changes-sliver-files" aria-hidden="true">
             {fileChanges.map((c) => {
               const a = c.additions ?? 0;
@@ -490,7 +479,6 @@ export function FileChangesPanel({
               return (
                 <span key={c.path} class={`sliver-file kind-${c.kind}`} title={`${c.path} · ${KIND_LABEL[c.kind]}`}>
                   <span class="sliver-file-row">
-                    <span class="sliver-file-dot" aria-hidden="true" />
                     <span class="sliver-file-name">{basename(c.path)}</span>
                   </span>
                   <span class="sliver-file-row sliver-file-stats">
