@@ -154,6 +154,16 @@ export interface FileChangesState {
   bySession: Record<string, FileChangeEntry[]>;
   /** Whether the file-changes rail drawer is expanded per session. */
   expandedBySession: Record<string, boolean>;
+  /**
+   * Paths of changed files the user has marked as read, keyed by session path.
+   * Independent of `bySession` so re-derivation (FileChangesUpdated, which
+   * wholesale-replaces `bySession`) never clobbers read state. A new
+   * tool-call modification of an already-read path removes it from here
+   * (email-like: new changes = something new to review) inside
+   * `handleFileChangesUpdated`. Cleared alongside the other per-session maps
+   * on session close (cleanup parity).
+   */
+  readFilePathsBySession: Record<string, string[]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,6 +361,7 @@ export function createInitialArchState(): ArchState {
     fileChanges: {
       bySession: {},
       expandedBySession: {},
+      readFilePathsBySession: {},
     },
     pending: {
       ops: {},

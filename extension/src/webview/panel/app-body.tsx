@@ -164,7 +164,8 @@ interface PanelMainProps {
   activeSession: ViewState['activeSession'];
   fileChanges: ViewState['fileChanges'];
   fileChangesExpanded: ViewState['fileChangesExpanded'];
-  handlers: Pick<AppHandlers, 'handleOpenFileDiff' | 'handleOpenFileInEditor' | 'handleRevertFile' | 'handleSetFileChangesExpanded' | 'handleEditRequest' | 'handleEditSend' | 'handleCancelEdit' | 'handleOpenFile' | 'handleOpenContextMenu' | 'handleNewSession'>;
+  readFilePaths: ViewState['readFilePaths'];
+  handlers: Pick<AppHandlers, 'handleOpenFileDiff' | 'handleOpenFileInEditor' | 'handleRevertFile' | 'handleSetFileChangesExpanded' | 'handleSetFileRead' | 'handleEditRequest' | 'handleEditSend' | 'handleCancelEdit' | 'handleOpenFile' | 'handleOpenContextMenu' | 'handleNewSession'>;
   postMessage: (msg: WebviewToHostMessage) => void;
   mergedTranscript: ChatMessage[];
   transcriptWindow: ViewState['transcriptWindow'];
@@ -191,6 +192,7 @@ function PanelMain({
   activeSession,
   fileChanges,
   fileChangesExpanded,
+  readFilePaths,
   handlers,
   postMessage,
   mergedTranscript,
@@ -261,6 +263,8 @@ function PanelMain({
           onOpenDiff={handlers.handleOpenFileDiff}
           onOpenInEditor={handlers.handleOpenFileInEditor}
           onRevertFile={handlers.handleRevertFile}
+          readFilePaths={readFilePaths}
+          onSetFileRead={handlers.handleSetFileRead}
         />
       )}
     </div>
@@ -420,6 +424,9 @@ export function AppBody({ adapter }: AppBodyProps) {
     root.setProperty('--expanded-font-size', `${prefs.expandedSectionFontSize}px`);
     root.setProperty('--expanded-section-max-height', `${prefs.expandedSectionMaxHeight}px`);
     root.setProperty('--activity-tail-content-min-height', `${prefs.activityTailLines * ACTIVITY_TAIL_ROW_HEIGHT_PX}px`);
+    // Per-place font sizes: base body/message text and the composer input.
+    root.setProperty('--panel-font-size', `${prefs.uiBaseFontSize}px`);
+    root.setProperty('--panel-composer-font-size', `${prefs.uiComposerFontSize}px`);
     if (prefs.uiFontSans) {
       root.setProperty('--panel-font-sans', prefs.uiFontSans);
     } else {
@@ -463,6 +470,14 @@ export function AppBody({ adapter }: AppBodyProps) {
       root.removeProperty('--panel-muted');
     }
 
+    // Muted text override — takes precedence over the foreground-derived shade
+    // when set, so secondary-text contrast can be tuned independently. Empty
+    // restores the derived value (or the bundled default when foreground is
+    // also empty).
+    if (prefs.uiMutedColor) {
+      root.setProperty('--panel-muted', prefs.uiMutedColor);
+    }
+
     // Border → border + derived subtle (thinned alpha, ~0.58× to match the
     // bundled subtle/border ratio). Empty restores the bundled cream lines.
     const bd = prefs.uiBorder;
@@ -491,6 +506,14 @@ export function AppBody({ adapter }: AppBodyProps) {
       root.removeProperty('--panel-accent-contrast');
     }
 
+    // Link color override — sets --panel-link directly. Empty removes the
+    // override so links fall back to --panel-accent (the bundled default).
+    if (prefs.uiLinkColor) {
+      root.setProperty('--panel-link', prefs.uiLinkColor);
+    } else {
+      root.removeProperty('--panel-link');
+    }
+
     // Corner radius → sm/md/lg/xl as r-2/r/r+2/r+4 (default 8 = 6/8/10/12).
     const r = prefs.uiCornerRadius;
     root.setProperty('--panel-radius-sm', `${Math.max(0, r - 2)}px`);
@@ -506,12 +529,16 @@ export function AppBody({ adapter }: AppBodyProps) {
     root.setProperty('--panel-gap-lg', `${gaps.lg}px`);
     root.setProperty('--panel-gap-xl', `${gaps.xl}px`);
   }, [
+    prefs.uiBaseFontSize,
+    prefs.uiComposerFontSize,
     prefs.expandedSectionFontSize,
     prefs.expandedSectionMaxHeight,
     prefs.activityTailLines,
     prefs.uiFontSans,
     prefs.uiFontMono,
     prefs.uiAccentColor,
+    prefs.uiMutedColor,
+    prefs.uiLinkColor,
     prefs.uiMessageWidth,
     prefs.uiBackground,
     prefs.uiForeground,
@@ -577,6 +604,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         activeSession={viewState.activeSession}
         fileChanges={viewState.fileChanges}
         fileChangesExpanded={viewState.fileChangesExpanded}
+        readFilePaths={viewState.readFilePaths}
         handlers={handlers}
         postMessage={postMessage}
         mergedTranscript={mergedTranscript}

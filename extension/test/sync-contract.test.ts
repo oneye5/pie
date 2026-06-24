@@ -44,6 +44,16 @@ test('DEFAULT_CHAT_PREFS shape', () => {
   assert.equal(DEFAULT_CHAT_PREFS.uiCornerRadius, 8);
   assert.equal(typeof DEFAULT_CHAT_PREFS.uiDensity, 'string');
   assert.equal(DEFAULT_CHAT_PREFS.uiDensity, 'comfortable');
+  // Per-place font sizes default to the bundled sizes (13px) so an uncustomized
+  // panel is unchanged; color overrides default to '' (use bundled defaults).
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiBaseFontSize, 'number');
+  assert.equal(DEFAULT_CHAT_PREFS.uiBaseFontSize, 13);
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiComposerFontSize, 'number');
+  assert.equal(DEFAULT_CHAT_PREFS.uiComposerFontSize, 13);
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiMutedColor, 'string');
+  assert.equal(DEFAULT_CHAT_PREFS.uiMutedColor, '');
+  assert.equal(typeof DEFAULT_CHAT_PREFS.uiLinkColor, 'string');
+  assert.equal(DEFAULT_CHAT_PREFS.uiLinkColor, '');
 });
 
 test('resolveChatPrefs backfills subagent auto-expand from legacy tool-call prefs', () => {
@@ -151,6 +161,7 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
       availableExtensions: [],
       fileChanges: [],
       fileChangesExpanded: false,
+      readFilePaths: [],
       pruningResult: null,
       pruningSettings: {
         mode: 'auto' as const,

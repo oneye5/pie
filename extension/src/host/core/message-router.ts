@@ -169,6 +169,9 @@ export class MessageRouter {
       case 'revertFile':
         return await this.onRevertFile(msg as Extract<WebviewToHostMessage, { type: 'revertFile' }>);
 
+      case 'setFileRead':
+        return this.onSetFileRead(msg as Extract<WebviewToHostMessage, { type: 'setFileRead' }>);
+
       case 'setPrefs':
         return this.onSetPrefs(msg as Extract<WebviewToHostMessage, { type: 'setPrefs' }>);
 
@@ -537,6 +540,8 @@ export class MessageRouter {
       kind: 'Command',
       cmd: { kind: 'OpenFileDiff', corrId, sessionPath: msg.sessionPath, filePath: msg.filePath, status: 'modified' },
     });
+    // Viewing the diff marks the file read (email-like: opening = read).
+    this.markFileViewedRead(msg.sessionPath, msg.filePath);
   }
 
   private async onOpenFileInEditor(msg: Extract<WebviewToHostMessage, { type: 'openFileInEditor' }>): Promise<void> {
@@ -544,6 +549,25 @@ export class MessageRouter {
     this.dispatchEvent({
       kind: 'Command',
       cmd: { kind: 'OpenFileInEditor', corrId, sessionPath: msg.sessionPath, filePath: msg.filePath },
+    });
+    // Viewing the file marks it read (email-like: opening = read).
+    this.markFileViewedRead(msg.sessionPath, msg.filePath);
+  }
+
+  /** Mark a changed file read as a side effect of viewing it (open diff /
+   *  open in editor). Dispatches a pure `SetFileRead` command; the reducer
+   *  owns the read-set mutation and `dispatchArchEvent` schedules the render. */
+  private markFileViewedRead(sessionPath: string, filePath: string): void {
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'SetFileRead', corrId: crypto.randomUUID(), sessionPath, filePath, read: true },
+    });
+  }
+
+  private onSetFileRead(msg: Extract<WebviewToHostMessage, { type: 'setFileRead' }>): void {
+    this.dispatchEvent({
+      kind: 'Command',
+      cmd: { kind: 'SetFileRead', corrId: crypto.randomUUID(), sessionPath: msg.sessionPath, filePath: msg.filePath, read: msg.read },
     });
   }
 

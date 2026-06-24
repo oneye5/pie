@@ -79,6 +79,7 @@ export const EMPTY_VIEW_STATE: ViewState = {
   availableExtensions: [],
   fileChanges: [],
   fileChangesExpanded: false,
+  readFilePaths: [],
   pruningResult: null,
   pruningSettings: { ...DEFAULT_PRUNING_SETTINGS },
   pruningCatalog: {

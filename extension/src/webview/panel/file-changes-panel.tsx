@@ -14,6 +14,10 @@ interface FileChangesPanelProps {
   onOpenDiff: (filePath: string) => void;
   onOpenInEditor: (filePath: string) => void;
   onRevertFile: (filePath: string) => void;
+  /** Paths of changed files marked read for the active session (host state). */
+  readFilePaths: string[];
+  /** Mark a changed file read/unread (right-click action). */
+  onSetFileRead: (filePath: string, read: boolean) => void;
 }
 
 // Reading order for the collapsed sliver's hover `title` kind breakdown:
@@ -155,6 +159,8 @@ export interface FileChangeContextMenuState {
   y: number;
   path: string;
   kind: FileChangeKind;
+  /** Captured at open time so the menu can label/perform mark-read vs unread. */
+  read: boolean;
 }
 
 /**
@@ -167,13 +173,15 @@ export interface FileChangeContextMenuState {
  * resize (same posture as the transcript ContextMenu). Rendered at the rail
  * level (position: fixed) so it escapes the drawer's overflow clipping.
  */
-function FileChangeContextMenu({
+export function FileChangeContextMenu({
   menu,
   onRevert,
+  onSetFileRead,
   onClose,
 }: {
   menu: FileChangeContextMenuState;
   onRevert: (path: string) => void;
+  onSetFileRead: (path: string, read: boolean) => void;
   onClose: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -275,6 +283,18 @@ function FileChangeContextMenu({
         {copied ? 'Copied!' : 'Copy path'}
       </button>
       <button
+        class="context-menu-item"
+        role="menuitem"
+        type="button"
+        onClick={() => {
+          onSetFileRead(menu.path, !menu.read);
+          onClose();
+        }}
+      >
+        <span class="context-menu-check" aria-hidden="true" />
+        {menu.read ? 'Mark as unread' : 'Mark as read'}
+      </button>
+      <button
         class={`context-menu-item${confirming ? ' is-danger' : ''}`}
         role="menuitem"
         type="button"
@@ -295,6 +315,8 @@ export function FileChangesPanel({
   onOpenDiff,
   onOpenInEditor,
   onRevertFile,
+  readFilePaths,
+  onSetFileRead,
 }: FileChangesPanelProps) {
   const pinned = expanded;
   const [hasNewChanges, setHasNewChanges] = useState(false);
@@ -316,15 +338,63 @@ export function FileChangesPanel({
 
   const kindStats = useMemo(() => computeKindStats(fileChanges), [fileChanges]);
 
-  // Right-click context menu for a row (Copy path / Revert) — webview-local,
-  // dismissed like the peek overlay (STATE_CONTRACT § Webview-Local State).
+  // Read-state membership for the active session (host-owned
+  // `ViewState.readFilePaths`). Read files sort to the bottom of the list and
+  // render darkened; the collapsed sliver darkens them in place.
+  const readSet = useMemo(() => new Set(readFilePaths), [readFilePaths]);
+
+  // Split the list into unread (top) and read (bottom) groups, preserving the
+  // derivation order within each. Read files are demoted below the unread
+  // group, separated by a "Reviewed" divider when both groups are non-empty.
+  const { unreadChanges, readChanges } = useMemo(() => {
+    const unread: FileChangeEntry[] = [];
+    const read: FileChangeEntry[] = [];
+    for (const c of fileChanges) (readSet.has(c.path) ? read : unread).push(c);
+    return { unreadChanges: unread, readChanges: read };
+  }, [fileChanges, readSet]);
+
+  // Right-click context menu for a row (Copy path / Mark read · unread /
+  // Revert) — webview-local, dismissed like the peek overlay (STATE_CONTRACT
+  // § Webview-Local State).
   const [ctxMenu, setCtxMenu] = useState<FileChangeContextMenuState | null>(null);
   const openCtxMenu = useCallback((e: MouseEvent, change: FileChangeEntry) => {
     e.preventDefault();
     e.stopPropagation();
-    setCtxMenu({ x: e.clientX, y: e.clientY, path: change.path, kind: change.kind });
-  }, []);
+    setCtxMenu({
+      x: e.clientX,
+      y: e.clientY,
+      path: change.path,
+      kind: change.kind,
+      read: readSet.has(change.path),
+    });
+  }, [readSet]);
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
+
+  // Row renderer shared by the unread + read groups. `isRead` drives the
+  // darkened `is-read` treatment; the context menu captures read state at open.
+  const renderRow = (change: FileChangeEntry, isRead: boolean) => (
+    <div
+      key={change.path}
+      class={cx('file-change-item', `kind-${change.kind}`, isRead && 'is-read')}
+      role="listitem"
+      onContextMenu={(e) => openCtxMenu(e, change)}
+    >
+      <div class="file-change-main">
+        <FileName
+          path={change.path}
+          kind={change.kind}
+          disabled={change.kind === 'deleted'}
+          onClick={() => onOpenInEditor(change.path)}
+        />
+        <LineStats
+          additions={change.additions}
+          deletions={change.deletions}
+          path={change.path}
+          onDiff={() => onOpenDiff(change.path)}
+        />
+      </div>
+    </div>
+  );
 
   const { elRef, width: dragWidth, minWidth, maxWidth, startResize, resizeBy, reset } =
     useResizableWidth<HTMLDivElement>({ minWidth: 180, maxWidth: 520 });
@@ -477,7 +547,7 @@ export function FileChangesPanel({
               const a = c.additions ?? 0;
               const d = c.deletions ?? 0;
               return (
-                <span key={c.path} class={`sliver-file kind-${c.kind}`} title={`${c.path} · ${KIND_LABEL[c.kind]}`}>
+                <span key={c.path} class={cx('sliver-file', `kind-${c.kind}`, readSet.has(c.path) && 'is-read')} title={`${c.path} · ${KIND_LABEL[c.kind]}`}>
                   <span class="sliver-file-row">
                     <span class="sliver-file-name">{basename(c.path)}</span>
                   </span>
@@ -554,34 +624,23 @@ export function FileChangesPanel({
             </span>
           </div>
           <div class="file-changes-list" role="list">
-            {fileChanges.map((change) => (
-              <div
-                key={change.path}
-                class={`file-change-item kind-${change.kind}`}
-                role="listitem"
-                onContextMenu={(e) => openCtxMenu(e, change)}
-              >
-                <div class="file-change-main">
-                  <FileName
-                    path={change.path}
-                    kind={change.kind}
-                    disabled={change.kind === 'deleted'}
-                    onClick={() => onOpenInEditor(change.path)}
-                  />
-                  <LineStats
-                    additions={change.additions}
-                    deletions={change.deletions}
-                    path={change.path}
-                    onDiff={() => onOpenDiff(change.path)}
-                  />
-                </div>
+            {unreadChanges.map((change) => renderRow(change, false))}
+            {readChanges.length > 0 && unreadChanges.length > 0 && (
+              <div class="file-change-group-divider" aria-hidden="true">
+                <span class="file-change-group-label">Reviewed</span>
               </div>
-            ))}
+            )}
+            {readChanges.map((change) => renderRow(change, true))}
           </div>
         </div>
       </div>
       {ctxMenu && (
-        <FileChangeContextMenu menu={ctxMenu} onRevert={onRevertFile} onClose={closeCtxMenu} />
+        <FileChangeContextMenu
+          menu={ctxMenu}
+          onRevert={onRevertFile}
+          onSetFileRead={onSetFileRead}
+          onClose={closeCtxMenu}
+        />
       )}
     </div>
   );

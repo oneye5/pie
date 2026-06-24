@@ -31,6 +31,7 @@ const EMPTY_SYSTEM_PROMPTS: SystemPromptEntry[] = [];
 const EMPTY_AVAILABLE_MODELS: ModelInfo[] = [];
 const EMPTY_COMPOSER_INPUTS: ComposerInput[] = [];
 const EMPTY_FILE_CHANGES: FileChangeEntry[] = [];
+const EMPTY_READ_PATHS: string[] = [];
 const EMPTY_PRUNING_CATALOG: PruningCatalog = { skills: [], tools: [] };
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -161,6 +162,9 @@ export function selectViewState(state: ArchState): ViewState {
   const activeFileChangesExpanded: boolean =
     activePath ? fileChanges.expandedBySession[activePath] ?? false : false;
 
+  const activeReadFilePaths: string[] =
+    activePath ? fileChanges.readFilePathsBySession[activePath] ?? EMPTY_READ_PATHS : EMPTY_READ_PATHS;
+
   // ── Derived busy flag ──
   const busy = !!activePath && sessions.runningSessionPaths.includes(activePath);
 
@@ -197,6 +201,7 @@ export function selectViewState(state: ArchState): ViewState {
     prefs: settings.prefs,
     fileChanges: activeFileChanges,
     fileChangesExpanded: activeFileChangesExpanded,
+    readFilePaths: activeReadFilePaths,
     availableExtensions: settings.availableExtensions,
     pruningResult,
     pruningSettings: settings.pruningSettings,

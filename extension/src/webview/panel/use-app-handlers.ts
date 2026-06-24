@@ -39,6 +39,7 @@ export interface AppHandlers {
   handleOpenFileInEditor: (filePath: string) => void;
   handleRevertFile: (filePath: string) => void;
   handleSetFileChangesExpanded: (expanded: boolean) => void;
+  handleSetFileRead: (filePath: string, read: boolean) => void;
   handleOpenContextMenu: (type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => void;
 }
 
@@ -180,6 +181,12 @@ export function useAppHandlers(
     postMessage({ type: 'setFileChangesExpanded', sessionPath, expanded });
   }, [postMessage, activeSessionPathRef]);
 
+  const handleSetFileRead = useCallback((filePath: string, read: boolean) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    postMessage({ type: 'setFileRead', sessionPath, filePath, read });
+  }, [postMessage, activeSessionPathRef]);
+
   const handleOpenContextMenu = useCallback((type: TranscriptContextMenuType, rawData: string, e: MouseEvent) => {
     // Capture the trigger element (the onContextMenu target) so the menu can
     // mirror its open state back onto the trigger via aria-haspopup/
@@ -222,6 +229,7 @@ export function useAppHandlers(
     handleOpenFileInEditor,
     handleRevertFile,
     handleSetFileChangesExpanded,
+    handleSetFileRead,
     handleOpenContextMenu,
   };
 }

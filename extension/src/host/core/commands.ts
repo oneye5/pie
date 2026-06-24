@@ -221,6 +221,20 @@ export interface SetFileChangesExpandedCommand extends CommandBase {
   expanded: boolean;
 }
 
+/** Mark a changed file as read or unread for a session. Read files sort to the
+ *  bottom of the changed-file list and render darkened. Set `read: true` to mark
+ *  read (also the effect of viewing a file/diff, dispatched alongside the
+ *  OpenFileDiff/OpenFileInEditor commands); `read: false` to restore unread
+ *  (the right-click "Mark as unread" action). Pure state mutation — no Effect,
+ *  no backend RPC. A subsequent tool-call modification of the same path clears
+ *  its read state (email-like) inside `handleFileChangesUpdated`. */
+export interface SetFileReadCommand extends CommandBase {
+  kind: 'SetFileRead';
+  sessionPath: string;
+  filePath: string;
+  read: boolean;
+}
+
 export type Command =
   | SendCommand
   | EditCommand
@@ -257,7 +271,8 @@ export type Command =
   | DuplicateSessionCommand
   | MoveSessionTabCommand
   | TogglePinTabCommand
-  | SetFileChangesExpandedCommand;
+  | SetFileChangesExpandedCommand
+  | SetFileReadCommand;
 export interface SetModelCommand extends CommandBase {
   kind: 'SetModel';
   sessionPath: string;

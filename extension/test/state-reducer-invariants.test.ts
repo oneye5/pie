@@ -591,7 +591,7 @@ test('ViewState: all fields are present in initial state', () => {
     'activeSession', 'transcript', 'transcriptWindow', 'transcriptLoaded', 'pendingComposerInputs',
     'activeRunSummary', 'runSummariesBySession', 'busy', 'notice', 'backendReady',
     'workspaceCwd', 'systemPrompts', 'modelSettings', 'availableModels', 'contextUsage',
-    'prefs', 'fileChanges', 'availableExtensions', 'pruningResult', 'pruningSettings',
+    'prefs', 'fileChanges', 'readFilePaths', 'availableExtensions', 'pruningResult', 'pruningSettings',
     'pruningCatalog', 'editingMessageId', 'showOutcomeDialog', 'pendingExtensionUIRequest', 'pendingExtensionUIRequestsBySession',
   ];
 

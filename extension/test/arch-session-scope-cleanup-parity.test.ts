@@ -320,10 +320,12 @@ test('Both functions clean the same set of per-session keyed maps', () => {
       ...readyState.composer,
       pendingComposerInputsBySession: { [sp]: [], [other]: [] },
       activeRunSummaryBySession: { [sp]: null, [other]: null },
+      draftTextBySession: { [sp]: 'draft-a', [other]: 'draft-b' },
     },
     fileChanges: {
       ...readyState.fileChanges,
       bySession: { [sp]: [], [other]: [] },
+      readFilePathsBySession: { [sp]: ['x.ts'], [other]: ['y.ts'] },
     },
     pending: {
       ...readyState.pending,
@@ -357,7 +359,9 @@ test('Both functions clean the same set of per-session keyed maps', () => {
     { name: 'settings.pendingExtensionUIRequestsBySession', map: cleared.state.settings.pendingExtensionUIRequestsBySession },
     { name: 'composer.pendingComposerInputsBySession', map: cleared.state.composer.pendingComposerInputsBySession },
     { name: 'composer.activeRunSummaryBySession', map: cleared.state.composer.activeRunSummaryBySession },
+    { name: 'composer.draftTextBySession', map: cleared.state.composer.draftTextBySession },
     { name: 'fileChanges.bySession', map: cleared.state.fileChanges.bySession },
+    { name: 'fileChanges.readFilePathsBySession', map: cleared.state.fileChanges.readFilePathsBySession },
     { name: 'pending.currentTurnBySession', map: cleared.state.pending.currentTurnBySession },
     { name: 'pending.sendQueueBySession', map: cleared.state.pending.sendQueueBySession },
     { name: 'pending.backendReadyQueueBySession', map: cleared.state.pending.backendReadyQueueBySession },

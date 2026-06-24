@@ -45,6 +45,7 @@ const baseViewState: ViewState = {
   availableExtensions: [],
   fileChanges: [],
   fileChangesExpanded: false,
+  readFilePaths: [],
   pruningResult: null,
   pruningSettings: {
     mode: 'auto' as const,

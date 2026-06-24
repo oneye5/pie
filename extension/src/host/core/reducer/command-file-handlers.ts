@@ -71,6 +71,21 @@ export function handleSetFileChangesExpanded(state: ArchState, cmd: Extract<Comm
   };
 }
 
+export function handleSetFileRead(state: ArchState, cmd: Extract<Command, { kind: 'SetFileRead' }>): ReducerResult {
+  return {
+    state: produce(state, (draft) => {
+      const list = draft.fileChanges.readFilePathsBySession[cmd.sessionPath] ?? [];
+      const has = list.includes(cmd.filePath);
+      if (cmd.read) {
+        if (!has) draft.fileChanges.readFilePathsBySession[cmd.sessionPath] = [...list, cmd.filePath];
+      } else if (has) {
+        draft.fileChanges.readFilePathsBySession[cmd.sessionPath] = list.filter((p) => p !== cmd.filePath);
+      }
+    }),
+    effects: [],
+  };
+}
+
 export function handleAddFilesystemPaths(state: ArchState, cmd: Extract<Command, { kind: 'AddFilesystemPaths' }>): ReducerResult {
   // The reducer owns the composer-input append (pure): for each path,
   // create a `filesystemPathRef` input (ID from corrId, name from

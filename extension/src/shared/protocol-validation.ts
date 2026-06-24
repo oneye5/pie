@@ -143,16 +143,20 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
   ];
   const numericRanges: Record<string, [number, number]> = {
     completionSoundVolume: [0, 100],
-    expandedSectionFontSize: [8, 24],
-    expandedSectionMaxHeight: [120, 720],
-    uiMessageWidth: [60, 100],
-    uiCornerRadius: [0, 20],
-    activityTailLines: [1, 6],
+    uiBaseFontSize: [10, 24],
+    uiComposerFontSize: [11, 28],
+    expandedSectionFontSize: [8, 32],
+    expandedSectionMaxHeight: [80, 1600],
+    uiMessageWidth: [40, 100],
+    uiCornerRadius: [0, 24],
+    activityTailLines: [1, 12],
   };
   const stringKeys: Array<keyof ChatPrefs> = [
     'uiFontSans',
     'uiFontMono',
     'uiAccentColor',
+    'uiMutedColor',
+    'uiLinkColor',
     'uiBackground',
     'uiForeground',
     'uiBorder',
@@ -316,6 +320,12 @@ export function validateWebviewToHostMessage(
     case 'revertFile':
       if (!isString(value.sessionPath)) return fail(`${type}: missing string \`sessionPath\``);
       if (!isString(value.filePath)) return fail(`${type}: missing string \`filePath\``);
+      return { ok: true, value: value as WebviewToHostMessage };
+
+    case 'setFileRead':
+      if (!isString(value.sessionPath)) return fail('setFileRead: missing string `sessionPath`');
+      if (!isString(value.filePath)) return fail('setFileRead: missing string `filePath`');
+      if (typeof value.read !== 'boolean') return fail('setFileRead: missing boolean `read`');
       return { ok: true, value: value as WebviewToHostMessage };
 
     case 'startEdit':

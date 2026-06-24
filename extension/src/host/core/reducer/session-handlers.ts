@@ -366,7 +366,9 @@ export function handleSessionScopeCleared(state: ArchState, event: Extract<Event
   const { [sp]: _od, ...remainingOutcome } = state.settings.showOutcomeDialogBySession;
   const { [sp]: _ci, ...remainingComposer } = state.composer.pendingComposerInputsBySession;
   const { [sp]: _rs, ...remainingRunSummaries } = state.composer.activeRunSummaryBySession;
+  const { [sp]: _dt, ...remainingDraftText } = state.composer.draftTextBySession;
   const { [sp]: _fc, ...remainingFileChanges } = state.fileChanges.bySession;
+  const { [sp]: _rfr, ...remainingReadFilePaths } = state.fileChanges.readFilePathsBySession;
   const { [sp]: _af, ...remainingAnalytics } = state.sessions.analyticsFactorsBySession;
   const { [sp]: _if, ...remainingInterrupts } = state.sessions.interruptInFlightBySession;
   const { [sp]: _psq, ...remainingPendingSendQueue } = state.pending.sendQueueBySession;
@@ -455,10 +457,12 @@ export function handleSessionScopeCleared(state: ArchState, event: Extract<Event
         ...state.composer,
         pendingComposerInputsBySession: remainingComposer,
         activeRunSummaryBySession: remainingRunSummaries,
+        draftTextBySession: remainingDraftText,
       },
       fileChanges: {
         ...state.fileChanges,
         bySession: remainingFileChanges,
+        readFilePathsBySession: remainingReadFilePaths,
       },
       pending: {
         ...state.pending,

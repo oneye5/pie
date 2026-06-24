@@ -311,7 +311,10 @@
   gap: var(--panel-gap-sm);
   padding: var(--panel-gap-sm) var(--panel-gap-md);
   border-bottom: 1px solid var(--panel-border);
-  background: color-mix(in srgb, var(--panel-control-surface) 65%, var(--panel-card-surface) 35%);
+  background: color-mix(in srgb, var(--panel-control-surface) 82%, var(--panel-card-surface) 18%);
+  /* A faint inner top highlight raises the header into a distinct bar that
+     caps the body — visual separation between header and the file list below. */
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--panel-foreground) 5%, transparent);
   flex-shrink: 0;
   min-height: 36px;
 }
@@ -362,26 +365,86 @@
   overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 2px;
   padding: var(--panel-gap-xs);
 }
 
-/* Flat modern rows: tight vertical rhythm, rounded hover surface, no
-   divider lines — spacing + hover fill carry the list structure. The file
-   NAME is colored by kind (via `--kind-color` on `.file-change-name`). */
+/* Card-like rows: a faint always-on border gives each row a subtle edge so
+   rows read as discrete entries (visual separation the header/body/rows
+   pass wants), without hairline dividers. The file NAME is colored by kind
+   (via `--kind-color` on `.file-change-name`). */
 .file-change-item {
   position: relative;
   display: flex;
   align-items: center;
   gap: var(--panel-gap-xs);
   padding: var(--panel-gap-xs) var(--panel-gap-sm);
+  border: 1px solid color-mix(in srgb, var(--panel-border-subtle) 35%, transparent);
   border-radius: var(--panel-radius-sm);
   overflow: hidden;
-  transition: background var(--panel-transition-fast);
+  transition:
+    background var(--panel-transition-fast),
+    border-color var(--panel-transition-fast),
+    box-shadow var(--panel-transition-fast),
+    opacity var(--panel-transition-fast);
 }
 
 .file-change-item:hover {
   background: var(--panel-control-hover);
+  border-color: color-mix(in srgb, var(--panel-accent) 38%, var(--panel-border-subtle));
+  /* Left accent stripe: a clear "this row is active" affordance (no reflow —
+     inset shadow, not a border width change). */
+  box-shadow: inset 2px 0 0 var(--panel-accent);
+}
+
+/* Read files: darkened (email-like "reviewed"). Dimmed but still
+   interactive — hover lifts them back toward full strength so the actions
+   (open, diff, revert, mark unread) stay usable. */
+.file-change-item.is-read {
+  opacity: 0.5;
+}
+
+.file-change-item.is-read:hover {
+  opacity: 0.85;
+}
+
+.file-change-item.is-read .file-change-name {
+  font-weight: 400;
+}
+
+/* Collapsed sliver: dim read entries in place (the sliver keeps derivation
+   order — reordering the narrow preview would be jarring). */
+.sliver-file.is-read {
+  opacity: 0.5;
+}
+
+/* ── Read/unread group divider ──────────────────────────────────────────── */
+/* A subtle "Reviewed" separator between the unread (top) and read (bottom)
+   groups, rendered only when both groups are non-empty. A hairline on each
+   side of the label frames the demoted read files. */
+.file-change-group-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--panel-gap-xs);
+  margin: 2px 0;
+  padding: 0 var(--panel-gap-xs);
+}
+
+.file-change-group-divider::before,
+.file-change-group-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: color-mix(in srgb, var(--panel-border-subtle) 70%, transparent);
+}
+
+.file-change-group-label {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--panel-muted);
+  white-space: nowrap;
 }
 
 .file-change-main {
@@ -539,5 +602,10 @@
   }
   .file-change-name:disabled {
     opacity: 1;
+  }
+  /* Read dimming is opacity-based, which survives forced-colors; keep the
+     faint row border visible so cards stay distinguishable. */
+  .file-change-item {
+    border-color: ButtonText;
   }
 }

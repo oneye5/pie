@@ -4,7 +4,7 @@ import test from 'node:test';
 import { h } from 'preact';
 import renderToString from 'preact-render-to-string';
 
-import { FileChangesPanel, computeDiffTotals } from '../src/webview/panel/file-changes-panel';
+import { FileChangesPanel, FileChangeContextMenu, computeDiffTotals } from '../src/webview/panel/file-changes-panel';
 import type { FileChangeEntry } from '../src/shared/protocol';
 
 function entry(path: string, additions: number, deletions: number, kind: FileChangeEntry['kind'] = 'modified'): FileChangeEntry {
@@ -66,6 +66,8 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
       onOpenDiff: noop,
       onOpenInEditor: noop,
       onRevertFile: noop,
+      readFilePaths: [],
+      onSetFileRead: noop,
     }),
   );
   // Collapsed sliver carries the count.
@@ -142,6 +144,8 @@ test('FileChangesPanel collapsed: per-file list colors one entry per kind', () =
       onOpenDiff: noop,
       onOpenInEditor: noop,
       onRevertFile: noop,
+      readFilePaths: [],
+      onSetFileRead: noop,
     }),
   );
   // 2 added · 1 modified · 1 deleted — the per-file list renders one colored
@@ -170,6 +174,8 @@ test('FileChangesPanel pinned: renders left resize handle + close, no sliver', (
       onOpenDiff: noop,
       onOpenInEditor: noop,
       onRevertFile: noop,
+      readFilePaths: [],
+      onSetFileRead: noop,
     }),
   );
   // Pinned: the sliver is not rendered (the drawer header carries unpin).
@@ -196,6 +202,8 @@ test('FileChangesPanel pinned: deleted row is disabled with a Deleted title', ()
       onOpenDiff: noop,
       onOpenInEditor: noop,
       onRevertFile: noop,
+      readFilePaths: [],
+      onSetFileRead: noop,
     }),
   );
   // Deleted files can't be opened: the name button is disabled and titled
@@ -216,7 +224,130 @@ test('FileChangesPanel renders nothing when there are no file changes', () => {
       onOpenDiff: noop,
       onOpenInEditor: noop,
       onRevertFile: noop,
+      readFilePaths: [],
+      onSetFileRead: noop,
     }),
   );
   assert.equal(html, '');
+});
+
+// ---------------------------------------------------------------------------
+// Read / unread behaviour: read files sort to the bottom, render darkened
+// (is-read), are separated from the unread group by a "Reviewed" divider, and
+// the collapsed sliver darkens them in place. The right-click menu labels its
+// mark-read action by the captured read state.
+// ---------------------------------------------------------------------------
+
+test('FileChangesPanel pinned: read files sort to the bottom and render darkened', () => {
+  const html = renderToString(
+    h(FileChangesPanel, {
+      fileChanges: [
+        entry('src/a.ts', 1, 0), // unread
+        entry('src/b.ts', 2, 0), // read
+        entry('src/c.ts', 3, 0), // unread
+      ],
+      expanded: true,
+      onToggleExpanded: noop,
+      onOpenDiff: noop,
+      onOpenInEditor: noop,
+      onRevertFile: noop,
+      readFilePaths: ['src/b.ts'],
+      onSetFileRead: noop,
+    }),
+  );
+  // Exactly one read row, carrying the darkened `is-read` class.
+  assert.match(html, /file-change-item kind-modified is-read/);
+  const isReadCount = (html.match(/file-change-item kind-modified is-read/g) ?? []).length;
+  assert.equal(isReadCount, 1);
+  // b.ts (read) is demoted below the Reviewed divider, after the unread c.ts.
+  const divider = html.indexOf('file-change-group-divider');
+  const bIdx = html.indexOf('Open src/b.ts in the editor');
+  const cIdx = html.indexOf('Open src/c.ts in the editor');
+  assert.notEqual(divider, -1, 'group divider present');
+  assert.ok(cIdx < divider, 'unread c.ts renders above the divider');
+  assert.ok(divider < bIdx, 'read b.ts renders below the divider');
+});
+
+test('FileChangesPanel pinned: no Reviewed divider when there are no read files', () => {
+  const html = renderToString(
+    h(FileChangesPanel, {
+      fileChanges: [entry('src/a.ts', 1, 0), entry('src/b.ts', 2, 0)],
+      expanded: true,
+      onToggleExpanded: noop,
+      onOpenDiff: noop,
+      onOpenInEditor: noop,
+      onRevertFile: noop,
+      readFilePaths: [],
+      onSetFileRead: noop,
+    }),
+  );
+  assert.doesNotMatch(html, /file-change-group-divider/);
+  assert.doesNotMatch(html, /file-change-item kind-modified is-read/);
+});
+
+test('FileChangesPanel pinned: all-read list has no divider but darkens every row', () => {
+  // When every file is read, the unread group is empty -> no divider (the
+  // divider only separates two non-empty groups), but each row is darkened.
+  const html = renderToString(
+    h(FileChangesPanel, {
+      fileChanges: [entry('a.ts', 1, 0), entry('b.ts', 2, 0)],
+      expanded: true,
+      onToggleExpanded: noop,
+      onOpenDiff: noop,
+      onOpenInEditor: noop,
+      onRevertFile: noop,
+      readFilePaths: ['a.ts', 'b.ts'],
+      onSetFileRead: noop,
+    }),
+  );
+  assert.doesNotMatch(html, /file-change-group-divider/);
+  const isReadCount = (html.match(/file-change-item kind-modified is-read/g) ?? []).length;
+  assert.equal(isReadCount, 2);
+});
+
+test('FileChangesPanel collapsed sliver: read entries are darkened in place', () => {
+  const html = renderToString(
+    h(FileChangesPanel, {
+      fileChanges: [entry('a.ts', 5, 0, 'created'), entry('b.ts', 2, 0, 'created')],
+      expanded: false,
+      onToggleExpanded: noop,
+      onOpenDiff: noop,
+      onOpenInEditor: noop,
+      onRevertFile: noop,
+      readFilePaths: ['b.ts'],
+      onSetFileRead: noop,
+    }),
+  );
+  // b.ts (read) carries is-read; a.ts does not. Exactly one darkened entry.
+  assert.match(html, /sliver-file kind-created is-read/);
+  const isReadCount = (html.match(/sliver-file kind-created is-read/g) ?? []).length;
+  assert.equal(isReadCount, 1);
+  // The sliver keeps derivation order (a.ts before b.ts) — read entries are
+  // darkened, not reordered, in the narrow preview.
+  assert.ok(html.indexOf('a.ts') < html.indexOf('b.ts'));
+});
+
+test('FileChangeContextMenu: labels the mark-read action by captured read state', () => {
+  const baseMenu = { x: 10, y: 10, path: 'src/a.ts', kind: 'modified' as const };
+  const readHtml = renderToString(
+    h(FileChangeContextMenu, {
+      menu: { ...baseMenu, read: true },
+      onRevert: noop,
+      onSetFileRead: noop,
+      onClose: noop,
+    }),
+  );
+  const unreadHtml = renderToString(
+    h(FileChangeContextMenu, {
+      menu: { ...baseMenu, read: false },
+      onRevert: noop,
+      onSetFileRead: noop,
+      onClose: noop,
+    }),
+  );
+  // A read file offers "Mark as unread"; an unread file offers "Mark as read".
+  assert.match(readHtml, /Mark as unread/);
+  assert.doesNotMatch(readHtml, /Mark as read/);
+  assert.match(unreadHtml, /Mark as read/);
+  assert.doesNotMatch(unreadHtml, /Mark as unread/);
 });

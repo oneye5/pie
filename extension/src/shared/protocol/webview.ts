@@ -84,6 +84,15 @@ export interface ViewState {
   fileChanges: FileChangeEntry[];
   /** Whether the file-changes rail drawer is expanded for the active session. */
   fileChangesExpanded: boolean;
+  /**
+   * Paths of changed files the user has marked as read for the active session
+   * (host state — see STATE_CONTRACT § Webview-Local State). Read files sort to
+   * the bottom of the list and render darkened; viewing a file/diff adds the
+   * path here, and a new tool-call modification removes it (email-like). A path
+   * may appear here even if it's no longer in `fileChanges` (stale entries are
+   * harmless — the webview intersects with the change list).
+   */
+  readFilePaths: string[];
   /** Pruning result extracted from transcript (skill-pruner extension). */
   pruningResult: PruningResult | null;
   /** Current pruning configuration from settings.json. */
@@ -195,6 +204,7 @@ export type WebviewToHostMessage =
   | { type: 'openFileDiff'; sessionPath: string; filePath: string }
   | { type: 'openFileInEditor'; sessionPath: string; filePath: string }
   | { type: 'revertFile'; sessionPath: string; filePath: string }
+  | { type: 'setFileRead'; sessionPath: string; filePath: string; read: boolean }
   | { type: 'stateApplied'; payload: StateAppliedPayload }
   | { type: 'extensionUiResponse'; sessionPath: string; response: ExtensionUIResponsePayload }
   | { type: 'setFileChangesExpanded'; sessionPath: string; expanded: boolean };
