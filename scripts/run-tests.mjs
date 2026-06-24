@@ -427,10 +427,8 @@ async function main() {
     return;
   }
 
-  const results = [];
-  for (const config of selectedPackages) {
-    const result = await runPackage(config);
-    results.push(result);
+  const results = await Promise.all(selectedPackages.map((config) => runPackage(config)));
+  for (const result of results) {
     printPackageResult(result);
   }
 
