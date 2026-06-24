@@ -5,9 +5,6 @@ import * as vscode from 'vscode';
 import type { WebviewToHostMessage, SessionSummary, ChatPrefs, PruningSettings } from '../../shared/protocol';
 import type { Event } from './events';
 import type { ArchState } from './reducer';
-import type { StatsService } from '../stats-service';
-import type { FileDiffService } from './file-diff-service';
-import type { BackendLike } from './effect-runner';
 import { bootLog } from '../util/audit';
 import { buildOptimisticUserParts, buildPromptText } from './composer';
 
@@ -16,13 +13,6 @@ export interface SidebarProviderLike {
   reveal(): void;
   postState(): void;
   postImperative(msg: any): void;
-}
-
-/** Minimal context surface the router needs (for persistence). */
-export interface ContextLike {
-  globalState: {
-    update(key: string, value: any): Thenable<void>;
-  };
 }
 
 /** Minimal session-service surface the router needs. */
@@ -54,15 +44,10 @@ export class MessageRouter {
     private readonly dispatchEvent: (event: Event) => void,
     private readonly getArchState: () => ArchState,
     private readonly service: SessionServiceLike,
-    private readonly statsService: StatsService,
     private readonly sidebarProvider: SidebarProviderLike,
-    private readonly fileDiffService: FileDiffService,
-    private readonly backend: BackendLike,
     private readonly scheduleRender: () => void,
-    private readonly flushRender: () => void,
     private readonly deriveSessionNameFromTextFn: (text: string) => { name: string; isPlaceholder: boolean },
     private readonly isPendingTabPathFn: (path: string) => boolean,
-    private readonly context: ContextLike,
   ) {
   }
 

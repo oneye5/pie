@@ -148,15 +148,10 @@ export class PieExtension implements vscode.Disposable {
       (event) => this.dispatchArchEvent(event),
       () => this.archState,
       this.service,
-      this.statsService,
       this.sidebarProvider,
-      this.fileDiffService,
-      this.backend,
       () => this.scheduleRender(),
-      () => this.flushRender(),
       deriveSessionNameFromText,
       isPendingTabPath,
-      context,
     );
 
     this.effectRunner = new EffectRunner({
@@ -430,32 +425,6 @@ export class PieExtension implements vscode.Disposable {
             : 'Idle',
       );
     });
-  }
-
-  /**
-   * Immediately post state to the webview without debouncing.
-   * Use for user-initiated actions (optimistic inserts, message edits)
-   * and the first streaming event of a turn so feedback is instant.
-   */
-  private flushRender(): void {
-    const activeSessionPath = this.archState.sessions.activeSessionPath ?? null;
-    bootLog('extension-host', 'render.flush', {
-      activeSessionPath,
-      backendReady: this.archState.settings.backendReady,
-      notice: this.archState.settings.notice,
-      openTabCount: this.archState.sessions.openTabPaths.length,
-      transcriptLoaded: activeSessionPath
-        ? Object.prototype.hasOwnProperty.call(this.archState.transcript.windowBySession, activeSessionPath)
-        : false,
-    });
-    this.sidebarProvider.postState();
-    this.updateStatusBar(
-      this.archState.settings.notice
-        ? 'Error'
-        : this.archState.sessions.runningSessionPaths.length > 0
-          ? 'Thinking'
-          : 'Idle',
-    );
   }
 
   private updateStatusBar(state: 'Starting' | 'Idle' | 'Thinking' | 'Error'): void {

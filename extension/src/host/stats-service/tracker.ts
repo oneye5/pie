@@ -40,7 +40,6 @@ interface SessionRunTrackerOptions {
 }
 
 export class SessionRunTracker {
-  private readonly getArchState: GetArchState;
   private readonly dispatchArchEvent: DispatchArchEvent;
   private readonly scheduleRender: () => void;
   private readonly runState: SessionRunStateManager;
@@ -53,7 +52,6 @@ export class SessionRunTracker {
   private readonly busySessionPaths = new Set<string>();
 
   constructor(options: SessionRunTrackerOptions) {
-    this.getArchState = options.getArchState;
     this.dispatchArchEvent = options.dispatchArchEvent;
     this.scheduleRender = options.scheduleRender;
     this.runState = new SessionRunStateManager({

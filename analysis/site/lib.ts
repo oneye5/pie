@@ -35,18 +35,6 @@ export interface FilterState {
   pureOnly: boolean;
 }
 
-export const DEFAULT_FILTERS: FilterState = {
-  startDate: '',
-  endDate: '',
-  modelId: '',
-  thinkingLevel: '',
-  experimentAssignment: '',
-  subagentParentModel: '',
-  pruningMode: '',
-  scoredOnly: true,
-  pureOnly: false,
-};
-
 export type RenderSpecFn = (
   targetId: string,
   spec: Record<string, unknown> | null,
@@ -94,8 +82,6 @@ export const CHART_COLORS = {
 };
 
 export const THINKING_LEVEL_ORDER = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
-export const THINKING_LEVEL_DOMAIN = ['off', 'minimal', 'low', 'medium', 'high', 'max'];
-export const THINKING_LEVEL_RANGE = ['#8c8478', '#7ec8e3', '#59e17f', '#ffd479', '#ff8578', '#c084fc'];
 
 export function average(values: number[]): number | null {
   if (values.length === 0) {

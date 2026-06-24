@@ -3991,13 +3991,6 @@ async function renderCharts(
     thoroughness: 'subagentMeanThoroughness',
   })[d];
 
-  const dimMaxKey = (d: DimName) => ({
-    precision: 'subagentMaxPrecision',
-    creativity: 'subagentMaxCreativity',
-    reasoning: 'subagentMaxReasoning',
-    thoroughness: 'subagentMaxThoroughness',
-  })[d];
-
   const scoredWithScores = scored.filter((r: PreparedRunRow) => r.subagentScoredTaskCount > 0);
 
   // ── (A) Subagent requirement profile ──────────────────────────────────────

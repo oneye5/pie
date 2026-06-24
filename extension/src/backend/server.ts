@@ -103,7 +103,6 @@ export class BackendServer {
   private viewedSessionPath?: string;
   private readonly sessionContexts = new Map<string, SessionContext>();
   private systemPromptModulePromise?: Promise<SdkSystemPromptModule>;
-  private detachReader?: () => void;
 
   constructor(options: { sdkPath: string; cwd: string }) {
     this.sdkPath = options.sdkPath;
@@ -154,8 +153,6 @@ export class BackendServer {
     const detachReader = attachJsonlLineReader(process.stdin, (line) => {
       void this.handleLine(line);
     });
-
-    this.detachReader = detachReader;
 
     process.stdin.on('end', () => {
       detachReader();

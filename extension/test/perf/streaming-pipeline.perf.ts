@@ -414,7 +414,6 @@ function benchToolLookup(transcript: ChatMessage[], toolCallIds: string[]): Tool
   const b0 = performance.now();
   for (let i = 0; i < iters; i++) {
     const id = toolCallIds[i % toolCallIds.length];
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     transcript.flatMap((m) => m.toolCalls ?? []).find((tc) => tc.id === id);
   }
   const b1 = performance.now();
@@ -501,7 +500,6 @@ function benchReducerInternals(seeded: ArchState, n: number): ReducerInternalsRe
   t = performance.now();
   for (let i = 0; i < iters; i++) {
     produce(seeded, (d) => {
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       d.transcript.bySession[sp]?.find((m: ChatMessage) => m.id === id);
     });
   }
@@ -509,7 +507,6 @@ function benchReducerInternals(seeded: ArchState, n: number): ReducerInternalsRe
 
   t = performance.now();
   for (let i = 0; i < iters; i++) {
-    // eslint-disable-next-line @typescript-eslint/no-unused-expressions
     list.find((m) => m.id === id);
   }
   const rawFindUs = ((performance.now() - t) * 1000) / iters;

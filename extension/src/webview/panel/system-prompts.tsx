@@ -120,7 +120,7 @@ export function SystemPromptMessage({ prompts }: SystemPromptMessageProps) {
         </>
       }
     >
-      {prompts.map((prompt, index) => (
+      {prompts.map((prompt) => (
         <SystemPromptCard
           key={`${prompt.source}:${prompt.title}`}
           prompt={prompt}

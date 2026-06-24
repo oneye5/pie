@@ -1,5 +1,5 @@
 import type { ChartEntry, ChartContext } from '../lib.ts';
-import { CHART_COLORS, categoricalHeight, median, modelAxisLabel } from '../lib.ts';
+import { CHART_COLORS, categoricalHeight, median } from '../lib.ts';
 import type { PreparedRunRow } from '../../scripts/contracts.ts';
 
 export interface CostByModelRow {

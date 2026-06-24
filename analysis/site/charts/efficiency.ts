@@ -1,5 +1,5 @@
 import type { ChartEntry, ChartContext } from '../lib.ts';
-import { CHART_COLORS, average, categoricalHeight, median, percentile, sum } from '../lib.ts';
+import { CHART_COLORS, average, categoricalHeight, median, percentile } from '../lib.ts';
 import type { PreparedRunRow } from '../../scripts/contracts.ts';
 
 function cacheByModel(runs: PreparedRunRow[]) {

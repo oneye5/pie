@@ -312,7 +312,7 @@ test('a run that starts on a previously-idle session replaces the idle state wit
   // The idle seed is a placeholder until a run begins; once the session runs it
   // is measured normally and transitions to generating/paused, with the
   // historical latency still folded into the average (turn 2+ shows it inline).
-  let arch = makeArchState({
+  const arch = makeArchState({
     openTabs: ['/a'],
     running: [],
     active: '/a',
