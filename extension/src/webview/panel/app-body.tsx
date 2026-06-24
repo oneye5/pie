@@ -211,6 +211,19 @@ function PanelMain({
 }: PanelMainProps) {
   return (
     <div class="panel-main">
+      {showSessionChrome && fileChanges.length > 0 && (
+        <FileChangesPanel
+          key={activeSessionPath ?? 'none'}
+          fileChanges={fileChanges}
+          expanded={fileChangesExpanded}
+          onToggleExpanded={handlers.handleSetFileChangesExpanded}
+          onOpenDiff={handlers.handleOpenFileDiff}
+          onOpenInEditor={handlers.handleOpenFileInEditor}
+          onRevertFile={handlers.handleRevertFile}
+          readFilePaths={readFilePaths}
+          onSetFileRead={handlers.handleSetFileRead}
+        />
+      )}
       <div class="panel-content">
       {panelSurface === 'loading' ? (
         <div class="empty-state empty-state--loading">
@@ -254,19 +267,6 @@ function PanelMain({
         />
       )}
       </div>
-      {showSessionChrome && fileChanges.length > 0 && (
-        <FileChangesPanel
-          key={activeSessionPath ?? 'none'}
-          fileChanges={fileChanges}
-          expanded={fileChangesExpanded}
-          onToggleExpanded={handlers.handleSetFileChangesExpanded}
-          onOpenDiff={handlers.handleOpenFileDiff}
-          onOpenInEditor={handlers.handleOpenFileInEditor}
-          onRevertFile={handlers.handleRevertFile}
-          readFilePaths={readFilePaths}
-          onSetFileRead={handlers.handleSetFileRead}
-        />
-      )}
     </div>
   );
 }

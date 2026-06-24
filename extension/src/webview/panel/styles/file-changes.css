@@ -1,4 +1,4 @@
-/* ── Right-side file-changes rail ────────────────────────────────────────── */
+/* ── Left-side file-changes rail ────────────────────────────────────────── */
 /* Peek-vs-pin policy (CHANGED-FILES-UI-PLAN D1):
  *  - Collapsed: a thin full-height sliver (count + aggregate churn + a
  *    scrollable per-file preview whose names are colored by kind, D2)
@@ -69,7 +69,7 @@
   width: var(--file-changes-sliver-width);
   padding: var(--panel-gap-sm) 0 var(--panel-gap-xs);
   border: none;
-  border-left: 1px solid var(--panel-border-subtle);
+  border-right: 1px solid var(--panel-border-subtle);
   background: color-mix(in srgb, var(--panel-card-surface) 34%, transparent);
   color: var(--panel-foreground-soft);
   cursor: pointer;
@@ -85,7 +85,7 @@
 .file-changes-rail.is-peeking .file-changes-sliver {
   background: var(--panel-control-hover);
   color: var(--panel-foreground);
-  border-left-color: var(--panel-accent);
+  border-right-color: var(--panel-accent);
 }
 
 /* Tight top summary: count + aggregate churn share one vertical cluster. */
@@ -251,9 +251,9 @@
   opacity: 0;
   overflow: hidden;
   pointer-events: none;
-  border-left: 1px solid transparent;
+  border-right: 1px solid transparent;
   background: var(--panel-card-surface);
-  transform: translateX(6px);
+  transform: translateX(-6px);
   transition:
     opacity var(--panel-transition-fast),
     transform var(--panel-transition-fast),
@@ -267,7 +267,7 @@
   width: auto;
   opacity: 1;
   pointer-events: auto;
-  border-left-color: var(--panel-border);
+  border-right-color: var(--panel-border);
   transform: translateX(0);
 }
 
@@ -275,24 +275,24 @@
    layout space; z-index clears the transcript's floating jump-to-latest
    button (z-index 280) — both live in .panel-main's isolated stacking
    context, so this sits above it. Floating-panel treatment: an accent-tinted
-   left edge + larger left radius, with a layered LEFT-casting shadow for
-   elevation (the drawer is flush on the right, so the shadow casts left over
+   right edge + larger right radius, with a layered RIGHT-casting shadow for
+   elevation (the drawer is flush on the left, so the shadow casts right over
    the transcript). */
 .file-changes-drawer.is-peek {
   position: absolute;
   top: 0;
-  right: 0;
+  left: 0;
   bottom: 0;
   width: var(--file-changes-drawer-width);
   z-index: 300;
   opacity: 1;
   pointer-events: auto;
-  border-left: 1px solid color-mix(in srgb, var(--panel-border) 55%, var(--panel-accent) 45%);
-  border-radius: var(--panel-radius-lg) 0 0 var(--panel-radius-lg);
+  border-right: 1px solid color-mix(in srgb, var(--panel-border) 55%, var(--panel-accent) 45%);
+  border-radius: 0 var(--panel-radius-lg) var(--panel-radius-lg) 0;
   background: var(--panel-card-surface);
   box-shadow:
-    -28px 0 60px -24px rgba(0, 0, 0, 0.72),
-    -8px 0 22px -10px rgba(0, 0, 0, 0.4);
+    28px 0 60px -24px rgba(0, 0, 0, 0.72),
+    8px 0 22px -10px rgba(0, 0, 0, 0.4);
   transform: translateX(0);
 }
 
@@ -592,7 +592,7 @@
 
 @media (forced-colors: active) {
   .file-changes-sliver {
-    border-left-color: ButtonText;
+    border-right-color: ButtonText;
   }
   .file-changes-drawer {
     border-color: ButtonText;

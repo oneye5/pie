@@ -562,19 +562,6 @@ export function FileChangesPanel({
         </button>
       )}
 
-      {pinned && (
-        <ResizeHandle
-          edge="left"
-          onMouseDown={startResize('left')}
-          width={dragWidth}
-          minWidth={minWidth}
-          maxWidth={maxWidth}
-          onResizeBy={resizeBy}
-          onReset={reset}
-          label="Drag to resize file-changes rail"
-        />
-      )}
-
       <div
         class={cx('file-changes-drawer', showDrawer && drawerMode)}
         aria-hidden={!showDrawer}
@@ -634,6 +621,18 @@ export function FileChangesPanel({
           </div>
         </div>
       </div>
+      {pinned && (
+        <ResizeHandle
+          edge="right"
+          onMouseDown={startResize('right')}
+          width={dragWidth}
+          minWidth={minWidth}
+          maxWidth={maxWidth}
+          onResizeBy={resizeBy}
+          onReset={reset}
+          label="Drag to resize file-changes rail"
+        />
+      )}
       {ctxMenu && (
         <FileChangeContextMenu
           menu={ctxMenu}

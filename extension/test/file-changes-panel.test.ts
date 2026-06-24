@@ -165,7 +165,7 @@ test('FileChangesPanel collapsed: per-file list colors one entry per kind', () =
   assert.match(html, /sliver-file-del">-4/);
 });
 
-test('FileChangesPanel pinned: renders left resize handle + close, no sliver', () => {
+test('FileChangesPanel pinned: renders right resize handle + close, no sliver', () => {
   const html = renderToString(
     h(FileChangesPanel, {
       fileChanges: [entry('src/a.ts', 1, 0)],
@@ -180,8 +180,9 @@ test('FileChangesPanel pinned: renders left resize handle + close, no sliver', (
   );
   // Pinned: the sliver is not rendered (the drawer header carries unpin).
   assert.doesNotMatch(html, /file-changes-sliver/);
-  // Left-edge resize handle present (drag-left = wider).
-  assert.match(html, /class="resize-handle resize-handle-left"/);
+  // Right-edge resize handle present (drag-right = wider; the rail docks left,
+  // so the transcript-facing edge is its right edge).
+  assert.match(html, /class="resize-handle resize-handle-right"/);
   // Close (unpin) affordance present.
   assert.match(html, /file-changes-close/);
   // Tooltips were removed from the expanded drawer (they obscured the list):
