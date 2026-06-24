@@ -1,5 +1,48 @@
 # TODO — Deferred work
 
+> **STATUS — 2026-06-24:** The deferred items below have been addressed and
+> committed (composer-cleanup was already committed previously). The rest of
+> this file is retained as the historical decision record.
+>
+> - `2c24267` — stratified ranker reweighted to `fileChurn` (dropped
+>   `firstAttemptSuccess` from the composite; retained on `PreparedRunRow`).
+> - `0985a90` — analytics: over-pruning signals (`skill_miss` /
+>   `shadow_miss_candidate` / `tool_recovered`) ingested end-to-end + a
+>   "prunes recovered" rate chart; other model-grouped views
+>   (`createModelQuality`, `createTimeline.modelMix`, 11 dashboard views)
+>   + the model filter dropdown re-keyed `modelId` → `modelFamily`
+>   (fallback to `modelId`), mirroring the leaderboard.
+> - `7cd3acd` — sticky expand/collapse headers extended to reasoning +
+>   subagent blocks (`Collapsible.stickyHeader`; `.subagent-header`
+>   `position:sticky` + `overflow:clip` root).
+> - `a86d478` — UI controllability committed. **Supersedes the
+>   "UI controllability (UNCOMMITTED)" note below:** the 3 mixed files
+>   had already landed in `8fc7965`; this ships the remaining
+>   settings/styles/flyout/tests and fixes the expanded-text slider max
+>   (28 → 32) + base/composer font maxes to match `protocol-validation`.
+> - `cf10bd9` — skill-pruner parse-failure fail-open observability
+>   (`keptAllDueToParseFailure` → `prepassFailOpenReason`). Bundled in the
+>   same commit (intertwined in the same files, all green/tested):
+>   `getRecentConversation` context, model/auth try-catch fail-open,
+>   diagnostic + input-handler removal.
+> - Build artifacts regenerated from `data/outcomes/7161a5ef2dd349b4`;
+>   `validate-site-data` passes (no longer stale).
+> - `composer.draftTextBySession` cleanup parity was already committed.
+>
+> **Not autonomously addressed:**
+> - **D7 tuning** (grace/close durations, new-command-during-grace) is
+>   subjective UX feel — documented defaults retained; needs human runtime
+>   testing to tune.
+> - **Changed-files UI secondary findings** (sort by magnitude/status;
+>   group by status; `hasNewChanges` → host state; resize-handle on peek)
+>   remain deferred-by-design — each is gated on a trigger in its own note
+>   ("revisit if", "only if reported", "out of scope; could later").
+>
+> **Deliberately left uncommitted (unrelated to these items):**
+> - `settings.json` — a personal pruning model/provider swap.
+> - `analysis/site/charts/toolduration.ts` — an unrelated tooltip-label
+>   polish ("Total time" → "Total time (s)").
+
 ## Skill-pruner prune-list refactor — deferred follow-ups
 
 **Implemented:** Flipped the pruner from an inclusion-list (LLM names what to
@@ -305,3 +348,51 @@ prevent, and Fix A above now makes `draftTextBySession` a formally "migrating"
 map, so the inconsistency with cleanup is more visible. To close: add a
 `draftTextBySession` destructure+clean to both functions and add it to the
 parity test's `base` + `checks`.
+
+## UI controllability — more font/color/sizes + wider slider bounds (implemented, UNCOMMITTED)
+
+**Status: complete & verified, but NOT committed per user instruction** ("dont
+commit"). All changes live uncommitted in the working tree. Build / typecheck /
+affected tests are green (59/59 affected tests pass; typecheck clean).
+
+**What it adds:**
+- **New per-place font sizes** (driven by new `ChatPrefs` fields → CSS vars in
+  `app-body.tsx`): `uiBaseFontSize` → `--panel-font-size` (body + `message-prose`
+  + inline editor; default 13), `uiComposerFontSize` → `--panel-composer-font-size`
+  (the composer `<textarea>` via new `.composer-input-textarea` class; default 13).
+  Keeps the existing `expandedSectionFontSize`. Three independent size levers.
+- **New color overrides:** `uiMutedColor` → `--panel-muted` (overrides the
+  foreground-derived shade; default '' = derived), `uiLinkColor` → `--panel-link`
+  (hyperlinks in `.message-body a` + `.ask-prose a` now route through it; default
+  '' = follows `--panel-accent`, preserving the bundled gold link look).
+- **Widened slider bounds** (UI flyout + `protocol-validation.ts` ranges):
+  corner radius 0–16 → 0–24; message width 60–100 → 40–100; expanded height
+  120–720 → 80–1600; activity rows 1–6 → 1–12; expanded text 9–18 → 8–32.
+- Theme presets extended to 6 color fields (`muted`/`link` added; presets pin
+  them to '' so selecting one resets those overrides).
+
+**Why uncommitted — file overlap with concurrent work:** the repo has uncommitted
+concurrent "changed-files read state" work (`readFilePaths` / `setFileRead` /
+`handleSetFileRead`) by another session. Three of my files carry BOTH my changes
+and theirs in separate regions:
+- `extension/src/webview/panel/app-body.tsx` (mine: CSS-var wiring + deps; theirs: readFilePaths plumbing)
+- `extension/src/shared/protocol-validation.ts` (mine: widened `numericRanges` + new `stringKeys`; theirs: `case 'setFileRead'`)
+- `extension/test/sync-contract.test.ts` (mine: new-field default assertions; theirs: a readFilePaths line)
+A stash `my-changed-files-isolation` and two `reset: moving to HEAD` reflog
+entries confirm active concurrent git operations.
+
+**To commit later (once concurrent work is resolved):** stage only my hunks of
+the 3 mixed files (e.g. via index plumbing — `git show HEAD:<path>` to a temp,
+apply my edits, `git hash-object -w`, `git update-index --cacheinfo` — which
+leaves their working-tree hunks untouched) together with the 14 clean files
+listed below, then commit. My 14 clean (non-overlapping) files:
+`extension/src/shared/protocol/settings.ts`, `…/composer/settings-menu-helpers.ts`,
+`…/composer/settings-menu-subcomponents.tsx`, `…/styles/{index,composer,transcript,extension-ui-prompt,inline-editor}.css`,
+`…/panel/ui.tsx`, and tests `chat-prefs`, `protocol-validation`, `settings-menu-ui-flyout`,
+`webview-style-contract`, `turn-activity-region` (the last is an unrelated
+pre-existing `never[]` type-fix needed to unblock the build's typecheck gate).
+
+**Build note:** the extension was already rebuilt (`npm run build`) and synced
+to the installed VS Code extension while the merged content was present, so the
+feature is live in the running extension — but a later revert/reset by the
+concurrent session would undo that sync; rebuild after the commit.
