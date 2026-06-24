@@ -153,7 +153,7 @@
           "name": "Ollama Cloud: GLM 5.2",
           "family": "glm-5.2",
           "reasoning": true,
-          "contextWindow": 1048576,
+          "contextWindow": 1000000,
           "maxTokens": 65536,
           "cost": {
             "input": 1.2,
@@ -819,7 +819,7 @@
             "text",
             "image"
           ],
-          "contextWindow": 1048576,
+          "contextWindow": 405504,
           "maxTokens": 65536,
           "cost": {
             "input": 1.2,
