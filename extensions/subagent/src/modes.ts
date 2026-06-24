@@ -10,6 +10,7 @@ import {
 	mapWithConcurrencyLimit,
 	runSingleAgent,
 	subagentRuntime,
+	consumeTreeSlot,
 	type SubagentRuntimeContext,
 } from "../runner.js";
 import { SubagentParams } from "../schema.js";
@@ -163,6 +164,15 @@ export async function executeSingleMode(
 		};
 	}
 
+	const treeLimitError = consumeTreeSlot(runtimeCtx.budget);
+	if (treeLimitError) {
+		return {
+			content: [{ type: "text" as const, text: treeLimitError }],
+			details: makeDetails("single", []),
+			isError: true,
+		};
+	}
+
 	const singleAgent = agents.find((a) => a.name === params.agent)!;
 	const { result } = await runWithModelRetry({
 		agent: singleAgent,
@@ -171,7 +181,12 @@ export async function executeSingleMode(
 		thinkingLevel: params.thinkingLevel,
 		activeModelId: ctx.model?.id ?? "",
 		selectionCtx,
-		buildRuntime: () => ({ depth: runtimeCtx.depth + 1, trail: [...runtimeCtx.trail, params.agent!] }),
+		buildRuntime: () => ({
+			depth: runtimeCtx.depth + 1,
+			trail: [...runtimeCtx.trail, params.agent!],
+			canSpawn: singleAgent.canSpawn,
+			budget: runtimeCtx.budget,
+		}),
 		runAttempt: (resolved) => {
 			const sel = resolved.selection ?? {
 				modelId: resolved.modelOverride ?? ctx.model?.id ?? "",
@@ -288,6 +303,14 @@ async function runParallelTask(
 		return limitResult;
 	}
 
+	const treeLimitError = consumeTreeSlot(runtimeCtx.budget);
+	if (treeLimitError) {
+		const limitResult = createErrorResult(t.agent, t.task, treeLimitError);
+		allResults[index] = limitResult;
+		emitUpdate();
+		return limitResult;
+	}
+
 	if (checkTrailLoop(t.agent, runtimeCtx.trail)) {
 		const loopResult = createErrorResult(t.agent, t.task, TRAIL_LOOP_MESSAGE(t.agent));
 		allResults[index] = loopResult;
@@ -303,7 +326,12 @@ async function runParallelTask(
 		thinkingLevel: t.thinkingLevel,
 		activeModelId: ctx.model?.id ?? "",
 		selectionCtx,
-		buildRuntime: () => ({ depth: runtimeCtx.depth + 1, trail: [...runtimeCtx.trail, t.agent] }),
+		buildRuntime: () => ({
+			depth: runtimeCtx.depth + 1,
+			trail: [...runtimeCtx.trail, t.agent],
+			canSpawn: parallelAgent.canSpawn,
+			budget: runtimeCtx.budget,
+		}),
 		runAttempt: (resolved) => {
 			const sel = resolved.selection ?? {
 				modelId: resolved.modelOverride ?? ctx.model?.id ?? "",
@@ -448,7 +476,12 @@ export async function executeChainMode(
 			thinkingLevel: step.thinkingLevel,
 			activeModelId: ctx.model?.id ?? "",
 			selectionCtx,
-			buildRuntime: () => ({ depth: runtimeCtx.depth + 1, trail: [...runtimeCtx.trail, step.agent] }),
+			buildRuntime: () => ({
+				depth: runtimeCtx.depth + 1,
+				trail: [...runtimeCtx.trail, step.agent],
+				canSpawn: chainAgent.canSpawn,
+				budget: runtimeCtx.budget,
+			}),
 			runAttempt: (resolved) => {
 				const sel = resolved.selection ?? {
 					modelId: resolved.modelOverride ?? ctx.model?.id ?? "",
@@ -559,6 +592,24 @@ export function checkChainPreFlight(
 		return {
 			content: [
 				{ type: "text" as const, text: `Chain stopped at step ${stepIndex + 1}: ${sessionLimitError}` },
+			],
+			details: makeDetails("chain", results),
+			isError: true,
+		};
+	}
+
+	const treeLimitError = consumeTreeSlot(runtimeCtx.budget);
+	if (treeLimitError) {
+		const limitErrorResult = createErrorResult(
+			step.agent,
+			taskWithContext,
+			treeLimitError,
+			stepIndex + 1,
+		);
+		results.push(limitErrorResult);
+		return {
+			content: [
+				{ type: "text" as const, text: `Chain stopped at step ${stepIndex + 1}: ${treeLimitError}` },
 			],
 			details: makeDetails("chain", results),
 			isError: true,

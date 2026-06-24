@@ -77,6 +77,12 @@ async function handleRuntimePrefsSet(
   if (params.subagentAlwaysParentModel !== undefined) {
     process.env['PIE_SUBAGENT_ALWAYS_PARENT_MODEL'] = params.subagentAlwaysParentModel ? '1' : '0';
   }
+  if (params.subagentMaxDepth !== undefined) {
+    process.env['PIE_SUBAGENT_MAX_DEPTH'] = String(params.subagentMaxDepth);
+  }
+  if (params.subagentMaxTreeSessions !== undefined) {
+    process.env['PIE_SUBAGENT_MAX_TREE_SESSIONS'] = String(params.subagentMaxTreeSessions);
+  }
   return params;
 }
 

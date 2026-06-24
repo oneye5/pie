@@ -20,6 +20,14 @@ export interface AgentConfig {
 	bucket?: string;
 	/** Optional thinking level hint for model selection. */
 	thinkingLevel?: ThinkingLevel;
+	/**
+	 * Optional allowlist restricting which agents this agent may spawn via the
+	 * subagent tool. When omitted, the agent may spawn any agent (default).
+	 * When present (including empty), only the listed agent names are
+	 * permitted. Used to preserve invariants such as a read-only agent only
+	 * being able to delegate to other read-only agents.
+	 */
+	canSpawn?: string[];
 	systemPrompt: string;
 	source: "user" | "project";
 	filePath: string;
@@ -122,6 +130,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 		}
 
 		const tools = parseToolsList(frontmatter.tools);
+		const canSpawn = parseToolsList(frontmatter.canSpawn);
 
 		const { bucket, thinkingLevel } = parseBucketAndThinking(frontmatter.bucket, frontmatter.thinkingLevel);
 
@@ -132,6 +141,7 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			model: frontmatter.model,
 			bucket,
 			thinkingLevel,
+			canSpawn: canSpawn && canSpawn.length > 0 ? canSpawn : undefined,
 			systemPrompt: body,
 			source,
 			filePath,

@@ -92,13 +92,32 @@ export function resolveSubagentTimeoutMs(): number {
 }
 
 /**
+ * Mutable counter shared across an entire nested subagent tree via
+ * {@link subagentRuntime}. A fresh one is created at the outermost call and
+ * threaded down to every child so a tree-wide session budget can be enforced
+ * (independent of the per-call `MAX_SESSIONS_PER_CALL` counter).
+ */
+export interface TreeBudget {
+	sessions: number;
+}
+
+/**
  * Async-local context carried through nested subagent invocations.
  * Replaces the old PI_SUBAGENT_DEPTH / PI_SUBAGENT_TRAIL environment variables
  * (which only worked across subprocess boundaries).
+ *
+ * - `depth` / `trail` bound and trace the ancestry.
+ * - `canSpawn` carries the *current* session agent's `canSpawn` allowlist (from
+ *   its frontmatter) so the child tool call can enforce caller-restricted
+ *   spawning without re-discovering the caller. `undefined` at the root caller
+ *   (the main agent) and for agents without a `canSpawn` field → unrestricted.
+ * - `budget` is the shared tree-wide session counter; created at the root call.
  */
 export interface SubagentRuntimeContext {
 	depth: number;
 	trail: string[];
+	canSpawn?: string[];
+	budget?: TreeBudget;
 }
 
 export const subagentRuntime = new AsyncLocalStorage<SubagentRuntimeContext>();
@@ -110,6 +129,56 @@ export function readRuntimeContext(): SubagentRuntimeContext {
 	const depth = parseInt(process.env.PI_SUBAGENT_DEPTH ?? "0", 10);
 	const trail = (process.env.PI_SUBAGENT_TRAIL ?? "").split(",").filter(Boolean);
 	return { depth, trail };
+}
+
+/** Environment key for the pie host to override the max nesting depth. */
+const MAX_DEPTH_ENV = "PIE_SUBAGENT_MAX_DEPTH";
+/** Default max nesting depth when no override is supplied. */
+export const DEFAULT_MAX_DEPTH = 3;
+
+/**
+ * Resolve the max nesting depth for subagent calls. Reads
+ * `PIE_SUBAGENT_MAX_DEPTH` from the environment (set by the pie host from the
+ * settings menu). Unset or invalid → {@link DEFAULT_MAX_DEPTH}.
+ */
+export function getMaxDepth(): number {
+	const raw = process.env[MAX_DEPTH_ENV];
+	if (raw === undefined || raw === "") return DEFAULT_MAX_DEPTH;
+	const n = Number(raw);
+	return Number.isFinite(n) && n >= 1 ? Math.floor(n) : DEFAULT_MAX_DEPTH;
+}
+
+/** Environment key for the pie host to override the tree-wide session budget. */
+const MAX_TREE_SESSIONS_ENV = "PIE_SUBAGENT_MAX_TREE_SESSIONS";
+/** Default tree-wide session budget when no override is supplied. */
+export const DEFAULT_MAX_TREE_SESSIONS = 50;
+
+/**
+ * Resolve the tree-wide session budget — the max number of subagent sessions
+ * permitted across an entire nested tree (not just one tool call). Reads
+ * `PIE_SUBAGENT_MAX_TREE_SESSIONS` from the environment. Unset or invalid →
+ * {@link DEFAULT_MAX_TREE_SESSIONS}.
+ */
+export function getMaxTreeSessions(): number {
+	const raw = process.env[MAX_TREE_SESSIONS_ENV];
+	if (raw === undefined || raw === "") return DEFAULT_MAX_TREE_SESSIONS;
+	const n = Number(raw);
+	return Number.isFinite(n) && n >= 1 ? Math.floor(n) : DEFAULT_MAX_TREE_SESSIONS;
+}
+
+/**
+ * Consume one tree-wide session slot. Increments the shared budget counter and
+ * returns an error message when the tree budget is exhausted (the call that
+ * exceeds the cap still counts, so the message is accurate). A missing budget
+ * (should not happen past the root) is a no-op pass-through.
+ */
+export function consumeTreeSlot(budget: TreeBudget | undefined): string | undefined {
+	if (!budget) return undefined;
+	budget.sessions++;
+	if (budget.sessions > getMaxTreeSessions()) {
+		return `Sub-agent tree session limit reached (max ${getMaxTreeSessions()} sessions across the nested tree).`;
+	}
+	return undefined;
 }
 
 export async function mapWithConcurrencyLimit<TIn, TOut>(
@@ -392,7 +461,10 @@ export async function runSingleAgent(
 
 	// 4. Build an isolated resource loader and create the session.
 	// - appendSystemPrompt threads the agent's instructions into the system prompt
-	// - noExtensions prevents recursive loading of the subagent extension itself
+	// - noExtensions is intentionally false so the subagent extension (and others)
+	//   load into nested sessions, enabling further delegation. Nesting is bounded
+	//   by the depth/trail/tree-budget guards in execute()/modes.ts, not by hiding
+	//   the tool.
 	const resourceLoader = sdk.createResourceLoader({
 		cwd: sessionCwd,
 		agentDir: sdk.getAgentDir(),

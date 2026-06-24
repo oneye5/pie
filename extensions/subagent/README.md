@@ -84,10 +84,33 @@ that sub agents are unavailable. Any call returns:
 
 ## Limits
 
-- Max depth: 3 (nested subagent calls)
-- Max subagent sessions per reply: 20
+- Max depth: 3 (nested subagent calls) — configurable via `PIE_SUBAGENT_MAX_DEPTH`
+  (set by the pie host from the settings menu; default 3).
+- Max subagent sessions per reply: 20 — bounds breadth within a single tool call.
 - Max parallel tasks: 8
 - Concurrency: 4
+- Tree-wide session budget: 50 — caps the total number of subagent sessions spawned
+  across an *entire* nested tree (independent of the per-reply counter), so increased
+  nesting can't run away on cost. Configurable via `PIE_SUBAGENT_MAX_TREE_SESSIONS`
+  (default 50).
+
+### `canSpawn` allowlist
+
+An agent's frontmatter may declare `canSpawn:` to restrict which agents it may
+spawn via the subagent tool. When omitted, the agent may spawn any agent; when
+present, only the listed agent names are permitted. This preserves invariants
+such as a read-only agent (e.g. `scout`) only being able to delegate to other
+read-only agents:
+
+```yaml
+---
+name: scout
+tools: read, grep, find, ls, bash, subagent
+canSpawn: [scout]
+---
+```
+
+The root caller (the main agent) is never restricted.
 
 ## Timeouts
 

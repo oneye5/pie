@@ -8,6 +8,8 @@ import * as path from "node:path";
 import { type AgentConfig, type AgentScope, discoverAgents } from "../agents.js";
 import {
 	readRuntimeContext,
+	consumeTreeSlot,
+	getMaxDepth,
 	type SubagentRuntimeContext,
 } from "../runner.js";
 import { SubagentParams } from "../schema.js";
@@ -29,7 +31,7 @@ import {
 } from "../bucket-selector.js";
 import type { BucketAssignments, SimpleModelConfig } from "../bridge.js";
 import { getBucketAssignments } from "../bridge.js";
-import { MAX_DEPTH, MAX_SESSIONS_PER_CALL, makeDetails } from "./helpers.js";
+import { MAX_SESSIONS_PER_CALL, makeDetails } from "./helpers.js";
 import type { ParentBridge } from "./parent-extension-ui-bridge-proxy.js";
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
@@ -249,17 +251,50 @@ function disabledErrorResponse(params: SubagentParams): ErrorResponse {
 }
 
 /** Returns the standard response when subagent depth limit is reached. */
-function depthLimitResponse(agentScope: AgentScope): ErrorResponse {
+function depthLimitResponse(agentScope: AgentScope, maxDepth: number): ErrorResponse {
 	return {
 		content: [
 			{
 				type: "text",
-				text: `Subagent depth limit reached (max ${MAX_DEPTH}). Cannot spawn further subagents.`,
+				text: `Subagent depth limit reached (max ${maxDepth}). Cannot spawn further subagents.`,
 			},
 		],
 		details: { mode: "single", agentScope, projectAgentsDir: null, results: [] },
 		isError: true,
 	};
+}
+
+/** Returns the standard response when the caller's canSpawn allowlist blocks a requested agent. */
+function cannotSpawnResponse(
+	disallowed: string[],
+	mode: Mode,
+	agentScope: AgentScope,
+	projectAgentsDir: string | null,
+): ErrorResponse {
+	const listing = disallowed.map((n) => `"${n}"`).join(", ");
+	return {
+		content: [
+			{
+				type: "text",
+				text: `Not permitted to spawn ${listing}: blocked by the caller's canSpawn allowlist. Choose an agent the caller is allowed to delegate to.`,
+			},
+		],
+		details: makeDetails(mode, [], agentScope, projectAgentsDir),
+		isError: true,
+	};
+}
+
+/**
+ * Returns the requested agent names the caller is not permitted to spawn.
+ * `canSpawn` undefined (root caller, or agent without the field) → unrestricted
+ * → empty result. Otherwise any requested name not in the allowlist is disallowed.
+ */
+export function disallowedByCanSpawn(
+	canSpawn: string[] | undefined,
+	requested: Set<string>,
+): string[] {
+	if (!canSpawn) return [];
+	return [...requested].filter((name) => !canSpawn.includes(name));
 }
 
 /** Builds a counter that returns an error message after `MAX_SESSIONS_PER_CALL` invocations. */
@@ -431,7 +466,12 @@ export async function execute(
 
 	const agentScope: AgentScope = params.agentScope ?? "user";
 	const runtimeCtx = readRuntimeContext();
-	if (runtimeCtx.depth >= MAX_DEPTH) return depthLimitResponse(agentScope);
+	const maxDepth = getMaxDepth();
+	if (runtimeCtx.depth >= maxDepth) return depthLimitResponse(agentScope, maxDepth);
+
+	// Seed the shared tree-wide session budget at the outermost call. Nested
+	// calls inherit it via the AsyncLocalStorage context (see modes.ts buildRuntime).
+	if (!runtimeCtx.budget) runtimeCtx.budget = { sessions: 0 };
 
 	const checkSessionLimit = createSessionLimitChecker();
 	const discovery = discoverAgents(ctx.cwd, agentScope);
@@ -444,6 +484,15 @@ export async function execute(
 
 	if (invalidResults.length > 0) {
 		return invalidAgentsResponse(invalidResults, mode, agentScope, discovery.projectAgentsDir);
+	}
+
+	// Enforce the caller's canSpawn allowlist. The root caller (main agent) has
+	// no canSpawn → unrestricted. An agent with a canSpawn list may only spawn the
+	// named agents, preserving invariants such as read-only-only delegation.
+	const callerCanSpawn = runtimeCtx.canSpawn;
+	const disallowed = disallowedByCanSpawn(callerCanSpawn, collectRequestedAgentNames(params));
+	if (disallowed.length > 0) {
+		return cannotSpawnResponse(disallowed, mode, agentScope, discovery.projectAgentsDir);
 	}
 
 	const approvalError = await maybeApproveProjectAgents(params, agents, discovery, agentScope, mode, ctx);

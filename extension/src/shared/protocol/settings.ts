@@ -97,6 +97,13 @@ export interface ChatPrefs {
   showPruningMessages: boolean;
   /** When true, sub-agents always use the parent's active model (skip bucket selection). */
   subagentAlwaysParentModel: boolean;
+  /** Max nesting depth for subagents (main → L1 → L2 → ...). Default 3.
+   *  Mirrored to the in-process subagent extension via PIE_SUBAGENT_MAX_DEPTH. */
+  subagentMaxDepth: number;
+  /** Max total subagent sessions permitted across an entire nested tree
+   *  (independent of the per-reply cap). Default 50. Mirrored to the in-process
+   *  subagent extension via PIE_SUBAGENT_MAX_TREE_SESSIONS. */
+  subagentMaxTreeSessions: number;
   completionSoundVolume: number;
   /** Base font size (px) for body text and message prose — the primary
    *  readable content (assistant/user messages and the inline editor). Drives
@@ -195,6 +202,8 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   suppressCompletionNotifications: false,
   showPruningMessages: true,
   subagentAlwaysParentModel: false,
+  subagentMaxDepth: 3,
+  subagentMaxTreeSessions: 50,
   completionSoundVolume: 50,
   uiBaseFontSize: 13,
   uiComposerFontSize: 13,

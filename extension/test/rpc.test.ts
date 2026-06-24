@@ -149,12 +149,14 @@ test('validateRuntimePrefsSet accepts provider and extension toggles', () => {
         'skill-pruner': false,
       },
       subagentAlwaysParentModel: undefined,
+      subagentMaxDepth: undefined,
+      subagentMaxTreeSessions: undefined,
     },
   );
 });
 
 test('validateRuntimePrefsSet defaults missing toggle maps to empty', () => {
-  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: undefined });
+  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: undefined, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined });
 });
 
 test('validateRuntimePrefsSet rejects non-boolean provider toggle values', () => {

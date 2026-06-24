@@ -221,6 +221,8 @@ async function sendRuntimePrefsWithLogging(
       providerToggles: archState.settings.prefs.providerToggles,
       extensionToggles: archState.settings.prefs.extensionToggles,
       subagentAlwaysParentModel: archState.settings.prefs.subagentAlwaysParentModel,
+      subagentMaxDepth: archState.settings.prefs.subagentMaxDepth,
+      subagentMaxTreeSessions: archState.settings.prefs.subagentMaxTreeSessions,
     });
     bootLog('session-startup', 'runtimePrefs.set.completed', {
       backendReady: options.getArchState().settings.backendReady,

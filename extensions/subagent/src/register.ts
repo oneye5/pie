@@ -61,12 +61,12 @@ function buildPromptSnippet(disabled = false): string {
 		const { agents } = discoverAgents(process.cwd(), "user");
 		if (agents.length > 0) {
 			const names = agents.map((a) => a.name).join(", ");
-			return `Delegate tasks to specialized subagents with isolated context. Available agents: ${names}. ${BUCKET_GUIDANCE}`;
+			return `Delegate tasks to specialized subagents with isolated context. Available agents: ${names}. Subagents can delegate further to keep contexts focused. ${BUCKET_GUIDANCE}`;
 		}
 	} catch {
 		/* ignore */
 	}
-	return `Delegate tasks to specialized subagents with isolated context. ${BUCKET_GUIDANCE}`;
+	return `Delegate tasks to specialized subagents with isolated context. Subagents can delegate further to keep contexts focused. ${BUCKET_GUIDANCE}`;
 }
 
 /** Check whether subagent execution is disabled via flag or env var. */

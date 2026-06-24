@@ -318,10 +318,26 @@ export interface RuntimePrefsSetParams {
   providerToggles: Record<string, boolean>;
   extensionToggles: Record<string, boolean>;
   subagentAlwaysParentModel?: boolean;
+  subagentMaxDepth?: number;
+  subagentMaxTreeSessions?: number;
 }
 
 export interface SettingsSetParams extends Partial<ModelSettings> {
   sessionPath?: string;
+}
+
+function validateOptionalInt(
+  method: string,
+  fieldName: string,
+  raw: unknown,
+  min: number,
+  max: number,
+): number | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < min || raw > max || Math.floor(raw) !== raw) {
+    fail(method, `${fieldName} must be an integer between ${min} and ${max} when provided`);
+  }
+  return raw;
 }
 
 function validateBooleanMap(
@@ -362,7 +378,9 @@ export function validateRuntimePrefsSet(params: unknown): RuntimePrefsSetParams 
   const rawAlwaysParent = (params as Record<string, unknown>)['subagentAlwaysParentModel'];
   const subagentAlwaysParentModel =
     rawAlwaysParent === undefined ? undefined : typeof rawAlwaysParent === 'boolean' ? rawAlwaysParent : fail('runtimePrefs.set', 'subagentAlwaysParentModel must be a boolean when provided');
-  return { providerToggles, extensionToggles, subagentAlwaysParentModel };
+  const subagentMaxDepth = validateOptionalInt('runtimePrefs.set', 'subagentMaxDepth', (params as Record<string, unknown>)['subagentMaxDepth'], 1, 8);
+  const subagentMaxTreeSessions = validateOptionalInt('runtimePrefs.set', 'subagentMaxTreeSessions', (params as Record<string, unknown>)['subagentMaxTreeSessions'], 5, 200);
+  return { providerToggles, extensionToggles, subagentAlwaysParentModel, subagentMaxDepth, subagentMaxTreeSessions };
 }
 
 export function validateSettingsSet(params: unknown): SettingsSetParams {

@@ -702,6 +702,42 @@ function SubagentSettings({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs:
         </span>
         <span class="toolbar-settings-item-label">Always use parent model</span>
       </button>
+
+      <UiGroupLabel label="Nesting" />
+      <div class="toolbar-settings-ui-control">
+        <div class="toolbar-settings-ui-control-head">
+          <span class="toolbar-settings-ui-control-label">Max depth</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.subagentMaxDepth}</span>
+        </div>
+        <input
+          type="range"
+          class="toolbar-settings-slider toolbar-settings-ui-slider"
+          min="1"
+          max="8"
+          step="1"
+          value={prefs.subagentMaxDepth}
+          onInput={(e) => onSetPrefs({ subagentMaxDepth: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Max subagent nesting depth"
+        />
+        <div class="toolbar-settings-item-hint">How deep subagents may delegate to further subagents (main → L1 → L2 → ...). Higher unlocks more nesting at higher cost.</div>
+      </div>
+      <div class="toolbar-settings-ui-control">
+        <div class="toolbar-settings-ui-control-head">
+          <span class="toolbar-settings-ui-control-label">Tree session budget</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.subagentMaxTreeSessions}</span>
+        </div>
+        <input
+          type="range"
+          class="toolbar-settings-slider toolbar-settings-ui-slider"
+          min="5"
+          max="200"
+          step="5"
+          value={prefs.subagentMaxTreeSessions}
+          onInput={(e) => onSetPrefs({ subagentMaxTreeSessions: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Max subagent sessions across the nested tree"
+        />
+        <div class="toolbar-settings-item-hint">Cap on total subagent sessions spawned across an entire nested tree, so increased nesting can't run away on cost.</div>
+      </div>
     </div>
   );
 }
