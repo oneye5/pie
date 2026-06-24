@@ -483,6 +483,17 @@ by coloring the file-name TEXT itself.
   jump on hover); the sliver per-file preview is a colored truncated basename
   + indented per-file `+N`/`-N`. The `hasNewChanges` pulse and the
   `prefers-reduced-motion` / `forced-colors` guards were carried over.
+- **Scan-aligned `+N`/`-N` columns.** The diff stats use a fixed two-column grid
+  (`5ch 5ch`, right-aligned) that always renders both cells (empty when a value
+  is absent), so additions and deletions land in stable columns across all rows
+  — a no-deletions row no longer shifts `+N` right, for clean vertical
+  eye-scanning. (Counts >4 digits overflow their cell — rare, accepted.)
+- **Peek panel refresh.** The hover overlay reads as a floating panel: an
+  accent-tinted left edge, a larger left radius, an explicit card surface, and a
+  softer/deeper layered left-casting shadow that eases in (`box-shadow` added to
+  the transition). The shared header gets a blended control/card surface with a
+  clean bottom separator. The pinned (in-flow) drawer stays a clean divider
+  with no shadow.
 
 **Tests:** `extension/test/file-changes-panel.test.ts` updated —
 `sliver-kind*` / `sliver-kind-dot` / `sliver-file-dot` now asserted *absent*

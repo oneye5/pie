@@ -98,8 +98,8 @@ function LineStats({
       title={`Open diff: ${path}`}
       onClick={onDiff}
     >
-      {additions ? <span class="stat-additions">+{additions}</span> : null}
-      {deletions ? <span class="stat-deletions">-{deletions}</span> : null}
+      <span class="stat-additions">{additions ? `+${additions}` : ''}</span>
+      <span class="stat-deletions">{deletions ? `-${deletions}` : ''}</span>
     </button>
   );
 }

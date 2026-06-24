@@ -252,7 +252,8 @@
   transition:
     opacity var(--panel-transition-fast),
     transform var(--panel-transition-fast),
-    border-color var(--panel-transition-fast);
+    border-color var(--panel-transition-fast),
+    box-shadow var(--panel-transition-fast);
 }
 
 /* Pin: in-flow flex sibling, shrinks to the inner content width (which carries
@@ -268,7 +269,10 @@
 /* Peek: transient overlay floating over the transcript edge (D3). Reserves no
    layout space; z-index clears the transcript's floating jump-to-latest
    button (z-index 280) — both live in .panel-main's isolated stacking
-   context, so this sits above it. */
+   context, so this sits above it. Floating-panel treatment: an accent-tinted
+   left edge + larger left radius, with a layered LEFT-casting shadow for
+   elevation (the drawer is flush on the right, so the shadow casts left over
+   the transcript). */
 .file-changes-drawer.is-peek {
   position: absolute;
   top: 0;
@@ -278,11 +282,12 @@
   z-index: 300;
   opacity: 1;
   pointer-events: auto;
-  border-left-color: color-mix(in srgb, var(--panel-border) 86%, var(--panel-accent) 14%);
-  border-radius: var(--panel-radius-md) 0 0 var(--panel-radius-md);
+  border-left: 1px solid color-mix(in srgb, var(--panel-border) 55%, var(--panel-accent) 45%);
+  border-radius: var(--panel-radius-lg) 0 0 var(--panel-radius-lg);
+  background: var(--panel-card-surface);
   box-shadow:
-    -18px 0 42px -18px rgba(0, 0, 0, 0.62),
-    -6px 0 16px -8px rgba(0, 0, 0, 0.28);
+    -28px 0 60px -24px rgba(0, 0, 0, 0.72),
+    -8px 0 22px -10px rgba(0, 0, 0, 0.4);
   transform: translateX(0);
 }
 
@@ -306,7 +311,7 @@
   gap: var(--panel-gap-sm);
   padding: var(--panel-gap-sm) var(--panel-gap-md);
   border-bottom: 1px solid var(--panel-border);
-  background: var(--panel-control-surface);
+  background: color-mix(in srgb, var(--panel-control-surface) 65%, var(--panel-card-surface) 35%);
   flex-shrink: 0;
   min-height: 36px;
 }
@@ -449,11 +454,16 @@
 /* Line stats double as the diff action for the row. Reads as text at rest;
    on hover it lifts into a discrete rounded pill so the click target is
    discoverable. Border-radius + horizontal padding live at rest so the pill
-   doesn't jump on hover. */
+   doesn't jump on hover. Fixed 2-column grid (5ch each, tabular-nums) keeps
+   +N in column 1 and -N in column 2 at consistent horizontal positions across
+   all rows — an absent value renders an empty cell that still reserves its
+   5ch, so a no-deletions row's +N stays put for vertical eye-scanning. */
 .file-change-stats {
-  display: inline-flex;
+  display: inline-grid;
+  grid-template-columns: 5ch 5ch;
+  column-gap: 4px;
+  justify-items: end;
   align-items: center;
-  gap: 4px;
   flex-shrink: 0;
   border: none;
   background: transparent;
@@ -478,10 +488,12 @@
 
 .stat-additions {
   color: var(--panel-success);
+  text-align: right;
 }
 
 .stat-deletions {
   color: var(--panel-danger);
+  text-align: right;
 }
 
 /* ── Row context menu (Copy path / Revert) ────────────────────────────────── */
