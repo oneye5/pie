@@ -4,7 +4,7 @@ Uses an LLM to score and prune skills/tools based on relevance to the current ta
 
 ## How it works
 
-Before each agent turn, `skill-pruner` sends the user prompt + available skill/tool descriptions to an LLM (via `@mariozechner/pi-ai`). The LLM returns a **prune list** — the skills and tools it judges safe to *remove* for this turn — and `skill-pruner` then:
+Before each agent turn, `skill-pruner` sends the user prompt + available skill/tool descriptions to an LLM (via `@mariozechner/pi-ai`). When prior turns exist, it also includes the most recent user/assistant exchanges (read from the session tree, stopping at any compaction boundary) so follow-up prompts like "fix this" or "do that again" are judged in context rather than as standalone two-word requests. The LLM returns a **prune list** — the skills and tools it judges safe to *remove* for this turn — and `skill-pruner` then:
 
 1. Keeps every skill the LLM did **not** prune. `pinned` / `alwaysKeep` skills are protected and can never be pruned.
 2. Keeps every tool the LLM did not prune, additionally protecting any dependency of a kept tool (so pruning a tool never strands a tool that needs it).
@@ -82,11 +82,10 @@ Add a `pruning` block to `settings.json`:
 
 `skill-pruner` is a pi extension (loaded via `settings.json` packages). It hooks into:
 
-- `before_agent_start` — main pruning logic
+- `before_agent_start` — main pruning logic. Any unexpected error fails open: the prompt and active tools are left untouched and the error is surfaced in the pruning-result message.
 - `tool_call(read)` — tracks skill file reads for analytics
-- `input` — auto-continues after pruning feedback
 
-A `pruning-result` custom message is rendered in the transcript showing what was kept/pruned and estimated tokens saved.
+A `pruning-result` custom message is rendered in the transcript showing what was kept/pruned and estimated tokens saved; the agent turn then proceeds normally (no input handler is needed to continue).
 
 ## Recovery
 

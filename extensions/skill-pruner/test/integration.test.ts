@@ -592,11 +592,101 @@ test("disabled skill excluded from LLM consideration", async () => {
 	}
 });
 
-test("input handler always continues", async () => {
+test("no input handler is registered — the turn continues automatically after the pruning message", async () => {
 	const { handlers } = register(config());
-	const handler = handlers.get("input");
-	assert.ok(handler, "input handler registered");
-	assert.deepEqual(await handler({ type: "input", text: "hello", source: "interactive" }, { cwd: "/repo" }), { action: "continue" });
+	// The pruning-result message is shown and the agent proceeds on its own. An
+	// input handler that only returns { action: "continue" } is a no-op (the SDK
+	// runner treats "continue" as passthrough), so none is registered.
+	assert.equal(handlers.has("input"), false);
+});
+
+test("unexpected prepass error (registry throw) fails open: nothing pruned, error surfaced", async () => {
+	__setCompleteFn(async () => ({ text: '{"pruneSkills":[],"pruneTools":[]}' }));
+	const setActiveToolsCalls: string[][] = [];
+	try {
+		const { handlers } = register(config({}, "auto", { ceiling: 10 }));
+		__setToolSeams({
+			getAllTools: () => mockToolInfo as any[],
+			getActiveTools: () => mockToolInfo.map((t) => t.name),
+			setActiveTools: (names: string[]) => { setActiveToolsCalls.push(names); },
+		});
+		const handler = handlers.get("before_agent_start");
+		assert.ok(handler, "before_agent_start handler registered");
+
+		// modelRegistry.find throws → resolveModel throws inside runPruningPrepass.
+		// The prepass must catch it and fail open rather than rejecting the hook.
+		const result = await handler({
+			type: "before_agent_start",
+			prompt: "Refactor this code for clarity",
+			systemPrompt: systemPrompt(realisticSkills),
+			systemPromptOptions: { cwd: "/repo", skills: realisticSkills, contextFiles: [{ path: "AGENTS.md", content: "" }] },
+		}, {
+			cwd: "/repo",
+			sessionManager: { getSessionId: () => "session-1" },
+			modelRegistry: { find: () => { throw new Error("registry boom"); } },
+		}) as { systemPrompt?: string; message?: any } | undefined;
+
+		// Fail-open: every skill is still in the prompt, no tools were pruned.
+		assert.ok(result?.systemPrompt);
+		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
+		assert.match(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
+		assert.equal(setActiveToolsCalls.length, 0, "no tools pruned on prepass failure");
+		// The error is surfaced transparently in the pruning-result message.
+		assert.ok(result.message, "error surfaced as a feedback message");
+		assert.match(String(result.message.details.prepassError), /registry boom/);
+		assert.deepEqual(result.message.details.excludedSkills, []);
+		assert.deepEqual(result.message.details.excludedTools, []);
+	} finally {
+		__setCompleteFn(null);
+		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
+	}
+});
+
+test("recent conversation from the session is fed to the prepass so follow-ups get context", async () => {
+	let capturedUserMessage = "";
+	__setCompleteFn(async (_model: unknown, context: Array<{ role: string; content: string }>) => {
+		const userMsg = context.find((m) => m.role === "user");
+		capturedUserMessage = userMsg?.content ?? "";
+		return { text: '{"pruneSkills":[],"pruneTools":[]}' };
+	});
+	try {
+		const { handlers } = register(config());
+		const handler = handlers.get("before_agent_start");
+		assert.ok(handler, "before_agent_start handler registered");
+
+		// Simulate prior turns persisted in the session. Leaf = last assistant turn;
+		// the current "Fix this" prompt is supplied via event.prompt (not persisted),
+		// so it is excluded from the walk and only prior turns are surfaced.
+		const entries = [
+			{ id: "m1", parentId: null, type: "message", message: { role: "user", content: [{ type: "text", text: "Make a pass over the pruner for robustness" }] } },
+			{ id: "m2", parentId: "m1", type: "message", message: { role: "assistant", content: [{ type: "text", text: "Reviewing the extension" }, { type: "tool_use", name: "read" }] } },
+			{ id: "m3", parentId: "m2", type: "message", message: { role: "user", content: [{ type: "text", text: "Leave it uncommitted" }] } },
+			{ id: "m4", parentId: "m3", type: "message", message: { role: "assistant", content: [{ type: "text", text: "Got it" }] } },
+		];
+		const byId = new Map(entries.map((e) => [e.id, e]));
+
+		await handler({
+			type: "before_agent_start",
+			prompt: "Fix this",
+			systemPrompt: systemPrompt(realisticSkills),
+			systemPromptOptions: { cwd: "/repo", skills: realisticSkills, contextFiles: [{ path: "AGENTS.md", content: "" }] },
+		}, {
+			cwd: "/repo",
+			sessionManager: {
+				getSessionId: () => "session-1",
+				getSessionFile: () => undefined,
+				getLeafEntry: () => entries[entries.length - 1],
+				getEntry: (id: string) => byId.get(id),
+			},
+		});
+
+		assert.ok(capturedUserMessage.includes("Recent conversation"), "prepass user message includes recent conversation");
+		assert.ok(capturedUserMessage.includes("Make a pass over the pruner"), "prior user turn is surfaced");
+		assert.ok(capturedUserMessage.includes("Fix this"), "current prompt is still present");
+	} finally {
+		__setCompleteFn(null);
+	}
 });
 
 test("off mode baseline: known skill read → skill_read; non-skill read → no event", async () => {

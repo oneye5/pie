@@ -141,6 +141,7 @@ test("parseLlmResponse parses valid JSON prune-list response", () => {
 	);
 	assert.deepEqual(result.pruneSkills, ["alpha", "gamma"]);
 	assert.deepEqual(result.pruneTools, ["read"]);
+	assert.equal(result.keptAllDueToParseFailure, undefined);
 });
 
 test("parseLlmResponse filters unknown names", () => {
@@ -178,6 +179,7 @@ test("parseLlmResponse extracts embedded JSON from surrounding prose", () => {
 	);
 	assert.deepEqual(result.pruneSkills, ["alpha"]);
 	assert.deepEqual(result.pruneTools, ["read"]);
+	assert.equal(result.keptAllDueToParseFailure, undefined);
 });
 
 test("parseLlmResponse keeps everything when prose mentions names (no scrape)", () => {
@@ -192,6 +194,8 @@ test("parseLlmResponse keeps everything when prose mentions names (no scrape)", 
 	);
 	assert.deepEqual(result.pruneSkills, []);
 	assert.deepEqual(result.pruneTools, []);
+	// Prose is unreadable as a prune list → keep-all flagged as a parse failure.
+	assert.equal(result.keptAllDueToParseFailure, true);
 });
 
 test("parseLlmResponse returns empty prune lists for completely invalid input", () => {
@@ -200,6 +204,19 @@ test("parseLlmResponse returns empty prune lists for completely invalid input", 
 	const result = parseLlmResponse("", knownSkills, knownTools);
 	assert.deepEqual(result.pruneSkills, []);
 	assert.deepEqual(result.pruneTools, []);
+	// Empty input is a genuine parse failure (phases 1/2 cannot read it) → flag set.
+	assert.equal(result.keptAllDueToParseFailure, true);
+});
+
+test("parseLlmResponse does NOT flag keptAllDueToParseFailure for a valid empty-JSON keep-all", () => {
+	// A well-formed JSON response with empty prune lists is an INTENTIONAL
+	// keep-all (the model deliberately kept everything) — NOT a parse failure.
+	const knownSkills = new Set(["alpha", "beta"]);
+	const knownTools = new Set(["read", "edit"]);
+	const result = parseLlmResponse('{"pruneSkills":[],"pruneTools":[]}', knownSkills, knownTools);
+	assert.deepEqual(result.pruneSkills, []);
+	assert.deepEqual(result.pruneTools, []);
+	assert.equal(result.keptAllDueToParseFailure, undefined);
 });
 
 test("parseLlmResponse handles missing pruneSkills/pruneTools keys gracefully", () => {
@@ -268,6 +285,7 @@ test("runLlmPruning calls completeFn and returns parsed prune lists", async () =
 	assert.deepEqual(result.prunedTools, []);
 	assert.ok(result.latencyMs >= 0);
 	assert.ok(result.rawResponse.includes("frontend-design"));
+	assert.equal(result.keptAllDueToParseFailure, undefined);
 });
 
 test("runLlmPruning propagates completion errors", async () => {
@@ -300,6 +318,8 @@ test("runLlmPruning keeps everything when the model returns non-JSON prose", asy
 	// Non-JSON prose is unreadable as a prune list → keep everything.
 	assert.deepEqual(result.prunedSkills, []);
 	assert.deepEqual(result.prunedTools, []);
+	// Parse failure propagates through runLlmPruning so it stays observable downstream.
+	assert.equal(result.keptAllDueToParseFailure, true);
 });
 
 test("runLlmPruning falls back to JSON reasoning when native thinking is absent", async () => {

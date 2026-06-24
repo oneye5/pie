@@ -75,4 +75,6 @@ export interface PruningDecision {
 	toolExcluded?: string[];
 	toolBlockTokens?: number;
 	originalToolBlockTokens?: number;
+	/** True when the prepass response was unreadable as JSON → kept all (parse failure). */
+	keptAllDueToParseFailure?: boolean;
 }

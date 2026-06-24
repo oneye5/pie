@@ -28,6 +28,8 @@ const {
 	resolveVisibleSkills,
 	applySkillSelection,
 	applyToolSelection,
+	runPruningPrepass,
+	getRecentConversation,
 } = require("../src/pruning.ts") as typeof import("../src/pruning.js");
 
 function installSdkResolverForTests(): void {
@@ -320,4 +322,112 @@ test("applyToolSelection: empty allTools -> empty included/excluded", () => {
 	const r = applyToolSelection([], ["read"], config({ tools: toolsConfig() }));
 	assert.deepEqual(r.includedToolNames, []);
 	assert.deepEqual(r.excludedToolNames, []);
+});
+
+// ---------------------------------------------------------------------------
+// runPruningPrepass: model/auth resolution errors fail open (no rejection)
+// ---------------------------------------------------------------------------
+
+test("runPruningPrepass: throwing model registry -> emptyResult with error, no rejection", async () => {
+	const cfg = config({ tools: toolsConfig() });
+	const dummyComplete = async () => ({ text: "" });
+	const result = await runPruningPrepass(
+		{ modelRegistry: { find: () => { throw new Error("registry boom"); } } },
+		{ userPrompt: "refactor", skills: [], tools: [], config: cfg },
+		cfg,
+		dummyComplete as any,
+	);
+	assert.equal(result.prunedSkills, null);
+	assert.equal(result.prunedTools, null);
+	assert.ok(result.error);
+	assert.match(result.error, /registry boom/);
+});
+
+// ---------------------------------------------------------------------------
+// getRecentConversation: follow-up context from the session tree
+// ---------------------------------------------------------------------------
+
+interface FakeEntry {
+	id: string;
+	parentId: string | null;
+	type: string;
+	message?: { role: string; content: unknown };
+}
+
+function fakeSessionManager(entries: FakeEntry[]) {
+	const byId = new Map(entries.map((e) => [e.id, e]));
+	return {
+		getLeafEntry: () => entries[entries.length - 1],
+		getEntry: (id: string) => byId.get(id),
+	};
+}
+
+function msgEntry(id: string, parentId: string | null, role: string, content: unknown): FakeEntry {
+	return { id, parentId, type: "message", message: { role, content } };
+}
+
+test("getRecentConversation: returns prior user/assistant turns in chronological order", () => {
+	// Leaf is the last persisted entry; the current prompt is not persisted yet at
+	// before_agent_start, so it is excluded — only prior turns appear.
+	const entries = [
+		msgEntry("m1", null, "user", [{ type: "text", text: "Make a pass over the pruner for robustness" }]),
+		msgEntry("m2", "m1", "assistant", [{ type: "text", text: "Reviewing the extension" }, { type: "tool_use", name: "read" }, { type: "tool_use", name: "edit" }]),
+		msgEntry("m3", "m2", "user", [{ type: "text", text: "Leave it uncommitted" }]),
+		msgEntry("m4", "m3", "assistant", [{ type: "text", text: "Got it" }]),
+	];
+	const recent = getRecentConversation({ sessionManager: fakeSessionManager(entries) });
+	assert.deepEqual(recent.map((m) => m.role), ["user", "assistant", "user", "assistant"]);
+	assert.equal(recent[0].text, "Make a pass over the pruner for robustness");
+	assert.match(recent[1].text, /Reviewing the extension/);
+	assert.match(recent[1].text, /\[tools used: read, edit\]/);
+});
+
+test("getRecentConversation: skips non-message entries in the chain", () => {
+	const entries: FakeEntry[] = [
+		msgEntry("m1", null, "user", [{ type: "text", text: "hello" }]),
+		{ id: "c1", parentId: "m1", type: "thinking_level_change" },
+		msgEntry("m2", "c1", "assistant", [{ type: "text", text: "hi there" }]),
+	];
+	const recent = getRecentConversation({ sessionManager: fakeSessionManager(entries) });
+	assert.deepEqual(recent.map((m) => m.text), ["hello", "hi there"]);
+});
+
+test("getRecentConversation: stops at a compaction boundary", () => {
+	const entries: FakeEntry[] = [
+		msgEntry("m1", null, "user", [{ type: "text", text: "old pre-compaction" }]),
+		{ id: "comp", parentId: "m1", type: "compaction" },
+		msgEntry("m2", "comp", "user", [{ type: "text", text: "after compaction" }]),
+		msgEntry("m3", "m2", "assistant", [{ type: "text", text: "reply" }]),
+	];
+	const recent = getRecentConversation({ sessionManager: fakeSessionManager(entries) });
+	assert.deepEqual(recent.map((m) => m.text), ["after compaction", "reply"]);
+});
+
+test("getRecentConversation: caps at maxMessages, keeping the most recent", () => {
+	const entries: FakeEntry[] = [];
+	let parent: string | null = null;
+	for (let i = 0; i < 10; i++) {
+		const id = `m${i}`;
+		entries.push(msgEntry(id, parent, i % 2 === 0 ? "user" : "assistant", [{ type: "text", text: `msg ${i}` }]));
+		parent = id;
+	}
+	const recent = getRecentConversation({ sessionManager: fakeSessionManager(entries) }, 3);
+	assert.equal(recent.length, 3);
+	assert.deepEqual(recent.map((m) => m.text), ["msg 7", "msg 8", "msg 9"]);
+});
+
+test("getRecentConversation: handles string message content", () => {
+	const entries: FakeEntry[] = [
+		msgEntry("m1", null, "user", "a plain string prompt"),
+		msgEntry("m2", "m1", "assistant", "a plain string reply"),
+	];
+	const recent = getRecentConversation({ sessionManager: fakeSessionManager(entries) });
+	assert.deepEqual(recent.map((m) => m.text), ["a plain string prompt", "a plain string reply"]);
+});
+
+test("getRecentConversation: returns [] when the session lacks walk methods or is empty", () => {
+	assert.deepEqual(getRecentConversation({ sessionManager: { getSessionId: () => "s" } }), []);
+	assert.deepEqual(getRecentConversation({}), []);
+	assert.deepEqual(getRecentConversation(undefined), []);
+	assert.deepEqual(getRecentConversation({ sessionManager: fakeSessionManager([]) }), []);
 });

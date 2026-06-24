@@ -40,6 +40,8 @@ export interface LlmPruningOutput {
 	latencyMs: number;
 	stopReason?: string;
 	errorMessage?: string;
+	/** True when the prepass response was unreadable as JSON → kept all (parse failure). */
+	keptAllDueToParseFailure?: boolean;
 }
 
 export interface CompleteSimpleResult {
@@ -129,10 +131,20 @@ export interface ParsedLlmResponse {
 	pruneSkills: string[];
 	pruneTools: string[];
 	reasoning?: string;
+	/**
+	 * True ONLY when parsing genuinely failed (the phase-3 fallback): the
+	 * response could not be read as JSON or an embedded JSON block, so we
+	 * resolved to keep-all rather than risk misparsing prose. Deliberately
+	 * NOT set when phases 1/2 succeed with legitimately empty prune lists —
+	 * that is an intentional keep-all, not a failure. This flag is the only
+	 * way analytics can tell parse-failure keep-all apart from intentional
+	 * keep-all (both produce empty prune lists).
+	 */
+	keptAllDueToParseFailure?: boolean;
 }
 
 /** Sentinel for "keep everything" — returned whenever the response can't be confidently read as a prune list. */
-const EMPTY_PRUNE: ParsedLlmResponse = { pruneSkills: [], pruneTools: [] };
+const EMPTY_PRUNE: ParsedLlmResponse = { pruneSkills: [], pruneTools: [], keptAllDueToParseFailure: true };
 
 /**
  * Convert an already-parsed object into a `ParsedLlmResponse`, filtering
@@ -235,6 +247,7 @@ export async function runLlmPruning(
 		latencyMs,
 		stopReason: response.stopReason,
 		errorMessage: response.errorMessage,
+		keptAllDueToParseFailure: parsed.keptAllDueToParseFailure,
 	};
 }
 

@@ -131,6 +131,8 @@ export function buildDecision(input: {
 	toolBlockTokens?: number;
 	/** Estimated tokens of the original (pre-prune) tool descriptions. */
 	originalToolBlockTokens?: number;
+	/** True when the prepass response was unreadable as JSON → kept all (parse failure). */
+	keptAllDueToParseFailure?: boolean;
 }): PruningDecision {
 	return {
 		timestamp: new Date().toISOString(),
@@ -152,6 +154,7 @@ export function buildDecision(input: {
 		toolExcluded: input.toolExcluded,
 		toolBlockTokens: input.toolBlockTokens,
 		originalToolBlockTokens: input.originalToolBlockTokens,
+		keptAllDueToParseFailure: input.keptAllDueToParseFailure,
 	};
 }
 

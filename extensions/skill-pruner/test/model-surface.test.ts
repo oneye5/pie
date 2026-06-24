@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import Module, { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -466,6 +466,35 @@ test("fail-open reason is absent when model intent is honored exactly", async ()
 		assert.ok(result?.message);
 		const details = result.message.details;
 		assert.equal(details.prepassFailOpenReason, undefined, "no fail-open reason when model intent is honored");
+	} finally {
+		__setCompleteFn(null);
+	}
+});
+
+test("non-JSON prose response → kept all, prepassFailOpenReason notes parse failure, decision persists flag", async () => {
+	const logPath = path.join(mkdtempSync(path.join(tmpdir(), "skill-pruner-parsefail-")), "pruning.jsonl");
+	__setCompleteFn(async () => ({ text: "I think code-simplification and read would both be useful here." }));
+	try {
+		const { handlers } = register(config(), logPath);
+		const result = await runBeforeAgentStart(handlers, "refactor", realisticSkills) as { systemPrompt?: string; message?: any } | undefined;
+
+		// Parse failure → keep-all (safe default); no names scraped out of prose.
+		assert.ok(result?.systemPrompt);
+		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
+		assert.match(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
+		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
+
+		// ... and it is observable via prepassFailOpenReason (distinguishable from an
+		// intentional keep-all, which leaves prepassFailOpenReason undefined).
+		const details = result?.message?.details;
+		assert.ok(details?.prepassFailOpenReason, "parse-failure keep-all should surface a fail-open note");
+		assert.match(String(details.prepassFailOpenReason), /parse failure/i);
+
+		// The persisted decision carries the flag so analytics can query it.
+		const logged = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
+		const decision = logged.find((e) => Array.isArray(e.included) && Array.isArray(e.excluded));
+		assert.ok(decision, "a PruningDecision row should be logged");
+		assert.equal(decision.keptAllDueToParseFailure, true);
 	} finally {
 		__setCompleteFn(null);
 	}

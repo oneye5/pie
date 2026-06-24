@@ -31,4 +31,6 @@ export interface PrepassRunResult {
 	rawUserMessage: string;
 	latencyMs: number;
 	thinkingLevel: string;
+	/** True when the prepass response was unreadable as JSON → kept all (parse failure). */
+	keptAllDueToParseFailure?: boolean;
 }

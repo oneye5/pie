@@ -1,10 +1,7 @@
-import path from "node:path";
-import { writeFileSync } from "node:fs";
-import type { ExtensionAPI, BeforeAgentStartEvent, ToolCallEvent, InputEvent } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, BeforeAgentStartEvent, ToolCallEvent } from "@mariozechner/pi-coding-agent";
 import { appendDecision, estimateTokens, recordSkillRead, recordKnownSkills } from "../logger.js";
 import {
 	setPiApi,
-	CONFIG_ROOT,
 	getFormatSkillsForPromptImpl,
 	getPiToolSeams,
 	state,
@@ -20,6 +17,7 @@ import {
 	getSessionPath,
 	getCompleteFn,
 	getConfig,
+	getRecentConversation,
 	SKILLS_BLOCK_RE,
 	runPruningPrepass,
 	SkillPruningResult,
@@ -32,11 +30,6 @@ import {
 } from "./pruning.js";
 
 export default function register(pi: ExtensionAPI) {
-	// DIAGNOSTIC: prove extension loads
-	try {
-		writeFileSync(path.join(CONFIG_ROOT, "data", "skill-pruner-loaded.txt"), `loaded at ${new Date().toISOString()}\n`);
-	} catch { /* ignore */ }
-
 	// Capture pi API methods for tool introspection (available throughout the session).
 	setPiApi({
 		getAllTools: () => pi.getAllTools(),
@@ -54,11 +47,6 @@ export default function register(pi: ExtensionAPI) {
 
 	// --- before_agent_start: skill + tool pruning ---
 	pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx) => {
-		// DIAGNOSTIC: prove hook fires
-		try {
-			writeFileSync(path.join(CONFIG_ROOT, "data", "skill-pruner-hook-fired.txt"), `hook at ${new Date().toISOString()}\n`);
-		} catch { /* ignore */ }
-
 		const activeConfig = getConfig();
 		const skipInfo = shouldSkipPruning(event, activeConfig);
 		if (skipInfo.skip && skipInfo.reason === "disabled-by-toggle") {
@@ -88,6 +76,7 @@ export default function register(pi: ExtensionAPI) {
 		let latencyMs = 0;
 		let skillFailOpenReason: string | undefined;
 		let toolFailOpenReason: string | undefined;
+		let keptAllDueToParseFailure = false;
 
 		const allTools = state.getAllToolsOverride
 			? state.getAllToolsOverride()
@@ -106,6 +95,7 @@ export default function register(pi: ExtensionAPI) {
 				config: activeConfig,
 				forcedSkills: effectivePinned,
 				forcedTools: activeConfig.tools?.alwaysKeep ?? [],
+				recentConversation: getRecentConversation(ctx),
 			};
 
 			let prunedSkills: string[] | null = null;
@@ -126,6 +116,7 @@ export default function register(pi: ExtensionAPI) {
 				rawUserMessage = prepassResult.rawUserMessage;
 				prepassThinkingLevel = prepassResult.thinkingLevel;
 				latencyMs = prepassResult.latencyMs;
+				keptAllDueToParseFailure = prepassResult.keptAllDueToParseFailure ?? false;
 			}
 
 			if (!pruningError || pruningError.startsWith("Model") || pruningError.startsWith("LLM pruning failed")) {
@@ -199,6 +190,7 @@ export default function register(pi: ExtensionAPI) {
 						toolExcluded: toolsConsidered ? toolSelection.excludedToolNames : undefined,
 						toolBlockTokens: toolsConsidered ? estimateToolTokens(allTools, toolSelection.includedToolNames) : undefined,
 						originalToolBlockTokens: toolsConsidered ? estimateToolTokens(allTools, allTools.map((t) => t.name)) : undefined,
+						keptAllDueToParseFailure,
 					}));
 				}
 			}
@@ -206,9 +198,12 @@ export default function register(pi: ExtensionAPI) {
 			recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
 		}
 
-		const failOpenReason = (skillFailOpenReason && toolFailOpenReason)
-			? `${skillFailOpenReason} · ${toolFailOpenReason}`
-			: (skillFailOpenReason ?? toolFailOpenReason ?? undefined);
+		const parseFailureNote = keptAllDueToParseFailure
+			? "prepass response was non-JSON prose — kept all (parse failure)"
+			: undefined;
+		const failOpenReason = [skillFailOpenReason, toolFailOpenReason, parseFailureNote]
+			.filter((r): r is string => Boolean(r))
+			.join(" · ") || undefined;
 
 		const feedbackMessage = buildFeedbackMessage(skillResult, toolResult, activeConfig.mode, {
 			model: activeConfig.model,
@@ -246,6 +241,4 @@ export default function register(pi: ExtensionAPI) {
 		}
 		return undefined;
 	});
-
-	pi.on("input", async (_event: InputEvent) => ({ action: "continue" as const }));
 }
