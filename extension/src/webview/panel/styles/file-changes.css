@@ -35,15 +35,20 @@
    and `.sliver-file` (collapsed per-file entries). It sets `--kind-color`,
    consumed by the drawer `.file-change-name` and the sliver `.sliver-file-name`
    text color — kind is encoded on the file NAME, not via dots/bars/chips.
-   created→green, modified→orange, deleted→red. */
+   Readability-first palette: the pure saturated status colors (success /
+   warning / danger) were unreadable as file-name text, so names use calm
+   neutrals instead — created→soft green tint toward white, modified→foreground
+   white, deleted→muted grey. The per-row +/- line stats (stat-additions /
+   stat-deletions / sliver-file-add / sliver-file-del) keep the saturated
+   green/red for at-a-glance diff semantics; only the name color is calmed. */
 .kind-created {
-  --kind-color: var(--panel-success);
+  --kind-color: color-mix(in srgb, var(--panel-success) 55%, var(--panel-foreground));
 }
 .kind-modified {
-  --kind-color: var(--panel-warning);
+  --kind-color: var(--panel-foreground);
 }
 .kind-deleted {
-  --kind-color: var(--panel-danger);
+  --kind-color: var(--panel-muted);
 }
 
 /* ── Collapsed sliver (D2) ────────────────────────────────────────────────── */
@@ -592,7 +597,7 @@
   .file-changes-drawer {
     border-color: ButtonText;
   }
-  /* Kind is encoded by name text color (green/orange/red); collapse to
+  /* Kind is encoded by name text color (soft-green/white/grey); collapse to
      ButtonText in forced-colors — deleted is still cued by line-through. */
   .file-change-name,
   .sliver-file-name,
