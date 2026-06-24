@@ -128,20 +128,22 @@ body.session-tab-dragging {
 .session-tabs-strip {
   --session-tab-min-width: 120px;
   --session-tab-max-width: 232px;
-  /* Height of the thin bottom scrollbar (VS Code-style file tabs): a slim
-     strip for discoverability rather than a chunky drag target. Kept as a
-     token so the strip's min-height always leaves room for it, preventing the
-     34px tabs from being clipped when the strip overflows. */
-  --session-tabs-scrollbar-height: 4px;
+  /* Height of the thin bottom scrollbar (VS Code-style file tabs): a very
+     slim 2px strip for discoverability rather than a chunky drag target. It
+     expands on hover so users can still grab it if they want. Kept as tokens
+     so the strip's min-height always leaves room for the scrollbar, preventing
+     the 34px tabs from being clipped when the strip overflows. */
+  --session-tabs-scrollbar-height: 2px;
+  --session-tabs-scrollbar-hover-height: 6px;
   display: flex;
   overflow-x: auto;
   flex: 1;
   min-width: 0;
-  /* 34px tabs + scrollbar gutter. `align-items: flex-start` pins each tab to
-     the top of the strip at its natural 34px height (close button is 24px +
-     5px top/bottom margins); the reserved gutter hosts the scrollbar when
-     overflow appears, so tabs neither shift vertically nor get clipped when
-     overflow toggles. */
+  /* 34px tabs + default scrollbar gutter. `align-items: flex-start` pins each
+     tab to the top of the strip at its natural 34px height (close button is
+     24px + 5px top/bottom margins); the reserved gutter hosts the scrollbar
+     when overflow appears, so tabs neither shift vertically nor get clipped
+     when overflow toggles. */
   min-height: calc(34px + var(--session-tabs-scrollbar-height));
   align-items: flex-start;
   justify-content: flex-start;
@@ -151,12 +153,18 @@ body.session-tab-dragging {
   scrollbar-width: thin;
 }
 
-/* Thin horizontal scrollbar (VS Code-style): transparent track + a slim
+/* Thin horizontal scrollbar (VS Code-style): transparent track + a very slim
    rounded thumb using the panel's scrollbar tokens. Visible only while the
-   strip overflows (overflow-x: auto). These rules scope the look to the tab
+   strip overflows (overflow-x: auto). Expands on hover so the tiny default is
+   still usable for click-and-drag. These rules scope the look to the tab
    strip and keep it self-contained (overriding the chunkier global size). */
 .session-tabs-strip::-webkit-scrollbar {
   height: var(--session-tabs-scrollbar-height);
+  transition: height 0.15s var(--panel-ease-out);
+}
+
+.session-tabs-strip:hover::-webkit-scrollbar {
+  height: var(--session-tabs-scrollbar-hover-height);
 }
 
 .session-tabs-strip::-webkit-scrollbar-track {
@@ -166,6 +174,7 @@ body.session-tab-dragging {
 .session-tabs-strip::-webkit-scrollbar-thumb {
   background: var(--vscode-scrollbarSlider-background);
   border-radius: 999px;
+  transition: background var(--panel-transition-fast);
 }
 
 .session-tabs-strip::-webkit-scrollbar-thumb:hover {
