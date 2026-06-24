@@ -49,3 +49,20 @@ Goal: make agents trigger nested subagents more often, safely.
 - Model-retry path (`runWithModelRetry`) may spawn up to `MAX_MODEL_RETRIES+1` sessions but consumes only one tree slot — consistent with the existing per-call `MAX_SESSIONS_PER_CALL` counter. Acceptable for a safety cap; revisit if model-failure cascades become a cost problem.
 - New knobs are NOT added to `FunctionalSettingsSnapshot` (run-analytics) — they're runtime config, not per-run analytics. Add later if per-run depth/budget analytics are wanted.
 - `reviewer` remains a leaf (no `subagent` tool) by design.
+
+---
+
+# Expandable UI refinement — deferred
+
+- `aria-controls`/`id` is not wired between any expandable header and its body.
+  The shared `<Collapsible>` (`extension/src/webview/panel/components/collapsible.tsx`)
+  intentionally renders its body only when `open` (perf: reasoning/tool/subagent
+  bodies are heavy). A correct `aria-controls` would require keeping the body
+  mounted with `hidden` when collapsed — revisit if that perf cost is acceptable,
+  or wire it per-site for already-always-rendered bodies.
+- Composite headers (`ToolCallHeader`, `SubagentSingleBlock`) use a
+  `role="button"` div rather than a real `<button>` because they contain nested
+  interactive controls (copy-error `StatusChip`, file/path buttons). A real
+  `<button>` cannot contain button descendants, so this is the established
+  pattern. A future pass could split the leading label into a real `<button>`
+  toggle and lift action buttons out as siblings (changes hitbox UX).

@@ -196,9 +196,7 @@ function UiSubmenuTrigger({ open, onToggle }: UiSubmenuTriggerProps) {
       onClick={onToggle}
     >
       <span>UI</span>
-      <svg class="toolbar-settings-ui-trigger-chevron" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-        <polyline points="3,2 7,5 3,8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" />
-      </svg>
+      <CollapsibleChevron open={open} class="toolbar-settings-ui-trigger-chevron" />
     </button>
   );
 }

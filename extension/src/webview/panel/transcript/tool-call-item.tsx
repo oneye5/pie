@@ -10,6 +10,7 @@ import { getToolCallContextType } from '../chat-prefs';
 import { AskUserContext } from '../hooks/ask-user-context';
 
 import { cx } from '../utils/cx';
+import { CollapsibleChevron } from '../components/chevron';
 import { ResizeHandle } from '../components/resize-handle';
 import { useResizableHeight } from '../components/use-resizable-height';
 import {
@@ -348,23 +349,24 @@ function SubagentSingleBlock({
     // instead of being trapped by the card (mirrors `.tool-call-card`).
     <div
       class={cx('tool-call tool-call-subagent', 'border border-border-subtle rounded-xl bg-card shadow-sm overflow-clip transition-[border-color,background,box-shadow] duration-150 hover:border-border hover:bg-control-hover hover:shadow-md forced-colors:border forced-colors:border-[ButtonText]', status, hasPendingAskUser && 'pending-ask-user')}
-      aria-expanded={open}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
     >
-      <div class="subagent-header min-h-[32px] select-none">
-        <div
-          class="flex min-w-0 flex-1 items-center gap-[7px]"
-          role="button"
-          aria-expanded={open}
-          tabIndex={0}
-          onClick={() => setOpen((v) => !v)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
-        >
+      <div
+        class="subagent-header min-h-[32px] select-none"
+        role="button"
+        tabIndex={0}
+        aria-expanded={open}
+        aria-label={`Toggle ${singleResult.agent} subagent`}
+        onClick={() => setOpen((v) => !v)}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
+      >
+        <div class="flex min-w-0 flex-1 items-center gap-[7px]">
           <span class="subagent-agent-name transcript-header-title-mono">{singleResult.agent}</span>
           <PrimaryMeta result={singleResult} />
           {!open && summary && <span class="subagent-header-summary transcript-header-summary-mono">{summary}</span>}
         </div>
         <StatusIndicator status={status} errorDetail={errorDetail} />
+        <CollapsibleChevron open={open} class="ml-0.5 shrink-0" />
       </div>
       {open && (
         <SubagentCallContext.Provider value={{ id: subagentCallId, agent: singleResult.agent, depth: subagentDepth }}>

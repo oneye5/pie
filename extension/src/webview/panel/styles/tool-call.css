@@ -1,13 +1,13 @@
 /* ── Subagent collapsed header ───────────────────────────────────────────── */
 /* When collapsed the header acts as the entire visible tile */
 
-.tool-call.tool-call-subagent[aria-expanded="false"] .subagent-header {
+.tool-call.tool-call-subagent .subagent-header[aria-expanded="false"] {
   background: var(--panel-subagent-header-surface);
   box-shadow: inset 0 0 0 1px var(--panel-subagent-header-border);
   border-radius: var(--panel-radius-md);
 }
 
-.tool-call.tool-call-subagent[aria-expanded="false"]:hover .subagent-header {
+.tool-call.tool-call-subagent:hover .subagent-header[aria-expanded="false"] {
   background: var(--panel-subagent-header-surface-hover);
 }
 
@@ -20,7 +20,7 @@
 
 /* Accent ring + glow live on a ::after overlay so only opacity is animated
    (compositor-friendly); the header keeps its steady border underneath. */
-.tool-call.tool-call-subagent.pending-ask-user[aria-expanded="false"] .subagent-header::after {
+.tool-call.tool-call-subagent.pending-ask-user .subagent-header[aria-expanded="false"]::after {
   content: '';
   position: absolute;
   inset: 0;
@@ -157,6 +157,12 @@
 
 .subagent-header:hover {
   background: var(--panel-control-hover);
+}
+
+/* Inset focus ring on the keyboard-focused toggle (mirrors .tool-call-header). */
+.subagent-header:focus-visible {
+  outline: 1px solid var(--panel-accent);
+  outline-offset: -1px;
 }
 
 /* Mirror the card's hover state on the header so the opaque sticky header
