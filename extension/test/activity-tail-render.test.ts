@@ -4,12 +4,10 @@ import test from 'node:test';
 import { h } from 'preact';
 import renderToString from 'preact-render-to-string';
 
-import { TurnActivityBlock, TurnActivityTailBody } from '../src/webview/panel/transcript/turn-activity-tail.tsx';
+import { TurnActivityBlock, TurnActivityTailBody, TAIL_RENDER_MAX_CHARS, streamContinues } from '../src/webview/panel/transcript/turn-activity-tail.tsx';
 import type { TurnActivityState } from '../src/webview/panel/transcript/activity';
 import {
-  ACTIVITY_TAIL_MAX_CHARS,
   collapseSpaces,
-  takeLastChars,
   type TurnActivityTail,
 } from '../src/webview/panel/transcript/activity-tail';
 
@@ -119,13 +117,32 @@ test('TurnActivityTailBody renders from sourceText, ignoring the stale lines sna
   assert.doesNotMatch(html, /stale lines snapshot/);
 });
 
-test('TurnActivityTailBody windows a long sourceText to the char budget and collapses newlines', () => {
+test('TurnActivityTailBody renders the full revealed sourceText with newlines collapsed', () => {
+  // The body renders the *full* revealed tail (not a re-windowed char slice) so
+  // the wrapped line count grows monotonically — which is what the row-scroll
+  // animation keys on. `lines` is deliberately stale to prove the body renders
+  // from `sourceText`, not the pre-windowed snapshot.
   const source = Array.from({ length: 60 }, (_, i) => `line${i}`).join('\n');
-  const expected = collapseSpaces(takeLastChars(source, ACTIVITY_TAIL_MAX_CHARS));
+  const expected = collapseSpaces(source);
   const html = renderToString(h(TurnActivityTailBody, {
     tail: tail({ kind: 'reasoning', lines: ['placeholder'], sourceText: source }),
   }));
-  assert.ok(html.includes(expected), 'body renders the source-windowed, collapsed preview');
+  assert.ok(html.includes(expected), 'body renders the full collapsed source, not a char-windowed slice');
+  assert.doesNotMatch(html, /placeholder/);
+});
+
+test('TurnActivityTailBody caps the rendered tail at the safety bound for huge sources', () => {
+  // A source well past the safety cap: only the last TAIL_RENDER_MAX_CHARS are
+  // rendered (the newest content is kept; the oldest is dropped) so the layout
+  // never has to wrap a huge string every frame.
+  const marker = 'TAILMARKER';
+  const source = `${'X'.repeat(TAIL_RENDER_MAX_CHARS + 5000)}${marker}`;
+  const expected = collapseSpaces(source.slice(source.length - TAIL_RENDER_MAX_CHARS));
+  const html = renderToString(h(TurnActivityTailBody, {
+    tail: tail({ kind: 'reasoning', lines: ['placeholder'], sourceText: source }),
+  }));
+  assert.ok(html.includes(expected), 'body renders the safety-capped tail');
+  assert.ok(html.includes(marker), 'the newest content (marker) is kept');
   assert.doesNotMatch(html, /placeholder/);
 });
 
@@ -154,4 +171,47 @@ test('TurnActivityBlock renders nothing without a tail', () => {
     ariaLabel: 'Agent is thinking',
   };
   assert.equal(renderToString(h(TurnActivityBlock, { state })), '');
+});
+
+// ── streamContinues: the row-scroll suppression decision ─────────────────────
+// This is the crux of the console-scroll fix: a *growing* source must count as
+// a continuation (so it animates), while a replacement / mount / (re)appearance
+// must not (so it suppresses and the first row just appears). Getting this wrong
+// — e.g. comparing raw text equality — re-suppresses on every snapshot and cuts
+// every in-flight glide, re-introducing the snap.
+
+test('streamContinues is true when the source grows by appending (normal streaming)', () => {
+  assert.equal(streamContinues('reasoning so far', 'reasoning so far, more', true, true), true);
+  assert.equal(streamContinues('line\n', 'line\nline2', true, true), true);
+});
+
+test('streamContinues is true across many snapshots of the same growing stream', () => {
+  let prev = 'seed';
+  for (const next of ['seed a', 'seed a b', 'seed a b c', 'seed a b c d']) {
+    assert.equal(streamContinues(prev, next, true, true), true);
+    prev = next;
+  }
+});
+
+test('streamContinues is false when the source is replaced, not grown', () => {
+  // reasoning -> reply / tool A -> tool B: different content, not a forward extension.
+  assert.equal(streamContinues('reasoning text', 'tool result output', true, true), false);
+  assert.equal(streamContinues('bash stdout', 'read file output', true, true), false);
+  // a status line changing is a replacement, not growth.
+  assert.equal(streamContinues('agent: running bash', 'agent: running read', true, true), false);
+});
+
+test('streamContinues is false on mount / when content (re)appears', () => {
+  // mount: no previous content.
+  assert.equal(streamContinues('', 'first reasoning', false, true), false);
+  // content disappears then reappears.
+  assert.equal(streamContinues('old reasoning', 'new reasoning', false, true), false);
+  // currently empty (no content) never continues.
+  assert.equal(streamContinues('whatever', '', true, false), false);
+});
+
+test('streamContinues is false when the source shrinks within a continuing stream', () => {
+  // A shrink is not a forward extension (next.startsWith(prev) fails) — treat as
+  // a replacement so the baseline resets instead of animating a negative delta.
+  assert.equal(streamContinues('longer source', 'longer', true, true), false);
 });

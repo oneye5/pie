@@ -571,19 +571,24 @@
 /* Flowing content body: source newlines are collapsed and the text wraps to
    fill the reserved width, so the limited preview rows carry as much of the
    recent tail as possible instead of clipping each source line at the right
-   edge. The text is top-anchored and a JS-computed `translateY` (see
-   `useTailScroll` in turn-activity-tail.tsx) bottom-aligns it and scrolls
-   wrapped overflow up out of view. The translate is applied with NO transition
-   so the view snaps up by whole rows — a discrete, glide-free row-scroll —
-   instead of sliding continuously as tokens stream in (characters still type
-   into the current line via the buffered reveal). Long unbroken tokens break to
-   avoid spilling past the width. Overrides the composite header's
+   edge. The text is BOTTOM-anchored (`bottom: 0`) so the newest row + caret
+   stay pinned to the bottom and wrapped overflow scrolls off the top — and so
+   the visible rows never shift when the wrapped height changes (bottom-
+   anchoring is immune to the height wobble a char-budgeted window used to
+   cause). `useTailConsoleScroll` (see turn-activity-tail.tsx) drives a small
+   push animation on the `transform` when a new row wraps: the block is nudged
+   down one row-height (no transition) then glided back up over ~150ms, which
+   scrolls every row up by one row-height — oldest off the top, newest in at
+   the bottom — a smooth, followable console-style row scroll. The transition is
+   armed only during that glide (inline `transition` style), so the per-character
+   buffered typing into the current line never slides. Long unbroken tokens break
+   to avoid spilling past the width. Overrides the composite header's
    nowrap/ellipsis. */
 .turn-activity-tail-content .turn-activity-tail-text {
   position: absolute;
   left: 0;
   right: 0;
-  top: 0;
+  bottom: 0;
   flex: none;
   overflow: visible;
   text-overflow: clip;
