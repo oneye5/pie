@@ -291,6 +291,8 @@ export interface SourceAnalyticsPayload {
   outcomes: OutcomeHistoryLogEntry[];
   /** Raw pruning decisions read from data/pruning.jsonl. */
   pruningDecisions: PruningSourceDecision[];
+  /** Raw pruning quality-signal events read from data/pruning.jsonl. */
+  pruningEvents: PruningSourceEvent[];
 }
 
 export interface LoadedSourceAnalytics {
@@ -548,6 +550,30 @@ export interface PruningSourceDecision {
   originalToolBlockTokens?: number;
 }
 
+/** Raw pruning quality-signal event read from data/pruning.jsonl.
+ *  These are the over-pruning signals: `skill_miss` / `shadow_miss_candidate`
+ *  (agent read a skill the pruner had pruned — a wrong-prune) and
+ *  `tool_recovered` (agent called `request_tool` to re-enable a pruned tool).
+ *  `skill_read` is a non-miss baseline read, surfaced only as a denominator for the miss rate. */
+export interface PruningSourceEvent {
+  event: 'skill_read' | 'skill_miss' | 'shadow_miss_candidate' | 'tool_recovered';
+  skillName?: string;
+  toolName?: string;
+  sessionId: string;
+  timestamp: string;
+}
+
+/** Prepared pruning quality-signal row for DuckDB (joined to a run by sessionPathHash). */
+export interface PreparedPruningSignalRow {
+  runId: string;
+  sessionPathHash: string;
+  timestamp: string;
+  startedDay: string;
+  event: 'skill_read' | 'skill_miss' | 'shadow_miss_candidate' | 'tool_recovered';
+  skillName: string | null;
+  toolName: string | null;
+}
+
 /** Prepared pruning event row for DuckDB. */
 export interface PreparedPruningEventRow {
   runId: string;
@@ -587,6 +613,7 @@ export interface PreparedAnalyticsData {
   fileExtensions: PreparedFileExtensionRow[];
   turnThroughput: PreparedTurnThroughputRow[];
   pruningEvents: PreparedPruningEventRow[];
+  pruningSignals: PreparedPruningSignalRow[];
 }
 
 export interface SiteManifest {
@@ -630,10 +657,17 @@ export interface RunSummaryData {
 }
 
 export interface ModelQualityAggregateRow {
+  /** Canonical, provider-agnostic model family the row is grouped by (e.g. 'glm-5.2'); mirrors
+   *  `ModelLeaderboardRow.modelId`. Provider-specific ids collapsed into this row are listed in
+   *  `providerModelIds` so provider differences stay investigable. */
   modelId: string;
   thinkingLevel: string;
   experimentAssignment: string;
   runCount: number;
+  /** Provider-specific model ids (e.g. 'umans-glm-5.2', 'glm-5.2:cloud') collapsed into this
+   *  family row; sorted and deduplicated. Optional for backward compatibility with older
+   *  model-quality.json artifacts that predate family grouping. */
+  providerModelIds?: string[];
   scoredRunCount: number;
   averageSatisfaction: number | null;
   averageBusyDurationMs: number | null;
@@ -803,11 +837,35 @@ export interface PruningSummary {
   totalToolTokensSaved: number;
   medianLlmLatencyMs: number | null;
   modeCounts: Record<string, number>;
+  /** Non-miss skill reads after pruning — the baseline denominator for `skillMissRate`. */
+  skillReadCount: number;
+  /** Agent read a skill the pruner had pruned (a wrong-prune). */
+  skillMissCount: number;
+  /** Agent read a shadow-pruned skill (shadow mode wrong-prune candidate). */
+  shadowMissCandidateCount: number;
+  /** Agent called `request_tool` to re-enable a pruned tool — the most direct over-pruning metric. */
+  toolRecoveredCount: number;
+  /** Denominator for `pruneRecoveredRate`: pruning decisions that pruned ≥1 tool (`toolCountPruned >= 1`). */
+  decisionsThatPrunedTools: number;
+  /** "Prunes that were recovered" rate = `toolRecoveredCount` / `decisionsThatPrunedTools`.
+   *  Per-decision over-pruning signal: of the decisions that removed at least one tool, the fraction
+   *  that the agent subsequently undid by re-enabling a pruned tool via `request_tool`. `null` when no
+   *  decision pruned a tool (denominator 0). Units differ across numerator/denominator (recovery
+   *  *events* vs pruning *decisions*) — a single decision can yield multiple recoveries, so this is a
+   *  rate-of-incidence signal, not a strict fraction; treat values >1 as "every tool-pruning decision
+   *  was recovered at least once". */
+  pruneRecoveredRate: number | null;
+  /** Skill over-pruning rate = (`skillMissCount` + `shadowMissCandidateCount`) /
+   *  (`skillReadCount` + `skillMissCount` + `shadowMissCandidateCount`): of all skill reads after
+   *  pruning, the fraction that hit a pruned skill. `null` when there were no skill reads (denominator 0). */
+  skillMissRate: number | null;
 }
 
 export interface PruningImpactData {
   schemaVersion: number;
   rows: PreparedPruningEventRow[];
+  /** Over-pruning signal rows (skill miss / shadow miss / tool recovered), joined to runs. */
+  signalRows: PreparedPruningSignalRow[];
   summary: PruningSummary;
 }
 

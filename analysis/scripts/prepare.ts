@@ -5,12 +5,14 @@ import {
   type PreparedBackendErrorRow,
   type PreparedFileExtensionRow,
   type PreparedPruningEventRow,
+  type PreparedPruningSignalRow,
   type PreparedRunRow,
   type PreparedToolFailureRow,
   type PreparedToolUsageRow,
   type PreparedTurnThroughputRow,
   type PreparedVerificationUsageRow,
   type PruningSourceDecision,
+  type PruningSourceEvent,
   type SourceAnalyticsPayload,
   type ThinkingLevel,
   type VerificationCommandKind,
@@ -540,6 +542,31 @@ function preparePruningEvents(
   });
 }
 
+function preparePruningSignals(
+  pruningEvents: PruningSourceEvent[],
+  runs: PreparedRunRow[],
+): PreparedPruningSignalRow[] {
+  const runBySessionHash = new Map<string, PreparedRunRow>();
+  for (const run of runs) {
+    runBySessionHash.set(run.sessionPathHash, run);
+  }
+
+  return pruningEvents.map((e) => {
+    const sessionPathHash = hashToPrefix(e.sessionId, 16);
+    const matchedRun = runBySessionHash.get(sessionPathHash);
+    const runId = matchedRun?.runId ?? `pruning-${sessionPathHash}`;
+    return {
+      runId,
+      sessionPathHash,
+      timestamp: e.timestamp,
+      startedDay: e.timestamp.slice(0, 10),
+      event: e.event,
+      skillName: e.skillName ?? null,
+      toolName: e.toolName ?? null,
+    };
+  });
+}
+
 function roundThroughput(value: number): number {
   return Math.round(value * 100) / 100;
 }
@@ -613,6 +640,7 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
   }
 
   const pruningEvents = preparePruningEvents(source.pruningDecisions ?? [], runs);
+  const pruningSignals = preparePruningSignals(source.pruningEvents ?? [], runs);
 
   return {
     sourceSchemaVersion: source.schemaVersion,
@@ -626,5 +654,6 @@ export function prepareSourceAnalytics(source: SourceAnalyticsPayload): Prepared
     fileExtensions,
     turnThroughput,
     pruningEvents,
+    pruningSignals,
   };
 }

@@ -7,6 +7,7 @@ import type {
   PreparedBackendErrorRow,
   PreparedFileExtensionRow,
   PreparedPruningEventRow,
+  PreparedPruningSignalRow,
   PreparedRunRow,
   PreparedToolFailureRow,
   PreparedToolUsageRow,
@@ -234,6 +235,16 @@ interface DuckDbPruningEventRow {
   pruned_skill_names: string[];
   kept_tool_names: string[];
   pruned_tool_names: string[];
+}
+
+interface DuckDbPruningSignalRow {
+  run_id: string;
+  session_path_hash: string;
+  timestamp: string;
+  started_day: string;
+  event: string;
+  skill_name: string | null;
+  tool_name: string | null;
 }
 
 interface DuckDbTurnThroughputRow {
@@ -474,6 +485,18 @@ function toDuckDbPruningEventRow(row: PreparedPruningEventRow): DuckDbPruningEve
   };
 }
 
+function toDuckDbPruningSignalRow(row: PreparedPruningSignalRow): DuckDbPruningSignalRow {
+  return {
+    run_id: row.runId,
+    session_path_hash: row.sessionPathHash,
+    timestamp: row.timestamp,
+    started_day: row.startedDay,
+    event: row.event,
+    skill_name: row.skillName,
+    tool_name: row.toolName,
+  };
+}
+
 function toDuckDbTurnThroughputRow(row: PreparedTurnThroughputRow): DuckDbTurnThroughputRow {
   return {
     run_id: row.runId,
@@ -501,6 +524,7 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
   backendErrorsPath: string;
   fileExtensionsPath: string;
   pruningEventsPath: string;
+  pruningSignalsPath: string;
   turnThroughputPath: string;
 }> {
   await ensureDir(exportsDir);
@@ -511,6 +535,7 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
   const backendErrorsPath = path.join(exportsDir, 'backend-errors.json');
   const fileExtensionsPath = path.join(exportsDir, 'file-extensions.json');
   const pruningEventsPath = path.join(exportsDir, 'pruning-events.json');
+  const pruningSignalsPath = path.join(exportsDir, 'pruning-signals.json');
   const turnThroughputPath = path.join(exportsDir, 'turn-throughput.json');
 
   await Promise.all([
@@ -521,10 +546,11 @@ export async function writeDuckDbStagingExports(exportsDir: string, prepared: Pr
     writeJsonFile(backendErrorsPath, prepared.backendErrors.map(toDuckDbBackendErrorRow)),
     writeJsonFile(fileExtensionsPath, prepared.fileExtensions.map(toDuckDbFileExtensionRow)),
     writeJsonFile(pruningEventsPath, prepared.pruningEvents.map(toDuckDbPruningEventRow)),
+    writeJsonFile(pruningSignalsPath, prepared.pruningSignals.map(toDuckDbPruningSignalRow)),
     writeJsonFile(turnThroughputPath, prepared.turnThroughput.map(toDuckDbTurnThroughputRow)),
   ]);
 
-  return { runsPath, toolUsagePath, toolFailuresPath, verificationUsagePath, backendErrorsPath, fileExtensionsPath, pruningEventsPath, turnThroughputPath };
+  return { runsPath, toolUsagePath, toolFailuresPath, verificationUsagePath, backendErrorsPath, fileExtensionsPath, pruningEventsPath, pruningSignalsPath, turnThroughputPath };
 }
 
 async function openDuckDb(dbPath: string) {
@@ -782,6 +808,20 @@ CREATE TABLE pruning_events (
 `.trim();
 }
 
+function pruningSignalsTableSchema(): string {
+  return `
+CREATE TABLE pruning_signals (
+  run_id VARCHAR,
+  session_path_hash VARCHAR,
+  timestamp TIMESTAMP,
+  started_day DATE,
+  event VARCHAR,
+  skill_name VARCHAR,
+  tool_name VARCHAR
+);
+`.trim();
+}
+
 function turnThroughputTableSchema(): string {
   return `
 CREATE TABLE turn_throughput (
@@ -894,6 +934,7 @@ export async function buildDuckDbDatabase(params: {
     await populateTableFromJson(connection, 'backend_errors', backendErrorsTableSchema(), stagingPaths.backendErrorsPath);
     await populateTableFromJson(connection, 'file_extensions', fileExtensionsTableSchema(), stagingPaths.fileExtensionsPath);
     await populateTableFromJson(connection, 'pruning_events', pruningEventsTableSchema(), stagingPaths.pruningEventsPath);
+    await populateTableFromJson(connection, 'pruning_signals', pruningSignalsTableSchema(), stagingPaths.pruningSignalsPath);
     await populateTableFromJson(connection, 'turn_throughput', turnThroughputTableSchema(), stagingPaths.turnThroughputPath);
     await createDerivedViews(connection);
   } finally {

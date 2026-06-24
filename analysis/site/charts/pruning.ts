@@ -1,10 +1,15 @@
 import type { ChartEntry, ChartContext } from '../lib.ts';
 import { CHART_COLORS, categoricalHeight, median, selectedRunIds, sum } from '../lib.ts';
-import type { PreparedPruningEventRow } from '../../scripts/contracts.ts';
+import type { PreparedPruningEventRow, PreparedPruningSignalRow } from '../../scripts/contracts.ts';
 
 function filteredPruning(ctx: ChartContext): PreparedPruningEventRow[] {
   const runIds = selectedRunIds(ctx.runs);
   return ctx.pruning.rows.filter((r) => runIds.has(r.runId));
+}
+
+function filteredPruningSignals(ctx: ChartContext): PreparedPruningSignalRow[] {
+  const runIds = selectedRunIds(ctx.runs);
+  return ctx.pruning.signalRows.filter((r) => runIds.has(r.runId));
 }
 
 function tokensSavedTrend(rows: PreparedPruningEventRow[]) {
@@ -139,6 +144,58 @@ export const pruningCharts: ChartEntry[] = [
         },
       };
       await ctx.renderSpec('chart-pruning-top-tools', spec, 'No pruned tools match the current filters.', ctx.renderToken);
+    },
+  },
+  {
+    id: 'chart-pruning-recovery-rate',
+    render: async (ctx: ChartContext) => {
+      const decisionRows = filteredPruning(ctx);
+      const signals = filteredPruningSignals(ctx);
+      let skillMiss = 0;
+      let shadowMiss = 0;
+      let toolRecovered = 0;
+      let skillRead = 0;
+      for (const s of signals) {
+        if (s.event === 'skill_miss') skillMiss += 1;
+        else if (s.event === 'shadow_miss_candidate') shadowMiss += 1;
+        else if (s.event === 'tool_recovered') toolRecovered += 1;
+        else if (s.event === 'skill_read') skillRead += 1;
+      }
+      // "Prunes that were recovered" rate = tool_recovered events / decisions that pruned >=1 tool.
+      const decisionsThatPrunedTools = decisionRows.filter((r) => r.toolCountPruned >= 1).length;
+      const recoveredRate = decisionsThatPrunedTools > 0 ? toolRecovered / decisionsThatPrunedTools : null;
+      const missDenominator = skillRead + skillMiss + shadowMiss;
+      const missRate = missDenominator > 0 ? (skillMiss + shadowMiss) / missDenominator : null;
+      const rateText = recoveredRate === null ? 'n/a (no tool-pruning decisions)' : `${Math.round(recoveredRate * 100)}%`;
+      const missRateText = missRate === null ? 'n/a (no skill reads)' : `${Math.round(missRate * 100)}%`;
+      ctx.setNote(
+        'pruning-recovery-rate-note',
+        `Over-pruning signals: ${toolRecovered} tool recoveries across ${decisionsThatPrunedTools} tool-pruning decisions (recovered rate ${rateText}); ${skillMiss + shadowMiss} skill misses of ${missDenominator} skill reads (miss rate ${missRateText}).`,
+        ctx.renderToken,
+      );
+      const values = [
+        { signal: 'Skill miss', count: skillMiss },
+        { signal: 'Shadow miss', count: shadowMiss },
+        { signal: 'Tool recovered', count: toolRecovered },
+      ];
+      const signalDomain = ['Skill miss', 'Shadow miss', 'Tool recovered'];
+      const signalRange = [CHART_COLORS.coral, CHART_COLORS.gold, CHART_COLORS.accent];
+      const spec = values.every((v) => v.count === 0) ? null : {
+        width: 'container',
+        height: categoricalHeight(values.length, 32),
+        data: { values },
+        mark: { type: 'bar' as const, cornerRadiusEnd: 3, opacity: 0.85 },
+        encoding: {
+          y: { field: 'signal', type: 'nominal' as const, sort: signalDomain, title: null, axis: { labelLimit: 300 } },
+          x: { field: 'count', type: 'quantitative' as const, title: 'Events' },
+          color: { field: 'signal', type: 'nominal' as const, scale: { domain: signalDomain, range: signalRange }, legend: null },
+          tooltip: [
+            { field: 'signal', type: 'nominal' as const, title: 'Signal' },
+            { field: 'count', type: 'quantitative' as const, title: 'Events' },
+          ],
+        },
+      };
+      await ctx.renderSpec('chart-pruning-recovery-rate', spec, 'No over-pruning signals match the current filters.', ctx.renderToken);
     },
   },
 ];

@@ -82,10 +82,6 @@ function median(values: number[]): number | null {
   return round(((sorted[midpoint - 1] ?? 0) + (sorted[midpoint] ?? 0)) / 2, 0);
 }
 
-function normalizeModelId(modelId: string | null): string {
-  return modelId?.trim() ? modelId : '(unknown)';
-}
-
 function normalizeThinkingLevel(thinkingLevel: string | null): string {
   return thinkingLevel?.trim() ? thinkingLevel : '(unspecified)';
 }
@@ -189,8 +185,12 @@ function createOverview(prepared: PreparedAnalyticsData): OverviewData {
 function createModelQuality(prepared: PreparedAnalyticsData): ModelQualityData {
   const groups = new Map<string, PreparedRunRow[]>();
   for (const run of prepared.runs.filter((entry) => entry.status !== 'open')) {
+    // Group by canonical model family (provider-agnostic), mirroring the leaderboard —
+    // provider-specific ids sharing a family collapse into one row. modelFamily is resolved at
+    // prepare time; falls back to modelId when unset (and '(unknown)' when missing).
+    const mid = run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)';
     const key = [
-      normalizeModelId(run.modelId),
+      mid,
       normalizeThinkingLevel(run.thinkingLevel),
       normalizeExperimentAssignment(run.experimentAssignment),
     ].join('::');
@@ -212,6 +212,7 @@ function createModelQuality(prepared: PreparedAnalyticsData): ModelQualityData {
       thinkingLevel: thinkingLevel ?? '(unspecified)',
       experimentAssignment: experimentAssignment ?? '(none)',
       runCount: runs.length,
+      providerModelIds: [...new Set(runs.map((r) => (r.modelId ?? '').trim() || '(unknown)'))].sort(),
       scoredRunCount: scoredRuns.length,
       averageSatisfaction: average(scoredRuns.map((run) => run.satisfaction!), 2),
       averageBusyDurationMs: average(runs.map((run) => run.busyDurationMs), 0),
@@ -440,8 +441,8 @@ function createTimeline(prepared: PreparedAnalyticsData): TimelineData {
       const scoredRuns = runs.filter((run) => run.satisfaction !== null);
       const modelMix = Object.fromEntries(
         [...runs.reduce((counts, run) => {
-          const modelId = normalizeModelId(run.modelId);
-          counts.set(modelId, (counts.get(modelId) ?? 0) + 1);
+          const mid = run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)';
+          counts.set(mid, (counts.get(mid) ?? 0) + 1);
           return counts;
         }, new Map<string, number>()).entries()].sort(([left], [right]) => left.localeCompare(right)),
       );
@@ -466,6 +467,7 @@ function createTimeline(prepared: PreparedAnalyticsData): TimelineData {
 
 function createPruningImpact(prepared: PreparedAnalyticsData): PruningImpactData {
   const rows = prepared.pruningEvents;
+  const signalRows = prepared.pruningSignals;
   const totalSkillTokensSaved = rows.reduce((sum, r) => sum + r.skillTokensSaved, 0);
   const totalToolTokensSaved = rows.reduce((sum, r) => sum + r.toolTokensSaved, 0);
   const modeCounts: Record<string, number> = {};
@@ -473,15 +475,53 @@ function createPruningImpact(prepared: PreparedAnalyticsData): PruningImpactData
     modeCounts[row.pruningMode] = (modeCounts[row.pruningMode] ?? 0) + 1;
   }
   const latencies = rows.map((r) => r.llmLatencyMs).filter((v) => Number.isFinite(v));
+
+  // Over-pruning signal counts from the event-shaped lines.
+  let skillReadCount = 0;
+  let skillMissCount = 0;
+  let shadowMissCandidateCount = 0;
+  let toolRecoveredCount = 0;
+  for (const signal of signalRows) {
+    switch (signal.event) {
+      case 'skill_read':
+        skillReadCount += 1;
+        break;
+      case 'skill_miss':
+        skillMissCount += 1;
+        break;
+      case 'shadow_miss_candidate':
+        shadowMissCandidateCount += 1;
+        break;
+      case 'tool_recovered':
+        toolRecoveredCount += 1;
+        break;
+    }
+  }
+
+  // Denominator: decisions that pruned >=1 tool (i.e. toolCountPruned >= 1).
+  const decisionsThatPrunedTools = rows.filter((r) => r.toolCountPruned >= 1).length;
+  const pruneRecoveredRate =
+    decisionsThatPrunedTools > 0 ? toolRecoveredCount / decisionsThatPrunedTools : null;
+  const skillMissDenominator = skillReadCount + skillMissCount + shadowMissCandidateCount;
+  const skillMissRate = skillMissDenominator > 0 ? (skillMissCount + shadowMissCandidateCount) / skillMissDenominator : null;
+
   return {
     schemaVersion: SITE_DATA_SCHEMA_VERSION,
     rows,
+    signalRows,
     summary: {
       totalEvents: rows.length,
       totalSkillTokensSaved,
       totalToolTokensSaved,
       medianLlmLatencyMs: median(latencies),
       modeCounts,
+      skillReadCount,
+      skillMissCount,
+      shadowMissCandidateCount,
+      toolRecoveredCount,
+      decisionsThatPrunedTools,
+      pruneRecoveredRate,
+      skillMissRate,
     },
   };
 }
@@ -777,8 +817,15 @@ function validatePruningImpact(data: unknown): asserts data is PruningImpactData
   assert(isRecord(data), 'pruning-impact.json must contain an object.');
   assert(data.schemaVersion === SITE_DATA_SCHEMA_VERSION, 'pruning-impact.json has an unexpected schemaVersion.');
   assert(Array.isArray(data.rows), 'pruning-impact.json is missing rows.');
+  assert(Array.isArray(data.signalRows), 'pruning-impact.json is missing signalRows.');
   assert(isRecord(data.summary), 'pruning-impact.json is missing summary.');
   assert(typeof data.summary.totalEvents === 'number', 'pruning-impact.json summary is missing totalEvents.');
+  assert(typeof data.summary.skillMissCount === 'number', 'pruning-impact.json summary is missing skillMissCount.');
+  assert(typeof data.summary.shadowMissCandidateCount === 'number', 'pruning-impact.json summary is missing shadowMissCandidateCount.');
+  assert(typeof data.summary.toolRecoveredCount === 'number', 'pruning-impact.json summary is missing toolRecoveredCount.');
+  assert(typeof data.summary.decisionsThatPrunedTools === 'number', 'pruning-impact.json summary is missing decisionsThatPrunedTools.');
+  assert(data.summary.pruneRecoveredRate === null || typeof data.summary.pruneRecoveredRate === 'number', 'pruning-impact.json summary has an invalid pruneRecoveredRate.');
+  assert(data.summary.skillMissRate === null || typeof data.summary.skillMissRate === 'number', 'pruning-impact.json summary has an invalid skillMissRate.');
 }
 
 function validateBackendErrors(data: unknown): asserts data is BackendErrorData {

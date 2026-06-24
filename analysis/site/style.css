@@ -50,6 +50,7 @@ body::before {
   width: min(1480px, calc(100% - 28px));
   margin: 0 auto;
   padding: 20px 0 44px;
+  overflow-x: clip;
 }
 
 .header,
@@ -312,7 +313,7 @@ button:hover {
 
 .chart-slot {
   min-height: 260px;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: visible;
   padding: 2px 2px 4px;
   scrollbar-color: var(--border-strong) transparent;
@@ -332,7 +333,9 @@ button:hover {
 
 .vega-embed {
   width: 100%;
-  overflow: visible;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: visible;
 }
 
 .vega-embed svg {

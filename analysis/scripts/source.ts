@@ -13,6 +13,7 @@ import {
   type OutcomeHistoryLogEntry,
   type PruningMode,
   type PruningSourceDecision,
+  type PruningSourceEvent,
   type RunFinalizationReason,
   type RunOutcome,
   type RunSnapshot,
@@ -884,22 +885,56 @@ export function coerceSourceAnalyticsPayload(value: unknown): SourceAnalyticsPay
     openRuns: coerceRunSnapshotArray('openRuns', value.openRuns),
     outcomes: coerceOutcomeArray(value.outcomes),
     pruningDecisions: Array.isArray(value.pruningDecisions) ? value.pruningDecisions : [],
+    pruningEvents: coercePruningEvents(value.pruningEvents),
   };
 }
 
-function readPruningDecisions(configRoot: string): PruningSourceDecision[] {
+function coercePruningEvents(value: unknown): PruningSourceEvent[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const events: PruningSourceEvent[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry)) {
+      continue;
+    }
+    if (
+      typeof entry.event === 'string' &&
+      (entry.event === 'skill_read' ||
+        entry.event === 'skill_miss' ||
+        entry.event === 'shadow_miss_candidate' ||
+        entry.event === 'tool_recovered') &&
+      typeof entry.sessionId === 'string' &&
+      typeof entry.timestamp === 'string'
+    ) {
+      events.push({
+        event: entry.event,
+        skillName: typeof entry.skillName === 'string' ? entry.skillName : undefined,
+        toolName: typeof entry.toolName === 'string' ? entry.toolName : undefined,
+        sessionId: entry.sessionId,
+        timestamp: entry.timestamp,
+      });
+    }
+  }
+  return events;
+}
+
+function readPruningLog(configRoot: string): { decisions: PruningSourceDecision[]; events: PruningSourceEvent[] } {
   const pruningPath = path.join(configRoot, 'data', 'pruning.jsonl');
   let raw: string;
   try {
     raw = readFileSync(pruningPath, 'utf8');
   } catch {
-    return [];
+    return { decisions: [], events: [] };
   }
   const lines = raw.trim().split('\n').filter((line) => line.trim().length > 0);
   const decisions: PruningSourceDecision[] = [];
+  const events: PruningSourceEvent[] = [];
+  const EVENT_TYPES = new Set(['skill_read', 'skill_miss', 'shadow_miss_candidate', 'tool_recovered']);
   for (const line of lines) {
     try {
       const parsed = JSON.parse(line);
+      // Decision-shaped line: has mode + included/excluded (no `event` field).
       if (
         typeof parsed.timestamp === 'string' &&
         typeof parsed.sessionId === 'string' &&
@@ -925,12 +960,29 @@ function readPruningDecisions(configRoot: string): PruningSourceDecision[] {
           toolBlockTokens: typeof parsed.toolBlockTokens === 'number' ? parsed.toolBlockTokens : 0,
           originalToolBlockTokens: typeof parsed.originalToolBlockTokens === 'number' ? parsed.originalToolBlockTokens : 0,
         });
+        continue;
+      }
+      // Event-shaped line: over-pruning quality signals (skill_miss / shadow_miss_candidate /
+      // tool_recovered) plus the skill_read baseline. Carries `event` + sessionId + timestamp.
+      if (
+        typeof parsed.event === 'string' &&
+        EVENT_TYPES.has(parsed.event) &&
+        typeof parsed.sessionId === 'string' &&
+        typeof parsed.timestamp === 'string'
+      ) {
+        events.push({
+          event: parsed.event,
+          skillName: typeof parsed.skillName === 'string' ? parsed.skillName : undefined,
+          toolName: typeof parsed.toolName === 'string' ? parsed.toolName : undefined,
+          sessionId: parsed.sessionId,
+          timestamp: parsed.timestamp,
+        });
       }
     } catch {
       // Skip malformed lines
     }
   }
-  return decisions;
+  return { decisions, events };
 }
 
 export async function readSourceAnalyticsPayload(filePath: string): Promise<SourceAnalyticsPayload> {
@@ -968,6 +1020,7 @@ async function querySourceAnalyticsPayloadFromStorageDir(storageDir: string): Pr
     openRuns: result.openRuns,
     outcomes: result.outcomes,
     pruningDecisions: [],
+    pruningEvents: [],
   };
 }
 
@@ -975,7 +1028,9 @@ export async function loadSourceAnalytics(selection: SourceSelection = {}): Prom
   const configRoot = path.resolve(SCRIPT_DIR, '..', '..');
   if (selection.exportPath) {
     const source = await readSourceAnalyticsPayload(selection.exportPath);
-    source.pruningDecisions = readPruningDecisions(configRoot);
+    const { decisions, events } = readPruningLog(configRoot);
+    source.pruningDecisions = decisions;
+    source.pruningEvents = events;
     return {
       source,
       sourceKind: 'export',
@@ -985,7 +1040,9 @@ export async function loadSourceAnalytics(selection: SourceSelection = {}): Prom
 
   if (selection.storageDir) {
     const source = await querySourceAnalyticsPayloadFromStorageDir(selection.storageDir);
-    source.pruningDecisions = readPruningDecisions(configRoot);
+    const { decisions, events } = readPruningLog(configRoot);
+    source.pruningDecisions = decisions;
+    source.pruningEvents = events;
     return {
       source,
       sourceKind: 'storage-dir',
@@ -994,7 +1051,9 @@ export async function loadSourceAnalytics(selection: SourceSelection = {}): Prom
   }
 
   const source = await readSourceAnalyticsPayload(DEFAULT_FIXTURE_PATH);
-  source.pruningDecisions = readPruningDecisions(configRoot);
+  const { decisions, events } = readPruningLog(configRoot);
+  source.pruningDecisions = decisions;
+  source.pruningEvents = events;
   return {
     source,
     sourceKind: 'fixture',
