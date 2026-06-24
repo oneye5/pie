@@ -85,12 +85,6 @@
   cursor: not-allowed;
 }
 
-/* Invisible placeholder that reserves the mark-done slot so Send/Stop don't
-   shift when the action is absent. */
-.composer-run-action.is-placeholder {
-  visibility: hidden;
-}
-
 /* Style ineligible models in the model select dropdown */
 .toolbar-settings-select option.model-option-ineligible {
   color: var(--panel-muted);
