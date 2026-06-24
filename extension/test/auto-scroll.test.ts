@@ -169,23 +169,25 @@ test('advanceSmoothScrollTop snaps when already within epsilon of the target', (
 });
 
 test('advanceSmoothScrollTop eases typical tool-body deltas instead of snapping', () => {
-  // A ~420px delta (a terminal pane max-height expand/collapse) is below the
-  // large-delta snap threshold, so it must ease toward the target rather than
-  // jump there in a single frame (the previous 200px threshold snapped this).
-  // With interpolation 0.7 + max step 120 the first step is the capped 120.
+  // A ~420px delta (a single expanded section / terminal pane expand/collapse)
+  // is below the large-delta snap threshold (480), so it must ease toward the
+  // target rather than jump there in a single frame. With interpolation 0.7 +
+  // max step 240 the first step is the capped 240 (420 * 0.7 = 294 > 240).
   const next = advanceSmoothScrollTop(0, 420);
   assert.ok(next > 0 && next < 420, `expected an eased step < 420, got ${next}`);
-  assert.equal(next, 120);
+  assert.equal(next, 240);
 });
 
-test('advanceSmoothScrollTop still snaps truly huge one-shot deltas', () => {
-  // Above the large-delta threshold the follow snaps so the latest content
-  // doesn't take ~0.5s+ to ease into view.
+test('advanceSmoothScrollTop snaps two-section bursts so the viewport stays pinned', () => {
+  // Two expanded sections opening in the same snapshot (≈528px+) exceed the
+  // 480 snap threshold, so the follow snaps to the new bottom instead of easing
+  // behind it for ~100ms+ (the drift the cap raise alone couldn't eliminate).
+  assert.equal(advanceSmoothScrollTop(0, 528), 528);
   assert.equal(advanceSmoothScrollTop(0, 1500), 1500);
 });
 
 test('advanceSmoothScrollTop treats the large-delta threshold as exclusive', () => {
   // `> threshold` snaps; exactly at the threshold eases, one above snaps.
-  assert.ok(advanceSmoothScrollTop(0, 1000) < 1000, 'delta == threshold eases');
-  assert.equal(advanceSmoothScrollTop(0, 1001), 1001, 'delta > threshold snaps');
+  assert.ok(advanceSmoothScrollTop(0, 480) < 480, 'delta == threshold eases');
+  assert.equal(advanceSmoothScrollTop(0, 481), 481, 'delta > threshold snaps');
 });

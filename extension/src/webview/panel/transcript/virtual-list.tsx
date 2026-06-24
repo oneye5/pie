@@ -371,6 +371,7 @@ export function TranscriptVirtualList({
     scrollRef,
     sessionKey,
     transcriptWindow,
+    transcript,
     transcriptLength: transcript.length,
     busy,
     onLoadOlder,

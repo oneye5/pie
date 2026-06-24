@@ -1,6 +1,6 @@
 ﻿import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'preact/hooks';
 
-import type { TranscriptWindow } from '../../../shared/protocol';
+import type { ChatMessage, TranscriptWindow } from '../../../shared/protocol';
 import {
   SMOOTH_SCROLL_SNAP_EPSILON_PX,
   advanceSmoothScrollTop,
@@ -25,6 +25,17 @@ interface UseTranscriptScrollOptions {
   onLoadOlder: () => void;
   onLoadNewer: () => void;
   onJumpToLatest: () => void;
+  /**
+   * The live transcript array (reference identity matters, not contents).
+   * The host posts a fresh JSON-deserialized array on every streaming snapshot
+   * (~150ms cadence), so its identity changes once per snapshot — making it a
+   * timely, non-per-frame signal for {@link useRefreshFollowTarget} to re-read
+   * the true bottom the moment content grows, instead of waiting up to a frame
+   * for the virtualizer's deferred re-measurement (`totalSize`) to catch up.
+   * During the auto-follow rAF loop's own programmatic scrolls the transcript
+   * identity is stable, so this never adds a per-frame forced reflow.
+   */
+  transcript: readonly ChatMessage[];
   /**
    * The virtualizer's current total content height (`virtualizer.getTotalSize()`).
    * Every height-relevant change in the transcript — streaming markdown,
@@ -344,39 +355,60 @@ function usePaginationTrackingEffect(
  * i.e. the max `scrollTop`) fresh for {@link useSmoothAutoFollow} without the
  * loop paying for a per-frame forced-layout read.
  *
- * Two complementary signals cover the two ways the bottom moves:
+ * Three complementary signals cover the ways the bottom moves:
  *
- * 1. **Content grows** (the common case): keyed on `totalSize`. The
- *    virtualizer's `totalSize` changes for EVERY height-relevant mutation —
- *    streaming markdown, tool-body output, reasoning/preview expand-collapse,
- *    late image/table loads, drag-resizes — because each measured row's
- *    ResizeObserver → `measureElement` → `totalSize`. A `useLayoutEffect` re-reads
- *    the true bottom exactly once per change, after the DOM commit (height
- *    already updated) and before the next rAF tick that consumes it.
+ * 1. **Content grows at a snapshot** (the common streaming case): keyed on the
+ *    `transcript` array identity. The host posts a fresh JSON-deserialized
+ *    array on every ~150ms streaming snapshot, so its identity changes at
+ *    commit time — the exact moment the DOM grows — letting a `useLayoutEffect`
+ *    re-read the true bottom before the next rAF tick. This is the timely
+ *    signal: it closes the up-to-one-frame lag `totalSize` alone imposed (the
+ *    virtualizer batches ResizeObserver-driven re-measurement to a rAF, so
+ *    `totalSize` updates a frame after the DOM already grew, leaving the loop
+ *    easing toward a stale target and trailing the latest content on every
+ *    snapshot).
  *
- * 2. **Viewport resizes** (panel resized, file-changes rail opening, composer
- *    growing): change `clientHeight` without changing `totalSize`, so the
- *    `totalSize` effect wouldn't fire. A `ResizeObserver` on the scroll
- *    container (its border-box == `clientHeight`) re-reads the bottom.
+ * 2. **Content grows outside a snapshot** (collapsible expand/collapse, late
+ *    image/table loads, drag-resize): keyed on `totalSize`. These mutate a
+ *    row's height without changing the transcript array, so the transcript
+ *    signal wouldn't fire; the row's ResizeObserver → `measureElement` →
+ *    `totalSize` does, a frame later. It is the broad backstop for every
+ *    height-relevant mutation the transcript identity can't see.
  *
- * Together these replace the previous data-model content signature + 250ms
- * fallback cadence. That signature only observed streaming-message prose, so
- * every OTHER growth source (tool output, reasoning, previews, late loads) was
- * seen at most once per 250ms — up to ~250px of persistent drift during regular
- * agent work. `totalSize` sees all of them immediately, so the follow stays
- * pinned instead of catching up a quarter-second late.
+ * 3. **Viewport resizes** (panel resized, file-changes rail opening, composer
+ *    growing): change `clientHeight` without changing content, so neither
+ *    content signal fires. A `ResizeObserver` on the scroll container (its
+ *    border-box == `clientHeight`) re-reads the bottom.
+ *
+ * Neither content signal fires during the auto-follow rAF loop's own
+ * programmatic scrolls (the transcript identity is stable and `totalSize`
+ * doesn't change on a pure scrollTop move), so there is no per-frame forced
+ * reflow while easing — the loop always eases toward a cached target.
  */
 function useRefreshFollowTarget(
   scrollRef: { current: HTMLDivElement | null },
   totalSize: number,
+  transcript: readonly ChatMessage[],
   sessionKey: string | null,
   cachedTargetRef: { current: number },
 ) {
+  // Keyed on BOTH totalSize and transcript identity. totalSize catches every
+  // height-relevant mutation (row ResizeObserver -> measureElement), but it
+  // lags the real bottom by up to a frame: the virtualizer batches
+  // ResizeObserver-driven re-measurement to a rAF (`useAnimationFrameWithResizeObserver`),
+  // so totalSize only updates a frame after the DOM already grew. On a 150ms
+  // streaming snapshot that left the loop easing toward a ~16ms-stale target,
+  // trailing the latest content. The transcript array identity is fresh the
+  // instant a snapshot commits (a new JSON-deserialized reference), so keying
+  // on it re-reads scrollHeight at commit time — closing the lag. The two are
+  // complementary: transcript fires at snapshot commit (bottom-growth, the
+  // follow-relevant case); totalSize fires a frame later and also catches
+  // non-snapshot growth (collapsible expand/collapse, late image/table loads).
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     cachedTargetRef.current = Math.max(0, el.scrollHeight - el.clientHeight);
-  }, [scrollRef, totalSize, sessionKey, cachedTargetRef]);
+  }, [scrollRef, totalSize, transcript, sessionKey, cachedTargetRef]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -508,6 +540,7 @@ export function useTranscriptScroll({
   scrollRef,
   sessionKey,
   transcriptWindow,
+  transcript,
   transcriptLength,
   busy,
   onLoadOlder,
@@ -607,7 +640,7 @@ export function useTranscriptScroll({
     setAutoFollow,
   );
 
-  useRefreshFollowTarget(scrollRef, totalSize, sessionKey, cachedTargetRef);
+  useRefreshFollowTarget(scrollRef, totalSize, transcript, sessionKey, cachedTargetRef);
 
   useSmoothAutoFollow(
     scrollRef,

@@ -11,21 +11,30 @@ const SMOOTH_SCROLL_INTERPOLATION = 0.7;
 const SMOOTH_SCROLL_MIN_STEP_PX = 2;
 // Caps the per-frame step so large one-shot resizes (tool-body expand/collapse,
 // ~up to 420px) glide at a constant velocity instead of lunging to the new
-// bottom in a single frame. 120px/frame converges a 420px resize in ~6 frames
-// (~100ms); smaller (streaming) deltas are uncapped and close in 1–3 frames.
-const SMOOTH_SCROLL_MAX_STEP_PX = 120;
+// bottom in a single frame. Raised from 120 so medium sub-threshold bursts
+// (a single ~420px section) recover ~1 frame sooner; note the real two-section
+// fix is the snap threshold below (deltas ≈528px+ snap rather than ease), since
+// interpolation 0.7 still bounds sub-threshold convergence to ~5 frames.
+// Streaming growth is far below the cap (a few px/frame), so it only bounds
+// discrete expand/collapse, not the smooth streaming glide.
+const SMOOTH_SCROLL_MAX_STEP_PX = 240;
 export const SMOOTH_SCROLL_SNAP_EPSILON_PX = 1;
 /**
- * Only truly huge one-shot deltas snap directly to the target; everything
- * below this threshold eases. Explicit jumps (scrollToBottom, jumpToLatest,
- * post-session-switch positioning) snap via direct scrollTop assignments
- * rather than through advanceSmoothScrollTop, so this threshold only governs
- * bursty *growth* during the auto-follow loop. The high cap bounds the worst
- * case so a pathological multi-thousand-pixel burst (e.g. a huge collapsed
- * block suddenly expanded) doesn't ease over many frames and leave the latest
- * content off-screen for ~0.5s+.
+ * One-shot deltas ABOVE this threshold snap directly to the target; at-or-below
+ * ease. Explicit jumps (scrollToBottom, jumpToLatest, post-session-switch
+ * positioning) snap via direct scrollTop assignments rather than through
+ * advanceSmoothScrollTop, so this threshold only governs bursty *growth* during
+ * the auto-follow loop.
+ *
+ * Set just above a single expanded section's height — the shared
+ * --expanded-section-max-height (~240px + header ≈ 264px) and a typical
+ * tool-body expand (~420px) — so a SINGLE section opening still EASES (smooth),
+ * but TWO sections opening in the same snapshot (≈528px+) SNAP, keeping the
+ * pinned-to-bottom viewport on the latest content instead of easing behind it
+ * for ~100ms+. Per-snapshot streaming growth stays well under this and eases.
+ * (Previously 1000, which let normal two-section bursts ease and drift.)
  */
-const SMOOTH_SCROLL_LARGE_DELTA_SNAP_PX = 1000;
+const SMOOTH_SCROLL_LARGE_DELTA_SNAP_PX = 480;
 
 export interface ScrollAnchorSnapshot {
   key: string;
@@ -140,9 +149,10 @@ export function advanceSmoothScrollTop(
     return targetScrollTop;
   }
 
-  // Only truly huge one-shot deltas (see SMOOTH_SCROLL_LARGE_DELTA_SNAP_PX)
-  // snap; ordinary tool-body expand/collapse eases so the follow doesn't
-  // visibly jump. Explicit jumps snap via direct scrollTop sets, not here.
+  // Deltas above the snap threshold (see SMOOTH_SCROLL_LARGE_DELTA_SNAP_PX)
+  // snap; single-section expand/collapse (below the threshold) eases so the
+  // follow doesn't visibly jump, while two-section bursts snap to stay pinned
+  // to the latest. Explicit jumps snap via direct scrollTop sets, not here.
   if (Math.abs(delta) > largeDeltaSnapPx) {
     return targetScrollTop;
   }

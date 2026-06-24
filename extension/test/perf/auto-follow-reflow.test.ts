@@ -53,6 +53,12 @@ type ScrollResult = ReturnType<typeof useTranscriptScroll>;
 
 const noop = () => {};
 const TRANSCRIPT_WINDOW = { ...EMPTY_TRANSCRIPT_WINDOW, hasUserMessages: true };
+// Stable empty array: the reflow harness drives growth via `totalSize` (the
+// broad measurement signal), so the transcript identity is held constant to
+// isolate totalSize-driven read counts. A fresh array per snapshot is what
+// makes the transcript-keyed refresh timely in the real webview; here it must
+// NOT change so the assertions stay attributable to `totalSize`.
+const STABLE_TRANSCRIPT: readonly never[] = [];
 
 // ── Controlled rAF (deterministic frame driving) ──────────────────────────────
 
@@ -95,12 +101,13 @@ function flushFrames(n: number): void {
 
 const capture: { r: ScrollResult | null } = { r: null };
 
-function Probe({ totalSize, busy }: { totalSize: number; busy: boolean }) {
+function Probe({ totalSize, busy, transcript = STABLE_TRANSCRIPT }: { totalSize: number; busy: boolean; transcript?: readonly never[] }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const r = useTranscriptScroll({
     scrollRef,
     sessionKey: '/s',
     transcriptWindow: TRANSCRIPT_WINDOW,
+    transcript,
     transcriptLength: 1,
     busy,
     onLoadOlder: noop,
@@ -248,4 +255,32 @@ test('every totalSize change re-pins immediately — no timed fallback cadence',
   // No clock is advanced between changes; the read is purely change-driven.
   act(() => flushFrames(40));
   assert.equal(scrollTopValue, bottom(), 'scrollTop should re-pin to the late-loaded height');
+});
+
+test('a fresh transcript snapshot re-reads the bottom at commit time — no measurement-lag drift', () => {
+  // The host posts a fresh JSON-deserialized transcript array on every ~150ms
+  // streaming snapshot. That identity change is the timely signal the follow
+  // target refresh keys on (in addition to the lagged totalSize): it re-reads
+  // scrollHeight at commit — the moment the DOM grew — instead of waiting up to
+  // a frame for the virtualizer's deferred re-measurement. Without it the loop
+  // eased toward a ~16ms-stale target on every snapshot, trailing the latest
+  // content during regular agent work.
+  mountProbe(true);
+  settle();
+  assert.equal(capture.r!.autoFollowRef.current, true, 'auto-follow engaged');
+  assert.equal(scrollTopValue, bottom(), 'sanity: pinned to the bottom');
+
+  // Growth arrives as a new transcript array reference with totalSize HELD
+  // stable, so only the transcript-keyed refresh can fire (isolating it from
+  // the totalSize path).
+  scrollHeightValue = 1500;
+  const readsBefore = scrollHeightReads;
+  const scrollTopBefore = scrollTopValue;
+  const freshTranscript: readonly never[] = [];
+  act(() => {
+    render(h(Probe, { totalSize: tick, busy: true, transcript: freshTranscript }), container);
+    flushFrames(1);
+  });
+  assert.ok(scrollHeightReads > readsBefore, 'a fresh transcript identity must re-read scrollHeight at commit time');
+  assert.ok(scrollTopValue > scrollTopBefore, 'scrollTop should advance toward the grown bottom the same frame');
 });
