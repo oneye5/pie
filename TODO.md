@@ -89,3 +89,28 @@ Deferred (intentionally NOT done in this pass):
   non-coding queries, or trust the prepass when reasoning explicitly justifies
   a full prune) could let correct full-prunes through. Tools stay fail-open
   regardless (zero tools is fatal).
+
+---
+
+# Dead-code / styling pruning — deferred (2026-06-25)
+
+Committed in `f6ec55f`. The following were intentionally NOT committed:
+
+## Left in working tree (concurrent WIP interleaved)
+Dead-code cleanups applied but uncommitted because the files had concurrent
+uncommitted feature work (`readCountsByFile` / files-reviewed signals) mixed in.
+The edits are present in the working tree and will land with that feature work:
+- `analysis/scripts/source.ts` — remove dead export `DEFAULT_SITE_DIST_DIR`
+- `analysis/test/pipeline-e2e.test.ts` — remove unused imports (`deepClone`, `RunOutcome`, `SiteDataBundle`, `PreparedRunRow`)
+- `analysis/test/stratified-ranker.test.ts` — remove unused import `RunOutcomeResolution`
+
+## Pre-existing lint debt (not introduced by this pass)
+- 6 `prefer-const` errors in extension test files: `let runner: EffectRunner;` is
+  declared early and assigned late because a closure references it, so it cannot
+  be `const` without a TS use-before-declaration error. Needs test restructure.
+  `npm run lint` was already failing on these before this pass (11 → 6 problems).
+- `@typescript-eslint/no-unused-vars` is `off` for `extension/test/**` by project
+  convention, so ~20 unused test imports/vars there are tolerated.
+- skylos reports ~24 extension source files + `extensions/subagent/src/execute.ts`
+  as having "unused imports"; `tsc --noUnusedLocals` confirms these are false
+  positives (extension `src/` is fully clean). Not dead — do not remove.
