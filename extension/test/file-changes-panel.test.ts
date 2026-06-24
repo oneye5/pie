@@ -78,20 +78,23 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.match(html, /-12/);
   assert.doesNotMatch(html, /−/);
   // Collapsed sliver carries the count, total +/- magnitude (how much changed
-  // at a glance), and the A/M/D kind legend. Both entries are modified, so
-  // only the M row renders.
+  // at a glance), and the color-encoded kind legend (dot + count per present
+  // kind). Both entries are modified, so only the modified chip renders.
   assert.match(html, /file-changes-sliver-magnitude/);
   assert.match(html, /sliver-add">\+30/);
   assert.match(html, /sliver-del">-12/);
   assert.match(html, /sliver-kind kind-modified/);
-  assert.match(html, /sliver-kind-glyph/);
+  assert.match(html, /sliver-kind-dot/);
+  assert.doesNotMatch(html, /sliver-kind-glyph/);
   assert.match(html, /sliver-kind-count">2</);
   // The collapsed sliver also lists the affected files, two rows each: row 1
-  // is the kind glyph + truncated basename; row 2 is the per-file +/- churn,
+  // is the kind dot + truncated basename; row 2 is the per-file +/- churn,
   // so the tall sliver surfaces per-file magnitude at a glance. Each entry's
-  // outer span still carries the full path as a hover title.
+  // outer span carries the full path + kind label as a hover title.
   assert.match(html, /file-changes-sliver-files/);
   assert.match(html, /sliver-file kind-modified/);
+  assert.match(html, /sliver-file-dot/);
+  assert.doesNotMatch(html, /sliver-file-glyph/);
   assert.match(html, /sliver-file-name">a.ts/);
   assert.match(html, /sliver-file-name">b.ts/);
   assert.match(html, /sliver-file-stats/);
@@ -105,7 +108,7 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   // The per-row red/green diff bar is gone (space reclaimed for the path).
   assert.doesNotMatch(html, /file-change-diff-bar/);
   // Sliver title carries the full summary: count + kind breakdown + line totals.
-  assert.match(html, /title="2 changed files · M2 · \+30 \/ -12"/);
+  assert.match(html, /title="2 changed files · 2 modified · \+30 \/ -12"/);
   // Drawer rows have no A/M/D status labels and no sliding action buttons.
   assert.doesNotMatch(html, /file-change-status/);
   assert.doesNotMatch(html, /file-change-actions/);
@@ -114,9 +117,14 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   // The file name opens the file in the editor and carries its kind label.
   assert.match(html, /<button class="file-change-name"[^>]*aria-label="Modified: open src\/a\.ts in the editor"/);
   assert.match(html, /<button class="file-change-name"[^>]*aria-label="Modified: open src\/b\.ts in the editor"/);
+  // A native title hint rides on both buttons (name → open file; stats → diff).
+  assert.match(html, /<button class="file-change-name"[^>]*title="Open src\/a\.ts in the editor"/);
+  assert.match(html, /<button class="file-change-name"[^>]*title="Open src\/b\.ts in the editor"/);
   // ...and the +/- stats open the diff.
   assert.match(html, /<button class="file-change-stats"[^>]*aria-label="View diff of src\/a\.ts"/);
   assert.match(html, /<button class="file-change-stats"[^>]*aria-label="View diff of src\/b\.ts"/);
+  assert.match(html, /<button class="file-change-stats"[^>]*title="Open diff: src\/a\.ts"/);
+  assert.match(html, /<button class="file-change-stats"[^>]*title="Open diff: src\/b\.ts"/);
   // Copy path + Revert remain in the right-click context menu only.
   assert.doesNotMatch(html, /file-change-copy/);
   assert.doesNotMatch(html, /file-change-revert/);
@@ -138,12 +146,15 @@ test('FileChangesPanel collapsed: legend renders one row per present kind', () =
       onRevertFile: noop,
     }),
   );
-  // A2 M1 D1 — only present kinds render, in created → modified → deleted order.
+  // 2 added · 1 modified · 1 deleted — only present kinds render, in created →
+  // modified → deleted order; kind is encoded by dot color (no A/M/D letters).
   assert.match(html, /sliver-kind kind-created/);
   assert.match(html, /sliver-kind kind-modified/);
   assert.match(html, /sliver-kind kind-deleted/);
   assert.match(html, /sliver-kind-count">2</);
   assert.match(html, /sliver-kind-count">1</);
+  assert.match(html, /sliver-kind-dot/);
+  assert.doesNotMatch(html, /sliver-kind-glyph/);
   // Count at the top is the file total (4), not a per-kind value.
   assert.match(html, /<span class="file-changes-sliver-count">4<\/span>/);
   // Collapsed file list renders one entry per file (4 here), each with a
@@ -173,7 +184,31 @@ test('FileChangesPanel pinned: renders left resize handle + close, no sliver', (
   assert.match(html, /file-changes-close/);
   // Tooltips were removed from the expanded drawer (they obscured the list):
   // neither the path nor the aggregate header is wrapped in a tooltip trigger.
+  // (Native HTML title attributes remain on the row buttons for hover hints.)
   assert.doesNotMatch(html, /pie-tooltip-trigger/);
+  // Native title hints on the single pinned file's row buttons.
+  assert.match(html, /<button class="file-change-name"[^>]*title="Open src\/a\.ts in the editor"/);
+  assert.match(html, /<button class="file-change-stats"[^>]*title="Open diff: src\/a\.ts"/);
+});
+
+test('FileChangesPanel pinned: deleted row is disabled with a Deleted title', () => {
+  const html = renderToString(
+    h(FileChangesPanel, {
+      fileChanges: [entry('gone.ts', 0, 4, 'deleted')],
+      expanded: true,
+      onToggleExpanded: noop,
+      onOpenDiff: noop,
+      onOpenInEditor: noop,
+      onRevertFile: noop,
+    }),
+  );
+  // Deleted files can't be opened: the name button is disabled and titled
+  // "Deleted — <path>" (not the open-file hint), while the stats still open
+  // the diff. Covers the disabled branch of the native-title affordance.
+  assert.match(html, /<button class="file-change-name"[^>]*disabled/);
+  assert.match(html, /<button class="file-change-name"[^>]*title="Deleted — gone\.ts"/);
+  assert.match(html, /<button class="file-change-stats"[^>]*title="Open diff: gone\.ts"/);
+  assert.doesNotMatch(html, /title="Open gone\.ts in the editor"/);
 });
 
 test('FileChangesPanel renders nothing when there are no file changes', () => {

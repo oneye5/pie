@@ -429,3 +429,59 @@ changes), the natural reversal is D6-alternative: auto-pin at turn-end when a
 turn produced file changes (reusing the reset-on-send semantics, just moving
 the trigger from "file change arrived" to "turn idle") — captured in the D6
 rationale so the option isn't lost.
+
+---
+
+## Iteration 3 — color-encoded kinds, left-truncated paths, native affordance titles
+
+A third user audit refined the rail's compactness, discoverability, and styling
+(both the collapsed sliver and the pinned/peek drawer):
+
+- **Kind is now encoded purely by color (supersedes the A/M/D legend glyphs).**
+  The `A`/`M`/`D` text glyphs are removed from the collapsed sliver's kind legend
+  and its per-file list (the drawer rows never had any). A single `--kind-color`
+  CSS custom property — set by the bare `kind-*` classes — is the one source of
+  truth, consumed by the drawer's left accent bar (`.file-change-item::before`)
+  and the new collapsed-sliver dots (`.sliver-kind-dot`, `.sliver-file-dot`):
+  **created→green** (`--panel-success`), **deleted→red** (`--panel-danger`),
+  **modified→grey** (`--panel-muted` — changed from `--panel-warning`; the
+  routine case is de-emphasised so added/deleted pop). `STATUS_LABELS` and the
+  `glyph` field on `KIND_ORDER` were deleted. Non-color redundancy remains:
+  deleted rows are line-through + disabled + carry only `-N`; created rows
+  carry only `+N`; modified rows carry both — and every sliver chip/entry plus
+  the sliver summary `title` spell out the kind in words for hover/AT users.
+  (The residual WCAG 1.4.1 exposure on the color-only *visible* encoding is the
+  accepted cost of this user-requested design; a forced-colors non-color cue is
+  a deferred follow-up if it is felt in practice.)
+- **Drawer paths left-truncate (supersedes the right-ellipsized dir).**
+  `.file-change-dir` now uses `direction: rtl; unicode-bidi: isolate;
+  text-overflow: ellipsis` (mirroring `.transcript-header-path-prefix`), so the
+  directory prefix truncates from the **left** — preserving the end nearest the
+  basename, the part that matters most — while the basename
+  (`.file-change-name`, now `flex: 0 0 auto`) is always fully visible.
+  "Relative to workdir" is served by the left-truncation itself: any long
+  workdir prefix is the part that gets ellipsised away.
+- **Native `title` affordances on both row actions (not the custom Tooltip).**
+  The file-name button carries `title="Open <path> in the editor"` (or
+  `Deleted — <path>` when disabled) and the diff-stats button carries
+  `title="Open diff: <path>"`, so each click target is discoverable on hover.
+  This deliberately uses native HTML `title`s, **not** the `pie-tooltip-trigger`
+  `Tooltip` component: that custom tooltip was added to the drawer in a prior
+  post-implementation revision and then reverted for obscuring the list (the
+  pinned-drawer test still asserts its absence). Native titles give the hover
+  affordance without the floating host that covered the list.
+- **Compact restyle of the sliver and the drawer rows.** Single-line drawer
+  rows; the diff-stats button reads as a discrete rounded hover pill (rest
+  padding + border-radius so it doesn't jump on hover); the sliver's kind
+  legend is now centered dot+count chips (one per present kind,
+  created→modified→deleted); the per-file preview uses a 5px color dot +
+  truncated basename + indented per-file `+N`/`-N`. The `hasNewChanges` pulse
+  and the `prefers-reduced-motion` / `forced-colors` guards were carried over
+  to the new elements (dots fall back to `ButtonText`).
+
+**Tests:** `extension/test/file-changes-panel.test.ts` updated to the new
+markup contract — `sliver-kind-glyph`/`sliver-file-glyph` now asserted *absent*;
+`sliver-kind-dot`/`sliver-file-dot` asserted present; the sliver title is
+`N changed files · N modified · +X / -Y`; native `title`s asserted on the name
+and stats buttons (collapsed + pinned); a deleted-row case asserts the disabled
+`Deleted — <path>` title.

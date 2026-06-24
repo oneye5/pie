@@ -1,6 +1,6 @@
 /* ── Right-side file-changes rail ────────────────────────────────────────── */
 /* Peek-vs-pin policy (CHANGED-FILES-UI-PLAN D1):
- *  - Collapsed: a thin full-height sliver (count + A/M/D kind legend, D2)
+ *  - Collapsed: a thin full-height sliver (count + color-encoded kind legend, D2)
  *    — the only persistent footprint when not pinned.
  *  - Peek (hover/tap): an ephemeral overlay floating over the transcript
  *    edge (D3); reserves no layout space.
@@ -29,9 +29,27 @@
   display: none;
 }
 
+/* ── Kind color (single source of truth) ─────────────────────────────────── */
+/* The bare `kind-*` class rides alongside `.file-change-item` (drawer rows),
+   `.sliver-file` (collapsed per-file entries), and `.sliver-kind` (collapsed
+   legend chips). It sets `--kind-color`, consumed everywhere a kind accent is
+   needed — the drawer accent bar (::before) and the collapsed-sliver dots.
+   Color is the sole kind encoding (no A/M/D letters): created→green, deleted→
+   red, modified→grey (the routine case is de-emphasised so added/deleted pop). */
+.kind-created {
+  --kind-color: var(--panel-success);
+}
+.kind-modified {
+  --kind-color: var(--panel-muted);
+}
+.kind-deleted {
+  --kind-color: var(--panel-danger);
+}
+
 /* ── Collapsed sliver (D2) ────────────────────────────────────────────────── */
-/* A thin full-height strip: a count at the top, aggregate +/- churn, an A/M/D
-   kind legend (one row per present kind), and a scrollable per-file preview.
+/* A thin full-height strip: a count at the top, aggregate +/- churn, a
+   color-encoded kind legend (one chip per present kind), and a scrollable
+   per-file preview.
    Kept narrow (56px) so the transcript keeps most of the width, but wide
    enough for the mini legend and truncated basenames to read at a glance.
    The former stacked +/- "health-bar" (green/red on a dark track) was removed:
@@ -85,11 +103,9 @@
 }
 
 /* ── Collapsed magnitude (how-much at a glance) ───────────────────────────── */
-/* Replaces the former stacked +/- "health-bar" (green/red on a dark track):
- * a mini legend of which kinds of change happened and how many, reusing the
- * A/M/D glyph vocabulary from the rows. Only present kinds render, so a
- * single-kind turn reads as one line. Renders inside the 56px sliver so the
- * preview stays compact while surfacing kind counts at a glance. */
+/* The aggregate +/- churn for the whole turn (e.g. +30 -12) — a compact,
+   tabular-nums readout of how much changed. Sits under the count in the 56px
+   sliver; green/red echo the per-row line-stats palette. */
 .file-changes-sliver-magnitude {
   display: flex;
   flex-direction: column;
@@ -113,67 +129,62 @@
   color: var(--panel-danger);
 }
 
-/* ── Collapsed legend: kind breakdown (A/M/D + counts) ──────────────────────── */
-/* Replaces the former stacked +/- "health-bar" (green/red on a dark track):
- * a mini legend of which kinds of change happened and how many, reusing the
- * A/M/D glyph vocabulary from the rows. Only present kinds render, so a
- * single-kind turn reads as one line. Renders inside the 56px sliver so the
- * preview stays compact while surfacing kind counts at a glance. */
+/* ── Collapsed legend: kind breakdown (color dot + count) ─────────────────── */
+/* A mini legend of which kinds of change happened and how many: one chip per
+   present kind (created → modified → deleted), each a colored dot + count.
+   Color is the sole kind encoding — created→green, deleted→red, modified→grey
+   (the routine case is de-emphasised so added/deleted pop). Only present kinds
+   render, so a single-kind turn reads as one line. */
 .file-changes-sliver-legend {
   flex: 0 0 auto;
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 1px;
+  align-items: center;
+  gap: 2px;
   width: 100%;
   margin-top: 2px;
   padding: 2px var(--panel-gap-xs) 0;
   border-top: 1px solid var(--panel-border-subtle);
 }
 
-/* Use a tiny grid so the glyph and count columns stay aligned across rows. */
 .sliver-kind {
-  display: grid;
-  grid-template-columns: 14px 14px;
-  gap: 2px;
+  display: inline-flex;
   align-items: center;
-  justify-items: center;
-  padding: 0 2px;
+  justify-content: center;
+  gap: 4px;
+  padding: 1px 4px;
+  border-radius: var(--panel-radius-sm);
   font-family: var(--panel-font-mono);
   font-size: 9px;
   line-height: 1.2;
   font-variant-numeric: tabular-nums;
   color: inherit;
+  transition: background var(--panel-transition-fast);
 }
 
-.sliver-kind-glyph {
-  font-weight: 700;
-  opacity: 0.9;
+.sliver-kind:hover {
+  background: var(--panel-control-hover);
+}
+
+.sliver-kind-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--kind-color);
+  flex-shrink: 0;
 }
 
 .sliver-kind-count {
   opacity: 0.85;
 }
 
-.sliver-kind.kind-created .sliver-kind-glyph {
-  color: var(--panel-success);
-}
-
-.sliver-kind.kind-modified .sliver-kind-glyph {
-  color: var(--panel-warning);
-}
-
-.sliver-kind.kind-deleted .sliver-kind-glyph {
-  color: var(--panel-danger);
-}
-
 /* ── Collapsed file list (fills the sliver's vertical space) ─────────────── */
 /* The sliver is full-height; below the summary, list the affected files. Each
-   file occupies two rows — row 1 is the kind glyph + truncated basename, row 2
+   file occupies two rows — row 1 is the kind dot + truncated basename, row 2
    is the per-file +/- churn — so the tall sliver's vertical room surfaces
    per-file magnitude (extending the aggregate +/- total down to each file) at
    a glance. Read-only; peek/pin for the full, interactive list. Each entry's
-   outer span carries the full path as a hover title. */
+   outer span carries the full path + kind label as a hover title. */
 .file-changes-sliver-files {
   flex: 1 1 auto;
   min-height: 0;
@@ -212,7 +223,7 @@
 
 .sliver-file-row {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 2px;
   min-width: 0;
   white-space: nowrap;
@@ -221,10 +232,10 @@
 
 /* Row 2: per-file line churn (+N/-N). min-height keeps every entry two rows
    tall even when a file has no line stats (rare), so the list rhythm stays
-   uniform. */
+   uniform. Indented under the name (past the 5px dot + 2px gap). */
 .sliver-file-stats {
   min-height: 1.25em;
-  padding-left: 14px;
+  padding-left: 7px;
   opacity: 0.8;
 }
 
@@ -236,30 +247,19 @@
   color: var(--panel-danger);
 }
 
-.sliver-file-glyph {
+.sliver-file-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--kind-color);
   flex-shrink: 0;
-  font-weight: 700;
-  opacity: 0.85;
-  min-width: 14px;
-  text-align: center;
+  opacity: 0.9;
 }
 
 .sliver-file-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.sliver-file.kind-created .sliver-file-glyph {
-  color: var(--panel-success);
-}
-
-.sliver-file.kind-modified .sliver-file-glyph {
-  color: var(--panel-warning);
-}
-
-.sliver-file.kind-deleted .sliver-file-glyph {
-  color: var(--panel-danger);
 }
 
 /* hasNewChanges pulse: the count is the mid-turn "review me" signal (D6/D9).
@@ -439,20 +439,8 @@
   bottom: 5px;
   width: 2px;
   border-radius: 999px;
-  background: var(--panel-muted);
+  background: var(--kind-color, var(--panel-muted));
   opacity: 0.6;
-}
-
-.file-change-item.kind-created::before {
-  background: var(--panel-success);
-}
-
-.file-change-item.kind-modified::before {
-  background: var(--panel-warning);
-}
-
-.file-change-item.kind-deleted::before {
-  background: var(--panel-danger);
 }
 
 .file-change-item:hover {
@@ -477,11 +465,12 @@
 }
 
 /* The file name is the primary action for the row (open in editor). It looks
-   like text until you hover, then hints that it is clickable. Truncation
-   applies to the name only after the directory has shrunk, preserving the
-   most useful part of the path at a glance. */
+   like text until you hover, then hints that it is clickable. The basename
+   never shrinks or truncates (flex: 0 0 auto) so it is always fully visible;
+   the directory prefix absorbs all truncation, preserving the part nearest
+   the filename — the part that matters most. A native title hints the click. */
 .file-change-name {
-  flex: 0 1 auto;
+  flex: 0 0 auto;
   min-width: 0;
   border: none;
   background: transparent;
@@ -508,18 +497,27 @@
   text-decoration: line-through;
 }
 
+/* Directory prefix: LEFT-truncates (direction: rtl) so the right end — the
+   part nearest the basename — survives, mirroring .transcript-header-path-prefix.
+   unicode-bidi: isolate keeps the rtl direction from spilling into the
+   basename sibling. */
 .file-change-dir {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  direction: rtl;
+  unicode-bidi: isolate;
   font-size: 10px;
   color: var(--panel-muted);
   opacity: 0.85;
 }
 
-/* Line stats double as the diff action for the row. */
+/* Line stats double as the diff action for the row. Reads as text at rest;
+   on hover it lifts into a discrete rounded pill so the click target is
+   discoverable. Border-radius + horizontal padding live at rest so the pill
+   doesn't jump on hover. */
 .file-change-stats {
   display: inline-flex;
   align-items: center;
@@ -527,20 +525,23 @@
   flex-shrink: 0;
   border: none;
   background: transparent;
-  padding: 0;
+  padding: 1px 5px;
+  border-radius: var(--panel-radius-sm);
   color: inherit;
   font-size: 10px;
   font-weight: 500;
   font-variant-numeric: tabular-nums;
-  opacity: 0.85;
+  opacity: 0.8;
   cursor: pointer;
   transition:
     opacity var(--panel-transition-fast),
-    color var(--panel-transition-fast);
+    color var(--panel-transition-fast),
+    background var(--panel-transition-fast);
 }
 
 .file-change-stats:hover {
   opacity: 1;
+  background: var(--panel-control-hover);
 }
 
 .stat-additions {
@@ -581,9 +582,9 @@
   .file-changes-sliver {
     border-left-color: ButtonText;
   }
-  .sliver-kind-glyph,
-  .sliver-file-glyph {
-    color: ButtonText;
+  .sliver-kind-dot,
+  .sliver-file-dot {
+    background: ButtonText;
   }
   .file-changes-drawer {
     border-color: ButtonText;

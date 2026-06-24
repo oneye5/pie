@@ -16,18 +16,12 @@ interface FileChangesPanelProps {
   onRevertFile: (filePath: string) => void;
 }
 
-const STATUS_LABELS: Record<FileChangeEntry['kind'], string> = {
-  created: 'A',
-  modified: 'M',
-  deleted: 'D',
-};
-
 // Legend order in the collapsed sliver: created → modified → deleted, so the
-// (calm → concerning) reading matches the per-row status glyphs.
-const KIND_ORDER: { kind: FileChangeKind; glyph: string; label: string }[] = [
-  { kind: 'created', glyph: 'A', label: 'Added' },
-  { kind: 'modified', glyph: 'M', label: 'Modified' },
-  { kind: 'deleted', glyph: 'D', label: 'Deleted' },
+// (calm → concerning) reading matches the per-row status colors.
+const KIND_ORDER: { kind: FileChangeKind; label: string }[] = [
+  { kind: 'created', label: 'Added' },
+  { kind: 'modified', label: 'Modified' },
+  { kind: 'deleted', label: 'Deleted' },
 ];
 
 // Hover-intent / dismiss delays for the peek overlay (STATE_CONTRACT
@@ -41,7 +35,7 @@ interface DiffTotals {
   deletions: number;
 }
 
-/** Per-kind counts + line churn (drives the collapsed sliver's A/M/D legend). */
+/** Per-kind counts + line churn (drives the collapsed sliver's color-encoded kind legend). */
 interface KindStats {
   count: number;
   additions: number;
@@ -75,8 +69,8 @@ export function computeKindStats(
   return stats;
 }
 
-/** Long-form kind name for the row path aria-label and the context-menu title
- * (KIND_ORDER carries the short glyph). */
+/** Long-form kind name for the row path aria-label, the context-menu title,
+ * and the collapsed-sliver hover titles. */
 const KIND_LABEL: Record<FileChangeKind, string> = {
   created: 'Added',
   modified: 'Modified',
@@ -100,6 +94,7 @@ function LineStats({
       class="file-change-stats"
       type="button"
       aria-label={`View diff of ${path}`}
+      title={`Open diff: ${path}`}
       onClick={onDiff}
     >
       {additions ? <span class="stat-additions">+{additions}</span> : null}
@@ -133,6 +128,7 @@ function FileName({
         type="button"
         disabled={disabled}
         aria-label={label}
+        title={disabled ? `Deleted — ${path}` : `Open ${path} in the editor`}
         onClick={onClick}
       >
         {name}
@@ -434,12 +430,12 @@ export function FileChangesPanel({
   };
 
   const kindBreakdown = KIND_ORDER
-    .map(({ kind, glyph }) => {
+    .map(({ kind, label }) => {
       const n = kindStats[kind].count;
-      return n ? `${glyph}${n}` : '';
+      return n ? `${n} ${label.toLowerCase()}` : '';
     })
     .filter(Boolean)
-    .join(' ');
+    .join(', ');
   const sliverTitle =
     `${count} changed file${count === 1 ? '' : 's'}` +
     (kindBreakdown ? ` · ${kindBreakdown}` : '') +
@@ -476,12 +472,12 @@ export function FileChangesPanel({
             )}
           </span>
           <span class="file-changes-sliver-legend">
-            {KIND_ORDER.map(({ kind, glyph, label }) => {
+            {KIND_ORDER.map(({ kind, label }) => {
               const n = kindStats[kind].count;
               if (!n) return null;
               return (
                 <span key={kind} class={`sliver-kind kind-${kind}`} title={`${label}: ${n}`}>
-                  <span class="sliver-kind-glyph" aria-hidden="true">{glyph}</span>
+                  <span class="sliver-kind-dot" aria-hidden="true" />
                   <span class="sliver-kind-count">{n}</span>
                 </span>
               );
@@ -492,9 +488,9 @@ export function FileChangesPanel({
               const a = c.additions ?? 0;
               const d = c.deletions ?? 0;
               return (
-                <span key={c.path} class={`sliver-file kind-${c.kind}`} title={c.path}>
+                <span key={c.path} class={`sliver-file kind-${c.kind}`} title={`${c.path} · ${KIND_LABEL[c.kind]}`}>
                   <span class="sliver-file-row">
-                    <span class="sliver-file-glyph">{STATUS_LABELS[c.kind]}</span>
+                    <span class="sliver-file-dot" aria-hidden="true" />
                     <span class="sliver-file-name">{basename(c.path)}</span>
                   </span>
                   <span class="sliver-file-row sliver-file-stats">
