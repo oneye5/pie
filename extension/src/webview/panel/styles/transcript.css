@@ -466,6 +466,42 @@
   box-shadow: none;
 }
 
+/* ── Activity region: animated strip↔block swap ────────────────────────── */
+/* Two anti-correlated single-track grid regions (`1fr` visible / `0fr`
+   collapsed) that cross-fade and height-animate, mirroring the bash tool-call
+   body open/close. When a tail arrives the block expands while the strip
+   collapses (and vice-versa), so the container glides between the two natural
+   heights instead of jumping the transcript. The inner fades opacity too, so
+   any residual margins/whitespace vanish with the content. */
+.turn-activity-region {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+}
+
+.turn-activity-track {
+  display: grid;
+  grid-template-rows: 1fr;
+  /* var(--panel-duration-normal) = 160ms — mirrors the bash tool-call body
+     open/close so the strip↔block swap glides instead of jumping. */
+  transition: grid-template-rows var(--panel-duration-normal) var(--panel-ease-out);
+}
+
+.turn-activity-track[data-open="false"] {
+  grid-template-rows: 0fr;
+}
+
+.turn-activity-track-inner {
+  overflow: hidden;
+  min-height: 0;
+  transition: opacity var(--panel-duration-normal) var(--panel-ease-out);
+}
+
+.turn-activity-track[data-open="false"] > .turn-activity-track-inner {
+  opacity: 0;
+}
+
 .turn-activity-tail {
   display: flex;
   flex-direction: column;
@@ -536,12 +572,12 @@
 /* Flowing content body: source newlines are collapsed and the text wraps to
    fill the reserved width, so the limited preview rows carry as much of the
    recent tail as possible instead of clipping each source line at the right
-   edge. The text is top-anchored and a JS-computed `translateY` (see
-   `useTailScroll` in turn-activity-tail.tsx) bottom-aligns it and scrolls
-   overflow up out of view; a `transform` transition makes reflow slide
-   smoothly as tokens stream in instead of snapping. Long unbroken tokens break
-   to avoid spilling past the width. Overrides the composite header's
-   nowrap/ellipsis. */
+   edge. The text is top-anchored and a JS-computed, row-snapped `translateY`
+   (see `useTailScroll` in turn-activity-tail.tsx) scrolls wrapped overflow up
+   in whole-row increments so the newest row + caret stay pinned to the bottom;
+   a `transform` transition animates each row step so the scroll glides instead
+   of snapping. Long unbroken tokens break to avoid spilling past the width.
+   Overrides the composite header's nowrap/ellipsis. */
 .turn-activity-tail-content .turn-activity-tail-text {
   position: absolute;
   left: 0;

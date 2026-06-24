@@ -7,20 +7,11 @@ import { cx } from '../utils/cx';
 import type { TurnActivityState } from './activity';
 import {
   ACTIVITY_TAIL_MAX_CHARS,
+  ACTIVITY_TAIL_ROW_HEIGHT_PX,
   collapseSpaces,
   takeLastChars,
   type TurnActivityTail,
 } from './activity-tail';
-import { useBufferedText, type BufferedTextRate } from './use-buffered-text';
-
-/** Reveal rate for the activity tail: deliberately much slower than streaming
- *  message bodies so the typing is perceptible and *readable* in the compact
- *  preview. A low `charsPerFrame` plus a tight `maxScaleFactor` cap means even
- *  fast bursts (e.g. reasoning dumped in a single chunk) buffer up and then
- *  stream in over many frames instead of snapping in — the stronger
- *  buffer/smoothing effect the tail is meant to project. The snap threshold
- *  is kept small so the trailing tail types out smoothly rather than jumping. */
-const TAIL_RATE: BufferedTextRate = { charsPerFrame: 3, minAdvance: 2, snapThreshold: 14, maxScaleFactor: 2 };
 
 interface TurnActivityTailBodyProps {
   tail: TurnActivityTail;
@@ -31,18 +22,18 @@ interface TurnActivityTailBodyProps {
  *
  * The block reserves a constant row budget per kind (the configured content-row
  * count for reasoning / reply text, plus one header row for a running tool /
- * subagent) so its height never changes as content streams in — that is what
+ * subagent) so its height never changes as content streams in - that is what
  * stops the transcript from jumping around while the agent works. Rows render
  * top-to-bottom; the blinking caret attaches to the newest row.
  *
  * Tool / subagent tails merge their label (tool / agent name) and input (the
  * command / task) onto the first row as `label ▸ input`, so the caller and its
  * command share a line instead of consuming two. Reasoning and reply text have
- * no header row — the italic / muted styling already signals reasoning and the
- * caret signals reply, so a dedicated `reasoning…` label would just waste a row.
+ * no header row - the italic / muted styling already signals reasoning and the
+ * caret signals reply, so a dedicated `reasoning...` label would just waste a row.
  *
  * Truncation ("more output exists above") is conveyed by a gentle top fade on
- * the content block rather than a dedicated `…` row, so the preview reads
+ * the content block rather than a dedicated `...` row, so the preview reads
  * seamlessly. The fade is driven by the actual rendered overflow: any time the
  * wrapped content is taller than the reserved block, the oldest (top) content
  * fades out. This catches both "many short source lines" and "one long line
@@ -51,20 +42,15 @@ interface TurnActivityTailBodyProps {
  * The body wraps to fill the reserved width and collapses source newlines
  * (joined with a space) so the limited preview rows carry as much of the recent
  * tail as possible, instead of one clipped row per source line. The block keeps
- * its fixed reserved height; the text is top-anchored and a JS-computed
- * `translateY` bottom-aligns it and scrolls wrapped overflow up out of view, so
- * the newest text and the caret stay visible. That translate is animated via a
- * CSS `transform` transition, so as tokens stream in the body slides smoothly
- * instead of snapping — making it easy to follow words mid-block. New tokens
- * are also buffered and revealed character-by-character at a slow, readable
- * rate (see `useBufferedText` with `TAIL_RATE`), so the preview types in
- * rather than popping a full window each snapshot — including while the
- * source has grown past the preview window and the view is sliding. The
- * reveal rate is capped tightly so fast bursts buffer up and stream in over
- * many frames (a deliberate, stronger buffer effect) instead of snapping in
- * faster than a reader can follow; characters are always shown fully opaque
- * (no opacity ramp on the text itself), so the streamed text stays crisp and
- * legible.
+ * its fixed reserved height; the text is rendered directly from its source (no
+ * per-character buffering) and scrolled like a console: it stays top-anchored
+ * while it fits, then jumps up in whole-row increments so the newest row + caret
+ * stay pinned to the bottom and the oldest row scrolls off the top on a row
+ * boundary (see `useTailScroll`). Because wrapped height only grows by a whole
+ * row when a line wraps, the view moves in discrete row steps — never a
+ * sub-character slide — which keeps the small preview readable while the agent
+ * works. Each row step is animated by the CSS `transform` transition on the
+ * text so the scroll glides instead of snapping.
  */
 export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
   const { kind, label, inputLine, lines, cursor, sourceText } = tail;
@@ -73,24 +59,15 @@ export function TurnActivityTailBody({ tail }: TurnActivityTailBodyProps) {
   // The caret sits on the composite row while no output has arrived, otherwise
   // at the end of the flowing body text.
   const caretOnComposite = Boolean(cursor) && !hasContent;
-  // Smoothly stream the live tail in instead of snapping a full chunk every
-  // snapshot. Reasoning / reply / tool tails carry the raw, monotonically
-  // growing `sourceText`; we buffer that source and re-window the *revealed*
-  // portion, so new tokens type in at the caret even after the source has grown
-  // past the preview window (the sliding-window regime) — instead of jumping
-  // a whole window every snapshot. Subagent / multi-tool tails have no single
-  // growing source, so we buffer their joined status lines directly: they
-  // animate on growth and snap when a line changes. The slower reveal rate
-  // (vs streaming message bodies) makes the typing perceptible in the small
-  // preview while staying well ahead of typical output; characters are always
-  // shown fully opaque (no opacity ramp on the text itself), so the streamed
-  // text stays crisp and readable.
-  const streaming = Boolean(cursor);
+  // Render the tail directly from its source — no per-character buffering. The
+  // preview reads like a console that wraps and scrolls a whole row at a time
+  // (see `useTailScroll`) rather than typing in character-by-character, which
+  // kept the small block perpetually sliding and hard to read.
   const rawJoined = lines.filter((l) => l.length > 0).join(' ');
-  const revealed = useBufferedText(sourceText ?? rawJoined, streaming, TAIL_RATE);
+  const source = sourceText ?? rawJoined;
   const joined = sourceText
-    ? collapseSpaces(takeLastChars(revealed, ACTIVITY_TAIL_MAX_CHARS))
-    : revealed;
+    ? collapseSpaces(takeLastChars(source, ACTIVITY_TAIL_MAX_CHARS))
+    : rawJoined;
   const { overflows, scrollY, refs } = useTailScroll(hasContent, lines.length >= 2);
   const showFade = hasContent && overflows;
 
@@ -147,10 +124,11 @@ interface TailScrollRefs {
 
 interface TailScroll {
   overflows: boolean;
-  /** Vertical translate (px) that bottom-aligns the text and scrolls overflow
-   *  up out of view. Measured from real rendered heights and applied as a
-   *  `transform` (animated via CSS) so reflow slides smoothly instead of
-   *  snapping as tokens stream in. */
+  /** Row-snapped vertical translate (px) that scrolls wrapped overflow up out
+   *  of view in whole-row increments — console-style. While the text fits it is
+   *  0 (top-anchored); once it overflows it jumps up by whole rows so the
+   *  newest row + caret stay pinned to the bottom. Applied as a `transform`
+   *  and animated via CSS so each row step glides instead of snapping. */
   scrollY: number;
   refs: TailScrollRefs;
 }
@@ -171,23 +149,31 @@ function useTailScroll(hasContent: boolean, initialOverflow: boolean): TailScrol
     const textEl = textRef.current;
     if (!content || !textEl || !hasContent) return;
 
-    // `joined` is intentionally NOT a dependency: the body now buffers its text
-    // and re-renders per animation frame while streaming in, so depending on the
-    // text here would tear down and recreate this ResizeObserver (plus a sync
-    // forced reflow via measure()) every frame. The observer already fires when
-    // the text element resizes as tokens stream in, and its callback runs before
-    // paint, so the translate stays correct without the churn. This effect only
-    // re-runs when content appears/disappears (hasContent).
+    // `joined` is intentionally NOT a dependency: the body re-renders per
+    // snapshot as the source grows, and depending on the text here would tear
+    // down and recreate this ResizeObserver (plus a sync forced reflow via
+    // measure()) every snapshot. The observer already fires when the text
+    // element resizes — i.e. when a wrapped row is added — and its callback runs
+    // before paint, so the scroll stays correct without the churn. This effect
+    // only re-runs when content appears/disappears (hasContent).
     const measure = () => {
-      const textH = textEl.clientHeight;
+      const textH = textEl.scrollHeight;
       const contentH = content.clientHeight;
-      const nextOverflow = textH > contentH + 0.5;
-      setOverflows((prev) => (prev !== nextOverflow ? nextOverflow : prev));
-      // contentH - textH: positive (slack) pushes the text down to bottom-align
-      // when it's shorter than the block; negative (overflow) scrolls it up so
-      // the newest content + caret stay pinned to the bottom and the top clips.
-      const nextY = contentH - textH;
+      const overflow = textH - contentH;
+      // Console-style row scrolling. While the wrapped text fits the reserved
+      // block it stays top-anchored (content fills downward like a terminal).
+      // The moment it overflows it jumps up in whole-row increments so the
+      // newest row + caret stay pinned to the bottom and the oldest row scrolls
+      // off the top on a row boundary — never a sub-character slide. Because
+      // wrapped height only grows by a whole row when a line wraps, the
+      // translate changes in row steps (not per character); the CSS `transform`
+      // transition animates each step as a discrete row scroll.
+      const nextY = overflow <= 0.5
+        ? 0
+        : -Math.ceil(overflow / ACTIVITY_TAIL_ROW_HEIGHT_PX) * ACTIVITY_TAIL_ROW_HEIGHT_PX;
       setScrollY((prev) => (prev === nextY ? prev : nextY));
+      const nextOverflow = nextY < 0;
+      setOverflows((prev) => (prev !== nextOverflow ? nextOverflow : prev));
     };
 
     measure();
@@ -207,7 +193,7 @@ interface TurnActivityBlockProps {
 /**
  * Compact live-activity block: just the terminal-style tail body in a subtle
  * framed surface. The separate header strip (label + bouncing dots) is gone
- * for tail phases — the tail's own content carries the signal (caret + streaming
+ * for tail phases - the tail's own content carries the signal (caret + streaming
  * text). No-tail phases (thinking / preparing / pruning / starting model)
  * render the bare `TurnActivityStrip` directly at the call sites.
  */

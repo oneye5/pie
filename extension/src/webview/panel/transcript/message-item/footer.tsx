@@ -3,12 +3,7 @@
 
 import type { ChatMessage } from '../../../../shared/protocol';
 import type { TurnActivityState } from '../activity';
-import { TurnActivityBlock } from '../turn-activity-tail';
-import {
-  TurnActivityStrip,
-  activityPhaseHasRunningDot,
-  activityToneToStripTone,
-} from '../turn-activity-strip';
+import { TurnActivityRegion } from '../turn-activity-region';
 
 interface MessageFooterProps {
   hasActivityFooter: boolean | undefined;
@@ -28,18 +23,7 @@ export function MessageFooter({
       {hasActivityFooter && (
         <div class="message-activity-footer">
           {footerActivityState ? (
-            footerActivityState.tail ? (
-              <TurnActivityBlock state={footerActivityState} />
-            ) : (
-              <TurnActivityStrip
-                label={footerActivityState.label}
-                detail={footerActivityState.detail}
-                tone={activityToneToStripTone(footerActivityState.tone)}
-                runningDot={activityPhaseHasRunningDot(footerActivityState.phase)}
-                phase={footerActivityState.phase}
-                ariaLabel={footerActivityState.ariaLabel}
-              />
-            )
+            <TurnActivityRegion state={footerActivityState} />
           ) : null}
         </div>
       )}
