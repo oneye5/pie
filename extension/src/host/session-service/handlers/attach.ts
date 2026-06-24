@@ -108,13 +108,30 @@ function resolveAndDispatch(
   staleSessionData: boolean,
 ) {
   const localTranscript = deps.getArchState().transcript.bySession[sessionPath] ?? [];
+  // STATE_CONTRACT (Snapshot Recovery): a session.opened must not discard
+  // in-memory optimistic or streaming transcript state that is newer than the
+  // backend snapshot. The backend's `busy` flag alone is insufficient: during a
+  // message EDIT the backend emits an intermediate truncate snapshot while idle
+  // — `session.truncateAfter` rewrites the file and emits `session.opened`
+  // (busy=false) BEFORE `message.send` starts the new turn. At that instant the
+  // host still holds a pending optimistic edit message that is newer than the
+  // truncated snapshot. Treating that snapshot as a full replace wiped the
+  // optimistic message (and the original message + reply), so the transcript
+  // cleared and the agent streamed a reply to nothing. Treat the host's own
+  // running signal — set optimistically by Send/Edit and cleared on turn end —
+  // as an additional preserve trigger so the optimistic state survives the
+  // intermediate snapshot. The final agent_end snapshot arrives after
+  // BusyChanged(false), so hostRunning is false there and the authoritative
+  // transcript still wins.
+  const hostRunning = deps.getArchState().sessions.runningSessionPaths.includes(sessionPath);
+  const preserveBusy = payload.busy || staleSessionData || hostRunning;
   const transcriptResolution = resolveSessionOpenedTranscript({
-    busy: payload.busy || staleSessionData,
+    busy: preserveBusy,
     incomingTranscript: payload.transcript,
     incomingTranscriptWindow: payload.transcriptWindow,
     localTranscript,
   });
-  const preserveStreamingState = transcriptResolution.preserveLocal && (payload.busy || staleSessionData);
+  const preserveStreamingState = transcriptResolution.preserveLocal && preserveBusy;
 
   const resolvedPayload: SessionOpenedPayload = {
     ...payload,

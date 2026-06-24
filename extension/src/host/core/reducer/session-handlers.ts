@@ -73,12 +73,24 @@ export function handleSessionOpened(state: ArchState, event: Extract<Event, { ki
   let next: ArchState = state;
 
   const localTranscript = state.transcript.bySession[sessionPath] ?? [];
+  // Mirror the preserve decision made in attach.resolveAndDispatch: the
+  // backend's `busy` flag is false during an EDIT's intermediate truncate
+  // snapshot (emitted right after `session.truncateAfter` rewrites the file,
+  // before `message.send` starts the new turn), but the host still holds a
+  // pending optimistic edit message newer than that snapshot. Treat the host's
+  // own running signal as an additional preserve trigger so the optimistic /
+  // streaming state is not wiped (which previously cleared the transcript and
+  // made the agent reply to nothing). See STATE_CONTRACT "Snapshot Recovery" /
+  // "Optimistic Reconciliation". The authoritative agent_end snapshot lands
+  // after BusyChanged(false), so hostRunning is false there and the final
+  // transcript still replaces cleanly.
+  const hostRunning = state.sessions.runningSessionPaths.includes(sessionPath);
   const {
     transcript: resolvedTranscript,
     transcriptWindow: resolvedWindow,
     aliases: resolvedAliases,
   } = resolveSessionOpenedTranscript({
-    busy: payload.busy,
+    busy: payload.busy || hostRunning,
     incomingTranscript: payload.transcript,
     incomingTranscriptWindow: payload.transcriptWindow,
     localTranscript,
