@@ -1,10 +1,10 @@
 import type { ChatMessage } from './protocol';
 
 /**
- * Turn-latency stats. The average time-to-first-token is surfaced INLINE on
- * the generation-speed (tokens/sec) chip — always visible, e.g. `42 tok/s · 1.3s`
- * — while the full overhead / total breakdown lives in that chip's tooltip.
- * The latency breakdown is no longer a separate chip.
+ * Turn-latency stats. The average turn latency is surfaced INLINE on
+ * the generation-speed (tokens/sec) chip — always visible, e.g. `42 tok/s · 1.5s`
+ * — while the overhead / time-to-first-token breakdown lives in that chip's
+ * tooltip. The latency breakdown is no longer a separate chip.
  *
  * Turn latency is the wall-clock gap from the previous tool call finishing (or
  * the prompt being sent, for the first turn) to the model's first reply token,
@@ -102,27 +102,31 @@ export function computeTurnLatencyStats(transcript: ChatMessage[]): TurnLatencyS
 }
 
 /**
- * Format the average time-to-first-token for inline display on the speed chip
- * (e.g. `42 tok/s · 1.3s`). Returns `null` when no provider latency has been
- * measured, so the inline segment is omitted rather than showing a stale dash
- * — the tooltip still carries the `—` placeholder in its breakdown.
+ * Format the average turn latency for inline display on the speed chip
+ * (e.g. `42 tok/s · 1.5s`). Returns `null` when no turn has been measured, so
+ * the inline segment is omitted until the first turn completes rather than
+ * showing a stale dash — the tooltip still carries the `—` placeholder in its
+ * breakdown.
  *
- * Time-to-first-token here is the provider portion of turn latency
- * (`turn_start` → first content delta): request prep + network + the model's
- * own first-token time. It is the value now surfaced inline on the speed chip;
- * the overhead and full turn latency remain in the tooltip.
+ * Turn latency is the wall-clock gap from the previous tool call finishing (or
+ * the prompt being sent, for the first turn) to the model's first reply token
+ * — i.e. overhead + time-to-first-token. It is the value surfaced inline next
+ * to the generation rate; the overhead / time-to-first-token split remains in
+ * the tooltip. Averaging the total (not just the provider portion) keeps the
+ * inline number a faithful "how long until the model replies" companion to the
+ * throughput, and stays visible even when a turn lacked the provider split.
  */
-export function formatAvgTimeToFirstToken(stats: TurnLatencyStats): string | null {
-  if (stats.count === 0 || stats.avgProviderLatencyMs === null) return null;
-  return formatSeconds(stats.avgProviderLatencyMs);
+export function formatAvgTurnLatency(stats: TurnLatencyStats): string | null {
+  if (stats.count === 0) return null;
+  return formatSeconds(stats.avgTurnLatencyMs);
 }
 
 /**
  * Format the average turn-latency breakdown as tooltip lines for the speed chip.
- * The total leads with its turn count; the time-to-first-token line (the
- * provider portion, shown inline on the chip) and the overhead line are its
- * components. Returns an empty array when no turns have been measured yet, so
- * the speed tooltip stays concise until latency data exists.
+ * The total leads with its turn count (and matches the value shown inline on the
+ * chip); the overhead and time-to-first-token lines are its components. Returns
+ * an empty array when no turns have been measured yet, so the speed tooltip
+ * stays concise until latency data exists.
  *
  * The total is averaged over all measured turns (`count`); overhead and
  * time-to-first-token are averaged only over the turns that measured each, so
@@ -144,32 +148,32 @@ export function formatTurnLatencyTooltipLines(stats: TurnLatencyStats): string[]
 
 /**
  * Precomputed latency-display adapters for a speed-chip state. Computes the
- * inline time-to-first-token and the tooltip breakdown once (from {@link stats})
+ * inline average turn latency and the tooltip breakdown once (from {@link stats})
  * and exposes joins that every chip-state variant — generating, paused, and idle
  * — applies identically, so the inline segment and tooltip lines stay consistent
- * across states and there is a single owner of the `· <ttft>` formatting.
+ * across states and there is a single owner of the `· <turn-latency>` formatting.
  *
- * `withTtft` / `withTtftAria` append the inline segment only when a provider
- * latency was measured (otherwise the segment is omitted, never a stale dash);
- * `withLatencyLines` appends the breakdown only when at least one turn was
- * measured. The closures capture the formatted values, so calling them is cheap
- * and does not re-walk the stats.
+ * `withTurnLatency` / `withTurnLatencyAria` append the inline segment only when
+ * a turn has been measured (otherwise the segment is omitted, never a stale
+ * dash); `withLatencyLines` appends the breakdown only when at least one turn
+ * was measured. The closures capture the formatted values, so calling them is
+ * cheap and does not re-walk the stats.
  */
 export interface LatencyDisplay {
-  /** `${label} · <ttft>`, or `label` when no provider latency is measured. */
-  withTtft: (label: string) => string;
-  /** `${aria} Average time to first token <ttft>.`, or `aria` when none. */
-  withTtftAria: (aria: string) => string;
+  /** `${label} · <turn-latency>`, or `label` when no turn has been measured. */
+  withTurnLatency: (label: string) => string;
+  /** `${aria} Average turn latency <turn-latency>.`, or `aria` when none. */
+  withTurnLatencyAria: (aria: string) => string;
   /** Base tooltip lines joined with the latency breakdown (when measured). */
   withLatencyLines: (lines: string[]) => string;
 }
 
 export function latencyDisplay(stats: TurnLatencyStats): LatencyDisplay {
-  const ttft = formatAvgTimeToFirstToken(stats);
+  const turnLatency = formatAvgTurnLatency(stats);
   const latencyLines = formatTurnLatencyTooltipLines(stats);
   return {
-    withTtft: (label) => (ttft !== null ? `${label} · ${ttft}` : label),
-    withTtftAria: (aria) => (ttft !== null ? `${aria} Average time to first token ${ttft}.` : aria),
+    withTurnLatency: (label) => (turnLatency !== null ? `${label} · ${turnLatency}` : label),
+    withTurnLatencyAria: (aria) => (turnLatency !== null ? `${aria} Average turn latency ${turnLatency}.` : aria),
     withLatencyLines: (lines) => (
       latencyLines.length > 0 ? [...lines, ...latencyLines].join('\n') : lines.join('\n')
     ),

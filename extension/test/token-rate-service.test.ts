@@ -274,8 +274,8 @@ test('a loaded (non-running) session surfaces its average turn latency even with
   const idle = service.getRate('/a');
   assert.equal(idle.state, 'idle');
   assert.equal(idle.paused, false);
-  // Inline TTFT: avg provider latency = (900 + 1700) / 2 = 1300ms -> 1.3s.
-  assert.equal(idle.label, '— · 1.3s');
+  // Inline: avg turn latency = (1000 + 2000) / 2 = 1500ms -> 1.5s.
+  assert.equal(idle.label, '— · 1.5s');
   assert.match(idle.tooltip, /Avg turn latency: 1\.5s over 2 turns/);
   // Seeding the active session's latency is a display change -> one notification.
   assert.equal(changeCount, 1);
@@ -283,7 +283,7 @@ test('a loaded (non-running) session surfaces its average turn latency even with
   // Idempotent: a subsequent tick must not re-seed or re-notify (the transcript
   // is static while idle, so the state is retained unchanged).
   service.tick(BASE_NOW + 1000);
-  assert.equal(service.getRate('/a').label, '— · 1.3s');
+  assert.equal(service.getRate('/a').label, '— · 1.5s');
   assert.equal(changeCount, 1);
 });
 
@@ -324,7 +324,7 @@ test('a run that starts on a previously-idle session replaces the idle state wit
   });
   service.tick(BASE_NOW);
   assert.equal(service.getRate('/a').state, 'idle');
-  assert.match(service.getRate('/a').label, /0\.9s/);
+  assert.match(service.getRate('/a').label, /1\.0s/);
 
   // A new run begins: an empty streaming message appears, session is running.
   arch.transcript.bySession['/a'] = [
@@ -338,5 +338,5 @@ test('a run that starts on a previously-idle session replaces the idle state wit
   // Empty new message -> paused until output flows, but the historical latency
   // is still surfaced inline (the idle seed was replaced, not lost).
   assert.equal(running.state, 'paused');
-  assert.match(running.label, /· 0\.9s/);
+  assert.match(running.label, /· 1\.0s/);
 });

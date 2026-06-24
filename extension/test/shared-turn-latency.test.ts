@@ -6,7 +6,7 @@ import {
   NO_LATENCY_STATS,
   collectMeasuredTurns,
   computeTurnLatencyStats,
-  formatAvgTimeToFirstToken,
+  formatAvgTurnLatency,
   formatTurnLatencyTooltipLines,
 } from '../src/shared/turn-latency';
 
@@ -180,20 +180,22 @@ test('formatSeconds >=1000ms latency renders as seconds with one decimal', () =>
   assert.match(b!, /Avg turn latency: 2\.5s over 1 turn/);
 });
 
-test('formatAvgTimeToFirstToken renders the average provider latency for inline display', () => {
+test('formatAvgTurnLatency renders the average turn latency for inline display', () => {
   const stats = computeTurnLatencyStats([
     assistant({ id: 't1', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 }),
     assistant({ id: 't2', turnLatencyMs: 2_000, overheadMs: 300, providerLatencyMs: 1_700 }),
   ]);
-  // (900 + 1700) / 2 = 1300ms -> 1.3s — the segment appended to the rate label.
-  assert.equal(formatAvgTimeToFirstToken(stats), '1.3s');
+  // (1000 + 2000) / 2 = 1500ms -> 1.5s — the total turn latency appended to the
+  // rate label (the provider/TTFT portion would be 1.3s; the total is shown).
+  assert.equal(formatAvgTurnLatency(stats), '1.5s');
 });
 
-test('formatAvgTimeToFirstToken returns null until a provider latency is measured', () => {
-  assert.equal(formatAvgTimeToFirstToken(NO_LATENCY_STATS), null);
-  // A measured turn without the provider split has no TTFT to show inline.
+test('formatAvgTurnLatency returns null until a turn is measured, and shows the total even without the provider split', () => {
+  assert.equal(formatAvgTurnLatency(NO_LATENCY_STATS), null);
+  // A measured turn without the provider split still has a total turn latency,
+  // so the inline segment now shows it (previously it was omitted).
   assert.equal(
-    formatAvgTimeToFirstToken(computeTurnLatencyStats([assistant({ turnLatencyMs: 1_000 })])),
-    null,
+    formatAvgTurnLatency(computeTurnLatencyStats([assistant({ turnLatencyMs: 1_000 })])),
+    '1.0s',
   );
 });

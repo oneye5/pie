@@ -6,7 +6,7 @@
 export {
   collectMeasuredTurns,
   computeTurnLatencyStats,
-  formatAvgTimeToFirstToken,
+  formatAvgTurnLatency,
   formatTurnLatencyTooltipLines,
   NO_LATENCY_STATS,
 } from '../../../shared/turn-latency';

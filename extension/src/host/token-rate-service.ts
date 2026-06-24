@@ -24,7 +24,9 @@ import {
  *
  * The generation clock advances on the service's own {@link TICK_MS} interval
  * (independent of transcript flushes), so it still advances during output
- * stalls and detects the generating → paused transition even when no state
+ * stalls (counting them against the rate so it drops to reflect slow-downs
+ * rather than freezing on a stale high value) and detects the generating →
+ * paused transition at run end / tool calls / between turns even when no state
  * snapshot is otherwise being posted. When the active session's displayed
  * state changes, {@link onActiveRateChanged} is called so the host posts a
  * fresh snapshot (debounced by the sidebar provider).

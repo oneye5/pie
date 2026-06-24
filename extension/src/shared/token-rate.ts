@@ -25,9 +25,13 @@ import {
  * actively producing output. A rolling window of (generation-time,
  * cumulative-output-tokens) samples over the last {@link WINDOW_MS} of
  * *generation* time (not wall-clock) yields the displayed rate. Because the
- * time axis is generation-time, every paused span — including time spent in
- * tool calls and between turns — is excluded from both the numerator's token
- * production and the denominator's elapsed time automatically.
+ * time axis is generation-time, time spent in tool calls, between turns, and
+ * before the first token (time-to-first-token, surfaced separately as an
+ * average) is excluded from both the numerator's token production and the
+ * denominator's elapsed time automatically. Mid-stream output stalls (provider
+ * slow-downs) are NOT excluded: once the first token has arrived the clock
+ * keeps running through stalls so the rate reflects the true experienced
+ * throughput, not just the bursts of active token production.
  *
  * Subagent output is included in the aggregate: the indicator reflects the
  * sum of live output tokens across the main session and every running
@@ -43,25 +47,19 @@ import {
 export const TICK_MS = 200;
 /** Rolling window length, measured in generation-time (excludes pauses). */
 export const WINDOW_MS = 60_000;
-/**
- * No-growth grace before the clock pauses. Catches stalls the explicit tool/
- * turn signals miss (network stalls, anything else that pauses the underlying
- * LLM) without falsely pausing on slow-but-active generation.
- */
-const STALL_GRACE_MS = 1_000;
 /** Minimum generation-time span before a rate is shown (avoids a noisy first reading). */
 const MIN_RATE_SPAN_MS = 300;
 /** Cap on retained samples to bound memory (~72s at 200ms ticks). */
 const MAX_SAMPLES = 360;
 
 export interface TokenRateIndicatorState {
-  /** Compact label e.g. "42 tok/s · 1.3s" (rate · avg time to first token); "—" when idle or measuring. */
+  /** Compact label e.g. "42 tok/s · 1.5s" (rate · avg turn latency); "—" when idle or measuring. */
   label: string;
   ariaLabel: string;
   tooltip: string;
   /** 'idle' (no session selected) | 'generating' | 'paused'. */
   state: 'idle' | 'generating' | 'paused';
-  /** True while the generation clock is frozen (tool running / between turns / stall). */
+  /** True while the generation clock is frozen (tool running / between turns / before the first token). */
   paused: boolean;
 }
 
@@ -88,10 +86,6 @@ export interface Accumulator {
   samples: Sample[];
   /** Wall-time of the last tick, for computing per-tick elapsed. */
   lastWall: number;
-  /** Wall-time when the main assistant's output last grew, for stall/grace detection. */
-  lastMainGrowthWall: number;
-  /** Wall-time when a running subagent's output last grew, for stall/grace detection. */
-  lastSubagentGrowthWall: number;
   /**
    * Last estimated output tokens per streaming assistant message id. Per-id (not a
    * single value) so a continuation — the same canonical message id re-streaming
@@ -122,10 +116,6 @@ export function createAccumulator(now: number): Accumulator {
     cumTokens: 0,
     samples: [],
     lastWall: now,
-    // 0 = "never grew": the clock stays paused until the first output token
-    // arrives, so time-to-first-token is excluded from generation time.
-    lastMainGrowthWall: 0,
-    lastSubagentGrowthWall: 0,
     lastContentTokensById: new Map(),
     subagentTokens: new Map(),
   };
@@ -298,19 +288,20 @@ function buildState(
     : 0;
   const windowSec = Math.round(Math.min(windowSpanMs, WINDOW_MS) / 1000);
 
-  // Time-to-first-token is surfaced INLINE on the speed chip (always visible,
-  // not just on hover) as ` · 1.3s` appended to the rate label. The latency
-  // breakdown is appended to the tooltip for context. No measured turns yet
-  // -> ttft is null and latencyLines is empty -> the label and tooltip stay
-  // concise. The same adapters shape the idle state (see computeIdleDisplayState)
-  // so the inline segment and tooltip lines are consistent across every state.
+  // The average turn latency is surfaced INLINE on the speed chip (always
+  // visible, not just on hover) as ` · 1.5s` appended to the rate label. The
+  // overhead / time-to-first-token breakdown is appended to the tooltip for
+  // context. No measured turns yet -> turnLatency is null and latencyLines is
+  // empty -> the label and tooltip stay concise. The same adapters shape the
+  // idle state (see computeIdleDisplayState) so the inline segment and tooltip
+  // lines are consistent across every state.
   const latency = latencyDisplay(stats);
 
   if (generating) {
     if (rate === null) {
       return {
-        label: latency.withTtft('—'),
-        ariaLabel: latency.withTtftAria('Generation rate: measuring.'),
+        label: latency.withTurnLatency('—'),
+        ariaLabel: latency.withTurnLatencyAria('Generation rate: measuring.'),
         tooltip: latency.withLatencyLines(['Measuring generation rate…']),
         state: 'generating',
         paused: false,
@@ -318,14 +309,14 @@ function buildState(
     }
     const num = formatRate(rate);
     return {
-      label: latency.withTtft(`${num} tok/s`),
-      ariaLabel: latency.withTtftAria(`Generation rate: ${num} tokens per second.`),
+      label: latency.withTurnLatency(`${num} tok/s`),
+      ariaLabel: latency.withTurnLatencyAria(`Generation rate: ${num} tokens per second.`),
       tooltip: latency.withLatencyLines([
         `Generation rate: ${num} tok/s`,
         `Average over the last ${windowSec}s of generation.`,
         `${acc.cumTokens} output tokens in ${genSec}s of generation time.`,
         'Includes output from running subagents.',
-        'Clock pauses during tool calls and output stalls.',
+        'Clock pauses during tool calls, between turns, and before the first token.',
       ]),
       state: 'generating',
       paused: false,
@@ -335,8 +326,8 @@ function buildState(
   const reason = describePauseReason(streaming, toolBlocked);
   if (rate === null) {
     return {
-      label: latency.withTtft('—'),
-      ariaLabel: latency.withTtftAria(`Generation paused (${reason}).`),
+      label: latency.withTurnLatency('—'),
+      ariaLabel: latency.withTurnLatencyAria(`Generation paused (${reason}).`),
       tooltip: latency.withLatencyLines([
         `Generation paused (${reason}).`,
         'Waiting for the model to produce output.',
@@ -347,8 +338,8 @@ function buildState(
   }
   const num = formatRate(rate);
   return {
-    label: latency.withTtft(`⏸ ${num} tok/s`),
-    ariaLabel: latency.withTtftAria(`Generation paused (${reason}). Last rate ${num} tokens per second.`),
+    label: latency.withTurnLatency(`⏸ ${num} tok/s`),
+    ariaLabel: latency.withTurnLatencyAria(`Generation paused (${reason}). Last rate ${num} tokens per second.`),
     tooltip: latency.withLatencyLines([
       `Generation paused (${reason}).`,
       `Last rate: ${num} tok/s`,
@@ -389,13 +380,6 @@ export function tickTokenRate(
     mainDelta = Math.max(0, currentTokens - previous);
     acc.lastContentTokensById.set(streamingId, currentTokens);
     pruneContentTokenMap(acc, streamingId);
-    // Time-to-first-token exclusion: a streaming message that has produced no
-    // output yet (and never has) keeps the clock paused until output flows, so
-    // per-turn TTFT is excluded just like the run's first message. A
-    // continuation that re-appears with content counts immediately.
-    if (currentTokens === 0 && previous === 0) {
-      acc.lastMainGrowthWall = 0;
-    }
   }
 
   const runningSubagents = findRunningSubagents(transcript);
@@ -405,25 +389,35 @@ export function tickTokenRate(
   if (totalDelta > 0) {
     acc.cumTokens += totalDelta;
   }
-  if (mainDelta > 0) {
-    acc.lastMainGrowthWall = now;
-  }
-  if (subagentDelta > 0) {
-    acc.lastSubagentGrowthWall = now;
-  }
 
-  const mainWithinGrace = now - acc.lastMainGrowthWall <= STALL_GRACE_MS;
-  const subagentWithinGrace = now - acc.lastSubagentGrowthWall <= STALL_GRACE_MS;
   const mainActive = streaming !== null && !toolBlocked;
   const subagentActive = runningSubagents.length > 0;
-  // Any output this tick IS generation — the clock must advance and a sample must
-  // be pushed so tokens are always accompanied by generation time. Without this,
-  // tokens that arrive while the streaming message holds a running tool call
-  // (or during any other non-generating tick) would be banked into `cumTokens`
-  // without `genMs` advancing, then attributed to a later tick's tiny elapsed and
-  // spike the rate. The grace/subagent terms keep the clock alive across brief
-  // stalls and parallel subagent streams.
-  const generating = totalDelta > 0 || (mainActive && mainWithinGrace) || (subagentActive && subagentWithinGrace);
+  // Once the first token has arrived, a streaming message is generating for the
+  // whole span until it completes or a tool call begins — INCLUDING mid-stream
+  // output stalls (provider slow-downs). Pausing the clock on those stalls hid
+  // them from the rolling window and biased the rate high: it reflected only the
+  // bursts of active token production, not the true experienced throughput. The
+  // clock still pauses BEFORE the first token (time-to-first-token, surfaced
+  // separately as an average) and during tool calls / between turns. Any output
+  // this tick IS generation — the clock must advance and a sample must be pushed
+  // so tokens are always accompanied by generation time (without the
+  // `totalDelta` term, tokens arriving while a tool call runs would be banked
+  // into `cumTokens` without `genMs` advancing and spike the rate on resume).
+  // "Has produced output" is derived from the current token counts, not a
+  // sticky wall-clock stamp: a streaming message (or running subagent) that
+  // currently holds output has begun producing, so its mid-stream stalls count
+  // against the rate; one with none yet is still in time-to-first-token, so the
+  // clock stays paused. Deriving per-message/per-result (rather than a single
+  // aggregate stamp) means a LATER subagent's own first-token wait stays excluded
+  // even after an earlier subagent in the same run has produced.
+  const mainProducedOutput = currentTokens > 0;
+  const subagentProducedOutput = runningSubagents.some(
+    ({ toolCallId, resultIndex }) => (acc.subagentTokens.get(`${toolCallId}#${resultIndex}`) ?? 0) > 0,
+  );
+  const generating =
+    totalDelta > 0
+    || (mainActive && mainProducedOutput)
+    || (subagentActive && subagentProducedOutput);
 
   const elapsed = Math.max(0, now - acc.lastWall);
   if (generating) {
@@ -457,8 +451,8 @@ export function shouldResetForRun(existingRunId: string | null | undefined, runI
  * latency, so the average would be invisible until the next run began.
  *
  * Returns `IDLE_STATE` when no turn has been measured yet (nothing to average).
- * Otherwise the inline time-to-first-token segment and the tooltip breakdown
- * are applied through the same `latencyDisplay` adapters as the live
+ * Otherwise the inline turn-latency segment and the tooltip breakdown are
+ * applied through the same `latencyDisplay` adapters as the live
  * generating/paused states, so the latency reads identically across states —
  * only the rate prefix differs (here just `—`, since there is no rate). The
  * state is `idle` (not `paused`): nothing is held or about to resume.
@@ -468,8 +462,8 @@ export function computeIdleDisplayState(transcript: ChatMessage[]): TokenRateInd
   if (stats.count === 0) return IDLE_STATE;
   const latency = latencyDisplay(stats);
   return {
-    label: latency.withTtft('—'),
-    ariaLabel: latency.withTtftAria('Generation rate: idle.'),
+    label: latency.withTurnLatency('—'),
+    ariaLabel: latency.withTurnLatencyAria('Generation rate: idle.'),
     tooltip: latency.withLatencyLines(['No active generation.']),
     state: 'idle',
     paused: false,

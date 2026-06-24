@@ -25,7 +25,7 @@ import {
  * rather than chars/4 approximations.
  */
 
-const BASE_NOW = 100_000; // large enough that `now - 0` (never-grew sentinel) > stall grace
+const BASE_NOW = 100_000; // deterministic non-zero start time for the accumulator
 
 const TOKEN_BASE = bpeEncode('The quick brown fox jumps over the lazy dog. '.repeat(1000));
 
@@ -71,8 +71,6 @@ test('createAccumulator returns a fresh accumulator with zeroed generation state
   assert.equal(acc.cumTokens, 0);
   assert.equal(acc.samples.length, 0);
   assert.equal(acc.lastWall, BASE_NOW);
-  assert.equal(acc.lastMainGrowthWall, 0);
-  assert.equal(acc.lastSubagentGrowthWall, 0);
   assert.equal(acc.lastContentTokensById.size, 0);
   assert.equal(acc.subagentTokens.size, 0);
 });
@@ -149,9 +147,10 @@ test('formatRate renders a zero rate as "0" when samples show no token growth', 
   const m = streamingMessage();
   // First tick produces output -> sample pushed, clock advances.
   tickTokenRate(acc, [{ ...m, markdown: tokenText(100) }], BASE_NOW + 1000);
-  // Second tick: no new output but the streaming message is still present and
-  // within the stall-grace window -> clock advances, a sample with unchanged
-  // token count is pushed, so computeRate returns 0 and formatRate yields "0".
+  // Second tick: no new output but the streaming message has already produced
+  // output (so it is still "generating") -> clock advances, a sample with
+  // unchanged token count is pushed, so computeRate returns 0 and formatRate
+  // yields "0".
   const state = tickTokenRate(acc, [{ ...m, markdown: tokenText(100) }], BASE_NOW + 1500);
   assert.equal(state.state, 'generating');
   assert.equal(state.label, '0 tok/s');

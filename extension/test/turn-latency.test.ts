@@ -6,7 +6,7 @@ import {
   NO_LATENCY_STATS,
   collectMeasuredTurns,
   computeTurnLatencyStats,
-  formatAvgTimeToFirstToken,
+  formatAvgTurnLatency,
   formatTurnLatencyTooltipLines,
 } from '../src/webview/panel/composer/turn-latency';
 
@@ -104,10 +104,11 @@ test('formatTurnLatencyTooltipLines uses singular "turn" for a single measuremen
   assert.match(line!, /over 1 turn$/);
 });
 
-test('formatAvgTimeToFirstToken is re-exported for inline display', () => {
+test('formatAvgTurnLatency is re-exported for inline display', () => {
   const stats = computeTurnLatencyStats([
     assistantMessage({ id: 't1', turnLatencyMs: 1_000, overheadMs: 100, providerLatencyMs: 900 }),
   ]);
-  assert.equal(formatAvgTimeToFirstToken(stats), '0.9s');
-  assert.equal(formatAvgTimeToFirstToken(NO_LATENCY_STATS), null);
+  // The total turn latency (1.0s) is shown inline, not the provider portion (0.9s).
+  assert.equal(formatAvgTurnLatency(stats), '1.0s');
+  assert.equal(formatAvgTurnLatency(NO_LATENCY_STATS), null);
 });
