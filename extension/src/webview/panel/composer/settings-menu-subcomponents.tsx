@@ -254,8 +254,8 @@ function ColorRow({ label, value, defaultValue, hint, ariaLabel, onChange }: Col
   );
 }
 
-/** Theme preset picker. Shows the active preset when the four color prefs
- *  exactly match one, else "Custom". Selecting a preset writes all four color
+/** Theme preset picker. Shows the active preset when the six color prefs
+ *  exactly match one, else "Custom". Selecting a preset writes all six color
  *  prefs as a batch; the user can then tweak individually (which flips back to
  *  Custom). */
 function ThemeSelect({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnSetPrefs }) {
@@ -373,6 +373,22 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
         ariaLabel="Accent color"
         onChange={(next) => onSetPrefs({ uiAccentColor: next })}
       />
+      <ColorRow
+        label="Muted text"
+        value={prefs.uiMutedColor}
+        defaultValue="#958f82"
+        hint="Secondary labels, hints, and metadata. Empty derives a shade from the text color."
+        ariaLabel="Muted text color"
+        onChange={(next) => onSetPrefs({ uiMutedColor: next })}
+      />
+      <ColorRow
+        label="Links"
+        value={prefs.uiLinkColor}
+        defaultValue="#d7a942"
+        hint="Hyperlinks in message bodies and prompts. Empty follows the accent color."
+        ariaLabel="Link color"
+        onChange={(next) => onSetPrefs({ uiLinkColor: next })}
+      />
 
       <UiGroupLabel label="Shape" />
       <div class="toolbar-settings-ui-control">
@@ -384,7 +400,7 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
           type="range"
           class="toolbar-settings-slider toolbar-settings-ui-slider"
           min="0"
-          max="16"
+          max="24"
           step="1"
           value={prefs.uiCornerRadius}
           onInput={(e) => onSetPrefs({ uiCornerRadius: Number((e.target as HTMLInputElement).value) })}
@@ -416,7 +432,7 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
         <input
           type="range"
           class="toolbar-settings-slider toolbar-settings-ui-slider"
-          min="60"
+          min="40"
           max="100"
           step="2"
           value={prefs.uiMessageWidth}
@@ -433,8 +449,8 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
         <input
           type="range"
           class="toolbar-settings-slider toolbar-settings-ui-slider"
-          min="120"
-          max="720"
+          min="80"
+          max="1600"
           step="20"
           value={prefs.expandedSectionMaxHeight}
           onInput={(e) => onSetPrefs({ expandedSectionMaxHeight: Number((e.target as HTMLInputElement).value) })}
@@ -451,7 +467,7 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
           type="range"
           class="toolbar-settings-slider toolbar-settings-ui-slider"
           min="1"
-          max="6"
+          max="12"
           step="1"
           value={prefs.activityTailLines}
           onInput={(e) => onSetPrefs({ activityTailLines: Number((e.target as HTMLInputElement).value) })}
@@ -463,14 +479,48 @@ function UiFlyout({ prefs, onSetPrefs }: UiFlyoutProps) {
       <UiGroupLabel label="Typography" />
       <div class="toolbar-settings-ui-control">
         <div class="toolbar-settings-ui-control-head">
+          <span class="toolbar-settings-ui-control-label">Base text</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.uiBaseFontSize}px</span>
+        </div>
+        <input
+          type="range"
+          class="toolbar-settings-slider toolbar-settings-ui-slider"
+          min="10"
+          max="24"
+          step="1"
+          value={prefs.uiBaseFontSize}
+          onInput={(e) => onSetPrefs({ uiBaseFontSize: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Base font size"
+        />
+        <div class="toolbar-settings-item-hint">Message body and primary readable text across the panel.</div>
+      </div>
+      <div class="toolbar-settings-ui-control">
+        <div class="toolbar-settings-ui-control-head">
+          <span class="toolbar-settings-ui-control-label">Composer text</span>
+          <span class="toolbar-settings-ui-control-value">{prefs.uiComposerFontSize}px</span>
+        </div>
+        <input
+          type="range"
+          class="toolbar-settings-slider toolbar-settings-ui-slider"
+          min="11"
+          max="28"
+          step="1"
+          value={prefs.uiComposerFontSize}
+          onInput={(e) => onSetPrefs({ uiComposerFontSize: Number((e.target as HTMLInputElement).value) })}
+          aria-label="Composer font size"
+        />
+        <div class="toolbar-settings-item-hint">The message input box where you type.</div>
+      </div>
+      <div class="toolbar-settings-ui-control">
+        <div class="toolbar-settings-ui-control-head">
           <span class="toolbar-settings-ui-control-label">Expanded text</span>
           <span class="toolbar-settings-ui-control-value">{prefs.expandedSectionFontSize}px</span>
         </div>
         <input
           type="range"
           class="toolbar-settings-slider toolbar-settings-ui-slider"
-          min="9"
-          max="18"
+          min="8"
+          max="32"
           step="1"
           value={prefs.expandedSectionFontSize}
           onInput={(e) => onSetPrefs({ expandedSectionFontSize: Number((e.target as HTMLInputElement).value) })}

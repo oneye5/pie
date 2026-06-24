@@ -44,21 +44,26 @@ test('UiFlyout renders all color rows with default swatches and reset buttons', 
     onSetPrefs: () => undefined,
   }));
 
-  // Four color inputs and their labels.
+  // Six color inputs and their labels (Background, Text, Border, Accent,
+  // Muted text, Links).
   assert.match(html, /Background/);
   assert.match(html, /Text/);
   assert.match(html, /Border/);
   assert.match(html, /Accent/);
+  assert.match(html, /Muted text/);
+  assert.match(html, /Links/);
 
   // Default swatches.
   assert.match(html, /<input[^>]*type="color"[^>]*value="#050506"[^>]*aria-label="Background color"/);
   assert.match(html, /<input[^>]*type="color"[^>]*value="#f2eee4"[^>]*aria-label="Text color"/);
   assert.match(html, /<input[^>]*type="color"[^>]*value="#f2eee4"[^>]*aria-label="Border color"/);
   assert.match(html, /<input[^>]*type="color"[^>]*value="#d7a942"[^>]*aria-label="Accent color"/);
+  assert.match(html, /<input[^>]*type="color"[^>]*value="#958f82"[^>]*aria-label="Muted text color"/);
+  assert.match(html, /<input[^>]*type="color"[^>]*value="#d7a942"[^>]*aria-label="Link color"/);
 
   // Reset buttons are disabled because none of the colors are overridden.
   const resetButtons = html.match(/<button[^>]*class="toolbar-settings-color-reset"/g) ?? [];
-  assert.equal(resetButtons.length, 4, 'expected one reset button per color row');
+  assert.equal(resetButtons.length, 6, 'expected one reset button per color row');
   assert.doesNotMatch(html, /class="toolbar-settings-color-reset"[^>]*disabled=""/);
 });
 
@@ -74,7 +79,7 @@ test('UiFlyout color rows enable Reset only when their pref is overridden', () =
   const resetTags = html.match(/<button\b[^>]*\bclass="toolbar-settings-color-reset"[^>]*>/g) ?? [];
   const totalResets = resetTags.length;
   const disabledResets = resetTags.filter((tag) => /\bdisabled\b/.test(tag)).length;
-  assert.equal(totalResets, 4, 'expected one reset button per color row');
+  assert.equal(totalResets, 6, 'expected one reset button per color row');
   assert.equal(totalResets - disabledResets, 2, 'expected exactly the two overridden rows to be resettable');
 });
 
@@ -86,7 +91,7 @@ test('UiFlyout renders the corner-radius slider with the current value and range
 
   assert.match(html, /Corner radius/);
   assert.match(html, />12px</);
-  assert.match(html, /<input[^>]*type="range"[^>]*min="0"[^>]*max="16"[^>]*step="1"[^>]*value="12"[^>]*aria-label="Corner radius"/);
+  assert.match(html, /<input[^>]*type="range"[^>]*min="0"[^>]*max="24"[^>]*step="1"[^>]*value="12"[^>]*aria-label="Corner radius"/);
 });
 
 test('UiFlyout renders the density select with comfortable selected by default', () => {
@@ -109,5 +114,46 @@ test('UiFlyout renders the message-width slider with the current value', () => {
 
   assert.match(html, /Message width/);
   assert.match(html, />70%</);
-  assert.match(html, /<input[^>]*type="range"[^>]*min="60"[^>]*max="100"[^>]*step="2"[^>]*value="70"[^>]*aria-label="Message width"/);
+  assert.match(html, /<input[^>]*type="range"[^>]*min="40"[^>]*max="100"[^>]*step="2"[^>]*value="70"[^>]*aria-label="Message width"/);
+});
+
+test('UiFlyout renders the base-text and composer-text sliders with widened ranges', () => {
+  const html = renderToString(h(UiFlyout, {
+    prefs: prefsWith({ uiBaseFontSize: 15, uiComposerFontSize: 17 }),
+    onSetPrefs: () => undefined,
+  }));
+
+  assert.match(html, /Base text/);
+  assert.match(html, />15px</);
+  assert.match(html, /<input[^>]*type="range"[^>]*min="10"[^>]*max="24"[^>]*step="1"[^>]*value="15"[^>]*aria-label="Base font size"/);
+
+  assert.match(html, /Composer text/);
+  assert.match(html, />17px</);
+  assert.match(html, /<input[^>]*type="range"[^>]*min="11"[^>]*max="28"[^>]*step="1"[^>]*value="17"[^>]*aria-label="Composer font size"/);
+});
+
+test('UiFlyout renders the expanded-text slider with its widened range', () => {
+  const html = renderToString(h(UiFlyout, {
+    prefs: prefsWith({ expandedSectionFontSize: 20 }),
+    onSetPrefs: () => undefined,
+  }));
+
+  assert.match(html, /Expanded text/);
+  assert.match(html, />20px</);
+  assert.match(html, /<input[^>]*type="range"[^>]*min="8"[^>]*max="32"[^>]*step="1"[^>]*value="20"[^>]*aria-label="Expanded section font size"/);
+});
+
+test('UiFlyout renders the expanded-height and activity-rows sliders with widened ranges', () => {
+  const html = renderToString(h(UiFlyout, {
+    prefs: prefsWith({ expandedSectionMaxHeight: 1000, activityTailLines: 9 }),
+    onSetPrefs: () => undefined,
+  }));
+
+  assert.match(html, /Expanded height/);
+  assert.match(html, />1000px</);
+  assert.match(html, /<input[^>]*type="range"[^>]*min="80"[^>]*max="1600"[^>]*step="20"[^>]*value="1000"[^>]*aria-label="Expanded section max height"/);
+
+  assert.match(html, /Activity rows/);
+  assert.match(html, />9</);
+  assert.match(html, /<input[^>]*type="range"[^>]*min="1"[^>]*max="12"[^>]*step="1"[^>]*value="9"[^>]*aria-label="Activity preview rows"/);
 });

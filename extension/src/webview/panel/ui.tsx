@@ -233,7 +233,7 @@ function ComposerView({
         />
         <textarea
           ref={textareaRef}
-          class="max-h-[200px] min-h-10 w-full resize-none border-0 bg-transparent p-0 leading-normal text-foreground outline-none placeholder:text-muted"
+          class="composer-input-textarea max-h-[200px] min-h-10 w-full resize-none border-0 bg-transparent p-0 leading-normal text-foreground outline-none placeholder:text-muted"
           rows={1}
           placeholder={composerPlaceholder}
           value={text}

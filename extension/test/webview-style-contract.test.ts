@@ -104,3 +104,38 @@ test('activity-tail preview-rows pref is wired to a CSS var with a :root default
   );
   assert.match(appBody, /prefs\.activityTailLines,/);
 });
+
+test('per-place font sizes and link/muted color prefs are wired to CSS vars', async () => {
+  const indexCss = await readStyleSource('index.css');
+  const transcriptCss = await readStyleSource('transcript.css');
+  const promptCss = await readStyleSource('extension-ui-prompt.css');
+  const appBody = await readWebviewSource('app-body.tsx');
+
+  // :root defaults reproduce the bundled sizes so an uncustomized panel is unchanged.
+  assert.match(indexCss, /--panel-font-size:\s*13px/);
+  assert.match(indexCss, /--panel-composer-font-size:\s*13px/);
+  // Link color defaults to the accent so links match the bundled appearance.
+  assert.match(indexCss, /--panel-link:\s*var\(--panel-accent\)/);
+
+  // Base body text and message prose consume the base-size var.
+  assert.match(indexCss, /body\s*\{[^}]*font-size:\s*var\(--panel-font-size/);
+  assert.match(indexCss, /@utility message-prose\s*\{[\s\S]*?font-size:\s*var\(--panel-font-size/);
+
+  // Hyperlinks route through --panel-link (not --panel-accent directly).
+  assert.match(transcriptCss, /\.message-body a\s*\{[^}]*color:\s*var\(--panel-link\)/);
+  assert.match(promptCss, /\.ask-prose a\s*\{[^}]*color:\s*var\(--panel-link\)/);
+
+  // The host emits the per-place font sizes from prefs…
+  assert.match(appBody, /setProperty\(['"]--panel-font-size['"],\s*`\$\{prefs\.uiBaseFontSize\}px`\)/);
+  assert.match(appBody, /setProperty\(['"]--panel-composer-font-size['"],\s*`\$\{prefs\.uiComposerFontSize\}px`\)/);
+  // …applies the muted override on top of the foreground-derived shade…
+  assert.match(appBody, /prefs\.uiMutedColor/);
+  // …and sets/removes the link override.
+  assert.match(appBody, /prefs\.uiLinkColor/);
+
+  // All four new prefs are effect dependencies so updates propagate live.
+  assert.match(appBody, /prefs\.uiBaseFontSize,/);
+  assert.match(appBody, /prefs\.uiComposerFontSize,/);
+  assert.match(appBody, /prefs\.uiMutedColor,/);
+  assert.match(appBody, /prefs\.uiLinkColor,/);
+});

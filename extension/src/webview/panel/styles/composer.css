@@ -12,6 +12,13 @@
   align-items: center;
 }
 
+/* Composer input textarea — sized independently from the base message text so
+   the typing surface can be tuned for comfort without rescaling the
+   transcript. Driven by --panel-composer-font-size (see ChatPrefs.uiComposerFontSize). */
+.composer-input-textarea {
+  font-size: var(--panel-composer-font-size, 13px);
+}
+
 .composer-rail {
   width: 100%;
 }

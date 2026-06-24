@@ -154,7 +154,7 @@
 }
 
 .ask-prose a {
-  color: var(--panel-accent);
+  color: var(--panel-link);
   text-decoration: underline;
 }
 

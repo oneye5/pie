@@ -36,7 +36,7 @@ test('TurnActivityRegion opens the block track and collapses the strip when a ta
   // Block track is open (visible), strip track is collapsed.
   assert.match(html, /turn-activity-track[^>]*data-open="true"[^>]*>\s*<div class="turn-activity-track-inner"[^>]*>\s*(<div class="turn-activity-block"|<TurnActivityBlock)/);
   // Both open-states appear: block "true", strip "false".
-  const opens = html.match(/data-open="(true|false)"/g) ?? [];
+  const opens: string[] = html.match(/data-open="(true|false)"/g) ?? [];
   assert.ok(opens.includes('data-open="true"') && opens.includes('data-open="false"'), `expected both open states, got ${opens.join(',')}`);
   // The block content renders.
   assert.match(html, /turn-activity-block/);
@@ -50,7 +50,7 @@ test('TurnActivityRegion opens the strip track and collapses the block when ther
   // No block content is rendered when there has never been a tail.
   assert.doesNotMatch(html, /turn-activity-block/);
   // Strip track open, block track collapsed.
-  const opens = html.match(/data-open="(true|false)"/g) ?? [];
+  const opens: string[] = html.match(/data-open="(true|false)"/g) ?? [];
   assert.ok(opens.includes('data-open="true"') && opens.includes('data-open="false"'), `expected both open states, got ${opens.join(',')}`);
 });
 

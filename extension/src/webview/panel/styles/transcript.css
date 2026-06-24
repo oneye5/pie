@@ -1035,7 +1035,7 @@
 }
 
 .message-body a {
-  color: var(--panel-accent);
+  color: var(--panel-link);
   text-decoration: none;
 }
 

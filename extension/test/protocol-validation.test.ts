@@ -268,10 +268,16 @@ test('validateWebviewToHostMessage validates setPrefs patches and rejects unknow
     false,
     'uiDensity must be one of compact/comfortable/spacious',
   );
+  // ── Widened slider bounds (see ChatPrefs numericRanges) ─────────────
   assert.equal(
     validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiMessageWidth: 40 } }).ok,
+    true,
+    'uiMessageWidth at the 40 floor should validate',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiMessageWidth: 30 } }).ok,
     false,
-    'uiMessageWidth below the 60 floor should be rejected',
+    'uiMessageWidth below the 40 floor should be rejected',
   );
   assert.equal(
     validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiCornerRadius: -1 } }).ok,
@@ -279,32 +285,112 @@ test('validateWebviewToHostMessage validates setPrefs patches and rejects unknow
     'uiCornerRadius below 0 should be rejected',
   );
   assert.equal(
-    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiCornerRadius: 21 } }).ok,
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiCornerRadius: 24 } }).ok,
+    true,
+    'uiCornerRadius at the 24 ceiling should validate',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiCornerRadius: 25 } }).ok,
     false,
-    'uiCornerRadius above 20 should be rejected',
+    'uiCornerRadius above 24 should be rejected',
   );
   assert.equal(
     validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 240 } }).ok,
     true,
   );
   assert.equal(
-    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 120 } }).ok,
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 80 } }).ok,
     true,
-    'expandedSectionMaxHeight at the 120 floor should validate',
+    'expandedSectionMaxHeight at the 80 floor should validate',
   );
   assert.equal(
-    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 720 } }).ok,
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 1600 } }).ok,
     true,
-    'expandedSectionMaxHeight at the 720 ceiling should validate',
+    'expandedSectionMaxHeight at the 1600 ceiling should validate',
   );
   assert.equal(
-    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 100 } }).ok,
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 60 } }).ok,
     false,
-    'expandedSectionMaxHeight below the 120 floor should be rejected',
+    'expandedSectionMaxHeight below the 80 floor should be rejected',
   );
   assert.equal(
-    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 800 } }).ok,
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionMaxHeight: 1700 } }).ok,
     false,
-    'expandedSectionMaxHeight above the 720 ceiling should be rejected',
+    'expandedSectionMaxHeight above the 1600 ceiling should be rejected',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionFontSize: 28 } }).ok,
+    true,
+    'expandedSectionFontSize at the 28 ceiling should validate',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { expandedSectionFontSize: 33 } }).ok,
+    false,
+    'expandedSectionFontSize above 32 should be rejected',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { activityTailLines: 12 } }).ok,
+    true,
+    'activityTailLines at the 12 ceiling should validate',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { activityTailLines: 0 } }).ok,
+    false,
+    'activityTailLines below 1 should be rejected',
+  );
+  // ── New per-place font sizes ────────────────────────────────────────
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiBaseFontSize: 13 } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiBaseFontSize: 9 } }).ok,
+    false,
+    'uiBaseFontSize below 10 should be rejected',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiBaseFontSize: 25 } }).ok,
+    false,
+    'uiBaseFontSize above 24 should be rejected',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiComposerFontSize: 13 } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiComposerFontSize: 10 } }).ok,
+    false,
+    'uiComposerFontSize below 11 should be rejected',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiComposerFontSize: 29 } }).ok,
+    false,
+    'uiComposerFontSize above 28 should be rejected',
+  );
+  // ── New color overrides (string-typed; '' resets to default) ────────
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiMutedColor: '#958f82' } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiMutedColor: '' } }).ok,
+    true,
+    'uiMutedColor empty string (reset) should validate',
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiMutedColor: 42 } }).ok,
+    false,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiLinkColor: '#7bd8d0' } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiLinkColor: '' } }).ok,
+    true,
+  );
+  assert.equal(
+    validateWebviewToHostMessage({ type: 'setPrefs', prefs: { uiLinkColor: false } }).ok,
+    false,
   );
 });

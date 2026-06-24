@@ -34,14 +34,19 @@ export interface UiThemePreset {
   foreground: string;
   border: string;
   accent: string;
+  /** Muted text color override; '' means "derive from foreground / use the
+   *  bundled default" (presets don't pin a muted shade). */
+  muted: string;
+  /** Link color override; '' means "follow the accent" (the bundled default). */
+  link: string;
 }
 
 export const UI_THEME_PRESETS: UiThemePreset[] = [
-  { id: 'night', label: 'Night', background: '', foreground: '', border: '', accent: '' },
-  { id: 'slate', label: 'Slate', background: '#0d1117', foreground: '#c9d1d9', border: '#30363d', accent: '#58a6ff' },
-  { id: 'warm', label: 'Warm', background: '#1a1410', foreground: '#ede0d4', border: '#3a2e24', accent: '#e0a458' },
-  { id: 'midnight', label: 'Midnight', background: '#060614', foreground: '#d6d8f5', border: '#2a2d52', accent: '#8b93ff' },
-  { id: 'carbon', label: 'Carbon', background: '#0a0a0a', foreground: '#e6e6e6', border: '#2e2e2e', accent: '#4ade80' },
+  { id: 'night', label: 'Night', background: '', foreground: '', border: '', accent: '', muted: '', link: '' },
+  { id: 'slate', label: 'Slate', background: '#0d1117', foreground: '#c9d1d9', border: '#30363d', accent: '#58a6ff', muted: '', link: '' },
+  { id: 'warm', label: 'Warm', background: '#1a1410', foreground: '#ede0d4', border: '#3a2e24', accent: '#e0a458', muted: '', link: '' },
+  { id: 'midnight', label: 'Midnight', background: '#060614', foreground: '#d6d8f5', border: '#2a2d52', accent: '#8b93ff', muted: '', link: '' },
+  { id: 'carbon', label: 'Carbon', background: '#0a0a0a', foreground: '#e6e6e6', border: '#2e2e2e', accent: '#4ade80', muted: '', link: '' },
 ];
 
 /** Returns the id of the theme preset whose palette exactly matches the given
@@ -51,6 +56,8 @@ export function matchUiThemePreset(prefs: {
   uiForeground: string;
   uiBorder: string;
   uiAccentColor: string;
+  uiMutedColor: string;
+  uiLinkColor: string;
 }): string {
   for (const p of UI_THEME_PRESETS) {
     if (
@@ -58,6 +65,8 @@ export function matchUiThemePreset(prefs: {
       && p.foreground === prefs.uiForeground
       && p.border === prefs.uiBorder
       && p.accent === prefs.uiAccentColor
+      && p.muted === prefs.uiMutedColor
+      && p.link === prefs.uiLinkColor
     ) {
       return p.id;
     }
@@ -65,15 +74,18 @@ export function matchUiThemePreset(prefs: {
   return '';
 }
 
-/** Convert a preset into a prefs patch that writes its four color fields. */
+/** Convert a preset into a prefs patch that writes its color fields (muted/link
+ *  reset to '' so selecting a preset gives a clean, coordinated palette). */
 export function uiThemePresetToPrefs(
   preset: UiThemePreset,
-): Partial<Pick<ChatPrefs, 'uiBackground' | 'uiForeground' | 'uiBorder' | 'uiAccentColor'>> {
+): Partial<Pick<ChatPrefs, 'uiBackground' | 'uiForeground' | 'uiBorder' | 'uiAccentColor' | 'uiMutedColor' | 'uiLinkColor'>> {
   return {
     uiBackground: preset.background,
     uiForeground: preset.foreground,
     uiBorder: preset.border,
     uiAccentColor: preset.accent,
+    uiMutedColor: preset.muted,
+    uiLinkColor: preset.link,
   };
 }
 

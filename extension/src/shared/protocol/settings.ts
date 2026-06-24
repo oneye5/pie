@@ -98,6 +98,14 @@ export interface ChatPrefs {
   /** When true, sub-agents always use the parent's active model (skip bucket selection). */
   subagentAlwaysParentModel: boolean;
   completionSoundVolume: number;
+  /** Base font size (px) for body text and message prose — the primary
+   *  readable content (assistant/user messages and the inline editor). Drives
+   *  --panel-font-size. Default 13 reproduces the bundled size. */
+  uiBaseFontSize: number;
+  /** Font size (px) for the composer input textarea (where you type). Drives
+   *  --panel-composer-font-size, independent of the base size so the input can
+   *  be sized for comfort without rescaling the transcript. Default 13. */
+  uiComposerFontSize: number;
   /** Font size (px) for expanded collapsible sections — tool-call bodies,
    *  reasoning, system prompts, pruning raw output, and code blocks. Smaller
    *  than the 13px raw agent output since expanded text is lower priority. */
@@ -116,6 +124,15 @@ export interface ChatPrefs {
   /** Override for the accent color (sets --panel-accent) as a CSS color string
    *  (e.g. '#d7a942'). Empty string falls back to the bundled default. */
   uiAccentColor: string;
+  /** Override for the muted text color (sets --panel-muted) used for secondary
+   *  labels, hints, and metadata. Empty string falls back to the shade derived
+   *  from --panel-foreground (or the bundled default when foreground is also
+   *  empty). */
+  uiMutedColor: string;
+  /** Override for the link color (sets --panel-link) used for hyperlinks in
+   *  message bodies and prompts. Empty string falls back to --panel-accent
+   *  (the bundled default link appearance). */
+  uiLinkColor: string;
   /** Max width (%) of chat bubbles (sets --message-assistant-width). Also
    *  scales the narrow variant up by 4 points (clamped to 100). The bundled
    *  default is 88. */
@@ -179,11 +196,15 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   showPruningMessages: true,
   subagentAlwaysParentModel: false,
   completionSoundVolume: 50,
+  uiBaseFontSize: 13,
+  uiComposerFontSize: 13,
   expandedSectionFontSize: 12,
   expandedSectionMaxHeight: 240,
   uiFontSans: '',
   uiFontMono: '',
   uiAccentColor: '',
+  uiMutedColor: '',
+  uiLinkColor: '',
   uiMessageWidth: 88,
   uiBackground: '',
   uiForeground: '',

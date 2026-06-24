@@ -118,6 +118,13 @@
   --panel-success: #51d88a;
   --panel-font-sans: Inter, "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
   --panel-font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+  /* Per-place font sizes — driven by ChatPrefs (see app-body.tsx). Defaults
+     reproduce the bundled sizes so an uncustomized panel is unchanged. */
+  --panel-font-size: 13px;
+  --panel-composer-font-size: 13px;
+  /* Link color — defaults to the accent so links match the bundled gold until
+     the user overrides via the UI flyout. */
+  --panel-link: var(--panel-accent);
 
   /* Compatibility aliases for VS Code token references.
      No longer used by component stylesheets — prefer --panel-* tokens directly.
@@ -331,7 +338,7 @@
 
   body {
     font-family: var(--panel-font-sans);
-    font-size: 13px;
+    font-size: var(--panel-font-size, 13px);
     color: var(--panel-foreground);
     background: var(--panel-black);
   }
@@ -395,7 +402,7 @@
 /* ── Prose utility ──────────────────────────────────────────────────────── */
 
 @utility message-prose {
-  font-size: 13px;
+  font-size: var(--panel-font-size, 13px);
   line-height: 1.6;
   word-break: break-word;
   overflow-wrap: anywhere;
