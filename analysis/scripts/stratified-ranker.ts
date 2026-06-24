@@ -119,11 +119,18 @@ export interface ModelOutcomeScores {
   runCount: number;
   satisfaction: number; // 1–5 mean
   resolutionRate: number; // 0–1 mean
-  firstAttemptSuccess: number; // 0–1 proportion
+  fileChurn: number; // 0–1, inverted mean editRevisitRate (higher = less churn = better)
   toolReliability: number; // 0–1 proportion
   verificationAdoption: number; // 0–1 proportion
   tokenEfficiency: number; // median, inverted (0–1, higher = better)
   compositeScore: number; // 0–1 quality composite
+  /**
+   * Representative cost for the family group, resolved by `assignModelsToBuckets`
+   * from per-run provider ids (mean of each run's own cost). Undefined when the
+   * outcome was constructed directly (e.g. in tests); `rankModelsInBand` then
+   * falls back to its own cost-map lookup. Not part of the quality composite.
+   */
+  cost?: number;
 }
 
 export function computeOutcomeScores(
@@ -134,7 +141,10 @@ export function computeOutcomeScores(
   );
   if (scored.length === 0) return null;
 
-  const modelId = scored[0].modelId ?? "(unknown)";
+  // Label is the canonical model family (provider-agnostic), matching the
+  // family-grouping key used in assignModelsToBuckets; falls back to the
+  // provider-specific modelId, then unknown.
+  const modelId = scored[0].modelFamily ?? scored[0].modelId ?? "(unknown)";
 
   // Satisfaction (1–5 mean)
   const satisfactionValues = scored.map((r) => r.satisfaction!);
@@ -146,9 +156,18 @@ export function computeOutcomeScores(
   const resolutionRate =
     resolutionValues.reduce((a, b) => a + b, 0) / resolutionValues.length;
 
-  // First-attempt success (0–1 proportion)
-  const firstAttemptSuccess =
-    scored.filter((r) => r.firstAttemptSuccess).length / scored.length;
+  // File churn (inverted editRevisitRate mean): 0 churn → 1 (best), 1 churn → 0 (worst).
+  // Runs with null editRevisitRate are dropped from this dimension's denominator,
+  // mirroring how null tokenEfficiency values are excluded; when every run is null
+  // the dimension defaults to the worst (0), matching the all-null tokenEfficiency path.
+  const editRevisitValues = scored
+    .map((r) => r.editRevisitRate)
+    .filter((v): v is number => v !== null);
+  const meanEditRevisit =
+    editRevisitValues.length > 0
+      ? editRevisitValues.reduce((a, b) => a + b, 0) / editRevisitValues.length
+      : 1; // all-null → worst (all churn)
+  const fileChurn = 1 - meanEditRevisit;
 
   // Tool reliability (0–1 proportion)
   const toolReliability =
@@ -170,11 +189,13 @@ export function computeOutcomeScores(
   // Invert: lower tokens-per-line = better efficiency
   const tokenEfficiencyNorm = 1 - Math.min(median, TOKEN_EFFICIENCY_MAX) / TOKEN_EFFICIENCY_MAX;
 
-  // Quality composite (6 dimensions, equal weights)
+  // Quality composite (6 dimensions, equal weights). fileChurn replaces the
+  // former firstAttemptSuccess dimension (1-prompt success is not a quality
+  // signal; file churn is the indicative negative) — still 6 dims at 1/6 each.
   const compositeScore =
     ((satisfaction - 1) / 4) * (1 / 6) + // normalize 1–5 → 0–1
     resolutionRate * (1 / 6) +
-    firstAttemptSuccess * (1 / 6) +
+    fileChurn * (1 / 6) +
     toolReliability * (1 / 6) +
     verificationAdoption * (1 / 6) +
     tokenEfficiencyNorm * (1 / 6);
@@ -184,7 +205,7 @@ export function computeOutcomeScores(
     runCount: scored.length,
     satisfaction,
     resolutionRate,
-    firstAttemptSuccess,
+    fileChurn,
     toolReliability,
     verificationAdoption,
     tokenEfficiency: tokenEfficiencyNorm,
@@ -210,11 +231,14 @@ export function rankModelsInBand(
     costMap.set(cfg.id, cfg.cost);
   }
 
-  // Create entries with cost
+  // Create entries with cost. `o.cost` is the family-resolved representative cost
+  // (set by assignModelsToBuckets from per-run provider ids); when absent (e.g.
+  // outcomes constructed directly in tests) fall back to a direct provider-id /
+  // family lookup, then the default.
   const entries: RankedModelEntry[] = outcomes.map((o) => ({
     modelId: o.modelId,
     compositeScore: o.compositeScore,
-    cost: costMap.get(o.modelId) ?? 10, // default cost if unknown
+    cost: o.cost ?? costMap.get(o.modelId) ?? 10, // default cost if unknown
   }));
 
   // Stage 1: sort by quality composite descending
@@ -239,18 +263,60 @@ interface ModelBandResult {
   compositeScore: number;
 }
 
+/**
+ * Representative cost for a model-family group.
+ *
+ * Family grouping collapses multiple provider-specific model ids into one group
+ * (e.g. "umans-glm-5.2" and "glm-5.2:cloud" → family "glm-5.2"); each provider
+ * id may carry a different cost in `model-profiles.yaml`. We resolve cost per-run
+ * — looking up each run's own `modelId` in the cost map and averaging the hits —
+ * so the family's cost reflects the providers actually observed rather than an
+ * arbitrary default. When no run resolves (none of the provider ids are in the
+ * cost map) we fall back to the family label itself, then the default (10), so
+ * the cost map always resolves deterministically.
+ *
+ * DECISION: per-run mean was chosen over "first provider id" or "family
+ * default" because a family that spans providers with different costs (e.g. a
+ * cheap and a pricey host of the same model) should land between them, not at
+ * either extreme. `firstAttemptSuccess` is intentionally NOT part of this — it
+ * remains on PreparedRunRow for the global leaderboard / interruptions chart.
+ */
+function resolveFamilyCost(
+  runs: PreparedRunRow[],
+  costMap: Map<string, number>,
+  family: string,
+): number {
+  const perRun = runs
+    .map((r) => r.modelId)
+    .filter((id): id is string => id !== null)
+    .map((id) => costMap.get(id))
+    .filter((c): c is number => c !== undefined);
+  if (perRun.length > 0) {
+    return perRun.reduce((a, b) => a + b, 0) / perRun.length;
+  }
+  return costMap.get(family) ?? 10;
+}
+
 export function assignModelsToBuckets(
   bands: BandAssignment[],
   modelConfig: SimpleModelConfig[],
 ): BucketAssignments {
+  // Cost map keyed by provider-specific model id (cfg.id). Used to resolve a
+  // representative per-family cost now that groups are family-keyed.
+  const costMap = new Map<string, number>();
+  for (const cfg of modelConfig) {
+    costMap.set(cfg.id, cfg.cost);
+  }
+
   // Collect all model-band outcomes
   const allResults: ModelBandResult[] = [];
 
   for (const band of bands) {
-    // Group runs by model
+    // Group runs by canonical model family (provider-agnostic), mirroring
+    // leaderboard.ts; falls back to the provider-specific modelId, then unknown.
     const byModel = new Map<string, PreparedRunRow[]>();
     for (const run of band.runs) {
-      const mid = run.modelId ?? "(unknown)";
+      const mid = run.modelFamily ?? run.modelId ?? "(unknown)";
       if (!byModel.has(mid)) byModel.set(mid, []);
       byModel.get(mid)!.push(run);
     }
@@ -283,7 +349,7 @@ export function assignModelsToBuckets(
   for (const band of bands) {
     const byModel = new Map<string, PreparedRunRow[]>();
     for (const run of band.runs) {
-      const mid = run.modelId ?? "(unknown)";
+      const mid = run.modelFamily ?? run.modelId ?? "(unknown)";
       if (!byModel.has(mid)) byModel.set(mid, []);
       byModel.get(mid)!.push(run);
     }
@@ -294,6 +360,10 @@ export function assignModelsToBuckets(
 
       const outcomes = computeOutcomeScores(runs);
       if (!outcomes) continue;
+
+      // Resolve the family's representative cost from per-run provider ids so
+      // cost-based re-ranking stays coherent across the family-grouping boundary.
+      outcomes.cost = resolveFamilyCost(runs, costMap, modelId);
 
       const bucket = BAND_TO_BUCKET[band.band];
       if (!bucketEntries.has(bucket)) bucketEntries.set(bucket, []);

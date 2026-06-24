@@ -128,7 +128,15 @@ function makeRun(overrides: Partial<PreparedRunRow> & { runId: string }): Prepar
     editRevisitRate: null,
     estimatedCostUsd: null,
   };
-  return { ...defaults, ...overrides } as PreparedRunRow;
+  const merged = { ...defaults, ...overrides } as PreparedRunRow;
+  // Default modelFamily to the run's own modelId (matching resolveModelFamily's
+  // fallback to modelId when no family is declared in models.json), unless an
+  // explicit family was supplied — so tests that vary only `modelId` still
+  // produce distinct family-keyed groups after family grouping.
+  if (overrides.modelFamily === undefined) {
+    merged.modelFamily = merged.modelId ?? 'model-a';
+  }
+  return merged;
 }
 
 /** Build a set of runs that spans distinct complexity levels. */
@@ -481,15 +489,43 @@ test('computeOutcomeScores: satisfaction is mean of 1-5 values', () => {
   assert.equal(result.satisfaction, 3);
 });
 
-test('computeOutcomeScores: firstAttemptSuccess is proportion', () => {
+test('computeOutcomeScores: fileChurn inverts mean editRevisitRate', () => {
+  // editRevisitRate 0 = no churn → fileChurn 1; 1 = all churn → fileChurn 0.
   const runs = [
-    makeRun({ runId: 'r1', firstAttemptSuccess: true }),
-    makeRun({ runId: 'r2', firstAttemptSuccess: true }),
-    makeRun({ runId: 'r3', firstAttemptSuccess: false }),
+    makeRun({ runId: 'r1', editRevisitRate: 0 }),    // no churn
+    makeRun({ runId: 'r2', editRevisitRate: 0.5 }),  // half churn
+    makeRun({ runId: 'r3', editRevisitRate: 1 }),    // all churn
   ];
   const result = computeOutcomeScores(runs);
   assert.ok(result);
-  assert.ok(Math.abs(result.firstAttemptSuccess - 2 / 3) < 1e-10);
+  // mean editRevisitRate = (0 + 0.5 + 1) / 3 = 0.5 → fileChurn = 1 - 0.5 = 0.5
+  assert.ok(Math.abs(result.fileChurn - 0.5) < 1e-10);
+});
+
+test('computeOutcomeScores: fileChurn drops null editRevisitRate rows', () => {
+  // Runs with null editRevisitRate are excluded from the fileChurn denominator,
+  // mirroring how null tokenEfficiency values are dropped.
+  const runs = [
+    makeRun({ runId: 'r1', editRevisitRate: 0 }),    // fileChurn contribution: 1
+    makeRun({ runId: 'r2', editRevisitRate: null }), // dropped from this dim
+    makeRun({ runId: 'r3', editRevisitRate: 1 }),    // fileChurn contribution: 0
+  ];
+  const result = computeOutcomeScores(runs);
+  assert.ok(result);
+  // mean over non-null = (0 + 1) / 2 = 0.5 → fileChurn = 1 - 0.5 = 0.5
+  assert.ok(Math.abs(result.fileChurn - 0.5) < 1e-10);
+});
+
+test('computeOutcomeScores: fileChurn all-null editRevisitRate defaults to worst', () => {
+  // When every run has null editRevisitRate the dimension defaults to the worst
+  // (0), matching the all-null tokenEfficiency path (median → TOKEN_EFFICIENCY_MAX → 0).
+  const runs = [
+    makeRun({ runId: 'r1', editRevisitRate: null }),
+    makeRun({ runId: 'r2', editRevisitRate: null }),
+  ];
+  const result = computeOutcomeScores(runs);
+  assert.ok(result);
+  assert.equal(result.fileChurn, 0);
 });
 
 test('computeOutcomeScores: toolReliability = proportion with 0 failures', () => {
@@ -569,7 +605,7 @@ test('computeOutcomeScores: compositeScore is average of 6 normalized dimensions
       runId: 'perfect',
       satisfaction: 5,                    // (5-1)/4 = 1.0
       resolution: 'resolved',            // 1.0
-      firstAttemptSuccess: true,         // 1.0
+      editRevisitRate: 0,               // fileChurn = 1 - 0 = 1.0
       toolFailureCount: 0,              // 1.0
       verificationTotalCount: 1,        // 1.0
       tokenEfficiency: 0,               // 1 - 0/50 = 1.0
@@ -587,7 +623,7 @@ test('computeOutcomeScores: compositeScore with worst values', () => {
       runId: 'worst',
       satisfaction: 1,                    // (1-1)/4 = 0
       resolution: 'unresolved',          // 0
-      firstAttemptSuccess: false,        // 0
+      editRevisitRate: 1,               // fileChurn = 1 - 1 = 0
       toolFailureCount: 10,             // 0
       verificationTotalCount: 0,        // 0
       tokenEfficiency: 50,              // 1 - 50/50 = 0
@@ -627,7 +663,7 @@ test('rankModelsInBand: single model returns it', () => {
     runCount: 5,
     satisfaction: 4,
     resolutionRate: 0.8,
-    firstAttemptSuccess: 0.6,
+    fileChurn: 0.6,
     toolReliability: 0.9,
     verificationAdoption: 0.5,
     tokenEfficiency: 0.7,
@@ -642,8 +678,8 @@ test('rankModelsInBand: single model returns it', () => {
 
 test('rankModelsInBand: stage 1 sorts by composite descending', () => {
   const outcomes: ModelOutcomeScores[] = [
-    { modelId: 'low', runCount: 5, satisfaction: 3, resolutionRate: 0.5, firstAttemptSuccess: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.3 },
-    { modelId: 'high', runCount: 5, satisfaction: 5, resolutionRate: 1, firstAttemptSuccess: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 1, compositeScore: 0.9 },
+    { modelId: 'low', runCount: 5, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.3 },
+    { modelId: 'high', runCount: 5, satisfaction: 5, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 1, compositeScore: 0.9 },
   ];
   const config: SimpleModelConfig[] = [
     { id: 'low', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
@@ -657,10 +693,10 @@ test('rankModelsInBand: stage 1 sorts by composite descending', () => {
 test('rankModelsInBand: stage 2 re-ranks by cost within quality tiers', () => {
   // 4 models: 2 in top half (sorted by quality), 2 in bottom half
   const outcomes: ModelOutcomeScores[] = [
-    { modelId: 'quality-a', runCount: 5, satisfaction: 4, resolutionRate: 0.8, firstAttemptSuccess: 0.7, toolReliability: 0.9, verificationAdoption: 0.8, tokenEfficiency: 0.7, compositeScore: 0.8 },
-    { modelId: 'quality-b', runCount: 5, satisfaction: 4, resolutionRate: 0.7, firstAttemptSuccess: 0.6, toolReliability: 0.8, verificationAdoption: 0.7, tokenEfficiency: 0.6, compositeScore: 0.7 },
-    { modelId: 'quality-c', runCount: 5, satisfaction: 3, resolutionRate: 0.5, firstAttemptSuccess: 0.4, toolReliability: 0.6, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.4 },
-    { modelId: 'quality-d', runCount: 5, satisfaction: 2, resolutionRate: 0.3, firstAttemptSuccess: 0.2, toolReliability: 0.4, verificationAdoption: 0.3, tokenEfficiency: 0.3, compositeScore: 0.2 },
+    { modelId: 'quality-a', runCount: 5, satisfaction: 4, resolutionRate: 0.8, fileChurn: 0.7, toolReliability: 0.9, verificationAdoption: 0.8, tokenEfficiency: 0.7, compositeScore: 0.8 },
+    { modelId: 'quality-b', runCount: 5, satisfaction: 4, resolutionRate: 0.7, fileChurn: 0.6, toolReliability: 0.8, verificationAdoption: 0.7, tokenEfficiency: 0.6, compositeScore: 0.7 },
+    { modelId: 'quality-c', runCount: 5, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.4, toolReliability: 0.6, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.4 },
+    { modelId: 'quality-d', runCount: 5, satisfaction: 2, resolutionRate: 0.3, fileChurn: 0.2, toolReliability: 0.4, verificationAdoption: 0.3, tokenEfficiency: 0.3, compositeScore: 0.2 },
   ];
   const config: SimpleModelConfig[] = [
     { id: 'quality-a', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 5 },   // expensive, top half
@@ -676,8 +712,8 @@ test('rankModelsInBand: stage 2 re-ranks by cost within quality tiers', () => {
 
 test('rankModelsInBand: model not in config gets default cost 10', () => {
   const outcomes: ModelOutcomeScores[] = [
-    { modelId: 'known', runCount: 5, satisfaction: 4, resolutionRate: 0.8, firstAttemptSuccess: 0.7, toolReliability: 0.9, verificationAdoption: 0.8, tokenEfficiency: 0.7, compositeScore: 0.8 },
-    { modelId: 'unknown', runCount: 5, satisfaction: 4, resolutionRate: 0.7, firstAttemptSuccess: 0.6, toolReliability: 0.8, verificationAdoption: 0.7, tokenEfficiency: 0.6, compositeScore: 0.7 },
+    { modelId: 'known', runCount: 5, satisfaction: 4, resolutionRate: 0.8, fileChurn: 0.7, toolReliability: 0.9, verificationAdoption: 0.8, tokenEfficiency: 0.7, compositeScore: 0.8 },
+    { modelId: 'unknown', runCount: 5, satisfaction: 4, resolutionRate: 0.7, fileChurn: 0.6, toolReliability: 0.8, verificationAdoption: 0.7, tokenEfficiency: 0.6, compositeScore: 0.7 },
   ];
   const config: SimpleModelConfig[] = [
     { id: 'known', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
@@ -829,6 +865,50 @@ test('assignModelsToBuckets: model with runs in only one band appears in that bu
   assert.equal(count, 1, 'model-y should appear in exactly one bucket');
 });
 
+test('assignModelsToBuckets: family grouping collapses two provider ids into one bucket', () => {
+  // Two provider-specific model ids sharing one modelFamily collapse into a
+  // single family-keyed group (mirroring leaderboard.ts), so the family label —
+  // not the provider ids — appears in the buckets.
+  const familyRuns: PreparedRunRow[] = [];
+  // Provider A: umans-glm-5.2
+  for (let i = 0; i < 6; i++) {
+    familyRuns.push(makeRun({
+      runId: `umans-${i}`,
+      modelId: 'umans-glm-5.2',
+      modelFamily: 'glm-5.2',
+      satisfaction: 4,
+      resolution: 'resolved',
+      editRevisitRate: 0,
+    }));
+  }
+  // Provider B: glm-5.2:cloud (same family)
+  for (let i = 0; i < 6; i++) {
+    familyRuns.push(makeRun({
+      runId: `cloud-${i}`,
+      modelId: 'glm-5.2:cloud',
+      modelFamily: 'glm-5.2',
+      satisfaction: 4,
+      resolution: 'resolved',
+      editRevisitRate: 0,
+    }));
+  }
+
+  const complexityScores = computeComplexityScores(familyRuns);
+  const bands = assignBands(familyRuns, complexityScores);
+  const config: SimpleModelConfig[] = [
+    { id: 'umans-glm-5.2', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 10 },
+    { id: 'glm-5.2:cloud', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 10 },
+  ];
+  const result = assignModelsToBuckets(bands, config);
+
+  const allIds = [...result.small, ...result.medium, ...result.frontier];
+  // The family label appears exactly once (collapses both provider ids).
+  assert.equal(allIds.filter((id) => id === 'glm-5.2').length, 1, 'family glm-5.2 should appear once');
+  // Neither provider-specific id leaks through as its own bucket entry.
+  assert.ok(!allIds.includes('umans-glm-5.2'), 'umans-glm-5.2 should be collapsed into its family');
+  assert.ok(!allIds.includes('glm-5.2:cloud'), 'glm-5.2:cloud should be collapsed into its family');
+});
+
 // ===========================================================================
 // computeBucketAssignments (integration via internal pipeline)
 // ===========================================================================
@@ -970,10 +1050,10 @@ test('full pipeline: cost-based re-ranking within quality tiers', () => {
   // rankModelsInBand splits into top/bottom halves by composite, then re-sorts each by cost.
   // With 4 models, mid = ceil(4/2) = 2, so top half gets 2 models.
   const outcomes: ModelOutcomeScores[] = [
-    { modelId: 'expensive-high', runCount: 10, satisfaction: 4, resolutionRate: 1, firstAttemptSuccess: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 0.8, compositeScore: 0.9 },
-    { modelId: 'cheap-high', runCount: 10, satisfaction: 4, resolutionRate: 1, firstAttemptSuccess: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 0.8, compositeScore: 0.85 },
-    { modelId: 'expensive-low', runCount: 10, satisfaction: 3, resolutionRate: 0.5, firstAttemptSuccess: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.4 },
-    { modelId: 'cheap-low', runCount: 10, satisfaction: 3, resolutionRate: 0.5, firstAttemptSuccess: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.35 },
+    { modelId: 'expensive-high', runCount: 10, satisfaction: 4, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 0.8, compositeScore: 0.9 },
+    { modelId: 'cheap-high', runCount: 10, satisfaction: 4, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 0.8, compositeScore: 0.85 },
+    { modelId: 'expensive-low', runCount: 10, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.4 },
+    { modelId: 'cheap-low', runCount: 10, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.35 },
   ];
   const config: SimpleModelConfig[] = [
     { id: 'expensive-high', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 10 },
@@ -1003,6 +1083,7 @@ test('edge case: single run with all minimum signals', () => {
     satisfaction: 1,
     resolution: 'unresolved',
     firstAttemptSuccess: false,
+    editRevisitRate: 1,               // all churn → fileChurn 0 (worst)
     tokenEfficiency: 50,
     toolFailureCount: 99,
   });
@@ -1013,7 +1094,7 @@ test('edge case: single run with all minimum signals', () => {
   assert.ok(outcomes);
   assert.equal(outcomes!.satisfaction, 1);
   assert.equal(outcomes!.resolutionRate, 0);
-  assert.equal(outcomes!.firstAttemptSuccess, 0);
+  assert.equal(outcomes!.fileChurn, 0);
   assert.equal(outcomes!.toolReliability, 0);
   assert.equal(outcomes!.verificationAdoption, 0);
   assert.equal(outcomes!.tokenEfficiency, 0);  // 1 - 50/50 = 0
