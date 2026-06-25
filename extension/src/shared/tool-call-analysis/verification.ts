@@ -1,4 +1,5 @@
 import { isRecord } from '../type-guards';
+import type { VerificationCommandKind } from '../../../../shared/tool-analysis-kinds.js';
 
 export interface SubagentTaskScoreRollup {
   precision:    { sum: number; count: number; max: number };
@@ -31,8 +32,6 @@ export function coerceTaskScores(scores: unknown): Record<string, number> | null
   }
   return hasAny ? result : null;
 }
-
-export type VerificationCommandKind = 'test' | 'build' | 'lint' | 'typecheck' | 'format' | 'other';
 
 function normalizeText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();

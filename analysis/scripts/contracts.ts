@@ -1,3 +1,17 @@
+import type {
+  ToolFailureKind,
+  ToolResultIssueKind,
+  TreatmentChangeKind,
+  VerificationCommandKind,
+} from '../../shared/tool-analysis-kinds.js';
+
+export type {
+  ToolFailureKind,
+  ToolResultIssueKind,
+  TreatmentChangeKind,
+  VerificationCommandKind,
+} from '../../shared/tool-analysis-kinds.js';
+
 export const RUN_ANALYTICS_SCHEMA_VERSION = 1;
 export const SITE_DATA_SCHEMA_VERSION = 1;
 export const DATA_MODE_LOCAL_DEFAULT = 'local-default';
@@ -26,37 +40,9 @@ export type RunFinalizationReason = 'scored' | 'closed_unscored' | 'new_task';
 export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 export type PruningMode = 'auto' | 'shadow' | 'off' | 'custom';
 export type InputKind = 'filesystemPathRef' | 'imageBlob' | 'fileBlob';
-export type VerificationCommandKind = 'test' | 'build' | 'lint' | 'typecheck' | 'format' | 'other';
-/**
- * Execution failures: the tool could not complete its job. Counted under
- * `failureCount` / `failureCountsByKind`. Non-success results (failing
- * tests/builds, empty searches) are tracked under `ToolResultIssueKind`.
- */
-export type ToolFailureKind =
-  | 'unavailable_tool'
-  | 'invalid_tool_arguments'
-  | 'missing_file_or_path'
-  | 'shell_command_error'
-  | 'timeout'
-  | 'nonzero_exit'
-  | 'unknown';
-
-/**
- * Non-success results: the tool ran to completion but reported a non-success
- * outcome. Counted under `resultIssueCount` / `resultIssueCountsByKind` —
- * measured signal, NOT tool failures.
- */
-export type ToolResultIssueKind =
-  | 'verification_failure'
-  | 'probe_no_match';
-export type TreatmentChangeKind =
-  | 'model'
-  | 'thinking'
-  | 'prompt'
-  | 'toolSelection'
-  | 'skills'
-  | 'experimentAssignment'
-  | 'extensions';;
+// VerificationCommandKind, ToolFailureKind, ToolResultIssueKind, and
+// TreatmentChangeKind are re-exported above from the shared canonical module
+// (../../shared/tool-analysis-kinds.js).
 export type RunOutcomeResolution = 'resolved' | 'partially_resolved' | 'unresolved';
 export type VerificationState = 'none' | 'passing' | 'failing';
 export type VerificationCountBucket = '0' | '1' | '2-3' | '4+';

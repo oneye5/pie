@@ -7,21 +7,14 @@ import type {
   SessionAnalyticsFactors,
   ThinkingLevel,
 } from '../../shared/protocol';
-import type { VerificationCommandKind, SubagentTaskScoreRollup, ToolFailureKind, ToolResultIssueKind } from '../../shared/tool-call-analysis';
+import type { VerificationCommandKind, SubagentTaskScoreRollup, ToolFailureKind, ToolResultIssueKind, TreatmentChangeKind } from '../../shared/tool-call-analysis';
+
+export type { TreatmentChangeKind } from '../../shared/tool-call-analysis';
 
 export const RUN_ANALYTICS_SCHEMA_VERSION = 1;
 
 export type TaskBoundaryIntent = 'new_task' | 'continue_task' | null;
 export type RunFinalizationReason = 'scored' | 'closed_unscored' | 'new_task';
-
-export type TreatmentChangeKind =
-  | 'model'
-  | 'thinking'
-  | 'prompt'
-  | 'toolSelection'
-  | 'skills'
-  | 'experimentAssignment'
-  | 'extensions';
 
 export interface ToolFailureSample {
   toolName: string;

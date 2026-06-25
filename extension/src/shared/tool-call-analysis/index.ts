@@ -24,10 +24,20 @@ import {
   createEmptySubagentTaskScoreRollup,
   extractSubagentUsage,
   type SubagentTaskScoreRollup,
-  type VerificationCommandKind,
 } from './verification';
+import type {
+  ToolFailureKind,
+  ToolResultIssueKind,
+  VerificationCommandKind,
+} from '../../../../shared/tool-analysis-kinds.js';
 
-export type { VerificationCommandKind, FileMutationDelta, SubagentTaskScoreRollup, FileExtensionAnalysis };
+export type {
+  ToolFailureKind,
+  ToolResultIssueKind,
+  TreatmentChangeKind,
+  VerificationCommandKind,
+} from '../../../../shared/tool-analysis-kinds.js';
+export type { FileMutationDelta, SubagentTaskScoreRollup, FileExtensionAnalysis };
 export {
   countTextLines,
   normalizeToolCallName,
@@ -43,30 +53,6 @@ export {
   createEmptyFileMutationDelta,
   createEmptySubagentTaskScoreRollup,
 };
-
-/**
- * Execution failures: the tool could not complete its job. These are genuine
- * tool failures (the tool itself is at fault) and are counted under
- * `failureCount` / `failureCountsByKind`.
- */
-export type ToolFailureKind =
-  | 'unavailable_tool'
-  | 'invalid_tool_arguments'
-  | 'missing_file_or_path'
-  | 'shell_command_error'
-  | 'timeout'
-  | 'nonzero_exit'
-  | 'unknown';
-
-/**
- * Non-success results: the tool ran to completion and did its job correctly,
- * but the outcome it reported was not "success". These are measured signal
- * (a failing test, a breaking build, an empty search) — NOT tool failures —
- * and are counted under `resultIssueCount` / `resultIssueCountsByKind`.
- */
-export type ToolResultIssueKind =
-  | 'verification_failure'
-  | 'probe_no_match';
 
 export interface ToolFailureDetails {
   kind: ToolFailureKind;

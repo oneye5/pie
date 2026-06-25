@@ -16,7 +16,7 @@ done / deferred (needs user decision).
 | W2d — Path utilities shared module | S1 | done | `99681d7` |
 | W2e — Token formatting factory | S1 | done | `b267880` |
 | W2f — Pricing logic across 3 packages | S1 | done | `f2253ca` |
-| W2g — Coercion / failure-kind taxonomy | S1 | deferred (needs type-ownership decision + frontier scout/reviewer) | — |
+| W2g — Coercion / failure-kind taxonomy (4 kind unions → shared/) | S1 | done | `4e91679` |
 | W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | deferred (frontier subagent blocked by session usage limit) | — |
 | W4 — Tighten boundary-typing ring | S6 | deferred (frontier subagent blocked by session usage limit) | — |
 | W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | deferred (frontier + needs versioned-migration design decision) | — |
@@ -28,12 +28,14 @@ done / deferred (needs user decision).
   mismatch today; the next schema bump silently drops all user analytics. Need a
   version-table shape + migration path before implementing atomic persistence.
   Propose options to the user before spawning.
-- **W2g type ownership** — the failure-kind unions (`ToolFailureKind`,
-  `ToolResultIssueKind`, `VerificationCommandKind`, `TreatmentChangeKind`) are
-  double-defined in `extension/src/shared/tool-call-analysis/index.ts` (host)
-  AND `analysis/scripts/contracts.ts` (analysis). The shared coercion module
-  must decide where they canonically live (shared owns them? re-export from one?
-  ). Ask the user before spawning.
+- **W2g type ownership — RESOLVED (user discretion):** option (a) — `shared/`
+  owns the canonical 4 kind unions; both `extension/src/shared/tool-call-analysis`
+  and `analysis/scripts/contracts.ts` re-export from there. Matches the W2f
+  `shared/pricing-core.ts` precedent (shared/ already bridges analysis + extension
+  via relative `.js` imports under NodeNext; a direct analysis↔extension cross-tree
+  import would clash across bundler-vs-NodeNext resolution). Scope = the 4 unions +
+  their `*_KINDS` const arrays (the taxonomy); the heavier coercion-*function*
+  dedup (`coerceToolUsageRollup` etc.) is left as a follow-up.
 
 ## Discovered follow-ups (not in original backlog)
 - **`pruning-settings.ts:24` `VALID_MODES`** omits `'custom'` (mirrors the
@@ -50,6 +52,18 @@ done / deferred (needs user decision).
   follow-up.
 - **Dead `truncateText` wrapper** in `tool-call-summary.ts` after W2d (no
   remaining callers). Safe to remove.
+- **W2g follow-up — `*_KINDS` const arrays remain duplicated** between
+  `extension/src/host/run-analytics/coercion-rollups.ts` and
+  `analysis/scripts/source.ts`. `VERIFICATION_COMMAND_KINDS` /
+  `TOOL_FAILURE_KINDS` / `TOOL_RESULT_ISSUE_KINDS` are byte-identical arrays in
+  both trees; `TREATMENT_CHANGE_KINDS` is an `array` in `coercion-rollups.ts`
+  but a `new Set<TreatmentChangeKind>([…])` in `source.ts` (structural
+  divergence → not merged). The coercion *functions*
+  (`coerceToolUsageRollup`, `createEmpty*KindRecord`, `LEGACY_*_MAP`, sample
+  splitting) also remain duplicated. A follow-up could converge all `*_KINDS`
+  into `shared/tool-analysis-kinds.ts` (blessing the array form, with
+  `source.ts` constructing its `Set` from it) and dedup the coercion functions
+  into a shared `coercion-core.ts` — a larger, separate effort.
 - **`header.ts` token grouping** changed from host-locale to `en-US` in W2e
   (intentional, deterministic). Confirmed acceptable.
 - **`handleSessionClosed`** now drops the session summary (via
