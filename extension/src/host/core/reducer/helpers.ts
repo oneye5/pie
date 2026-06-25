@@ -68,9 +68,60 @@ export function addToArray(arr: readonly string[], value: string): string[] {
   return arr.includes(value) ? [...arr] : [...arr, value];
 }
 
-/** Remove all per-session state for a given sessionPath. */
-export function removeSessionFromState(state: ArchState, sessionPath: string): ReducerResult {
+/** Options controlling how much of a session's state {@link evictSession} removes. */
+export interface EvictSessionOptions {
+  /** Drop the session entry from the `sessions.sessions` summary array and
+   *  strip it from `runningSessionPaths` (full eviction: the session is gone
+   *  from the backend, so it can no longer be running). */
+  removeSummary: boolean;
+  /** Drop the session from `openTabPaths` / `pinnedTabPaths` /
+   *  `unreadFinishedSessionPaths` and null `activeSessionPath` if it was the
+   *  active tab. */
+  removeTabs: boolean;
+}
+
+/**
+ * Remove per-session state for a given sessionPath.
+ *
+ * Collapses the two drifted eviction paths (full eviction via
+ * `handleSessionClosed` and the conditional `handleSessionScopeCleared` /
+ * `handleCloseSession` tab-close path) into a single helper.
+ *
+ * ALWAYS clears every per-session keyed map — including
+ * `fileChanges.expandedBySession`, which the tab-close path previously leaked
+ * (stale drawer-expanded state survived a close → reopen cycle). Also always
+ * filters the corrId / requestId / messageId-keyed pending collections
+ * (`ops`, `setModelByCorrId`, `requestIdToLocalId`, `messageIdAlias`,
+ * `currentTurnBySession`, `sendQueueBySession`, `backendReadyQueueBySession`)
+ * by `sessionPath !== sp` so a late *Result for the evicted session no-ops
+ * instead of mutating — or reverting into — a closed session.
+ *
+ * `removeSummary` and `removeTabs` are independent so the three call sites can
+ * express their distinct semantics:
+ *  - `handleSessionClosed` → `{ removeSummary: true, removeTabs: true }`
+ *    (full eviction).
+ *  - `handleSessionScopeCleared` → both coupled to `event.removeSessionSummary`
+ *    (a scope clear that drops the summary also drops the tab).
+ *  - `handleCloseSession` → `{ removeSummary: false, removeTabs: true }`
+ *    (close the tab but keep the summary for reopening, and deliberately
+ *    preserve `runningSessionPaths` — the session may still be running in the
+ *    backend even if its tab is closed).
+ *
+ * Emits `CancelBackendReadyWatchdog` when the eviction empties the
+ * backend-ready queue (the evicted session had queued sends and no other
+ * sessions have entries). The runner's watchdog cancel is a no-op when no
+ * timer is running, so emitting this from the full-eviction path (which
+ * previously emitted no effects) is superset-safe.
+ */
+export function evictSession(
+  state: ArchState,
+  sessionPath: string,
+  opts: EvictSessionOptions,
+): ReducerResult {
   const sp = sessionPath;
+  const { removeSummary, removeTabs } = opts;
+
+  // ── Per-session keyed maps (always cleared, including expandedBySession) ──
   const { [sp]: _t, ...remainingTranscripts } = state.transcript.bySession;
   const { [sp]: _sp, ...remainingSystemPrompts } = state.transcript.systemPromptsBySession;
   const { [sp]: _w, ...remainingWindows } = state.transcript.windowBySession;
@@ -92,13 +143,19 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
   const { [sp]: _psq, ...remainingPendingSendQueue } = state.pending.sendQueueBySession;
   const { [sp]: _brq, ...remainingBackendReadyQueue } = state.pending.backendReadyQueueBySession;
 
+  // ── corrId / requestId / messageId-keyed pending collections (filtered) ──
+  // Drop in-flight send/edit ops for the evicted session. Without this, a
+  // pending.ops entry is orphaned if the SendResult/EditResult never arrives
+  // (backend crash, dropped event).
   const remainingOps: Record<string, PendingOp> = {};
   for (const [corrId, op] of Object.entries(state.pending.ops)) {
     if (op.sessionPath !== sp) remainingOps[corrId] = op;
   }
 
   // Drop in-flight setModel lifecycles for the evicted session (both the
-  // modal-confirm phase and the RPC phase). Mirrors handleSessionScopeCleared.
+  // modal-confirm phase and the RPC phase). A late ModelSwitchConfirmResult /
+  // SetModelResult for these corrIds then no-ops instead of applying to — or
+  // reverting into — a closed session.
   const remainingSetModel: Record<string, SetModelPending> = {};
   for (const [corrId, entry] of Object.entries(state.pending.setModelByCorrId)) {
     if (entry.sessionPath !== sp) remainingSetModel[corrId] = entry;
@@ -114,6 +171,40 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
     if (alias.sessionPath !== sp) remainingMessageIdAlias[messageId] = alias;
   }
 
+  // ── Summary + running paths (removeSummary: full eviction) ──
+  const nextSessions = removeSummary
+    ? state.sessions.sessions.filter((s) => s.path !== sp)
+    : state.sessions.sessions;
+  const nextRunningPaths = removeSummary
+    ? removeFromArray(state.sessions.runningSessionPaths, sp)
+    : state.sessions.runningSessionPaths;
+
+  // ── Tab arrays (removeTabs: close the tab) ──
+  const nextOpenTabPaths = removeTabs
+    ? removeFromArray(state.sessions.openTabPaths, sp)
+    : state.sessions.openTabPaths;
+  const nextPinnedPaths = removeTabs
+    ? removeFromArray(state.sessions.pinnedTabPaths, sp)
+    : state.sessions.pinnedTabPaths;
+  const nextUnreadPaths = removeTabs
+    ? removeFromArray(state.sessions.unreadFinishedSessionPaths, sp)
+    : state.sessions.unreadFinishedSessionPaths;
+  const nextActivePath = removeTabs && state.sessions.activeSessionPath === sp
+    ? null
+    : state.sessions.activeSessionPath;
+
+  // ── Backend-ready watchdog effect ──
+  // If the evicted session had backend-ready-queued sends and no other
+  // sessions have entries, cancel the watchdog timer (the queue is now
+  // empty). The runner's cancel is a no-op when no timer is running, so this
+  // is safe to emit from any eviction path.
+  const hadBackendReadyEntries = !!state.pending.backendReadyQueueBySession[sp]?.length;
+  const backendReadyQueueNowEmpty = Object.keys(remainingBackendReadyQueue).length === 0;
+  const effects: Effect[] =
+    hadBackendReadyEntries && backendReadyQueueNowEmpty
+      ? [{ kind: 'CancelBackendReadyWatchdog', corrId: 'watchdog' }]
+      : [];
+
   return {
     state: {
       ...state,
@@ -127,13 +218,14 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
       },
       sessions: {
         ...state.sessions,
-        interruptInFlightBySession: remainingInterrupts,
+        sessions: nextSessions,
+        openTabPaths: nextOpenTabPaths,
+        pinnedTabPaths: nextPinnedPaths,
+        runningSessionPaths: nextRunningPaths,
+        unreadFinishedSessionPaths: nextUnreadPaths,
+        activeSessionPath: nextActivePath,
         analyticsFactorsBySession: remainingAnalytics,
-        runningSessionPaths: removeFromArray(state.sessions.runningSessionPaths, sp),
-        unreadFinishedSessionPaths: removeFromArray(state.sessions.unreadFinishedSessionPaths, sp),
-        openTabPaths: removeFromArray(state.sessions.openTabPaths, sp),
-        pinnedTabPaths: removeFromArray(state.sessions.pinnedTabPaths, sp),
-        activeSessionPath: state.sessions.activeSessionPath === sp ? null : state.sessions.activeSessionPath,
+        interruptInFlightBySession: remainingInterrupts,
       },
       settings: {
         ...state.settings,
@@ -165,7 +257,7 @@ export function removeSessionFromState(state: ArchState, sessionPath: string): R
         backendReadyQueueBySession: remainingBackendReadyQueue,
       },
     },
-    effects: [],
+    effects,
   };
 }
 

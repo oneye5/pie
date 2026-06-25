@@ -1,30 +1,28 @@
 /**
- * Parity tests for per-session keyed map cleanup between
- * `handleSessionScopeCleared` (tab-close path) and `removeSessionFromState`
- * (full-eviction path).
+ * Per-session keyed-map cleanup tests for the unified eviction helper
+ * `evictSession`.
  *
- * Bug: Each function cleaned a different subset of per-session keyed maps —
- * 4 maps were missing from each. This caused stale state on
- * tab close → reopen cycles.
+ * History: cleanup was originally split across two drifted paths —
+ * `handleSessionScopeCleared` (tab-close / scope-clear path, dispatched via
+ * the reducer) and `removeSessionFromState` (full-eviction path). Each
+ * cleaned a different subset of per-session keyed maps — 4 maps were missing
+ * from each — causing stale state on tab close → reopen cycles. Notably
+ * `handleSessionScopeCleared` never cleared `fileChanges.expandedBySession`
+ * (the rail-drawer expansion survived a close → reopen).
  *
- * `handleSessionScopeCleared` was MISSING:
- *   - transcript.editingMessageIdBySession
- *   - sessions.interruptInFlightBySession
- *   - settings.showOutcomeDialogBySession
- *   - pending.currentTurnBySession
- *
- * `removeSessionFromState` was MISSING:
- *   - transcript.pagingInFlightBySession
- *   - pending.sendQueueBySession
- *   - pending.backendReadyQueueBySession
- *   - pending.setModelByCorrId
+ * The two paths are now collapsed into a single `evictSession` helper. The
+ * `handleSessionScopeCleared` and `handleSessionClosed` / `handleCloseSession`
+ * reducers all delegate to it, so these tests now assert cleanup behavior
+ * directly against `evictSession` and (via the reducer) against the scope-
+ * clear dispatch path, plus a parity assertion that both dispatch routes
+ * produce identical cleanup.
  */
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { reducer, initialArchState, type ArchState } from '../src/host/core/reducer';
 import type { Event } from '../src/host/core/events';
-import { removeSessionFromState } from '../src/host/core/reducer/helpers';
+import { evictSession } from '../src/host/core/reducer/helpers';
 import type { SessionSummary, ModelSettings, ComposerInput, ExtensionUIRequestPayload } from '../src/shared/protocol';
 import type {
   CurrentTurn,
@@ -104,7 +102,7 @@ function setModelPending(sessionPath: string): SetModelPending {
 
 const extUiPayload = {} as unknown as ExtensionUIRequestPayload;
 
-// ─── handleSessionScopeCleared (tab-close path) ─────────────────────────────
+// ─── handleSessionScopeCleared (tab-close path, via the reducer) ────────────
 
 test('handleSessionScopeCleared cleans editingMessageIdBySession', () => {
   const state: ArchState = {
@@ -154,6 +152,21 @@ test('handleSessionScopeCleared cleans currentTurnBySession', () => {
   assert.equal(result.state.pending.currentTurnBySession['/a'], undefined);
 });
 
+test('handleSessionScopeCleared cleans fileChanges.expandedBySession (leak fix)', () => {
+  const state: ArchState = {
+    ...readyState,
+    fileChanges: {
+      ...readyState.fileChanges,
+      expandedBySession: { '/a': true, '/b': false },
+    },
+  };
+  // removeSessionSummary=false exercises the tab-close branch, which
+  // previously leaked expandedBySession[sp].
+  const result = reducer(state, sessionScopeCleared('/a', false));
+  assert.equal(result.state.fileChanges.expandedBySession['/a'], undefined);
+  assert.equal(result.state.fileChanges.expandedBySession['/b'], false);
+});
+
 test('handleSessionScopeCleared preserves maps for other sessions', () => {
   const state: ArchState = {
     ...readyState,
@@ -185,9 +198,9 @@ test('handleSessionScopeCleared preserves maps for other sessions', () => {
   assert.deepEqual(result.state.pending.currentTurnBySession['/b'], currentTurn('/b'));
 });
 
-// ─── removeSessionFromState (full-eviction path) ────────────────────────────
+// ─── evictSession (full-eviction path) ─────────────────────────────────────
 
-test('removeSessionFromState cleans pagingInFlightBySession', () => {
+test('evictSession cleans pagingInFlightBySession', () => {
   const state: ArchState = {
     ...readyState,
     transcript: {
@@ -195,11 +208,11 @@ test('removeSessionFromState cleans pagingInFlightBySession', () => {
       pagingInFlightBySession: { '/a': 'corr-1' },
     },
   };
-  const result = removeSessionFromState(state, '/a');
+  const result = evictSession(state, '/a', { removeSummary: true, removeTabs: true });
   assert.equal(result.state.transcript.pagingInFlightBySession['/a'], undefined);
 });
 
-test('removeSessionFromState cleans sendQueueBySession', () => {
+test('evictSession cleans sendQueueBySession', () => {
   const state: ArchState = {
     ...readyState,
     pending: {
@@ -207,11 +220,11 @@ test('removeSessionFromState cleans sendQueueBySession', () => {
       sendQueueBySession: { '/a': [sendQueueEntry('/a')] },
     },
   };
-  const result = removeSessionFromState(state, '/a');
+  const result = evictSession(state, '/a', { removeSummary: true, removeTabs: true });
   assert.equal(result.state.pending.sendQueueBySession['/a'], undefined);
 });
 
-test('removeSessionFromState cleans backendReadyQueueBySession', () => {
+test('evictSession cleans backendReadyQueueBySession', () => {
   const state: ArchState = {
     ...readyState,
     pending: {
@@ -219,11 +232,11 @@ test('removeSessionFromState cleans backendReadyQueueBySession', () => {
       backendReadyQueueBySession: { '/a': [backendReadyEntry('/a')] },
     },
   };
-  const result = removeSessionFromState(state, '/a');
+  const result = evictSession(state, '/a', { removeSummary: true, removeTabs: true });
   assert.equal(result.state.pending.backendReadyQueueBySession['/a'], undefined);
 });
 
-test('removeSessionFromState cleans setModelByCorrId', () => {
+test('evictSession cleans setModelByCorrId', () => {
   const state: ArchState = {
     ...readyState,
     pending: {
@@ -234,12 +247,25 @@ test('removeSessionFromState cleans setModelByCorrId', () => {
       },
     },
   };
-  const result = removeSessionFromState(state, '/a');
+  const result = evictSession(state, '/a', { removeSummary: true, removeTabs: true });
   assert.equal(result.state.pending.setModelByCorrId['corr-1'], undefined);
   assert.deepEqual(result.state.pending.setModelByCorrId['corr-2'], setModelPending('/b'));
 });
 
-test('removeSessionFromState preserves maps for other sessions', () => {
+test('evictSession cleans fileChanges.expandedBySession', () => {
+  const state: ArchState = {
+    ...readyState,
+    fileChanges: {
+      ...readyState.fileChanges,
+      expandedBySession: { '/a': true, '/b': true },
+    },
+  };
+  const result = evictSession(state, '/a', { removeSummary: true, removeTabs: true });
+  assert.equal(result.state.fileChanges.expandedBySession['/a'], undefined);
+  assert.equal(result.state.fileChanges.expandedBySession['/b'], true);
+});
+
+test('evictSession preserves maps for other sessions', () => {
   const state: ArchState = {
     ...readyState,
     transcript: {
@@ -256,7 +282,7 @@ test('removeSessionFromState preserves maps for other sessions', () => {
       },
     },
   };
-  const result = removeSessionFromState(state, '/a');
+  const result = evictSession(state, '/a', { removeSummary: true, removeTabs: true });
   assert.equal(result.state.transcript.pagingInFlightBySession['/a'], undefined);
   assert.equal(result.state.transcript.pagingInFlightBySession['/b'], 'corr-b');
   assert.equal(result.state.pending.sendQueueBySession['/a'], undefined);
@@ -267,9 +293,9 @@ test('removeSessionFromState preserves maps for other sessions', () => {
   assert.deepEqual(result.state.pending.setModelByCorrId['corr-b'], setModelPending('/b'));
 });
 
-// ─── Parity: both functions clean the same set of per-session keyed maps ────
+// ─── Parity: both dispatch routes clean the same set of per-session maps ────
 
-test('Both functions clean the same set of per-session keyed maps', () => {
+test('Both dispatch routes clean the same set of per-session keyed maps', () => {
   const sp = '/a';
   const other = '/b';
 
@@ -325,6 +351,7 @@ test('Both functions clean the same set of per-session keyed maps', () => {
     fileChanges: {
       ...readyState.fileChanges,
       bySession: { [sp]: [], [other]: [] },
+      expandedBySession: { [sp]: true, [other]: false },
       readFilePathsBySession: { [sp]: ['x.ts'], [other]: ['y.ts'] },
     },
     pending: {
@@ -338,11 +365,11 @@ test('Both functions clean the same set of per-session keyed maps', () => {
     },
   };
 
-  // Run handleSessionScopeCleared via the reducer (removeSessionSummary=true
-  // exercises the full eviction-equivalent branch).
+  // Route 1: handleSessionScopeCleared via the reducer (removeSessionSummary=
+  // true exercises the full-eviction-equivalent branch).
   const cleared = reducer(base, sessionScopeCleared(sp, true));
-  // Run removeSessionFromState directly.
-  const evicted = removeSessionFromState(base, sp);
+  // Route 2: evictSession directly (the full-eviction path).
+  const evicted = evictSession(base, sp, { removeSummary: true, removeTabs: true });
 
   // Collect every per-session keyed map and check both results have no `/a`.
   const checks: Array<{ name: string; map: Record<string, unknown> }> = [
@@ -361,6 +388,7 @@ test('Both functions clean the same set of per-session keyed maps', () => {
     { name: 'composer.activeRunSummaryBySession', map: cleared.state.composer.activeRunSummaryBySession },
     { name: 'composer.draftTextBySession', map: cleared.state.composer.draftTextBySession },
     { name: 'fileChanges.bySession', map: cleared.state.fileChanges.bySession },
+    { name: 'fileChanges.expandedBySession', map: cleared.state.fileChanges.expandedBySession },
     { name: 'fileChanges.readFilePathsBySession', map: cleared.state.fileChanges.readFilePathsBySession },
     { name: 'pending.currentTurnBySession', map: cleared.state.pending.currentTurnBySession },
     { name: 'pending.sendQueueBySession', map: cleared.state.pending.sendQueueBySession },
@@ -399,33 +427,58 @@ test('Both functions clean the same set of per-session keyed maps', () => {
     );
   }
 
-  // Same checks for removeSessionFromState.
-  for (const { name, map } of checks) {
+  // Same checks for the direct evictSession route. NOTE: build a parallel
+  // array referencing evicted.state.* — reusing the `checks` array above would
+  // re-read `cleared` and leave the evictSession route unverified.
+  const evictedChecks: Array<{ name: string; map: Record<string, unknown> }> = [
+    { name: 'transcript.bySession', map: evicted.state.transcript.bySession },
+    { name: 'transcript.systemPromptsBySession', map: evicted.state.transcript.systemPromptsBySession },
+    { name: 'transcript.windowBySession', map: evicted.state.transcript.windowBySession },
+    { name: 'transcript.editingMessageIdBySession', map: evicted.state.transcript.editingMessageIdBySession },
+    { name: 'transcript.pagingInFlightBySession', map: evicted.state.transcript.pagingInFlightBySession },
+    { name: 'sessions.analyticsFactorsBySession', map: evicted.state.sessions.analyticsFactorsBySession },
+    { name: 'sessions.interruptInFlightBySession', map: evicted.state.sessions.interruptInFlightBySession },
+    { name: 'settings.availableModelsBySession', map: evicted.state.settings.availableModelsBySession },
+    { name: 'settings.contextUsageBySession', map: evicted.state.settings.contextUsageBySession },
+    { name: 'settings.showOutcomeDialogBySession', map: evicted.state.settings.showOutcomeDialogBySession },
+    { name: 'settings.pendingExtensionUIRequestsBySession', map: evicted.state.settings.pendingExtensionUIRequestsBySession },
+    { name: 'composer.pendingComposerInputsBySession', map: evicted.state.composer.pendingComposerInputsBySession },
+    { name: 'composer.activeRunSummaryBySession', map: evicted.state.composer.activeRunSummaryBySession },
+    { name: 'composer.draftTextBySession', map: evicted.state.composer.draftTextBySession },
+    { name: 'fileChanges.bySession', map: evicted.state.fileChanges.bySession },
+    { name: 'fileChanges.expandedBySession', map: evicted.state.fileChanges.expandedBySession },
+    { name: 'fileChanges.readFilePathsBySession', map: evicted.state.fileChanges.readFilePathsBySession },
+    { name: 'pending.currentTurnBySession', map: evicted.state.pending.currentTurnBySession },
+    { name: 'pending.sendQueueBySession', map: evicted.state.pending.sendQueueBySession },
+    { name: 'pending.backendReadyQueueBySession', map: evicted.state.pending.backendReadyQueueBySession },
+  ];
+
+  for (const { name, map } of evictedChecks) {
     assert.equal(
       map[sp],
       undefined,
-      `removeSessionFromState left stale entry in ${name}[${sp}]`,
+      `evictSession left stale entry in ${name}[${sp}]`,
     );
   }
   for (const [corrId, entry] of Object.entries(evicted.state.pending.setModelByCorrId)) {
     assert.notEqual(
       (entry as SetModelPending).sessionPath,
       sp,
-      `removeSessionFromState left stale setModelByCorrId[${corrId}] referencing ${sp}`,
+      `evictSession left stale setModelByCorrId[${corrId}] referencing ${sp}`,
     );
   }
   for (const [corrId, op] of Object.entries(evicted.state.pending.ops)) {
     assert.notEqual(
       (op as { sessionPath: string }).sessionPath,
       sp,
-      `removeSessionFromState left stale ops[${corrId}] referencing ${sp}`,
+      `evictSession left stale ops[${corrId}] referencing ${sp}`,
     );
   }
   for (const [reqId, mapping] of Object.entries(evicted.state.pending.requestIdToLocalId)) {
     assert.notEqual(
       (mapping as { sessionPath: string }).sessionPath,
       sp,
-      `removeSessionFromState left stale requestIdToLocalId[${reqId}] referencing ${sp}`,
+      `evictSession left stale requestIdToLocalId[${reqId}] referencing ${sp}`,
     );
   }
 });

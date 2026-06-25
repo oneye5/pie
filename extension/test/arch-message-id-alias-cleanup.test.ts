@@ -2,9 +2,9 @@
  * Tests for the `messageIdAlias` memory-leak fix.
  *
  * Bug: `pending.messageIdAlias` was `Record<string, string>` keyed by message
- * ID with no `sessionPath`, so neither `handleSessionScopeCleared` nor
- * `removeSessionFromState` could filter it by session. It grew unboundedly
- * over long sessions with multi-turn conversations.
+ * ID with no `sessionPath`, so neither `handleSessionScopeCleared` nor the
+ * (now-collapsed) `removeSessionFromState` could filter it by session. It grew
+ * unboundedly over long sessions with multi-turn conversations.
  *
  * Fix: change the shape to `Record<string, { canonicalId: string; sessionPath:
  * string }>` (mirroring `requestIdToLocalId`) and clean it in both eviction
@@ -15,7 +15,7 @@ import assert from 'node:assert/strict';
 
 import { reducer, initialArchState, type ArchState } from '../src/host/core/reducer';
 import type { Event } from '../src/host/core/events';
-import { removeSessionFromState, resolveAlias } from '../src/host/core/reducer/helpers';
+import { evictSession, resolveAlias } from '../src/host/core/reducer/helpers';
 
 const readyState: ArchState = {
   ...initialArchState,
@@ -63,9 +63,9 @@ test('handleSessionScopeCleared cleans messageIdAlias for the closed session', (
   );
 });
 
-// ─── Test 2: removeSessionFromState cleans messageIdAlias ───────────────────
+// ─── Test 2: evictSession (full eviction) cleans messageIdAlias ─────────
 
-test('removeSessionFromState cleans messageIdAlias for the evicted session', () => {
+test('evictSession (full eviction) cleans messageIdAlias for the evicted session', () => {
   const state: ArchState = {
     ...readyState,
     pending: {
@@ -76,7 +76,7 @@ test('removeSessionFromState cleans messageIdAlias for the evicted session', () 
       },
     },
   };
-  const result = removeSessionFromState(state, '/a');
+  const result = evictSession(state, '/a', { removeSummary: true, removeTabs: true });
   assert.equal(result.state.pending.messageIdAlias['msg-1'], undefined);
   assert.deepEqual(
     result.state.pending.messageIdAlias['msg-2'],
@@ -140,7 +140,7 @@ test('Parity — both cleanup functions clean messageIdAlias', () => {
   };
 
   const cleared = reducer(base, sessionScopeCleared('/a', true));
-  const evicted = removeSessionFromState(base, '/a');
+  const evicted = evictSession(base, '/a', { removeSummary: true, removeTabs: true });
 
   for (const [, entry] of Object.entries(cleared.state.pending.messageIdAlias)) {
     assert.notEqual(
@@ -153,7 +153,7 @@ test('Parity — both cleanup functions clean messageIdAlias', () => {
     assert.notEqual(
       (entry as AliasEntry).sessionPath,
       '/a',
-      'removeSessionFromState left stale messageIdAlias referencing /a',
+      'evictSession left stale messageIdAlias referencing /a',
     );
   }
 

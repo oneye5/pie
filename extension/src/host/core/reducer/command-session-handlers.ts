@@ -1,9 +1,8 @@
 import type { ArchState } from '../arch-state.js';
 import type { Command } from '../commands.js';
 import type { ReducerResult } from './helpers.js';
-import { removeFromArray } from './helpers.js';
+import { evictSession, removeFromArray } from './helpers.js';
 import { getNextVisibleTabPathOnClose, moveOpenTabPath, insertTabRespectingPinnedPrefix } from '../../../shared/tab-behavior.js';
-import { handleSessionScopeCleared } from './session-handlers.js';
 
 export function handleOpenSession(state: ArchState, cmd: Extract<Command, { kind: 'OpenSession' }>): ReducerResult {
   const { sessionPath, placeholderSummary, selectionToken } = cmd;
@@ -136,7 +135,10 @@ export function handleCloseSession(state: ArchState, cmd: Extract<Command, { kin
   // closeSession REMOVES a tab → mirror SessionScopeCleared{removeSession-
   // Summary:false} (clear per-session maps but keep the summary for
   // reopening, do NOT touch runningSessionPaths — the session may still be
-  // running in the backend even if its tab is closed).
+  // running in the backend even if its tab is closed). `evictSession` with
+  // `removeSummary:false` preserves both the summary and the running marker;
+  // `removeTabs:true` strips the tab arrays + nulls activeSessionPath (which
+  // the post-eviction override below re-points at the next tab).
   const nextPath = getNextVisibleTabPathOnClose({
     closingPath: sessionPath,
     openTabPaths: state.sessions.openTabPaths,
@@ -144,30 +146,26 @@ export function handleCloseSession(state: ArchState, cmd: Extract<Command, { kin
     workspaceCwd: state.sessions.workspaceCwd,
     activeSessionPath: state.sessions.activeSessionPath,
   });
-  // Clear per-session keyed maps (like SessionScopeCleared{false}).
-  // The summary is NOT removed — the session persists for reopening.
-  const scoped = handleSessionScopeCleared(state, { kind: 'SessionScopeCleared', sessionPath, removeSessionSummary: false });
-  // Remove from openTabPaths + unreadFinished + pinned (like CloseTab).
-  const nextOpenTabPaths = removeFromArray(scoped.state.sessions.openTabPaths, sessionPath);
-  const nextUnreadPaths = removeFromArray(scoped.state.sessions.unreadFinishedSessionPaths, sessionPath);
-  const nextPinnedPaths = removeFromArray(scoped.state.sessions.pinnedTabPaths, sessionPath);
-  // If the closed session was active, select the next tab (or null).
+  // Clear per-session keyed maps + drop the tab arrays (summary + running
+  // marker preserved). The helper also clears `fileChanges.expandedBySession`
+  // — previously leaked on this path.
+  const evicted = evictSession(state, sessionPath, { removeSummary: false, removeTabs: true });
+  // If the closed session was active, select the next tab (or null). Computed
+  // from the PRE-close state (nextPath above) and applied AFTER eviction so
+  // the override wins over the helper's null-ing.
   const wasActive = state.sessions.activeSessionPath === sessionPath;
-  const nextActivePath = wasActive ? (nextPath ?? null) : scoped.state.sessions.activeSessionPath;
+  const nextActivePath = wasActive ? (nextPath ?? null) : evicted.state.sessions.activeSessionPath;
   const nextState = {
-    ...scoped.state,
+    ...evicted.state,
     sessions: {
-      ...scoped.state.sessions,
-      openTabPaths: nextOpenTabPaths,
-      pinnedTabPaths: nextPinnedPaths,
-      unreadFinishedSessionPaths: nextUnreadPaths,
+      ...evicted.state.sessions,
       activeSessionPath: nextActivePath,
     },
   };
   return {
     state: nextState,
     effects: [
-      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextOpenTabPaths, activeSessionPath: nextActivePath, pinnedTabPaths: nextPinnedPaths },
+      { kind: 'PersistTabs', corrId: cmd.corrId, openTabPaths: nextState.sessions.openTabPaths, activeSessionPath: nextActivePath, pinnedTabPaths: nextState.sessions.pinnedTabPaths },
       { kind: 'CloseSession', corrId: cmd.corrId, sessionPath, nextPath },
     ],
   };

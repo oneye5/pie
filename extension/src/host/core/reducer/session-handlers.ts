@@ -1,10 +1,9 @@
 import { produce } from 'immer';
 
-import type { ArchState, PendingOp, SetModelPending } from '../arch-state.js';
-import type { Effect } from '../effects.js';
+import type { ArchState } from '../arch-state.js';
 import type { Event } from '../events.js';
 import type { ReducerResult } from './helpers.js';
-import { addToArray, removeFromArray, upsertSessionSummary, removeSessionFromState } from './helpers.js';
+import { addToArray, removeFromArray, upsertSessionSummary, evictSession } from './helpers.js';
 import type { SessionSummary } from '../../../shared/protocol.js';
 import { reorderOpenTabsPinnedFirst } from '../../../shared/tab-behavior.js';
 import { resolveSessionOpenedTranscript } from '../session-opened-transcript.js';
@@ -28,7 +27,9 @@ function mergeSessionSummaryPreservingLocalName(
 }
 
 export function handleSessionClosed(state: ArchState, event: Extract<Event, { kind: 'SessionClosed' }>): ReducerResult {
-  return removeSessionFromState(state, event.sessionPath);
+  // Full eviction: the session is gone from the backend, so drop its summary,
+  // running marker, and tab.
+  return evictSession(state, event.sessionPath, { removeSummary: true, removeTabs: true });
 }
 
 export function handleSessionListChanged(state: ArchState, event: Extract<Event, { kind: 'SessionListChanged' }>): ReducerResult {
@@ -354,131 +355,16 @@ export function handleSessionSummariesReplaced(state: ArchState, event: Extract<
 }
 
 export function handleSessionScopeCleared(state: ArchState, event: Extract<Event, { kind: 'SessionScopeCleared' }>): ReducerResult {
-  const sp = event.sessionPath;
-  const { [sp]: _t, ...remainingTranscripts } = state.transcript.bySession;
-  const { [sp]: _sp, ...remainingSystemPrompts } = state.transcript.systemPromptsBySession;
-  const { [sp]: _w, ...remainingWindows } = state.transcript.windowBySession;
-  const { [sp]: _pf, ...remainingPagingInFlight } = state.transcript.pagingInFlightBySession;
-  const { [sp]: _ed, ...remainingEditing } = state.transcript.editingMessageIdBySession;
-  const { [sp]: _m, ...remainingModels } = state.settings.availableModelsBySession;
-  const { [sp]: _cu, ...remainingContext } = state.settings.contextUsageBySession;
-  const { [sp]: _eui, ...remainingExtUI } = state.settings.pendingExtensionUIRequestsBySession;
-  const { [sp]: _od, ...remainingOutcome } = state.settings.showOutcomeDialogBySession;
-  const { [sp]: _ci, ...remainingComposer } = state.composer.pendingComposerInputsBySession;
-  const { [sp]: _rs, ...remainingRunSummaries } = state.composer.activeRunSummaryBySession;
-  const { [sp]: _dt, ...remainingDraftText } = state.composer.draftTextBySession;
-  const { [sp]: _fc, ...remainingFileChanges } = state.fileChanges.bySession;
-  const { [sp]: _rfr, ...remainingReadFilePaths } = state.fileChanges.readFilePathsBySession;
-  const { [sp]: _af, ...remainingAnalytics } = state.sessions.analyticsFactorsBySession;
-  const { [sp]: _if, ...remainingInterrupts } = state.sessions.interruptInFlightBySession;
-  const { [sp]: _psq, ...remainingPendingSendQueue } = state.pending.sendQueueBySession;
-  const { [sp]: _brq, ...remainingBackendReadyQueue } = state.pending.backendReadyQueueBySession;
-  const { [sp]: _ct, ...remainingTurns } = state.pending.currentTurnBySession;
-  // If the closed session had backend-ready-queued sends and no other sessions
-  // have entries, cancel the watchdog timer (the queue is now empty).
-  const hadBackendReadyEntries = !!state.pending.backendReadyQueueBySession[sp]?.length;
-  const backendReadyQueueNowEmpty = Object.keys(remainingBackendReadyQueue).length === 0;
-  // Drop in-flight setModel lifecycles for the closed session (both the
-  // modal-confirm phase and the RPC phase). A late ModelSwitchConfirmResult /
-  // SetModelResult for these corrIds then no-ops instead of applying to — or
-  // reverting into — a closed session. Mirrors the pagingInFlight clear above
-  // (handoff pattern #8).
-  const remainingSetModel: Record<string, SetModelPending> = {};
-  for (const [corrId, entry] of Object.entries(state.pending.setModelByCorrId)) {
-    if (entry.sessionPath !== sp) remainingSetModel[corrId] = entry;
-  }
-
-  // Drop in-flight send/edit ops for the closed session. Without this,
-  // a pending.ops entry is orphaned if the SendResult/EditResult never
-  // arrives (backend crash, dropped event). Mirrors removeSessionFromState.
-  const remainingOps: Record<string, PendingOp> = {};
-  for (const [corrId, op] of Object.entries(state.pending.ops)) {
-    if (op.sessionPath !== sp) remainingOps[corrId] = op;
-  }
-
-  const remainingRequestIdToLocalId: Record<string, { sessionPath: string; localId: string }> = {};
-  for (const [requestId, mapping] of Object.entries(state.pending.requestIdToLocalId)) {
-    if (mapping.sessionPath !== sp) remainingRequestIdToLocalId[requestId] = mapping;
-  }
-
-  const remainingMessageIdAlias: Record<string, { canonicalId: string; sessionPath: string }> = {};
-  for (const [messageId, alias] of Object.entries(state.pending.messageIdAlias)) {
-    if (alias.sessionPath !== sp) remainingMessageIdAlias[messageId] = alias;
-  }
-
-  let nextSessions = state.sessions.sessions;
-  let nextOpenTabPaths = state.sessions.openTabPaths;
-  let nextPinnedPaths = state.sessions.pinnedTabPaths;
-  let nextRunningPaths = state.sessions.runningSessionPaths;
-  let nextUnreadPaths = state.sessions.unreadFinishedSessionPaths;
-  let nextActivePath = state.sessions.activeSessionPath;
-
-  if (event.removeSessionSummary) {
-    nextSessions = nextSessions.filter((s) => s.path !== sp);
-    nextOpenTabPaths = removeFromArray(nextOpenTabPaths, sp);
-    nextPinnedPaths = removeFromArray(nextPinnedPaths, sp);
-    nextRunningPaths = removeFromArray(nextRunningPaths, sp);
-    nextUnreadPaths = removeFromArray(nextUnreadPaths, sp);
-    if (nextActivePath === sp) {
-      nextActivePath = null;
-    }
-  }
-
-  return {
-    state: {
-      ...state,
-      transcript: {
-        ...state.transcript,
-        bySession: remainingTranscripts,
-        systemPromptsBySession: remainingSystemPrompts,
-        windowBySession: remainingWindows,
-        pagingInFlightBySession: remainingPagingInFlight,
-        editingMessageIdBySession: remainingEditing,
-      },
-      sessions: {
-        ...state.sessions,
-        sessions: nextSessions,
-        openTabPaths: nextOpenTabPaths,
-        pinnedTabPaths: nextPinnedPaths,
-        runningSessionPaths: nextRunningPaths,
-        unreadFinishedSessionPaths: nextUnreadPaths,
-        activeSessionPath: nextActivePath,
-        analyticsFactorsBySession: remainingAnalytics,
-        interruptInFlightBySession: remainingInterrupts,
-      },
-      settings: {
-        ...state.settings,
-        availableModelsBySession: remainingModels,
-        contextUsageBySession: remainingContext,
-        pendingExtensionUIRequestsBySession: remainingExtUI,
-        showOutcomeDialogBySession: remainingOutcome,
-      },
-      composer: {
-        ...state.composer,
-        pendingComposerInputsBySession: remainingComposer,
-        activeRunSummaryBySession: remainingRunSummaries,
-        draftTextBySession: remainingDraftText,
-      },
-      fileChanges: {
-        ...state.fileChanges,
-        bySession: remainingFileChanges,
-        readFilePathsBySession: remainingReadFilePaths,
-      },
-      pending: {
-        ...state.pending,
-        ops: remainingOps,
-        requestIdToLocalId: remainingRequestIdToLocalId,
-        messageIdAlias: remainingMessageIdAlias,
-        setModelByCorrId: remainingSetModel,
-        sendQueueBySession: remainingPendingSendQueue,
-        backendReadyQueueBySession: remainingBackendReadyQueue,
-        currentTurnBySession: remainingTurns,
-      },
-    },
-    effects: (hadBackendReadyEntries && backendReadyQueueNowEmpty)
-      ? [{ kind: 'CancelBackendReadyWatchdog', corrId: 'watchdog' } as Effect]
-      : [],
-  };
+  // Delegate to the unified eviction helper. The summary drop and the tab
+  // drop are coupled today (a scope clear that removes the summary also
+  // removes the tab), so both flags mirror `event.removeSessionSummary`.
+  // Delegating also fixes the latent `fileChanges.expandedBySession` leak:
+  // the helper always clears that map, where the inline path #2 previously
+  // omitted it.
+  return evictSession(state, event.sessionPath, {
+    removeSummary: event.removeSessionSummary,
+    removeTabs: event.removeSessionSummary,
+  });
 }
 
 export function handlePendingPathReplaced(state: ArchState, event: Extract<Event, { kind: 'PendingPathReplaced' }>): ReducerResult {
