@@ -58,7 +58,7 @@ export interface PruningDetails {
   /** Error message if pruning prepass failed. */
   prepassError?: string;
   /** Reason surfaced when a keep-all safeguard retained every item (prepass pruned 100% of a category, or a non-JSON parse failure). */
-  prepassFailOpenReason?: string;
+  prepassSafeguardReason?: string;
 }
 
 export type PruningMode = 'auto' | 'shadow' | 'off' | 'custom';

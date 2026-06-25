@@ -91,7 +91,7 @@ export function applySkillSelection(
 	prunedSkills: string[] | null,
 	effectivePinned: string[],
 	_activeConfig: PruningConfig,
-): { includedSkillNames: string[]; excludedSkillNames: string[]; failOpenReason?: string } {
+): { includedSkillNames: string[]; excludedSkillNames: string[]; safeguardReason?: string } {
 	// No usable prepass signal → keep everything.
 	if (prunedSkills === null) {
 		return {
@@ -119,7 +119,7 @@ export function applySkillSelection(
 		return {
 			includedSkillNames: visibleSkills.map((s) => s.name),
 			excludedSkillNames: [],
-			failOpenReason: "LLM pruned every visible skill; keeping all as a safeguard",
+			safeguardReason: "LLM pruned every visible skill; keeping all as a safeguard",
 		};
 	}
 
@@ -130,7 +130,7 @@ export function applyToolSelection(
 	allTools: ToolInfo[],
 	prunedTools: string[] | null,
 	activeConfig: PruningConfig,
-): { includedToolNames: string[]; excludedToolNames: string[]; failOpenReason?: string } {
+): { includedToolNames: string[]; excludedToolNames: string[]; safeguardReason?: string } {
 	// No tools config (tool pruning disabled) or no tools present → keep everything.
 	if (!activeConfig.tools || allTools.length === 0) {
 		return {
@@ -183,7 +183,7 @@ export function applyToolSelection(
 		return {
 			includedToolNames: allTools.map((t) => t.name),
 			excludedToolNames: [],
-			failOpenReason: "LLM pruned every tool; keeping all as a safeguard",
+			safeguardReason: "LLM pruned every tool; keeping all as a safeguard",
 		};
 	}
 

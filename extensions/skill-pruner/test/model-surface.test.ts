@@ -181,7 +181,7 @@ const allToolNames = mockToolInfo.map((t) => t.name);
 // Model-surface fidelity tests (prune-list schema)
 // These assert that the final pruning state matches the intent expressed by
 // the pruning LLM (the prune list), and that the only deviations — pruning
-// everything — are transparently reported via prepassFailOpenReason.
+// everything — are transparently reported via prepassSafeguardReason.
 // ---------------------------------------------------------------------------
 
 test("model prunes only unknown skill names → keeps all skills, no deviation reason", async () => {
@@ -196,7 +196,7 @@ test("model prunes only unknown skill names → keeps all skills, no deviation r
 		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
 
 		// Unknown prunes are silently ignored (nothing real to remove); not a deviation.
-		assert.equal(result?.message?.details?.prepassFailOpenReason, undefined);
+		assert.equal(result?.message?.details?.prepassSafeguardReason, undefined);
 	} finally {
 		__setCompleteFn(null);
 	}
@@ -217,7 +217,7 @@ test("model prunes only unknown tool names → keeps all tools, no deviation rea
 		const details = result?.message?.details;
 		assert.deepEqual(details.includedTools.sort(), allToolNames.slice().sort());
 		assert.equal(details.excludedTools.length, 0);
-		assert.equal(details.prepassFailOpenReason, undefined);
+		assert.equal(details.prepassSafeguardReason, undefined);
 	} finally {
 		__setCompleteFn(null);
 		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
@@ -237,8 +237,8 @@ test("model prunes every skill → fail-open keeps all skills and reports reason
 		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
 
 		const details = result.message.details;
-		assert.ok(details.prepassFailOpenReason, "prepassFailOpenReason should be populated when pruning was overridden");
-		assert.ok(String(details.prepassFailOpenReason).includes("skill"), "reason should mention skills");
+		assert.ok(details.prepassSafeguardReason, "prepassSafeguardReason should be populated when pruning was overridden");
+		assert.ok(String(details.prepassSafeguardReason).includes("skill"), "reason should mention skills");
 	} finally {
 		__setCompleteFn(null);
 	}
@@ -259,8 +259,8 @@ test("model prunes every tool → fail-open keeps all tools and reports reason",
 		const details = result?.message?.details;
 		assert.deepEqual(details.includedTools.sort(), allToolNames.slice().sort());
 		assert.equal(details.excludedTools.length, 0);
-		assert.ok(details.prepassFailOpenReason, "prepassFailOpenReason should be populated when pruning was overridden");
-		assert.ok(String(details.prepassFailOpenReason).includes("tool"), "reason should mention tools");
+		assert.ok(details.prepassSafeguardReason, "prepassSafeguardReason should be populated when pruning was overridden");
+		assert.ok(String(details.prepassSafeguardReason).includes("tool"), "reason should mention tools");
 	} finally {
 		__setCompleteFn(null);
 		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
@@ -277,7 +277,7 @@ test("model prunes a mix of known and unknown → known pruned, unknown ignored,
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
 		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
 
-		assert.equal(result?.message?.details?.prepassFailOpenReason, undefined);
+		assert.equal(result?.message?.details?.prepassSafeguardReason, undefined);
 	} finally {
 		__setCompleteFn(null);
 	}
@@ -338,7 +338,7 @@ test("model prunes a subset of skills → the rest are kept, no fail-open", asyn
 		assert.match(result.systemPrompt, /<name>code-simplification<\/name>/);
 		assert.doesNotMatch(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
 		assert.doesNotMatch(result.systemPrompt, /<name>frontend-design<\/name>/);
-		assert.equal(result?.message?.details?.prepassFailOpenReason, undefined);
+		assert.equal(result?.message?.details?.prepassSafeguardReason, undefined);
 	} finally {
 		__setCompleteFn(null);
 	}
@@ -465,13 +465,13 @@ test("fail-open reason is absent when model intent is honored exactly", async ()
 
 		assert.ok(result?.message);
 		const details = result.message.details;
-		assert.equal(details.prepassFailOpenReason, undefined, "no fail-open reason when model intent is honored");
+		assert.equal(details.prepassSafeguardReason, undefined, "no fail-open reason when model intent is honored");
 	} finally {
 		__setCompleteFn(null);
 	}
 });
 
-test("non-JSON prose response → kept all, prepassFailOpenReason notes parse failure, decision persists flag", async () => {
+test("non-JSON prose response → kept all, prepassSafeguardReason notes parse failure, decision persists flag", async () => {
 	const logPath = path.join(mkdtempSync(path.join(tmpdir(), "skill-pruner-parsefail-")), "pruning.jsonl");
 	__setCompleteFn(async () => ({ text: "I think code-simplification and read would both be useful here." }));
 	try {
@@ -484,11 +484,11 @@ test("non-JSON prose response → kept all, prepassFailOpenReason notes parse fa
 		assert.match(result.systemPrompt, /<name>duckdb-query-optimization<\/name>/);
 		assert.match(result.systemPrompt, /<name>frontend-design<\/name>/);
 
-		// ... and it is observable via prepassFailOpenReason (distinguishable from an
-		// intentional keep-all, which leaves prepassFailOpenReason undefined).
+		// ... and it is observable via prepassSafeguardReason (distinguishable from an
+		// intentional keep-all, which leaves prepassSafeguardReason undefined).
 		const details = result?.message?.details;
-		assert.ok(details?.prepassFailOpenReason, "parse-failure keep-all should surface a fail-open note");
-		assert.match(String(details.prepassFailOpenReason), /parse failure/i);
+		assert.ok(details?.prepassSafeguardReason, "parse-failure keep-all should surface a fail-open note");
+		assert.match(String(details.prepassSafeguardReason), /parse failure/i);
 
 		// The persisted decision carries the flag so analytics can query it.
 		const logged = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));

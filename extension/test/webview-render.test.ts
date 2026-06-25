@@ -1067,7 +1067,7 @@ test('rendered PruningBanner uses real buttons, shows at-a-glance counts, and hi
       mode: 'auto',
       skillTokensSaved: 100,
       toolTokensSaved: 20,
-      prepassFailOpenReason: 'Too few candidates to prune',
+      prepassSafeguardReason: 'Too few candidates to prune',
       prepassSystemPrompt: 'You are a pruner',
       prepassUserMessage: 'Skills: a, b, c',
       prepassThinking: '',
@@ -1125,7 +1125,7 @@ test('rendered PruningInlineCard uses real buttons and shows at-a-glance counts'
     toolTokensSaved: 0,
     prepassModel: 'gpt-5.4-mini',
     prepassLatencyMs: 45,
-    prepassFailOpenReason: 'Nothing to exclude',
+    prepassSafeguardReason: 'Nothing to exclude',
   };
 
   const html = renderToString(h(PruningInlineCard, {

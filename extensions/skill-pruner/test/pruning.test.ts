@@ -189,21 +189,21 @@ test("applySkillSelection: null prune list -> keep all, no fail-open reason", ()
 	const r = applySkillSelection(visibleSkills, null, [], config());
 	assert.deepEqual(r.includedSkillNames, ["alpha", "beta", "gamma"]);
 	assert.deepEqual(r.excludedSkillNames, []);
-	assert.equal(r.failOpenReason, undefined);
+	assert.equal(r.safeguardReason, undefined);
 });
 
 test("applySkillSelection: empty prune list -> keep all (nothing to prune)", () => {
 	const r = applySkillSelection(visibleSkills, [], [], config());
 	assert.deepEqual(r.includedSkillNames, ["alpha", "beta", "gamma"]);
 	assert.deepEqual(r.excludedSkillNames, []);
-	assert.equal(r.failOpenReason, undefined);
+	assert.equal(r.safeguardReason, undefined);
 });
 
 test("applySkillSelection: prunes only the named skills", () => {
 	const r = applySkillSelection(visibleSkills, ["beta"], [], config());
 	assert.deepEqual(r.includedSkillNames, ["alpha", "gamma"]);
 	assert.deepEqual(r.excludedSkillNames, ["beta"]);
-	assert.equal(r.failOpenReason, undefined);
+	assert.equal(r.safeguardReason, undefined);
 });
 
 test("applySkillSelection: ignores unknown names in the prune list", () => {
@@ -225,8 +225,8 @@ test("applySkillSelection: pruning every visible skill -> fail-open keeps all", 
 	const r = applySkillSelection(visibleSkills, ["alpha", "beta", "gamma"], [], config());
 	assert.deepEqual(r.includedSkillNames, ["alpha", "beta", "gamma"]);
 	assert.deepEqual(r.excludedSkillNames, []);
-	assert.ok(r.failOpenReason, "fail-open reason should be set");
-	assert.match(r.failOpenReason!, /safeguard/i);
+	assert.ok(r.safeguardReason, "fail-open reason should be set");
+	assert.match(r.safeguardReason!, /safeguard/i);
 });
 
 test("applySkillSelection: pinned survive even when LLM prunes everything else (no fail-open)", () => {
@@ -235,7 +235,7 @@ test("applySkillSelection: pinned survive even when LLM prunes everything else (
 	// a pinned -> kept; b,c pruned; something survives so no fail-open
 	assert.deepEqual(r.includedSkillNames, ["a"]);
 	assert.deepEqual(r.excludedSkillNames, ["b", "c"]);
-	assert.equal(r.failOpenReason, undefined);
+	assert.equal(r.safeguardReason, undefined);
 });
 
 // ---------------------------------------------------------------------------
@@ -246,14 +246,14 @@ test("applyToolSelection: null prune list -> keep all, no reason", () => {
 	const r = applyToolSelection(allTools, null, config({ tools: toolsConfig() }));
 	assert.deepEqual(r.includedToolNames, allTools.map((t) => t.name));
 	assert.deepEqual(r.excludedToolNames, []);
-	assert.equal(r.failOpenReason, undefined);
+	assert.equal(r.safeguardReason, undefined);
 });
 
 test("applyToolSelection: empty prune list -> keep all", () => {
 	const r = applyToolSelection(allTools, [], config({ tools: toolsConfig() }));
 	assert.deepEqual(r.includedToolNames, allTools.map((t) => t.name));
 	assert.deepEqual(r.excludedToolNames, []);
-	assert.equal(r.failOpenReason, undefined);
+	assert.equal(r.safeguardReason, undefined);
 });
 
 test("applyToolSelection: prunes only the named tools", () => {
@@ -308,14 +308,14 @@ test("applyToolSelection: pruning every tool -> fail-open keeps all", () => {
 	const r = applyToolSelection(allTools, allTools.map((t) => t.name), config({ tools: toolsConfig() }));
 	assert.deepEqual(r.includedToolNames, allTools.map((t) => t.name));
 	assert.deepEqual(r.excludedToolNames, []);
-	assert.ok(r.failOpenReason);
+	assert.ok(r.safeguardReason);
 });
 
 test("applyToolSelection: no tools config -> keep all regardless of prune list", () => {
 	const r = applyToolSelection(allTools, ["read"], config());
 	assert.deepEqual(r.includedToolNames, allTools.map((t) => t.name));
 	assert.deepEqual(r.excludedToolNames, []);
-	assert.equal(r.failOpenReason, undefined);
+	assert.equal(r.safeguardReason, undefined);
 });
 
 test("applyToolSelection: empty allTools -> empty included/excluded", () => {

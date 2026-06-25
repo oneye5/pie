@@ -74,8 +74,8 @@ export default function register(pi: ExtensionAPI) {
 		let rawUserMessage = "";
 		let prepassThinkingLevel = activeConfig.thinkingLevel;
 		let latencyMs = 0;
-		let skillFailOpenReason: string | undefined;
-		let toolFailOpenReason: string | undefined;
+		let skillSafeguardReason: string | undefined;
+		let toolSafeguardReason: string | undefined;
 		let keptAllDueToParseFailure = false;
 
 		const allTools = state.getAllToolsOverride
@@ -121,10 +121,10 @@ export default function register(pi: ExtensionAPI) {
 
 			if (!pruningError || pruningError.startsWith("Model") || pruningError.startsWith("LLM pruning failed")) {
 				const skillSelection = applySkillSelection(visibleSkills, prunedSkills, effectivePinned, activeConfig);
-				skillFailOpenReason = skillSelection.failOpenReason ?? skillFailOpenReason;
+				skillSafeguardReason = skillSelection.safeguardReason ?? skillSafeguardReason;
 
 				const toolSelection = applyToolSelection(allTools, prunedTools, activeConfig);
-				toolFailOpenReason = toolSelection.failOpenReason ?? toolFailOpenReason;
+				toolSafeguardReason = toolSelection.safeguardReason ?? toolSafeguardReason;
 
 				// --- Skill pruning: rewrite the skills block in the system prompt ---
 				const match = event.systemPrompt.match(SKILLS_BLOCK_RE);
@@ -201,7 +201,7 @@ export default function register(pi: ExtensionAPI) {
 		const parseFailureNote = keptAllDueToParseFailure
 			? "prepass response was non-JSON prose — kept all (parse failure)"
 			: undefined;
-		const failOpenReason = [skillFailOpenReason, toolFailOpenReason, parseFailureNote]
+		const safeguardReason = [skillSafeguardReason, toolSafeguardReason, parseFailureNote]
 			.filter((r): r is string => Boolean(r))
 			.join(" · ") || undefined;
 
@@ -214,7 +214,7 @@ export default function register(pi: ExtensionAPI) {
 			userMessage: rawUserMessage,
 			latencyMs,
 			error: pruningError,
-			failOpenReason,
+			safeguardReason,
 		});
 
 		if (activeConfig.mode === "shadow") {

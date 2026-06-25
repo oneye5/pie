@@ -52,7 +52,7 @@ export interface PruningResult {
 	/** Error message if the prepass failed. */
 	prepassError?: string;
 	/** Human-readable explanation of why the pruner kept a category instead of trusting the model. */
-	prepassFailOpenReason?: string;
+	prepassSafeguardReason?: string;
 }
 
 export interface PruningDecision {

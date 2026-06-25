@@ -297,7 +297,7 @@ test("buildPruningPayload: composes result envelope from skill/tool results", ()
 	assert.equal(result.prepassSystemPrompt, "system prompt");
 	assert.equal(result.prepassUserMessage, "user message");
 	assert.equal(result.prepassError, undefined);
-	assert.equal(result.prepassFailOpenReason, undefined);
+	assert.equal(result.prepassSafeguardReason, undefined);
 });
 
 test("buildPruningPayload: null results default to empty arrays and zero saved", () => {
@@ -309,7 +309,7 @@ test("buildPruningPayload: null results default to empty arrays and zero saved",
 	assert.equal(result.skillTokensSaved, 0);
 	assert.equal(result.toolTokensSaved, 0);
 	assert.equal(result.prepassError, undefined);
-	assert.equal(result.prepassFailOpenReason, undefined);
+	assert.equal(result.prepassSafeguardReason, undefined);
 });
 
 test("buildPruningPayload: pruningError surfaced as prepassError", () => {
@@ -319,17 +319,17 @@ test("buildPruningPayload: pruningError surfaced as prepassError", () => {
 
 test("buildPruningPayload: fail-open reason joined with ' · ' when both skill and tool present", () => {
 	const { result } = buildPruningPayload(null, null, config(), null, 0, "minimal", "", "", "", "", "skill reason", "tool reason");
-	assert.equal(result.prepassFailOpenReason, "skill reason · tool reason");
+	assert.equal(result.prepassSafeguardReason, "skill reason · tool reason");
 });
 
 test("buildPruningPayload: only skill fail-open reason surfaces when tool reason absent", () => {
 	const { result } = buildPruningPayload(null, null, config(), null, 0, "minimal", "", "", "", "", "skill reason", undefined);
-	assert.equal(result.prepassFailOpenReason, "skill reason");
+	assert.equal(result.prepassSafeguardReason, "skill reason");
 });
 
 test("buildPruningPayload: only tool fail-open reason surfaces when skill reason absent", () => {
 	const { result } = buildPruningPayload(null, null, config(), null, 0, "minimal", "", "", "", "", undefined, "tool reason");
-	assert.equal(result.prepassFailOpenReason, "tool reason");
+	assert.equal(result.prepassSafeguardReason, "tool reason");
 });
 
 test("buildPruningPayload: empty rawResponse becomes undefined prepassResponse", () => {
@@ -383,7 +383,7 @@ test("buildFeedbackMessage: includes mode/model/latency and fail-open reason whe
 			systemPrompt: "sp",
 			userMessage: "um",
 			latencyMs: 250,
-			failOpenReason: "kept all skills as fail-open",
+			safeguardReason: "kept all skills as fail-open",
 		},
 	);
 	assert.ok(msg);
@@ -391,7 +391,7 @@ test("buildFeedbackMessage: includes mode/model/latency and fail-open reason whe
 	assert.equal(msg!.details.prepassModel, "gpt-5-mini");
 	assert.equal(msg!.details.prepassThinkingLevel, "minimal");
 	assert.equal(msg!.details.prepassLatencyMs, 250);
-	assert.equal(msg!.details.prepassFailOpenReason, "kept all skills as fail-open");
+	assert.equal(msg!.details.prepassSafeguardReason, "kept all skills as fail-open");
 	assert.equal(msg!.details.skillTokensSaved, 100);
 	assert.equal(msg!.details.toolTokensSaved, 50);
 	assert.match(msg!.content, /Kept 1\/2 skills/);
@@ -415,7 +415,7 @@ test("buildFeedbackMessage: omits fail-open reason when absent", () => {
 		},
 	);
 	assert.ok(msg);
-	assert.equal(msg!.details.prepassFailOpenReason, undefined);
+	assert.equal(msg!.details.prepassSafeguardReason, undefined);
 	assert.equal(msg!.details.prepassModel, "gpt-5-mini");
 	assert.equal(msg!.details.prepassLatencyMs, 5);
 });
@@ -436,5 +436,5 @@ test("buildFeedbackMessage: prepass fields absent when prepass undefined", () =>
 	assert.ok(msg);
 	assert.equal(msg!.details.prepassModel, undefined);
 	assert.equal(msg!.details.prepassLatencyMs, undefined);
-	assert.equal(msg!.details.prepassFailOpenReason, undefined);
+	assert.equal(msg!.details.prepassSafeguardReason, undefined);
 });

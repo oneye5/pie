@@ -26,7 +26,7 @@ export interface PrepassDiagnostics {
 	userMessage: string;
 	latencyMs: number;
 	error?: string | null;
-	failOpenReason?: string | null;
+	safeguardReason?: string | null;
 }
 
 /** Display shape returned from `buildFeedbackMessage`. */
@@ -51,14 +51,14 @@ export function buildPruningPayload(
 	rawThinking: string,
 	rawSystemPrompt: string,
 	rawUserMessage: string,
-	skillFailOpenReason?: string | null,
-	toolFailOpenReason?: string | null,
+	skillSafeguardReason?: string | null,
+	toolSafeguardReason?: string | null,
 	_excludedSkillPaths?: string[],
 	_includedSkillPaths?: string[],
 ): { result: PruningResult; decision?: PruningDecision } {
-	const failOpenReason = (skillFailOpenReason && toolFailOpenReason)
-		? `${skillFailOpenReason} · ${toolFailOpenReason}`
-		: (skillFailOpenReason ?? toolFailOpenReason ?? undefined);
+	const safeguardReason = (skillSafeguardReason && toolSafeguardReason)
+		? `${skillSafeguardReason} · ${toolSafeguardReason}`
+		: (skillSafeguardReason ?? toolSafeguardReason ?? undefined);
 
 	const result: PruningResult = {
 		includedSkills: skillResult?.included ?? [],
@@ -76,7 +76,7 @@ export function buildPruningPayload(
 		prepassUserMessage: rawUserMessage || undefined,
 		prepassLatencyMs: latencyMs,
 		prepassError: pruningError || undefined,
-		prepassFailOpenReason: failOpenReason,
+		prepassSafeguardReason: safeguardReason,
 	};
 
 	return { result };
@@ -238,7 +238,7 @@ export function buildFeedbackMessage(
 		if (prepass.systemPrompt) details.prepassSystemPrompt = prepass.systemPrompt;
 		if (prepass.userMessage) details.prepassUserMessage = prepass.userMessage;
 		details.prepassLatencyMs = prepass.latencyMs;
-		if (prepass.failOpenReason) details.prepassFailOpenReason = prepass.failOpenReason;
+		if (prepass.safeguardReason) details.prepassSafeguardReason = prepass.safeguardReason;
 	}
 
 	const hasSkillPruning = !!skillResult && skillResult.excluded.length > 0;

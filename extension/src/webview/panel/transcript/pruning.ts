@@ -60,7 +60,7 @@ export function normalizePruningDetails(value: unknown): PruningDetails | null {
     prepassThinking: optionalString(value.prepassThinking),
     prepassLatencyMs: optionalNumber(value.prepassLatencyMs),
     prepassError: optionalString(value.prepassError),
-    prepassFailOpenReason: optionalString(value.prepassFailOpenReason),
+    prepassSafeguardReason: optionalString(value.prepassSafeguardReason),
   };
 }
 
