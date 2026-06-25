@@ -10,18 +10,52 @@ done / deferred (needs user decision).
 | W8 — Extract `evictSession(state, sp, {removeSummary, removeTabs})` | S1 / 02 C1 | done | `034ef31` |
 | W9a — Archive/delete one-shot codemods | S10 | done | `58c7adf` (move `73073e1` prior) |
 | W6 — Reconcile docs with `STATE_CONTRACT.md` | S7 | done | `2310d2e` |
-| W2a — Thinking-level enum shared module | S1 | planned | — |
-| W2b — Pruning-summary math helper | S1 | planned | — |
-| W2c — Checkpoint parse/read helpers | S1 | planned | — |
-| W2d — Path utilities shared module | S1 | planned | — |
-| W2e — Token formatting factory | S1 | planned | — |
-| W2f — Pricing logic across 3 packages | S1 | planned (decision: new top-level `shared/` package) | — |
-| W2g — Coercion / failure-kind taxonomy | S1 | planned (decision: extract into `shared/`) | — |
-| W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | planned (frontier) | — |
-| W4 — Tighten boundary-typing ring | S6 | planned (frontier) | — |
-| W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | deferred (needs user decision: version table shape) | — |
-| W9b — Install-script portability | S10 | planned | — |
-| W7 — Refactor-hostile tests → behavior tests | S8 | planned (after W3) | — |
+| W2a — Thinking-level enum shared module | S1 | done | `c66b38e` |
+| W2b — Pruning-summary math helper | S1 | done | `0c1b01d` |
+| W2c — Checkpoint parse/read helpers | S1 | done | `dec9284` |
+| W2d — Path utilities shared module | S1 | done | `99681d7` |
+| W2e — Token formatting factory | S1 | done | `b267880` |
+| W2f — Pricing logic across 3 packages | S1 | done | `f2253ca` |
+| W2g — Coercion / failure-kind taxonomy | S1 | deferred (needs type-ownership decision + frontier scout/reviewer) | — |
+| W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | deferred (frontier subagent blocked by session usage limit) | — |
+| W4 — Tighten boundary-typing ring | S6 | deferred (frontier subagent blocked by session usage limit) | — |
+| W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | deferred (frontier + needs versioned-migration design decision) | — |
+| W9b — Install-script portability | S10 | deferred (install-script edits need careful testing) | — |
+| W7 — Refactor-hostile tests → behavior tests | S8 | deferred (after W3) | — |
+
+## Decisions pending (resolve before resuming)
+- **W5 versioned-migration design** — `parseCheckpoint` returns null on schemaVersion
+  mismatch today; the next schema bump silently drops all user analytics. Need a
+  version-table shape + migration path before implementing atomic persistence.
+  Propose options to the user before spawning.
+- **W2g type ownership** — the failure-kind unions (`ToolFailureKind`,
+  `ToolResultIssueKind`, `VerificationCommandKind`, `TreatmentChangeKind`) are
+  double-defined in `extension/src/shared/tool-call-analysis/index.ts` (host)
+  AND `analysis/scripts/contracts.ts` (analysis). The shared coercion module
+  must decide where they canonically live (shared owns them? re-export from one?
+  ). Ask the user before spawning.
+
+## Discovered follow-ups (not in original backlog)
+- **`pruning-settings.ts:24` `VALID_MODES`** omits `'custom'` (mirrors the
+  `VALID_PRUNING_MODES` drift W2a fixed in protocol-validation). Host-side
+  persistence may reject a `custom` pruning mode. Fix in a follow-up.
+- **Analysis 95% line-coverage gate is already failing** (70.4% baseline, measured
+  with the original pre-W2f `analysis/scripts/pricing.ts`). Pre-existing, NOT a
+  W2f regression (W2f: 70.4%→70.4%, branches 87.3%→87.2%). The 95% gate in
+  `scripts/run-tests.mjs:28` is hostile to cross-package extraction (extracted,
+  well-covered code leaves the package's coverage scope). Revisit the threshold
+  or the coverage-include strategy.
+- **`isTaskBoundaryIntent`** in `stats-service/helpers.ts` is now unused after
+  W2c (inlined into the shared checkpoint-io module). Safe to remove in a
+  follow-up.
+- **Dead `truncateText` wrapper** in `tool-call-summary.ts` after W2d (no
+  remaining callers). Safe to remove.
+- **`header.ts` token grouping** changed from host-locale to `en-US` in W2e
+  (intentional, deterministic). Confirmed acceptable.
+- **`handleSessionClosed`** now drops the session summary (via
+  `evictSession({removeSummary:true})`) where the old `removeSessionFromState`
+  retained it. Currently unobservable (`SessionClosed` has no dispatch site) and
+  aligns with full-eviction intent. Flagged by the W8 reviewer for awareness.
 
 ---
 
