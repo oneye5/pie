@@ -1,9 +1,17 @@
 /**
  * Token-pricing loader for the analysis package.
  *
- * Mirrors the pricing semantics in `extension/src/backend/pricing.ts` (which is
- * itself a thin duplicate of `extensions/subagent/pricing.ts`). Keep the three
- * copies synchronized.
+ * The identical core (`parseModelPricing`, `ModelTokenPricing`, and
+ * `estimateNormalizedCost`) now lives in the shared `../../shared/pricing-core.ts`
+ * module and is re-exported here. The package-local pieces that differ by
+ * consumer policy remain here:
+ *
+ * - `loadModelPricingMap` — **first-provider-wins** single-value
+ *   `Map<string, ModelTokenPricing>`, env-aware (delegates file IO to
+ *   `./load-models.ts`).
+ * - `computeTokenCostUsd` / `estimateRunCostUsd` — analysis-only token-math
+ *   (kept local, NOT in the shared core).
+ * - `resolveModelsJsonPath` re-export (lives in `./load-models.ts`).
  *
  * ## Units
  * - All rates are **USD per 1,000,000 tokens**.
@@ -16,54 +24,27 @@
  */
 import { loadModelsJsonProviders } from './load-models.ts';
 
+import { parseModelPricing } from '../../shared/pricing-core.js';
+import type { ModelTokenPricing } from '../../shared/pricing-core.js';
+
+// Re-export the shared core under the original public names so existing
+// consumers (analysis/scripts/prepare.ts, analysis/test/pricing.test.ts) keep
+// working unchanged. estimateNormalizedCost is the shared normalization helper,
+// re-exported for downstream reuse within the analysis package.
+export { estimateNormalizedCost, parseModelPricing } from '../../shared/pricing-core.js';
+export type { ModelTokenPricing } from '../../shared/pricing-core.js';
+
 // Re-exported so existing imports of `resolveModelsJsonPath` from `./pricing.ts`
 // (e.g. tests) keep working now that it lives in `./load-models.ts`.
 export { resolveModelsJsonPath } from './load-models.ts';
 
 const TOKENS_PER_MILLION = 1_000_000;
 
-export interface ModelTokenPricing {
-  /** USD per 1M input tokens. */
-  input: number;
-  /** USD per 1M output tokens. */
-  output: number;
-  /** USD per 1M cache-read tokens. */
-  cacheRead: number;
-  /** USD per 1M cache-write tokens. */
-  cacheWrite: number;
-}
-
 export interface TokenUsageForCost {
   inputTokens: number;
   outputTokens: number;
   cacheReadTokens: number;
   cacheWriteTokens: number;
-}
-
-function maybeValidNumber(value: unknown): number | undefined {
-  if (value === undefined) {
-    return 0;
-  }
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    return undefined;
-  }
-  return value;
-}
-
-/** Parse and validate a raw `cost` object from `models.json`. `undefined` if invalid. */
-export function parseModelPricing(raw: unknown): ModelTokenPricing | undefined {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
-    return undefined;
-  }
-  const obj = raw as Record<string, unknown>;
-  const input = maybeValidNumber(obj.input);
-  const output = maybeValidNumber(obj.output);
-  const cacheRead = maybeValidNumber(obj.cacheRead);
-  const cacheWrite = maybeValidNumber(obj.cacheWrite);
-  if (input === undefined || output === undefined || cacheRead === undefined || cacheWrite === undefined) {
-    return undefined;
-  }
-  return { input, output, cacheRead, cacheWrite };
 }
 
 function addRecord(map: Map<string, ModelTokenPricing>, id: string, model: Record<string, unknown>): void {

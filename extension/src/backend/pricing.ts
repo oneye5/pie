@@ -1,8 +1,10 @@
 /**
  * Minimal pricing parser / normalizer for the VS Code extension backend.
  *
- * This is a thin duplicate of the equivalent module in `extensions/subagent/pricing.ts`
- * to avoid cross-package import complexity. Keep constants and logic synchronized.
+ * The identical core (types, `parseModelPricing`, `estimateNormalizedCost`)
+ * now lives in the shared `../../../shared/pricing-core.ts` module and is
+ * re-exported here to preserve this module's public surface. Only the loader
+ * (`loadModelPricing`) remains package-local.
  *
  * ## Units & semantics
  *
@@ -11,79 +13,31 @@
  * - Missing `cost` field = unknown pricing (triggers fallback).
  * - Negative or non-finite prices are rejected.
  *
- * ## Normalization
+ * ## Normalization (see shared core)
  *
  *   blended = (3 × input + 1 × output) / 4
  *   normalized = 10 × √(blended / 6.00)
  *
- * Basline ($6.00/1M blended) anchored to claude-sonnet-4.6.
+ * Baseline ($6.00/1M blended) anchored to claude-sonnet-4.6.
  */
 
-/** Token ratio for agentic coding workloads: 3 input tokens per 1 output token. */
-const INPUT_WEIGHT = 3;
-const OUTPUT_WEIGHT = 1;
+import { parseModelPricing } from '../../../shared/pricing-core.js';
+import type { ModelPricingRecord } from '../../../shared/pricing-core.js';
 
-/** Baseline blended USD-per-1M tokens (claude-sonnet-4.6: $3.00/M input, $15.00/M output). */
-const BASELINE_USD_PER_1M = 6.0;
-
-/** Scale factor mapping the baseline to the legacy cost=10 reference. */
-const NORMALIZATION_SCALE = 10;
-
-export interface ModelTokenPricing {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-}
-
-export interface ModelPricingRecord {
-  id: string;
-  provider: string;
-  pricing?: ModelTokenPricing;
-}
-
-/**
- * Parse and validate a raw `cost` object from `models.json`.
- *
- * Returns `undefined` if invalid. Missing subfields default to 0.
- */
-export function parseModelPricing(raw: unknown): ModelTokenPricing | undefined {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-
-  const obj = raw as Record<string, unknown>;
-
-  const input = maybeValidNumber(obj.input);
-  const output = maybeValidNumber(obj.output);
-  const cacheRead = maybeValidNumber(obj.cacheRead);
-  const cacheWrite = maybeValidNumber(obj.cacheWrite);
-
-  if (input === undefined || output === undefined) return undefined;
-  if (cacheRead === undefined || cacheWrite === undefined) return undefined;
-
-  return { input, output, cacheRead, cacheWrite };
-}
-
-function maybeValidNumber(v: unknown): number | undefined {
-  if (v === undefined) return 0;
-  if (typeof v !== 'number') return undefined;
-  if (!Number.isFinite(v) || v < 0) return undefined;
-  return v;
-}
-
-/**
- * Convert real token prices to the selector's 0–30+ cost penalty scale.
- */
-export function estimateNormalizedCost(pricing: ModelTokenPricing): number {
-  const blended = (INPUT_WEIGHT * pricing.input + OUTPUT_WEIGHT * pricing.output)
-    / (INPUT_WEIGHT + OUTPUT_WEIGHT);
-
-  if (blended <= 0) return 0;
-
-  return NORMALIZATION_SCALE * Math.sqrt(blended / BASELINE_USD_PER_1M);
-}
+// Re-export the shared core under the original public names so existing
+// consumers (subagent-profiles.ts, extension/test/pricing.test.ts,
+// extension/test/backend-pricing-units.test.ts) keep working unchanged.
+export { estimateNormalizedCost, parseModelPricing } from '../../../shared/pricing-core.js';
+export type { ModelPricingRecord, ModelTokenPricing } from '../../../shared/pricing-core.js';
 
 /**
  * Load pricing records from `models.json`.
+ *
+ * Returns a Map keyed by model id, with values being arrays of
+ * {@link ModelPricingRecord} (one per provider the model appears under).
+ * Returns an empty Map when the file is missing or unreadable.
+ *
+ * Models with missing, invalid, or negative pricing are silently skipped.
  */
 export function loadModelPricing(modelsJsonPath: string): Map<string, ModelPricingRecord[]> {
   const map = new Map<string, ModelPricingRecord[]>();
@@ -147,5 +101,3 @@ export function loadModelPricing(modelsJsonPath: string): Map<string, ModelPrici
 
   return map;
 }
-
-
