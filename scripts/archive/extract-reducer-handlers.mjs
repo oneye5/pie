@@ -1,3 +1,10 @@
+/**
+ * ⚠️ ARCHIVED one-shot codemod — completed 2026-06-25.
+ * Target reducer-handler extraction is DONE; re-running uses whitespace-
+ * sensitive `src.includes(block)` and prints "Done" even when it no-ops.
+ * Kept for history only.
+ * See docs/internal/code-review/09_analysis_docs_config.md (S10 H8).
+ */
 import fs from 'node:fs';
 
 const FILE = 'extension/src/host/core/reducer.ts';
