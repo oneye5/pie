@@ -2,6 +2,7 @@
 /** @jsxImportSource preact */
 
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningCatalog, PruningResult, PruningSettings, ThinkingLevel } from '../../../shared/protocol';
+import { THINKING_LEVEL_LABELS } from '../../../shared/thinking-level.js';
 
 import { useMemo } from 'preact/hooks';
 
@@ -10,15 +11,6 @@ import { ModelPicker } from '../components/model-picker';
 import { orderModelsForPicker } from './model-list';
 import type { TokenRateIndicatorState } from './use-token-rate';
 import { ComposerSettingsMenu } from './settings-menu';
-
-const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
-  off: 'Off',
-  minimal: 'Minimal',
-  low: 'Low',
-  medium: 'Medium',
-  high: 'High',
-  xhigh: 'Max',
-};
 
 interface ComposerToolbarStatus {
   text: string;

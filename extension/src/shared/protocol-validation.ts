@@ -21,12 +21,14 @@
 import type {
   ChatPrefs,
   ComposerInputDraft,
+  PruningMode,
   PruningSettings,
   RunOutcome,
   StateAppliedPayload,
   ThinkingLevel,
   WebviewToHostMessage,
 } from './protocol';
+import { isThinkingLevel, THINKING_LEVEL_SET } from './thinking-level.js';
 
 export type ValidationResult<T> =
   | { ok: true; value: T }
@@ -64,19 +66,6 @@ function validateStateAppliedPayload(value: unknown): value is StateAppliedPaylo
     && typeof value.domTranscriptLoaderPresent === 'boolean'
     && typeof value.domTabsConnectingPresent === 'boolean'
   );
-}
-
-const THINKING_LEVELS: readonly ThinkingLevel[] = [
-  'off',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-];
-
-function isThinkingLevel(value: unknown): value is ThinkingLevel {
-  return typeof value === 'string' && (THINKING_LEVELS as readonly string[]).includes(value);
 }
 
 function validateComposerInputDraft(value: unknown): value is ComposerInputDraft {
@@ -185,15 +174,14 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
   return true;
 }
 
-const VALID_PRUNING_MODES = new Set(['auto', 'shadow', 'off']);
-const VALID_THINKING_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const VALID_PRUNING_MODES = new Set<PruningMode>(['auto', 'shadow', 'off', 'custom']);
 
 function validatePruningSettingsPatch(value: unknown): value is Partial<PruningSettings> {
   if (!isObject(value)) return false;
   for (const key of Object.keys(value)) {
     const v = (value as Record<string, unknown>)[key];
     if (key === 'mode') {
-      if (v !== undefined && (typeof v !== 'string' || !VALID_PRUNING_MODES.has(v))) return false;
+      if (v !== undefined && (typeof v !== 'string' || !VALID_PRUNING_MODES.has(v as PruningMode))) return false;
     } else if (key === 'skillCeiling' || key === 'toolCeiling') {
       if (v !== undefined && (!isFiniteNumber(v) || (v as number) < 1)) return false;
     } else if (key === 'skillAlwaysKeep' || key === 'toolAlwaysKeep') {
@@ -201,7 +189,7 @@ function validatePruningSettingsPatch(value: unknown): value is Partial<PruningS
     } else if (key === 'model' || key === 'provider') {
       if (v !== undefined && (typeof v !== 'string' || v.length === 0)) return false;
     } else if (key === 'thinkingLevel') {
-      if (v !== undefined && (typeof v !== 'string' || !VALID_THINKING_LEVELS.has(v))) return false;
+      if (v !== undefined && (typeof v !== 'string' || !THINKING_LEVEL_SET.has(v as ThinkingLevel))) return false;
     } else {
       return false;
     }

@@ -2,7 +2,6 @@ import type {
   AssistantUsage,
   ChatMessage,
   ChatMessagePart,
-  ThinkingLevel,
   ToolCall,
   UserContentPart,
 } from '../../shared/protocol';
@@ -77,19 +76,7 @@ export function userPartsFromContent(content: string | ContentPart[] | undefined
   return userParts.length > 0 ? userParts : undefined;
 }
 
-export function normalizeThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
-  switch (value) {
-    case 'off':
-    case 'minimal':
-    case 'low':
-    case 'medium':
-    case 'high':
-    case 'xhigh':
-      return value;
-    default:
-      return undefined;
-  }
-}
+export { normalizeThinkingLevel } from '../../shared/thinking-level.js';
 
 export function assistantPartsFromContent(
   parts: ContentPart[] | undefined,

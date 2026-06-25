@@ -1,5 +1,6 @@
 import type { ComposerInput, FilesystemPathComposerInput, ImageBlobComposerInput, ModelSettings, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../shared/image-constraints';
+import { THINKING_LEVELS } from '../shared/thinking-level.js';
 
 export { MAX_IMAGE_INPUT_BYTES } from '../shared/image-constraints';
 
@@ -73,17 +74,6 @@ export function validateSessionDuplicate(params: unknown): SessionDuplicateParam
     selectionToken: readSelectionToken('session.duplicate', params),
   };
 }
-
-const THINKING_LEVELS: ReadonlyArray<ThinkingLevel> = [
-  'off',
-  'minimal',
-  'low',
-  'medium',
-  'high',
-  'xhigh',
-];
-
-
 
 function isObj(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object';

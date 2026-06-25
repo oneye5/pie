@@ -1,19 +1,7 @@
-import type { ComposerInput, ModelInputKind, ThinkingLevel } from '../shared/protocol';
+import type { ComposerInput, ModelInputKind } from '../shared/protocol';
 import type { SdkImageContent } from './sdk';
 
-export function normalizeThinkingLevel(value: string | undefined): ThinkingLevel | undefined {
-  switch (value) {
-    case 'off':
-    case 'minimal':
-    case 'low':
-    case 'medium':
-    case 'high':
-    case 'xhigh':
-      return value;
-    default:
-      return undefined;
-  }
-}
+export { normalizeThinkingLevel } from '../shared/thinking-level.js';
 
 function normalizeModelInputKinds(value: unknown): ModelInputKind[] | null {
   if (!Array.isArray(value)) {

@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import * as path from 'node:path';
 
 import { DEFAULT_PRUNING_SETTINGS, type PruningMode, type PruningSettings, type ThinkingLevel } from '../../shared/protocol';
+import { THINKING_LEVEL_SET } from '../../shared/thinking-level.js';
 
 /**
  * Resolve the settings.json path from PI_CODING_AGENT_DIR.
@@ -22,7 +23,6 @@ export function pruningSettingsFileExists(): boolean {
 }
 
 const VALID_MODES = new Set<PruningMode>(['auto', 'shadow', 'off']);
-const VALID_THINKING_LEVELS = new Set<ThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 
 function cloneDefaultPruningSettings(): PruningSettings {
   return {
@@ -90,7 +90,7 @@ export async function readPruningSettings(): Promise<PruningSettings> {
       ? pruning.provider
       : DEFAULT_PRUNING_SETTINGS.provider;
 
-    const thinkingLevel = typeof pruning.thinkingLevel === 'string' && VALID_THINKING_LEVELS.has(pruning.thinkingLevel as ThinkingLevel)
+    const thinkingLevel = typeof pruning.thinkingLevel === 'string' && THINKING_LEVEL_SET.has(pruning.thinkingLevel as ThinkingLevel)
       ? (pruning.thinkingLevel as ThinkingLevel)
       : DEFAULT_PRUNING_SETTINGS.thinkingLevel;
 

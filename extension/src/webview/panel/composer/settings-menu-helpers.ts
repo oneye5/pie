@@ -1,4 +1,6 @@
-import type { ChatPrefs, PruningMode, ThinkingLevel, UiDensity } from '../../../shared/protocol';
+import type { ChatPrefs, PruningMode, UiDensity } from '../../../shared/protocol';
+
+export { THINKING_LEVEL_OPTIONS } from '../../../shared/thinking-level.js';
 
 /** Extension IDs that have nested settings panels */
 export const EXTENSIONS_WITH_SETTINGS = new Set(['skill-pruner', 'subagent']);
@@ -7,14 +9,6 @@ export const PRUNING_MODE_OPTIONS: { value: PruningMode; label: string }[] = [
   { value: 'auto', label: 'Auto' },
   { value: 'shadow', label: 'Shadow' },
   { value: 'off', label: 'Off' },
-];
-
-export const THINKING_LEVEL_OPTIONS: { value: ThinkingLevel; label: string }[] = [
-  { value: 'off', label: 'Off' },
-  { value: 'minimal', label: 'Minimal' },
-  { value: 'low', label: 'Low' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
 ];
 
 export const DENSITY_OPTIONS: { value: UiDensity; label: string }[] = [
