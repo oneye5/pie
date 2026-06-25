@@ -7,9 +7,13 @@ import {
   summarizeUnknown,
 } from '../../shared/tool-call-analysis';
 import { DIRECT_FILE_PATH_KEYS, GENERIC_PATH_KEYS } from '../../shared/tool-call-analysis/mutation-tools';
+import {
+  relativePathFromBase,
+  truncatePathText,
+  truncateString,
+} from '../../shared/path-utils.js';
 
 const TOOL_CALL_SUMMARY_MAX_LENGTH = 300;
-const TOOL_CALL_PATH_SUMMARY_MAX_LENGTH = 240;
 
 export interface ToolCallPresentation {
   name: string;
@@ -23,40 +27,13 @@ export interface ToolCallPresentationOptions {
   workingDirectory?: string | null;
 }
 
-function truncateText(text: string, maxLength = TOOL_CALL_SUMMARY_MAX_LENGTH): string {
-  return text.length > maxLength
-    ? `${text.slice(0, maxLength - 3).trimEnd()}...`
-    : text;
-}
+const truncateText = (text: string, maxLength = TOOL_CALL_SUMMARY_MAX_LENGTH) => truncateString(text, maxLength);
 
 import { isRecord } from '../../shared/type-guards';
 
 
-function normalizePathSeparators(value: string): string {
-  return value.replace(/\\/g, '/');
-}
-
-function trimTrailingPathSeparators(value: string): string {
-  if (value === '/' || /^[A-Za-z]:\/$/.test(value)) {
-    return value;
-  }
-
-  return value.replace(/\/+$/, '');
-}
-
 function isAbsoluteFsPath(value: string): boolean {
   return /^[A-Za-z]:[\\/]/.test(value) || value.startsWith('\\\\') || value.startsWith('/') || value.startsWith('//');
-}
-
-function normalizeComparablePath(value: string): string {
-  const normalized = trimTrailingPathSeparators(normalizePathSeparators(value));
-  if (/^[A-Za-z]:/.test(normalized)) {
-    return `${normalized[0].toLowerCase()}${normalized.slice(1)}`;
-  }
-  if (normalized.startsWith('//')) {
-    return normalized.toLowerCase();
-  }
-  return normalized;
 }
 
 function toFileSystemPath(value: string): string | null {
@@ -89,79 +66,8 @@ function joinFileSystemPath(basePath: string, relativePath: string): string {
   return `${base}${separator}${relative}`;
 }
 
-function relativePathFromBase(targetPath: string, basePath: string): string | null {
-  const comparableTarget = normalizeComparablePath(targetPath);
-  const comparableBase = normalizeComparablePath(basePath);
-  if (!comparableTarget || !comparableBase || comparableTarget === comparableBase) {
-    return null;
-  }
-
-  const prefix = comparableBase.endsWith('/') ? comparableBase : `${comparableBase}/`;
-  if (!comparableTarget.startsWith(prefix)) {
-    return null;
-  }
-
-  const normalizedTarget = trimTrailingPathSeparators(normalizePathSeparators(targetPath));
-  const normalizedBase = trimTrailingPathSeparators(normalizePathSeparators(basePath));
-  return normalizedTarget.slice(normalizedBase.length + 1) || null;
-}
-
 function convertPathSeparators(value: string, separator: string): string {
   return separator === '\\' ? value.replace(/\//g, '\\') : value;
-}
-
-function truncatePathParentFromLeft(parentPath: string, maxLength: number): string {
-  if (parentPath.length <= maxLength) {
-    return parentPath;
-  }
-
-  if (maxLength <= 0) {
-    return '';
-  }
-
-  const sliceStart = Math.max(0, parentPath.length - maxLength);
-  const slicedParentPath = parentPath.slice(sliceStart);
-  const nextSeparatorOffset = slicedParentPath.search(/[\\/]/);
-  if (nextSeparatorOffset < 0) {
-    return slicedParentPath.replace(/^[\\/]+/, '');
-  }
-
-  const pathSuffix = slicedParentPath.slice(nextSeparatorOffset + 1);
-  return pathSuffix || slicedParentPath.replace(/^[\\/]+/, '');
-}
-
-function truncatePathText(value: string): string {
-  if (value.length <= TOOL_CALL_PATH_SUMMARY_MAX_LENGTH) {
-    return value;
-  }
-
-  const lastSeparatorIndex = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
-  if (lastSeparatorIndex < 0 || lastSeparatorIndex >= value.length - 1) {
-    return truncateText(value, TOOL_CALL_PATH_SUMMARY_MAX_LENGTH);
-  }
-
-  const separator = value[lastSeparatorIndex] === '\\' ? '\\' : '/';
-  const fileSection = value.slice(lastSeparatorIndex + 1);
-  if (!fileSection) {
-    return truncateText(value, TOOL_CALL_PATH_SUMMARY_MAX_LENGTH);
-  }
-
-  const parentPath = value.slice(0, lastSeparatorIndex).replace(/[\\/]+$/, '');
-  const fullParentBudget = TOOL_CALL_PATH_SUMMARY_MAX_LENGTH - fileSection.length - separator.length;
-  if (parentPath.length <= fullParentBudget) {
-    return `${parentPath}${separator}${fileSection}`;
-  }
-
-  const clippedPathMarker = `...${separator}`;
-  const truncatedParentBudget = TOOL_CALL_PATH_SUMMARY_MAX_LENGTH - fileSection.length - clippedPathMarker.length - separator.length;
-  if (truncatedParentBudget <= 0) {
-    return truncateText(fileSection, TOOL_CALL_PATH_SUMMARY_MAX_LENGTH);
-  }
-
-  const truncatedParentPath = truncatePathParentFromLeft(parentPath, truncatedParentBudget);
-  return truncatedParentPath
-    ? `${clippedPathMarker}${truncatedParentPath}${separator}${fileSection}`
-    : `${clippedPathMarker}${fileSection}`;
 }
 
 function summarizePathCandidate(rawValue: string, workingDirectory?: string | null): { summary: string; summaryPath?: string } | null {
