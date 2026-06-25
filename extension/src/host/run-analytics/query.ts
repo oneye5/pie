@@ -6,10 +6,10 @@ import {
   coerceOutcomeHistoryLogEntry,
   coerceRunSnapshot,
   type OutcomeHistoryLogEntry,
-  type PersistedSessionRunState,
   type RunCheckpoint,
   type RunSnapshot,
 } from './index';
+import { parseCheckpoint, readOptionalText } from '../shared/checkpoint-io';
 import { resolveCheckpointSlot } from '../shared/checkpoint-slots';
 
 export interface RunAnalyticsQueryResult {
@@ -26,17 +26,6 @@ export interface RunAnalyticsExportPayload extends RunAnalyticsQueryResult {
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
-}
-
-async function readOptionalText(filePath: string): Promise<string | null> {
-  try {
-    return await fs.readFile(filePath, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return null;
-    }
-    throw error;
-  }
 }
 
 async function readJsonlObjects(filePath: string): Promise<unknown[]> {
@@ -57,61 +46,6 @@ async function readJsonlObjects(filePath: string): Promise<unknown[]> {
       }
     })
     .filter((value): value is unknown => value !== null);
-}
-
-function parsePersistedSessionRunState(value: unknown): PersistedSessionRunState | null {
-  if (!isObjectRecord(value)) {
-    return null;
-  }
-
-  return {
-    currentRun: coerceRunSnapshot(value.currentRun),
-    lastRun: coerceRunSnapshot(value.lastRun),
-    nextTaskIntent:
-      value.nextTaskIntent === 'new_task' || value.nextTaskIntent === 'continue_task'
-        ? value.nextTaskIntent
-        : null,
-    queuedUnsupportedInputCount:
-      typeof value.queuedUnsupportedInputCount === 'number'
-      && Number.isFinite(value.queuedUnsupportedInputCount)
-      && value.queuedUnsupportedInputCount >= 0
-        ? Math.trunc(value.queuedUnsupportedInputCount)
-        : 0,
-    busyStartedAt: typeof value.busyStartedAt === 'string' ? value.busyStartedAt : null,
-  };
-}
-
-function parseCheckpoint(raw: string): RunCheckpoint | null {
-  try {
-    const value = JSON.parse(raw) as {
-      schemaVersion?: unknown;
-      seq?: unknown;
-      sessions?: unknown;
-    };
-    if (value.schemaVersion !== RUN_ANALYTICS_SCHEMA_VERSION || typeof value.seq !== 'number') {
-      return null;
-    }
-    if (!isObjectRecord(value.sessions)) {
-      return null;
-    }
-
-    const sessions: Record<string, PersistedSessionRunState> = {};
-    for (const [sessionPath, sessionState] of Object.entries(value.sessions)) {
-      const parsed = parsePersistedSessionRunState(sessionState);
-      if (!parsed) {
-        continue;
-      }
-      sessions[sessionPath] = parsed;
-    }
-
-    return {
-      schemaVersion: RUN_ANALYTICS_SCHEMA_VERSION,
-      seq: value.seq,
-      sessions,
-    };
-  } catch {
-    return null;
-  }
 }
 
 async function readCheckpoint(storageDir: string): Promise<RunCheckpoint | null> {

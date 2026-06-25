@@ -2,10 +2,8 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { serializeJsonLine } from '../../shared/jsonl';
-import {
-  parseCheckpoint,
-  workspaceHash,
-} from './helpers';
+import { parseCheckpoint, readOptionalText } from '../shared/checkpoint-io';
+import { workspaceHash } from './helpers';
 import {
   readCheckpointFromDisk,
   writeCheckpointToDisk,
@@ -184,8 +182,8 @@ export class RunAnalyticsStorage {
   private async mergeJsonlLogFiles(legacyStorageDirs: string[], fileName: string): Promise<void> {
     const targetPath = path.join(this.storageDir, fileName);
     const [currentRaw, ...legacyRaws] = await Promise.all([
-      this.readOptionalText(targetPath),
-      ...legacyStorageDirs.map((legacyStorageDir) => this.readOptionalText(path.join(legacyStorageDir, fileName))),
+      readOptionalText(targetPath),
+      ...legacyStorageDirs.map((legacyStorageDir) => readOptionalText(path.join(legacyStorageDir, fileName))),
     ]);
     const existingLegacyRaws = legacyRaws.filter((raw): raw is string => !!raw);
 
@@ -236,17 +234,6 @@ export class RunAnalyticsStorage {
     }
 
     await writeCheckpointToDisk(this.storageDir, currentState.activeSlot, mergedCheckpoint);
-  }
-
-  private async readOptionalText(filePath: string): Promise<string | null> {
-    try {
-      return await fs.readFile(filePath, 'utf8');
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-        return null;
-      }
-      throw error;
-    }
   }
 
   private mergeJsonlContent(

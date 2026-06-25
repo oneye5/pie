@@ -18,12 +18,12 @@ import {
 import {
   areStringArraysEqual,
   isTaskBoundaryIntent,
-  parseCheckpoint,
   summarizeInputs,
   toActiveRunSummary,
   toPersistedSessionState,
   workspaceHash,
 } from '../src/host/stats-service/helpers';
+import { parseCheckpoint } from '../src/host/shared/checkpoint-io';
 import type { ComposerInput } from '../src/shared/protocol';
 import type { RunSnapshot, TurnThroughputSample } from '../src/host/run-analytics';
 

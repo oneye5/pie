@@ -2,10 +2,7 @@ import * as crypto from 'node:crypto';
 
 import type { ActiveRunSummary, ComposerInput } from '../../shared/protocol';
 import {
-  RUN_ANALYTICS_SCHEMA_VERSION,
-  coerceRunSnapshot,
   type PersistedSessionRunState,
-  type RunCheckpoint,
   type RunSnapshot,
   type TaskBoundaryIntent,
 } from '../run-analytics';
@@ -86,56 +83,6 @@ export function toPersistedSessionState(state: PersistableSessionState): Persist
 
 export function isTaskBoundaryIntent(value: unknown): value is Exclude<TaskBoundaryIntent, null> {
   return value === 'new_task' || value === 'continue_task';
-}
-
-export function parseCheckpoint(raw: string): RunCheckpoint | null {
-  try {
-    const value = JSON.parse(raw) as {
-      schemaVersion?: unknown;
-      seq?: unknown;
-      sessions?: unknown;
-    };
-    if (value.schemaVersion !== RUN_ANALYTICS_SCHEMA_VERSION || typeof value.seq !== 'number') {
-      return null;
-    }
-    if (!value.sessions || typeof value.sessions !== 'object') {
-      return null;
-    }
-
-    const sessions: Record<string, PersistedSessionRunState> = {};
-    for (const [sessionPath, sessionState] of Object.entries(value.sessions as Record<string, unknown>)) {
-      if (!sessionState || typeof sessionState !== 'object') {
-        continue;
-      }
-      const candidate = sessionState as {
-        currentRun?: unknown;
-        lastRun?: unknown;
-        nextTaskIntent?: unknown;
-        queuedUnsupportedInputCount?: unknown;
-        busyStartedAt?: unknown;
-      };
-      sessions[sessionPath] = {
-        currentRun: coerceRunSnapshot(candidate.currentRun),
-        lastRun: coerceRunSnapshot(candidate.lastRun),
-        nextTaskIntent: isTaskBoundaryIntent(candidate.nextTaskIntent) ? candidate.nextTaskIntent : null,
-        queuedUnsupportedInputCount:
-          typeof candidate.queuedUnsupportedInputCount === 'number'
-          && Number.isFinite(candidate.queuedUnsupportedInputCount)
-          && candidate.queuedUnsupportedInputCount >= 0
-            ? Math.trunc(candidate.queuedUnsupportedInputCount)
-            : 0,
-        busyStartedAt: typeof candidate.busyStartedAt === 'string' ? candidate.busyStartedAt : null,
-      };
-    }
-
-    return {
-      schemaVersion: RUN_ANALYTICS_SCHEMA_VERSION,
-      seq: value.seq,
-      sessions,
-    };
-  } catch {
-    return null;
-  }
 }
 
 export function appendUnique<TValue>(values: TValue[], nextValues: TValue[]): TValue[] {

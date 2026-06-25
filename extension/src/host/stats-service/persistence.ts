@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import type { RunCheckpoint } from '../run-analytics';
+import { readOptionalText } from '../shared/checkpoint-io';
 import { resolveCheckpointSlot } from '../shared/checkpoint-slots';
 
 export type CheckpointSlot = 'a' | 'b';
@@ -9,17 +10,6 @@ export type CheckpointSlot = 'a' | 'b';
 interface ReadCheckpointResult {
   checkpoint: RunCheckpoint | null;
   activeSlot: CheckpointSlot;
-}
-
-async function readOptionalText(filePath: string): Promise<string | null> {
-  try {
-    return await fs.readFile(filePath, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return null;
-    }
-    throw error;
-  }
 }
 
 export async function readCheckpointFromDisk(
