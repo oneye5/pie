@@ -3,6 +3,7 @@
 
 import { VirtualItem, Virtualizer, elementScroll, observeElementOffset, observeElementRect } from '@tanstack/virtual-core';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
+import { memo } from 'preact/compat';
 
 import { type ChatMessage, type ChatPrefs, type PruningResult, type PruningSettings, type SystemPromptEntry, type ThinkingLevel, type ToolCall, type TranscriptWindow } from '../../../shared/protocol';
 import { deriveTurnActivityState } from './activity';
@@ -217,7 +218,7 @@ interface VirtualRowProps {
   measureRowElement: (element: HTMLDivElement | null) => void;
 }
 
-function VirtualRow({
+const VirtualRow = memo(function VirtualRow({
   virtualRow,
   rows,
   lastRow,
@@ -287,7 +288,7 @@ function VirtualRow({
       />
     </div>
   );
-}
+});
 
 export function TranscriptVirtualList({
   sessionKey,

@@ -167,6 +167,32 @@ function ComposerView({
   useComposerPaste({ applyComposerTransfer, textareaRef });
   useComposerHeightSync(composerAreaRef);
 
+  // Memoize the indicator prop objects passed to `ComposerToolbar` so they keep
+  // a stable reference across renders. The indicator values themselves
+  // (`contextIndicator` / `sessionTokenIndicator`) are already memoized inside
+  // `useComposerIndicators`, and `availableModels` is now reference-stabilised
+  // upstream (`use-host-sync`), so `memo(ComposerView)` actually holds and
+  // these `useMemo`s only recompute when the underlying indicator changes —
+  // without them, fresh inline object literals would be allocated every render.
+  const contextIndicatorProp = useMemo(
+    () => contextIndicator
+      ? {
+          label: contextIndicator.label,
+          ariaLabel: contextIndicator.ariaLabel,
+          severity: contextIndicator.severity ?? null,
+        }
+      : null,
+    [contextIndicator],
+  );
+  const sessionTokenIndicatorProp = useMemo(
+    () => ({
+      label: sessionTokenIndicator.label,
+      ariaLabel: sessionTokenIndicator.ariaLabel,
+      tooltip: sessionTokenIndicator.tooltip,
+    }),
+    [sessionTokenIndicator],
+  );
+
   const runControls = getComposerRunControls(activeRunSummary ?? null);
   const hasUserMessages = transcriptWindow.hasUserMessages;
   const completionAction = runControls.action;
@@ -194,19 +220,9 @@ function ComposerView({
         selectedModel={selectedModel}
         selectedLevel={selectedLevel}
         supportsReasoning={supportsReasoning}
-        contextIndicator={contextIndicator
-          ? {
-              label: contextIndicator.label,
-              ariaLabel: contextIndicator.ariaLabel,
-              severity: contextIndicator.severity ?? null,
-            }
-          : null}
+        contextIndicator={contextIndicatorProp}
         contextBreakdownTitle={contextBreakdown?.title ?? null}
-        sessionTokenIndicator={{
-              label: sessionTokenIndicator.label,
-              ariaLabel: sessionTokenIndicator.ariaLabel,
-              tooltip: sessionTokenIndicator.tooltip,
-            }}
+        sessionTokenIndicator={sessionTokenIndicatorProp}
         sessionCostIndicator={sessionCostIndicator}
         tokenRateIndicator={tokenRateIndicator}
         runStatus={runControls.status}

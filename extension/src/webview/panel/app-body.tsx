@@ -2,6 +2,7 @@
 /** @jsxImportSource preact */
 
 import { useState, useEffect, useMemo, useCallback } from 'preact/hooks';
+import { memo } from 'preact/compat';
 import type {
   ViewState,
   WebviewToHostMessage,
@@ -182,7 +183,7 @@ interface PanelMainProps {
   openTabPaths: ViewState['openTabPaths'];
 }
 
-function PanelMain({
+const PanelMain = memo(function PanelMain({
   panelSurface,
   hasActiveTabs,
   showSessionChrome,
@@ -269,7 +270,7 @@ function PanelMain({
       </div>
     </div>
   );
-}
+});
 
 // ─── Sub-component: bottom chrome (composer + extension UI) ───────────────────
 
@@ -301,7 +302,7 @@ interface BottomSectionProps {
   handlers: Pick<AppHandlers, 'handleSend' | 'handleInterrupt' | 'handleOpenFilePicker' | 'handleAddComposerInput' | 'handleRemoveComposerInput' | 'handleModelChange' | 'handleSetPrefs' | 'handleSetPruningSettings' | 'handleMarkComplete'>;
 }
 
-function BottomSection({
+const BottomSection = memo(function BottomSection({
   hasActiveTabs,
   needsSessionRecovery,
   pendingExtensionUIRequest,
@@ -370,7 +371,7 @@ function BottomSection({
       />
     </>
   );
-}
+});
 
 // ─── Main component ──────────────────────────────────────────────────────────
 

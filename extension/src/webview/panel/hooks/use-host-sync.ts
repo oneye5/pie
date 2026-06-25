@@ -11,6 +11,7 @@ import type {
   ChatMessage,
   ChatPrefs,
   HostToWebviewMessage,
+  ModelInfo,
   PruningCatalog,
   PruningSettings,
   ViewState,
@@ -18,23 +19,31 @@ import type {
 } from '../../../shared/protocol';
 import { DEFAULT_CHAT_PREFS, DEFAULT_PRUNING_SETTINGS, EMPTY_TRANSCRIPT_WINDOW, WEBVIEW_PROTOCOL_VERSION } from '../../../shared/protocol';
 import { pickStable } from '../utils/view-state-stabilize';
+import { pickStableModelList } from '../utils/model-list-stabilize';
 
 /**
  * Fill gaps in host-delivered state with safe defaults and log violations.
  * Prevents render crashes when the host omits newly-added nested fields.
  *
- * `prefs` / `pruningSettings` / `pruningCatalog` are reference-stabilised: the
- * host re-serialises the whole `ViewState` on every snapshot (fresh refs even
- * when content is unchanged), which would otherwise defeat every `memo()` /
- * `useMemo` / `useCallback` barrier downstream (notably `MessageItem = memo()`
- * and `useTranscriptRenderToolCall`'s `useCallback([prefs, ...])`). Reusing the
- * previous reference when content is unchanged keeps those barriers effective.
- * The cached refs live for the module's lifetime; `pickStable` compares content
- * so a genuinely different value (e.g. a pref toggle) still produces a new ref.
+ * `prefs` / `pruningSettings` / `pruningCatalog` are reference-stabilised (flat
+ * objects, via `pickStable`), and `availableModels` is stabilised via the
+ * dedicated `pickStableModelList` (its nested `ModelInfo` elements defeat
+ * `shallowConfigEqual`). The host re-serialises the whole `ViewState` on every
+ * snapshot (fresh refs even when content is unchanged), which would otherwise
+ * defeat every `memo()` / `useMemo` / `useCallback` barrier downstream (notably
+ * `MessageItem = memo()`, the `Composer`/`BottomSection`/`VirtualRow` memo
+ * boundaries, and `useTranscriptRenderToolCall`'s `useCallback([prefs, ...])`).
+ * Reusing the previous reference when content is unchanged keeps those barriers
+ * effective. The cached refs live for the module's lifetime; `pickStable` /
+ * `pickStableModelList` compare content so a genuinely different value (e.g. a
+ * pref toggle, a newly-added model) still produces a new ref.
  */
 let stablePrefs: ChatPrefs | null = null;
 let stablePruningSettings: PruningSettings | null = null;
 let stablePruningCatalog: PruningCatalog | null = null;
+/** Reference-stabilised `availableModels` (see `model-list-stabilize.ts`);
+ *  seeded with `[]` to mirror `EMPTY_VIEW_STATE.availableModels`. */
+let stableAvailableModels: ModelInfo[] = [];
 
 function hydrateViewState(raw: ViewState): ViewState {
   validateViewState(raw);
@@ -44,11 +53,20 @@ function hydrateViewState(raw: ViewState): ViewState {
   stablePruningSettings = pruningSettings;
   const pruningCatalog = pickStable(stablePruningCatalog, { ...EMPTY_VIEW_STATE.pruningCatalog, ...raw.pruningCatalog });
   stablePruningCatalog = pruningCatalog;
+  // `availableModels` is an array of nested `ModelInfo` objects, which
+  // `shallowConfigEqual`/`pickStable` cannot stabilise (nested clones → fresh
+  // refs → always reported unequal). Run it through the dedicated stabilizer
+  // so downstream `useMemo` deps and `memo()` barriers keyed on the
+  // `availableModels` ref (model-state, pricing-by-model-id, Composer) hold
+  // across snapshots whose model list didn't actually change.
+  const availableModels = pickStableModelList(stableAvailableModels, raw.availableModels);
+  stableAvailableModels = availableModels;
   return {
     ...raw,
     prefs,
     pruningSettings,
     pruningCatalog,
+    availableModels,
   };
 }
 

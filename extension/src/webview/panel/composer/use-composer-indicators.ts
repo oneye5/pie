@@ -93,6 +93,16 @@ export function useComposerIndicators({
   //    memo on the transcript ref would re-walk the whole transcript every
   //    tick. These signatures change iff the walk's result could change. See
   //    `indicator-signature.ts` for the correctness contract.
+  //
+  //    NOTE: `transcript` is intentionally NOT reference-stabilised upstream
+  //    (its shape changes every snapshot while streaming, and a faithful
+  //    content compare would be O(n) per tick) — hence the signatures here.
+  //    `availableModels` IS now reference-stabilised upstream
+  //    (`pickStableModelList` in `use-host-sync`), so the model-state and
+  //    pricing-by-model-id memos above correctly key on the `availableModels`
+  //    ref: pre-fix that ref was fresh every snapshot (recomputing both memos
+  //    every tick); post-fix it is stable across snapshots whose model list
+  //    didn't change, so those memos now skip their work as intended.
   const usageSig = useMemo(() => transcriptUsageSignature(transcript), [transcript]);
   const sysPromptsSig = useMemo(() => systemPromptsSignature(systemPrompts), [systemPrompts]);
   // When a live context-usage token count is reported, the breakdown's
