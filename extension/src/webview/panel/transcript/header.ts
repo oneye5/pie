@@ -1,6 +1,5 @@
 import type { ChatMessage, ThinkingLevel } from '../../../shared/protocol';
-
-const tokenFormatter = new Intl.NumberFormat(undefined);
+import { formatTokens } from '../utils/format-tokens';
 
 export interface AssistantReplyMeta {
   model: string | null;
@@ -33,7 +32,7 @@ export function formatAssistantMetaTooltip(message: ChatMessage): string | null 
 
   if (message.usage) {
     const { inputTokens, outputTokens, totalTokens, cacheReadTokens, cacheWriteTokens } = message.usage;
-    const fmt = (n: number) => tokenFormatter.format(n);
+    const fmt = formatTokens;
     lines.push(`Tokens — in ${fmt(inputTokens)} · out ${fmt(outputTokens)} · total ${fmt(totalTokens)}`);
     if (cacheReadTokens > 0 || cacheWriteTokens > 0) {
       lines.push(`Cache — read ${fmt(cacheReadTokens)} · write ${fmt(cacheWriteTokens)}`);

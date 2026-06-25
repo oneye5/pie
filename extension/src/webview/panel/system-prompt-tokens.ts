@@ -1,16 +1,12 @@
 import type { SystemPromptEntry } from '../../shared/protocol';
 import { estimateTextTokens } from '../../shared/tokenize';
+import { formatTokensCompact } from './utils/format-tokens';
 
 // `estimateTextTokens` now lives in shared/tokenize.ts (it is reused by the
 // host-side token-rate measurement). Re-export it here so the existing webview
 // importers (context-window breakdown, token usage, system-prompt rows) keep
 // their `from '../system-prompt-tokens'` imports unchanged.
 export { estimateTextTokens };
-
-const compactTokenFormatter = new Intl.NumberFormat(undefined, {
-  notation: 'compact',
-  maximumFractionDigits: 1,
-});
 
 export function estimateSystemPromptTokens(prompts: readonly SystemPromptEntry[]): number {
   return prompts.reduce((total, prompt) => {
@@ -24,7 +20,7 @@ export function estimateSystemPromptTokens(prompts: readonly SystemPromptEntry[]
 
 export function formatSystemPromptTokenLabel(tokenCount: number): string {
   const formatted = tokenCount >= 1000
-    ? compactTokenFormatter.format(tokenCount)
+    ? formatTokensCompact(tokenCount)
     : tokenCount.toLocaleString();
 
   return `~${formatted} ${tokenCount === 1 ? 'token' : 'tokens'}`;

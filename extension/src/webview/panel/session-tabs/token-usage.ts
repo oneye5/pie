@@ -1,5 +1,10 @@
 import type { AssistantUsage, ChatMessage, ContextWindowUsage, PruningDetails, ToolCall } from '../../../shared/protocol';
 import { estimateTextTokens } from '../system-prompt-tokens';
+import {
+  formatTokens as formatReadableTokens,
+  formatCompactTokens,
+  formatCost as formatCostUsd,
+} from '../utils/format-tokens';
 
 /**
  * Aggregate token usage for a session derived from per-assistant-message usage
@@ -50,21 +55,7 @@ export function buildSessionTokenUsage(transcript: ChatMessage[]): SessionTokenU
   };
 }
 
-const tokenFormatter = new Intl.NumberFormat('en-US');
-
-function trimDecimal(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
-}
-
-export function formatCompactTokens(tokens: number): string {
-  if (tokens >= 1_000_000) return `${trimDecimal(tokens / 1_000_000)}M`;
-  if (tokens >= 1_000) return `${trimDecimal(tokens / 1_000)}k`;
-  return String(tokens);
-}
-
-export function formatReadableTokens(tokens: number): string {
-  return tokenFormatter.format(tokens);
-}
+export { formatReadableTokens, formatCompactTokens, formatCostUsd };
 
 export interface SessionTokenIndicatorState {
   /** Compact token counts \u2014 e.g. "\u2191 12.3k \u2193 4.5k". */
@@ -149,25 +140,12 @@ type PruningCostDetails = PruningDetails & {
   prepassCacheWriteTokens?: number;
 };
 
-const costFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
-
 function formatCostDetail(cost: number): string {
   return `$${Math.max(0, cost).toFixed(4)}`;
 }
 
 function formatCostTokens(tokens: number): string {
   return `${formatReadableTokens(tokens)} token${tokens === 1 ? '' : 's'}`;
-}
-
-export function formatCostUsd(cost: number): string {
-  if (!Number.isFinite(cost) || cost <= 0) return '$0.00';
-  if (cost < 0.01) return '<$0.01';
-  return costFormatter.format(cost);
 }
 
 function costFromUsage(usage: CostUsage, pricing: TokenPricing): number {

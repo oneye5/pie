@@ -1,6 +1,5 @@
 import type { ContextWindowSummary } from './breakdown';
-
-const readableTokenFormatter = new Intl.NumberFormat('en-US');
+import { formatCompactTokens, formatTokens } from '../utils/format-tokens';
 
 export interface ContextWindowIndicatorState {
   label: string | null;
@@ -8,22 +7,8 @@ export interface ContextWindowIndicatorState {
   severity: '' | 'warning' | 'critical';
 }
 
-function trimDecimal(value: number): string {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1).replace(/\.0$/, '');
-}
-
-function formatCompactTokens(tokens: number): string {
-  if (tokens >= 1_000_000) {
-    return `${trimDecimal(tokens / 1_000_000)}M`;
-  }
-  if (tokens >= 1_000) {
-    return `${trimDecimal(tokens / 1_000)}k`;
-  }
-  return String(tokens);
-}
-
 function formatReadableTokens(tokens: number): string {
-  return readableTokenFormatter.format(tokens);
+  return formatTokens(tokens);
 }
 
 export function buildContextWindowIndicatorState(summary: ContextWindowSummary): ContextWindowIndicatorState {

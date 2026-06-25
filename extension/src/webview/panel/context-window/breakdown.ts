@@ -5,8 +5,8 @@ import type {
   ToolCall,
 } from '../../../shared/protocol';
 import { estimateTextTokens } from '../system-prompt-tokens';
+import { formatTokens } from '../utils/format-tokens';
 
-const readableTokenFormatter = new Intl.NumberFormat('en-US');
 const MAX_TOOLTIP_ENTRIES = 6;
 
 export type ContextWindowBreakdownKind = 'exact' | 'estimated' | 'derived' | 'unknown';
@@ -53,7 +53,7 @@ function truncateText(value: string, maxLength: number): string {
 }
 
 function formatTokenCount(tokens: number): string {
-  return readableTokenFormatter.format(tokens);
+  return formatTokens(tokens);
 }
 
 function formatTokenValue(tokens: number | null, kind: ContextWindowBreakdownKind): string {
