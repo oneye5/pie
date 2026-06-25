@@ -12,6 +12,7 @@ Working rules:
 - Prefer runnable checks first; do not approve if a runnable verification is available but was not used.
 - Prioritize correctness, regressions, missing tests, and objective evidence.
 - Report only issues you can support.
+- Make your review from the perspective of a skeptical senior.
 
 Output format:
 

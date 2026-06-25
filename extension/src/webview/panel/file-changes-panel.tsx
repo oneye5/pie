@@ -125,20 +125,22 @@ function FileName({
   const label = disabled
     ? `${KIND_LABEL[kind]}: ${path} (deleted)`
     : `${KIND_LABEL[kind]}: open ${path} in the editor`;
+  // The full path — directory prefix + basename — is the open-in-editor
+  // hitbox, so the path-text itself is the <button>; dir and name are spans
+  // inside it. Hovering anywhere on the path underlines it (CSS) so the
+  // click target is discoverable across the whole path, not just the name.
   return (
-    <span class="file-change-path-text" title={path}>
+    <button
+      class="file-change-path-text"
+      type="button"
+      disabled={disabled}
+      aria-label={label}
+      title={disabled ? `Deleted — ${path}` : `Open ${path} in the editor`}
+      onClick={onClick}
+    >
       {dir ? <span class="file-change-dir">{dir}/</span> : null}
-      <button
-        class="file-change-name"
-        type="button"
-        disabled={disabled}
-        aria-label={label}
-        title={disabled ? `Deleted — ${path}` : `Open ${path} in the editor`}
-        onClick={onClick}
-      >
-        {name}
-      </button>
-    </span>
+      <span class="file-change-name">{name}</span>
+    </button>
   );
 }
 

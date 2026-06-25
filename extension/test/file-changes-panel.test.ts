@@ -114,12 +114,16 @@ test('FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)',
   assert.doesNotMatch(html, /file-change-actions/);
   assert.doesNotMatch(html, /file-change-diff/);
   assert.doesNotMatch(html, /file-change-open/);
-  // The file name opens the file in the editor and carries its kind label.
-  assert.match(html, /<button class="file-change-name"[^>]*aria-label="Modified: open src\/a\.ts in the editor"/);
-  assert.match(html, /<button class="file-change-name"[^>]*aria-label="Modified: open src\/b\.ts in the editor"/);
-  // A native title hint rides on both buttons (name → open file; stats → diff).
-  assert.match(html, /<button class="file-change-name"[^>]*title="Open src\/a\.ts in the editor"/);
-  assert.match(html, /<button class="file-change-name"[^>]*title="Open src\/b\.ts in the editor"/);
+  // The full path (dir + basename) is the open-in-editor hitbox: the
+  // path-text button carries the kind-labeled aria-label, and the basename
+  // rides in a name span (colored by kind).
+  assert.match(html, /<button class="file-change-path-text"[^>]*aria-label="Modified: open src\/a\.ts in the editor"/);
+  assert.match(html, /<button class="file-change-path-text"[^>]*aria-label="Modified: open src\/b\.ts in the editor"/);
+  assert.match(html, /<span class="file-change-name">a\.ts</);
+  assert.match(html, /<span class="file-change-name">b\.ts</);
+  // A native title hint rides on both buttons (path → open file; stats → diff).
+  assert.match(html, /<button class="file-change-path-text"[^>]*title="Open src\/a\.ts in the editor"/);
+  assert.match(html, /<button class="file-change-path-text"[^>]*title="Open src\/b\.ts in the editor"/);
   // ...and the +/- stats open the diff.
   assert.match(html, /<button class="file-change-stats"[^>]*aria-label="View diff of src\/a\.ts"/);
   assert.match(html, /<button class="file-change-stats"[^>]*aria-label="View diff of src\/b\.ts"/);
@@ -190,7 +194,8 @@ test('FileChangesPanel pinned: renders right resize handle + close, no sliver', 
   // (Native HTML title attributes remain on the row buttons for hover hints.)
   assert.doesNotMatch(html, /pie-tooltip-trigger/);
   // Native title hints on the single pinned file's row buttons.
-  assert.match(html, /<button class="file-change-name"[^>]*title="Open src\/a\.ts in the editor"/);
+  assert.match(html, /<button class="file-change-path-text"[^>]*title="Open src\/a\.ts in the editor"/);
+  assert.match(html, /<span class="file-change-name">a\.ts</);
   assert.match(html, /<button class="file-change-stats"[^>]*title="Open diff: src\/a\.ts"/);
 });
 
@@ -207,11 +212,12 @@ test('FileChangesPanel pinned: deleted row is disabled with a Deleted title', ()
       onSetFileRead: noop,
     }),
   );
-  // Deleted files can't be opened: the name button is disabled and titled
+  // Deleted files can't be opened: the path button is disabled and titled
   // "Deleted — <path>" (not the open-file hint), while the stats still open
   // the diff. Covers the disabled branch of the native-title affordance.
-  assert.match(html, /<button class="file-change-name"[^>]*disabled/);
-  assert.match(html, /<button class="file-change-name"[^>]*title="Deleted — gone\.ts"/);
+  assert.match(html, /<button class="file-change-path-text"[^>]*disabled/);
+  assert.match(html, /<button class="file-change-path-text"[^>]*title="Deleted — gone\.ts"/);
+  assert.match(html, /<span class="file-change-name">gone\.ts</);
   assert.match(html, /<button class="file-change-stats"[^>]*title="Open diff: gone\.ts"/);
   assert.doesNotMatch(html, /title="Open gone\.ts in the editor"/);
 });

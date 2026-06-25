@@ -45,8 +45,8 @@ export const toolDurationCharts: ChartEntry[] = [
           color: { value: CHART_COLORS.coral },
           tooltip: [
             { field: 'tool', type: 'nominal' as const, title: 'Tool' },
-            { field: 'totalDurationSec', type: 'quantitative' as const, title: 'Total time', format: '.1f s' },
-            { field: 'meanDurationSec', type: 'quantitative' as const, title: 'Mean per call', format: '.2f s' },
+            { field: 'totalDurationSec', type: 'quantitative' as const, title: 'Total time (s)', format: '.1f' },
+            { field: 'meanDurationSec', type: 'quantitative' as const, title: 'Mean per call (s)', format: '.2f' },
             { field: 'callCount', type: 'quantitative' as const, title: 'Calls' },
           ],
         },

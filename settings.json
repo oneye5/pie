@@ -6,9 +6,9 @@
     "C:/Users/ocjla/AppData/Roaming/npm/node_modules/pi-web-access"
   ],
   "pruning": {
-    "model": "deepseek-v4-flash:cloud",
-    "provider": "ollama",
-    "thinkingLevel": "low",
+    "model": "umans-flash",
+    "provider": "umans",
+    "thinkingLevel": "medium",
     "tools": {
       "alwaysKeep": [
         "ask_user",

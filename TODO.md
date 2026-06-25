@@ -127,3 +127,40 @@ scoped out (revisit only if wanted):
 - A "files reviewed" aggregate (median/mean across runs) in `OverviewData`.
 - `filesReviewedCount` as a complexity signal / leaderboard dimension — would shift
   rankings; add only if a breadth-of-investigation quality signal is wanted.
+
+---
+
+# Changed-files rail moved to the LEFT — deferred follow-ups (2026-06-25)
+
+Committed in `8548ce0`. The rail was relocated from the right side of the panel
+to the left, so the collapsed sliver no longer collides with the transcript's
+right-edge scrollbar (scroll-overshoot was accidentally opening the peek/pin).
+Sliver + peek/pin behavior and visuals are unchanged, only mirrored. No
+gating heuristics were added — left placement removes the collision
+structurally (no scrollbar on the left; reading-rest never reaches the rail).
+
+Deferred / out of scope (revisit if wanted):
+- **Doc drift**: `docs/CHANGED-FILES-UI-PLAN.md` still describes the rail as
+  "right-side" with a "left-edge handle" and "LEFT-casting shadow". It is a
+  historical design plan; update the positional descriptors if it should
+  reflect current positioning, or leave as-is as a design record.
+- **Peek covering**: peek (overlay) now anchors `left:0` and covers the start
+  of agent replies during a *deliberate* glance (~260px). Acceptable since
+  left placement makes peeks deliberate-only, but if the covering cost
+  matters, narrow the peek `--file-changes-drawer-width` (260→~190) or make
+  peek in-flow (nudge) so it covers nothing. Pin is in-flow and unaffected.
+
+Unrelated (NOT from this task — left uncommitted, per AGENTS.md):
+- A concurrent in-flight `FileName` button↔span refactor in
+  `file-changes-panel.tsx` + `file-changes.css` (the whole path is now the
+  click hitbox) is present in the working tree but was NOT committed with the
+  rail move. That refactor changed the row DOM
+  (`<button class="file-change-name">` → `<button class="file-change-path-text"><span class="file-change-name">`)
+  but did not update the 3 `FileChangesPanel` tests that assert
+  `<button class="file-change-name">`, so those 3 tests currently FAIL in the
+  working tree. The rail-move commit `8548ce0` excluded that refactor and is
+  green. Whoever owns the `FileName` refactor needs to update:
+  - `FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)`
+  - `FileChangesPanel pinned: renders right resize handle + close, no sliver`
+    (the `resize-handle-right` assertion passes; only the `<button class="file-change-name">` assertion fails)
+  - `FileChangesPanel pinned: deleted row is disabled with a Deleted title`

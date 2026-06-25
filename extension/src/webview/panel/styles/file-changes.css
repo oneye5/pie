@@ -460,6 +460,13 @@
   min-width: 0;
 }
 
+/* The full path — directory prefix + basename — is the open-in-editor hitbox,
+   so the path-text is itself a <button> reset to look like inline text. It
+   reads as text at rest, then the whole path underlines on hover so the click
+   target is discoverable across the dir + name, not just the name. The basename
+   never shrinks or truncates (flex: 0 0 auto) so it is always fully visible;
+   the directory prefix absorbs all truncation, preserving the part nearest the
+   filename — the part that matters most. */
 .file-change-path-text {
   flex: 1;
   display: flex;
@@ -467,19 +474,34 @@
   min-width: 0;
   white-space: nowrap;
   overflow: hidden;
-}
-
-/* The file name is the primary action for the row (open in editor). It looks
-   like text until you hover, then hints that it is clickable. The basename
-   never shrinks or truncates (flex: 0 0 auto) so it is always fully visible;
-   the directory prefix absorbs all truncation, preserving the part nearest
-   the filename — the part that matters most. A native title hints the click. */
-.file-change-name {
-  flex: 0 0 auto;
-  min-width: 0;
+  /* Button reset: the whole path is the hitbox. */
   border: none;
   background: transparent;
   padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition: color var(--panel-transition-fast);
+}
+
+.file-change-path-text:hover:not(:disabled) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.file-change-path-text:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+/* Basename: colored by kind (via `--kind-color`). The hitbox + hover
+   affordance live on the path-text button; this span only carries the kind
+   color + the never-shrink layout so the basename stays fully visible. */
+.file-change-name {
+  flex: 0 0 auto;
+  min-width: 0;
   color: var(--kind-color);
   font-size: 12px;
   font-weight: 500;
@@ -487,19 +509,6 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: pointer;
-  transition: color var(--panel-transition-fast);
-}
-
-.file-change-name:hover:not(:disabled) {
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-
-.file-change-name:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-  text-decoration: line-through;
 }
 
 /* Directory prefix: LEFT-truncates (direction: rtl) so the right end — the
@@ -554,6 +563,16 @@
   background: var(--panel-control-hover);
 }
 
+/* Underline the +N/-N text on hover so the diff action reads as a link — the
+   pill background alone was not an obvious click affordance. Targeted at the
+   spans (rather than the inline-grid button) so the underline reliably paints
+   under each number across browsers. */
+.file-change-stats:hover .stat-additions,
+.file-change-stats:hover .stat-deletions {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 .stat-additions {
   color: var(--panel-success);
   text-align: right;
@@ -605,7 +624,7 @@
   .file-changes-pin {
     color: ButtonText;
   }
-  .file-change-name:disabled {
+  .file-change-path-text:disabled {
     opacity: 1;
   }
   /* Read dimming is opacity-based, which survives forced-colors; keep the
