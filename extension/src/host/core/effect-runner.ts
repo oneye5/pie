@@ -20,10 +20,35 @@
  * The runner never inspects state. All routing decisions are derived from the
  * effect's discriminator. Result dispatch is async via `Promise` → microtask,
  * which precludes re-entrant blocking even if a reducer chains effects.
+ *
+ * Dispatch is a `Record<Effect['kind'], EffectHandler>` table — the key type
+ * gives compile-time exhaustiveness for free (every kind MUST have an entry or
+ * the object literal won't type-check). The 12 pure 1:1 `*Result` kinds are
+ * built by {@link EffectRunner.templateRow}; the 19 kinds with non-template
+ * control flow are named handler methods (or delegate to `runRpc` /
+ * `runLifecycle`).
  */
 
-import type { Effect, SendRpcEffect, EditRpcEffect, InterruptRpcEffect, TruncateRpcEffect, ExtensionUiResponseRpcEffect, PostImperativeMessage } from './effects';
-import { isLifecycleEffect, isRpcEffect } from './effects';
+import type {
+  Effect,
+  SendRpcEffect,
+  EditRpcEffect,
+  InterruptRpcEffect,
+  TruncateRpcEffect,
+  ExtensionUiResponseRpcEffect,
+  ShowModelSwitchConfirmEffect,
+  SetModelRpcEffect,
+  SetPrefsRpcEffect,
+  HydrateModelEffect,
+  LogEffect,
+  PostImperativeEffect,
+  OpenFileEffect,
+  DrainPendingSendQueueEffect,
+  DrainBackendReadyQueueEffect,
+  StartBackendReadyWatchdogEffect,
+  CancelBackendReadyWatchdogEffect,
+  PostImperativeMessage,
+} from './effects';
 import { toErrorMessage } from '../util/error-message';
 import type { EffectResultEvent, CommandEvent } from './events';
 import type { FileDiffService } from './file-diff-service';
@@ -156,6 +181,12 @@ export interface EffectRunnerDeps {
   timer?: TimerSink;
 }
 
+/** A per-kind effect handler. `effect` is `any` so a handler accepting a
+ *  narrower `Effect` variant is assignable without contravariance friction;
+ *  the {@link EffectRunner.handlers} `Record<Effect['kind'], EffectHandler>`
+ *  key type — not the value type — provides compile-time exhaustiveness. */
+type EffectHandler = (effect: any) => void;
+
 export class EffectRunner {
   /** The backend-ready watchdog timer. Started by `StartBackendReadyWatchdog`,
    * cleared by `CancelBackendReadyWatchdog` / `DrainBackendReadyQueue` / fire. */
@@ -175,9 +206,55 @@ export class EffectRunner {
 
   private readonly optimisticOpTimeoutMs: number;
 
+  /** Dispatch table: one handler per `Effect['kind']`. The `Record` key type
+   *  forces every kind to have an entry (compile-time exhaustiveness). Built
+   *  once in the constructor. */
+  private readonly handlers: Record<Effect['kind'], EffectHandler>;
+
   constructor(private readonly deps: EffectRunnerDeps) {
     this.optimisticOpTimeoutMs = deps.optimisticOpTimeoutMs ?? EffectRunner.OPTIMISTIC_OP_TIMEOUT_MS;
     this.timer = deps.timer ?? defaultTimerSink;
+    this.handlers = {
+      // ── RPC kinds: route through the double-wrap. `runRpc` short-circuits
+      //    Send→runSendRpc / Edit→runEditRpc; Interrupt sets the host-local
+      //    completion-suppression flag synchronously before enqueue; Truncate /
+      //    ExtensionUiResponse take the generic rpcMethodFor/rpcParamsFor/
+      //    rpcResultFor path. ──
+      SendRpc: (e) => this.runRpc(e),
+      EditRpc: (e) => this.runRpc(e),
+      InterruptRpc: (e) => this.runRpc(e),
+      TruncateRpc: (e) => this.runRpc(e),
+      ExtensionUiResponseRpc: (e) => this.runRpc(e),
+      // ── Lifecycle kinds: `enqueueLifecycle`-only. ──
+      OpenSession: (e) => this.runLifecycle(e),
+      CreateSession: (e) => this.runLifecycle(e),
+      DuplicateSession: (e) => this.runLifecycle(e),
+      // ── Special kinds (non-template control flow → named handlers). ──
+      ShowModelSwitchConfirm: (e) => this.handleShowModelSwitchConfirm(e),
+      SetModelRpc: (e) => this.handleSetModelRpc(e),
+      SetPrefsRpc: (e) => this.handleSetPrefsRpc(e),
+      Log: (e) => this.handleLog(e),
+      PostImperative: (e) => this.handlePostImperative(e),
+      OpenFile: (e) => this.handleOpenFile(e),
+      DrainPendingSendQueue: (e) => this.handleDrainPendingSendQueue(e),
+      DrainBackendReadyQueue: (e) => this.handleDrainBackendReadyQueue(e),
+      StartBackendReadyWatchdog: (e) => this.handleStartBackendReadyWatchdog(e),
+      CancelBackendReadyWatchdog: (e) => this.handleCancelBackendReadyWatchdog(e),
+      HydrateModel: (e) => this.handleHydrateModel(e),
+      // ── Template rows (pure 1:1 effect → *Result). ──
+      FileDiff: this.templateRow({ resultKind: 'FileDiffResult', withSessionPath: true, call: (e, d) => d.fileDiffService.openFileDiff(e.sessionPath, e.filePath) }),
+      FileRevert: this.templateRow({ resultKind: 'FileRevertResult', withSessionPath: true, call: (e, d) => d.fileDiffService.revertFile(e.sessionPath, e.filePath) }),
+      LoadOlderTranscript: this.templateRow({ resultKind: 'LoadOlderTranscriptResult', withSessionPath: true, call: (e, d) => d.service.loadOlderTranscript(e.sessionPath) }),
+      LoadNewerTranscript: this.templateRow({ resultKind: 'LoadNewerTranscriptResult', withSessionPath: true, call: (e, d) => d.service.loadNewerTranscript(e.sessionPath) }),
+      JumpToLatestTranscript: this.templateRow({ resultKind: 'JumpToLatestTranscriptResult', withSessionPath: true, call: (e, d) => d.service.jumpToLatestTranscript(e.sessionPath) }),
+      RecordOutcome: this.templateRow({ resultKind: 'RecordOutcomeResult', withSessionPath: false, call: (e, d) => { d.statsService.recordOutcome(e.sessionPath, e.outcome); } }),
+      StartNewTask: this.templateRow({ resultKind: 'StartNewTaskResult', withSessionPath: false, call: (e, d) => { d.statsService.startNewTask(e.sessionPath); } }),
+      ContinueTask: this.templateRow({ resultKind: 'ContinueTaskResult', withSessionPath: false, call: (e, d) => { d.statsService.continueTask(e.sessionPath); } }),
+      OpenFileInEditor: this.templateRow({ resultKind: 'OpenFileInEditorResult', withSessionPath: false, call: (e, d) => d.fileDiffService.openFileInEditor(e.sessionPath, e.filePath) }),
+      SetPruningSettings: this.templateRow({ resultKind: 'SetPruningSettingsResult', withSessionPath: false, call: (e, d) => d.service.setPruningSettings(e.settings) }),
+      CloseSession: this.templateRow({ resultKind: 'CloseSessionResult', withSessionPath: true, call: (e, d) => d.service.closeSession(e.sessionPath, e.nextPath) }),
+      PersistTabs: this.templateRow({ resultKind: 'PersistTabsResult', withSessionPath: false, call: (e, d) => d.tabs.persistTabs(e.openTabPaths, e.activeSessionPath, e.pinnedTabPaths) }),
+    };
   }
 
   /**
@@ -187,328 +264,251 @@ export class EffectRunner {
    * completion; this preserves the no-re-entrant-blocking invariant.
    */
   run(effect: Effect): void {
-    if (effect.kind === 'ShowModelSwitchConfirm') {
-      // Intentionally NOT queued on the lifecycle queue: a modal is a user
-      // interaction, and holding the lifecycle queue (shared with create/open)
-      // behind an open modal would block session creation while the user stares
-      // at a dialog. The old service path awaited the modal *inside*
-      // enqueueLifecycle, which did exactly that. VS Code serializes modal
-      // dialogs itself, corrIds are independent, and the backend write
-      // (SetModelRpc) still goes through the lifecycle queue — so ordering is
-      // preserved where it matters. This is an improvement, not a regression.
+    this.handlers[effect.kind](effect);
+  }
+
+  // ─── Template rows ────────────────────────────────────────────────────────
+
+  /** Build the standard async-IIFE + try/catch + `dispatch({kind, corrId,
+   *  [sessionPath?], ok, error?})` handler for a pure 1:1 effect→result row.
+   *
+   *  `call` returns a `Promise` for await-rows and `void` for sync rows
+   *  (RecordOutcome / StartNewTask / ContinueTask call sync stats methods).
+   *  The helper awaits only when a `Promise` is returned, preserving the
+   *  original await-vs-sync distinction exactly — sync rows must NOT gain an
+   *  extra microtask (the dispatch would slip one tick later). */
+  private templateRow(opts: {
+    resultKind: EffectResultEvent['kind'];
+    withSessionPath: boolean;
+    call: (effect: any, deps: EffectRunnerDeps) => Promise<unknown> | void;
+  }): EffectHandler {
+    return (effect) => {
       void (async () => {
         try {
-          const choice = await this.deps.modal.showWarningModal(effect.message, effect.confirmChoice);
-          this.deps.dispatch({ kind: 'ModelSwitchConfirmResult', corrId: effect.corrId, confirmed: choice === effect.confirmChoice });
+          const r = opts.call(effect, this.deps);
+          if (r) await r;
+          this.deps.dispatch(
+            (opts.withSessionPath
+              ? { kind: opts.resultKind, corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true }
+              : { kind: opts.resultKind, corrId: effect.corrId, ok: true }) as EffectResultEvent,
+          );
         } catch (err) {
-          // If the modal itself throws, treat as not confirmed and log; the
-          // reducer drops the stashed intent on a non-confirm.
-          this.deps.log.log('error', `ShowModelSwitchConfirm failed: ${toErrorMessage(err)}`);
-          this.deps.dispatch({ kind: 'ModelSwitchConfirmResult', corrId: effect.corrId, confirmed: false });
+          this.deps.dispatch(
+            (opts.withSessionPath
+              ? { kind: opts.resultKind, corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) }
+              : { kind: opts.resultKind, corrId: effect.corrId, ok: false, error: toErrorMessage(err) }) as EffectResultEvent,
+          );
         }
       })();
-      return;
-    }
-    if (effect.kind === 'SetModelRpc') {
-      // The reducer owns every ArchState transition (global default, per-session
-      // model badge, context-usage clear, pending-image clear, rollback). The
-      // runner only performs the backend write + the two Effect-side concerns
-      // that are not ArchState: the host-local data epoch (transcript paging
-      // staleness) and the disk-persisting run-analytics observer. Serialized
-      // through the lifecycle queue to match the pre-migration service path.
-      const { backend, queues, dispatch, service } = this.deps;
-      void queues.enqueueLifecycle(async () => {
-        try {
-          await backend.request('settings.set', {
-            sessionPath: effect.sessionPath,
-            defaultModel: effect.modelSettings.defaultModel,
-            defaultThinkingLevel: effect.modelSettings.defaultThinkingLevel,
-          });
-          service.bumpSessionDataEpoch(effect.sessionPath);
-          service.onModelConfigChanged(effect.sessionPath, effect.modelSettings.defaultModel, effect.modelSettings.defaultThinkingLevel);
-          dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
-        } catch (err) {
-          dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
-        }
-      });
-      return;
-    }
-    if (effect.kind === 'SetPrefsRpc') {
-      void (async () => {
-        try {
-          await this.deps.service.setPrefs(effect.prefs);
-          this.deps.dispatch({ kind: 'SetPrefsResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'SetPrefsResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (isRpcEffect(effect)) {
-      this.runRpc(effect);
-      return;
-    }
-    if (isLifecycleEffect(effect)) {
-      this.runLifecycle(effect);
-      return;
-    }
-    if (effect.kind === 'PersistTabs') {
-      this.runPersistTabs(effect);
-      return;
-    }
-    if (effect.kind === 'Log') {
-      this.deps.log.log(effect.level, effect.message, effect.data);
-      return;
-    }
-    if (effect.kind === 'PostImperative') {
-      this.deps.postImperative.postImperative(effect.imperativeMessage);
-      return;
-    }
-    if (effect.kind === 'FileDiff') {
-      void (async () => {
-        try {
-          await this.deps.fileDiffService.openFileDiff(effect.sessionPath, effect.filePath);
-          this.deps.dispatch({ kind: 'FileDiffResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'FileDiffResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'FileRevert') {
-      void (async () => {
-        try {
-          await this.deps.fileDiffService.revertFile(effect.sessionPath, effect.filePath);
-          this.deps.dispatch({ kind: 'FileRevertResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'FileRevertResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'LoadOlderTranscript') {
-      void (async () => {
-        try {
-          await this.deps.service.loadOlderTranscript(effect.sessionPath);
-          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'LoadOlderTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'LoadNewerTranscript') {
-      void (async () => {
-        try {
-          await this.deps.service.loadNewerTranscript(effect.sessionPath);
-          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'LoadNewerTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'JumpToLatestTranscript') {
-      void (async () => {
-        try {
-          await this.deps.service.jumpToLatestTranscript(effect.sessionPath);
-          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'JumpToLatestTranscriptResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'RecordOutcome') {
-      void (async () => {
-        try {
-          this.deps.statsService.recordOutcome(effect.sessionPath, effect.outcome);
-          this.deps.dispatch({ kind: 'RecordOutcomeResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'RecordOutcomeResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'StartNewTask') {
-      void (async () => {
-        try {
-          this.deps.statsService.startNewTask(effect.sessionPath);
-          this.deps.dispatch({ kind: 'StartNewTaskResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'StartNewTaskResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'ContinueTask') {
-      void (async () => {
-        try {
-          this.deps.statsService.continueTask(effect.sessionPath);
-          this.deps.dispatch({ kind: 'ContinueTaskResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'ContinueTaskResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'OpenFileInEditor') {
-      void (async () => {
-        try {
-          await this.deps.fileDiffService.openFileInEditor(effect.sessionPath, effect.filePath);
-          this.deps.dispatch({ kind: 'OpenFileInEditorResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'OpenFileInEditorResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'OpenFile') {
-      void (async () => {
-        try {
-          const vscode = await import('vscode');
-          await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(effect.path));
-          this.deps.dispatch({ kind: 'OpenFileResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'OpenFileResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'SetPruningSettings') {
-      void (async () => {
-        try {
-          await this.deps.service.setPruningSettings(effect.settings);
-          this.deps.dispatch({ kind: 'SetPruningSettingsResult', corrId: effect.corrId, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'SetPruningSettingsResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'CloseSession') {
-      // CloseSession: the reducer already did the optimistic tab-close +
-      // per-session map clearing + select-next-tab; the runner owns the
-      // host-side cleanup (clearSelectionRequests, onSessionClosed,
-      // clearSessionScope, evict) + the recursive openSession(nextPath) when
-      // nextPath is not yet summarized (the edge case where a tab is open but
-      // its session hasn't been loaded yet). There is NO backend RPC for close
-      // — the Effect is a host-side cleanup descriptor, not a backend-RPC
-      // descriptor. The service.closeSession() method is thin (just the
-      // host-side cleanup + recursive open), NOT the old fat path.
-      void (async () => {
-        try {
-          await this.deps.service.closeSession(effect.sessionPath, effect.nextPath);
-          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
-        } catch (err) {
-          this.deps.dispatch({ kind: 'CloseSessionResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'DrainPendingSendQueue') {
-      // Re-dispatch each queued entry as a `Send` Command with the resolved
-      // session path. The entries were read from ArchState by the reducer's
-      // `handlePendingPathReplaced` and carried in this effect; the runner
-      // never reads ArchState. The void async IIFE ensures the Commands land
-      // AFTER the synchronous SessionScopeCleared + SessionOpened + SelectSession
-      // events that follow PendingPathReplaced — preserving the clear-then-
-      // reinsert ordering of the old drainPendingSendQueue callback.
-      const { resolvedSessionPath, entries } = effect;
-      void (async () => {
-        try {
-          for (const entry of entries) {
-            this.deps.dispatchCommand({
-              kind: 'Command',
-              cmd: {
-                kind: 'Send',
-                corrId: entry.corrId,
-                sessionPath: resolvedSessionPath,
-                text: entry.text,
-                inputs: entry.inputs,
-                composedText: entry.composedText,
-                localId: entry.localId,
-                userParts: entry.userParts,
-                previousSummary: entry.previousSummary,
-                timestamp: entry.timestamp,
-              },
-            });
-          }
-        } catch (err) {
-          this.deps.log.log('error', `DrainPendingSendQueue failed: ${toErrorMessage(err)}`);
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'DrainBackendReadyQueue') {
-      // Clear the watchdog timer — the backend is ready, so the timeout is
-      // no longer needed.
-      this.clearBackendReadyWatchdog();
-      // Re-dispatch each queued entry as a Send Command. The void async IIFE
-      // ensures the Commands land after the current synchronous dispatch cycle
-      // (the BackendReadyChanged event may be followed by other synchronous
-      // events). Each entry carries its own sessionPath.
-      const { entries } = effect;
-      void (async () => {
-        try {
-          for (const entry of entries) {
-            this.deps.dispatchCommand({
-              kind: 'Command',
-              cmd: {
-                kind: 'Send',
-                corrId: entry.corrId,
-                sessionPath: entry.sessionPath,
-                text: entry.text,
-                inputs: entry.inputs,
-                composedText: entry.composedText,
-                localId: entry.localId,
-                userParts: entry.userParts,
-                previousSummary: entry.previousSummary,
-                timestamp: entry.timestamp,
-              },
-            });
-          }
-        } catch (err) {
-          this.deps.log.log('error', `DrainBackendReadyQueue failed: ${toErrorMessage(err)}`);
-        }
-      })();
-      return;
-    }
-    if (effect.kind === 'StartBackendReadyWatchdog') {
-      // Start the watchdog timer if not already running. On fire, dispatch
-      // BackendReadyWatchdogFired → the reducer drops the queued messages +
-      // removes optimistic entries + sets a notice.
-      if (!this.backendReadyWatchdog) {
-        this.backendReadyWatchdog = this.timer.schedule(() => {
-          this.backendReadyWatchdog = null;
-          this.deps.dispatchEvent({ kind: 'BackendReadyWatchdogFired' });
-        }, effect.timeoutMs);
+    };
+  }
+
+  // ─── Special-kind handlers (non-template control flow) ────────────────────
+
+  /** `ShowModelSwitchConfirm` — modal confirmation. NOT queued on the
+   *  lifecycle queue (a modal must not block session create/open). Dispatches
+   *  `ModelSwitchConfirmResult{corrId, confirmed}` (no `ok`/`error`/
+   *  `sessionPath`); on modal throw, logs + dispatches `{confirmed:false}`
+   *  (no error field). */
+  private handleShowModelSwitchConfirm(effect: ShowModelSwitchConfirmEffect): void {
+    // Intentionally NOT queued on the lifecycle queue: a modal is a user
+    // interaction, and holding the lifecycle queue (shared with create/open)
+    // behind an open modal would block session creation while the user stares
+    // at a dialog. The old service path awaited the modal *inside*
+    // enqueueLifecycle, which did exactly that. VS Code serializes modal
+    // dialogs itself, corrIds are independent, and the backend write
+    // (SetModelRpc) still goes through the lifecycle queue — so ordering is
+    // preserved where it matters. This is an improvement, not a regression.
+    void (async () => {
+      try {
+        const choice = await this.deps.modal.showWarningModal(effect.message, effect.confirmChoice);
+        this.deps.dispatch({ kind: 'ModelSwitchConfirmResult', corrId: effect.corrId, confirmed: choice === effect.confirmChoice });
+      } catch (err) {
+        // If the modal itself throws, treat as not confirmed and log; the
+        // reducer drops the stashed intent on a non-confirm.
+        this.deps.log.log('error', `ShowModelSwitchConfirm failed: ${toErrorMessage(err)}`);
+        this.deps.dispatch({ kind: 'ModelSwitchConfirmResult', corrId: effect.corrId, confirmed: false });
       }
-      return;
-    }
-    if (effect.kind === 'CancelBackendReadyWatchdog') {
-      this.clearBackendReadyWatchdog();
-      return;
-    }
-    if (effect.kind === 'HydrateModel') {
-      // Fire-and-forget, like PostImperative: the service's dispatched
-      // SetModel/AvailableModelsChanged events apply the results, so no
-      // *Result event is produced here.
-      void (async () => {
-        try {
-          await this.deps.service.hydrateModelState(effect.sessionPath);
-        } catch (err) {
-          this.deps.log.log('error', `hydrateModelState failed: ${toErrorMessage(err)}`);
+    })();
+  }
+
+  /** `SetModelRpc` — 3 sequential dep calls (settings.set → bumpSessionDataEpoch
+   *  → onModelConfigChanged). `enqueueLifecycle`-only (NOT via `runRpc`).
+   *  Result `SetModelResult` with `sessionPath`+`ok`+`error?`. */
+  private handleSetModelRpc(effect: SetModelRpcEffect): void {
+    // The reducer owns every ArchState transition (global default, per-session
+    // model badge, context-usage clear, pending-image clear, rollback). The
+    // runner only performs the backend write + the two Effect-side concerns
+    // that are not ArchState: the host-local data epoch (transcript paging
+    // staleness) and the disk-persisting run-analytics observer. Serialized
+    // through the lifecycle queue to match the pre-migration service path.
+    const { backend, queues, dispatch, service } = this.deps;
+    void queues.enqueueLifecycle(async () => {
+      try {
+        await backend.request('settings.set', {
+          sessionPath: effect.sessionPath,
+          defaultModel: effect.modelSettings.defaultModel,
+          defaultThinkingLevel: effect.modelSettings.defaultThinkingLevel,
+        });
+        service.bumpSessionDataEpoch(effect.sessionPath);
+        service.onModelConfigChanged(effect.sessionPath, effect.modelSettings.defaultModel, effect.modelSettings.defaultThinkingLevel);
+        dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
+      } catch (err) {
+        dispatch({ kind: 'SetModelResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
+      }
+    });
+  }
+
+  /** `SetPrefsRpc` — IIFE (not queued), `service.setPrefs(prefs)`. Result
+   *  `SetPrefsResult` (NO `sessionPath`). */
+  private handleSetPrefsRpc(effect: SetPrefsRpcEffect): void {
+    void (async () => {
+      try {
+        await this.deps.service.setPrefs(effect.prefs);
+        this.deps.dispatch({ kind: 'SetPrefsResult', corrId: effect.corrId, ok: true });
+      } catch (err) {
+        this.deps.dispatch({ kind: 'SetPrefsResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
+      }
+    })();
+  }
+
+  /** `Log` — synchronous `log.log(level, message, data)`. No try/catch, no
+   *  result: exceptions propagate to the `run()` caller. */
+  private handleLog(effect: LogEffect): void {
+    this.deps.log.log(effect.level, effect.message, effect.data);
+  }
+
+  /** `PostImperative` — synchronous `postImperative.postImperative(...)`. No
+   *  try/catch, no result. */
+  private handlePostImperative(effect: PostImperativeEffect): void {
+    this.deps.postImperative.postImperative(effect.imperativeMessage);
+  }
+
+  /** `OpenFile` — dynamic `import('vscode')` → `vscode.open` command. NOT a
+   *  `deps.*` method (kept inline to avoid adding a sink that would break the
+   *  7 untyped test mocks). IIFE. Result `OpenFileResult` (NO `sessionPath`). */
+  private handleOpenFile(effect: OpenFileEffect): void {
+    void (async () => {
+      try {
+        const vscode = await import('vscode');
+        await vscode.commands.executeCommand('vscode.open', vscode.Uri.file(effect.path));
+        this.deps.dispatch({ kind: 'OpenFileResult', corrId: effect.corrId, ok: true });
+      } catch (err) {
+        this.deps.dispatch({ kind: 'OpenFileResult', corrId: effect.corrId, ok: false, error: toErrorMessage(err) });
+      }
+    })();
+  }
+
+  /** `DrainPendingSendQueue` — IIFE; loop dispatches `Command(Send)` per entry
+   *  via `dispatchCommand`. No `*Result`; catch: `log.log('error',…)` swallow
+   *  (no dispatch). The IIFE deferral is load-bearing (clear-then-reinsert
+   *  ordering). */
+  private handleDrainPendingSendQueue(effect: DrainPendingSendQueueEffect): void {
+    // Re-dispatch each queued entry as a `Send` Command with the resolved
+    // session path. The entries were read from ArchState by the reducer's
+    // `handlePendingPathReplaced` and carried in this effect; the runner
+    // never reads ArchState. The void async IIFE ensures the Commands land
+    // AFTER the synchronous SessionScopeCleared + SessionOpened + SelectSession
+    // events that follow PendingPathReplaced — preserving the clear-then-
+    // reinsert ordering of the old drainPendingSendQueue callback.
+    const { resolvedSessionPath, entries } = effect;
+    void (async () => {
+      try {
+        for (const entry of entries) {
+          this.deps.dispatchCommand({
+            kind: 'Command',
+            cmd: {
+              kind: 'Send',
+              corrId: entry.corrId,
+              sessionPath: resolvedSessionPath,
+              text: entry.text,
+              inputs: entry.inputs,
+              composedText: entry.composedText,
+              localId: entry.localId,
+              userParts: entry.userParts,
+              previousSummary: entry.previousSummary,
+              timestamp: entry.timestamp,
+            },
+          });
         }
-      })();
-      return;
+      } catch (err) {
+        this.deps.log.log('error', `DrainPendingSendQueue failed: ${toErrorMessage(err)}`);
+      }
+    })();
+  }
+
+  /** `DrainBackendReadyQueue` — synchronous `clearBackendReadyWatchdog()`
+   *  BEFORE the IIFE (the drain implies backend-ready, so the watchdog is
+   *  no longer needed), then loop `dispatchCommand(Send, entry.sessionPath)`.
+   *  No result; catch: log swallow. */
+  private handleDrainBackendReadyQueue(effect: DrainBackendReadyQueueEffect): void {
+    // Clear the watchdog timer — the backend is ready, so the timeout is
+    // no longer needed.
+    this.clearBackendReadyWatchdog();
+    // Re-dispatch each queued entry as a Send Command. The void async IIFE
+    // ensures the Commands land after the current synchronous dispatch cycle
+    // (the BackendReadyChanged event may be followed by other synchronous
+    // events). Each entry carries its own sessionPath.
+    const { entries } = effect;
+    void (async () => {
+      try {
+        for (const entry of entries) {
+          this.deps.dispatchCommand({
+            kind: 'Command',
+            cmd: {
+              kind: 'Send',
+              corrId: entry.corrId,
+              sessionPath: entry.sessionPath,
+              text: entry.text,
+              inputs: entry.inputs,
+              composedText: entry.composedText,
+              localId: entry.localId,
+              userParts: entry.userParts,
+              previousSummary: entry.previousSummary,
+              timestamp: entry.timestamp,
+            },
+          });
+        }
+      } catch (err) {
+        this.deps.log.log('error', `DrainBackendReadyQueue failed: ${toErrorMessage(err)}`);
+      }
+    })();
+  }
+
+  /** `StartBackendReadyWatchdog` — `timer.schedule(cb, timeoutMs)`; cb nulls
+   *  `this.backendReadyWatchdog` then dispatches `BackendReadyWatchdogFired`.
+   *  No try/catch; synchronous scheduling. Mutates instance state. */
+  private handleStartBackendReadyWatchdog(effect: StartBackendReadyWatchdogEffect): void {
+    // Start the watchdog timer if not already running. On fire, dispatch
+    // BackendReadyWatchdogFired → the reducer drops the queued messages +
+    // removes optimistic entries + sets a notice.
+    if (!this.backendReadyWatchdog) {
+      this.backendReadyWatchdog = this.timer.schedule(() => {
+        this.backendReadyWatchdog = null;
+        this.deps.dispatchEvent({ kind: 'BackendReadyWatchdogFired' });
+      }, effect.timeoutMs);
     }
-    // Exhaustiveness check: TS rejects unhandled Effect kinds at compile time.
-    // Reachable only if the type system is bypassed (e.g. an `as` cast); fail
-    // loud via the log sink rather than silently dropping the effect.
-    const _exhaustive: never = effect;
-    void _exhaustive;
-    this.deps.log.log('error', `EffectRunner: unhandled effect kind (type system bypassed?): ${(effect as { kind?: string }).kind}`);
+  }
+
+  /** `CancelBackendReadyWatchdog` — `clearBackendReadyWatchdog()`. No try/catch,
+   *  no result, synchronous. */
+  private handleCancelBackendReadyWatchdog(_effect: CancelBackendReadyWatchdogEffect): void {
+    this.clearBackendReadyWatchdog();
+  }
+
+  /** `HydrateModel` — IIFE; `service.hydrateModelState(sessionPath)`. No
+   *  result; catch: `log.log('error',…)` swallow. */
+  private handleHydrateModel(effect: HydrateModelEffect): void {
+    // Fire-and-forget, like PostImperative: the service's dispatched
+    // SetModel/AvailableModelsChanged events apply the results, so no
+    // *Result event is produced here.
+    void (async () => {
+      try {
+        await this.deps.service.hydrateModelState(effect.sessionPath);
+      } catch (err) {
+        this.deps.log.log('error', `hydrateModelState failed: ${toErrorMessage(err)}`);
+      }
+    })();
   }
 
   /** Clear the backend-ready watchdog timer (no-op if not running). */
@@ -559,7 +559,7 @@ export class EffectRunner {
    * exists to preserve serialization with legacy `send`/`edit` callers that
    * still use the same lifecycle queue directly.
    */
-  private runRpc(effect: RpcEffect): void {
+  private runRpc(effect: SendRpcEffect | EditRpcEffect | InterruptRpcEffect | TruncateRpcEffect | ExtensionUiResponseRpcEffect): void {
     if (effect.kind === 'EditRpc') {
       this.runEditRpc(effect);
       return;
@@ -764,37 +764,18 @@ export class EffectRunner {
       }
     });
   }
-
-  private runPersistTabs(effect: Extract<Effect, { kind: 'PersistTabs' }>): void {
-    void (async () => {
-      try {
-        await this.deps.tabs.persistTabs(effect.openTabPaths, effect.activeSessionPath, effect.pinnedTabPaths);
-        this.deps.dispatch({ kind: 'PersistTabsResult', corrId: effect.corrId, ok: true });
-      } catch (err) {
-        this.deps.dispatch({
-          kind: 'PersistTabsResult',
-          corrId: effect.corrId,
-          ok: false,
-          error: toErrorMessage(err),
-        });
-      }
-    })();
-  }
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
 
-type RpcEffect = SendRpcEffect | EditRpcEffect | InterruptRpcEffect | TruncateRpcEffect | ExtensionUiResponseRpcEffect;
+/** RPC kinds that reach the generic double-wrap path in {@link runRpc} after
+ *  Send/Edit have been short-circuited to their dedicated handlers. Kept
+ *  exhaustive over this 3-kind set so the helper switches below stay
+ *  exhaustive with no `never`-unreachable arms. */
+type RpcEffect = InterruptRpcEffect | TruncateRpcEffect | ExtensionUiResponseRpcEffect;
 
 function rpcMethodFor(effect: RpcEffect): string {
   switch (effect.kind) {
-    case 'SendRpc':
-      return 'message.send';
-    case 'EditRpc':
-      // Edit is implemented as truncate-then-send on the backend; the runner
-      // here issues only the single `message.send` after callers have already
-      // emitted a `TruncateRpc`. Future refactors may collapse these.
-      return 'message.send';
     case 'InterruptRpc':
       return 'message.interrupt';
     case 'TruncateRpc':
@@ -806,10 +787,6 @@ function rpcMethodFor(effect: RpcEffect): string {
 
 function rpcParamsFor(effect: RpcEffect): unknown {
   switch (effect.kind) {
-    case 'SendRpc':
-      return { sessionPath: effect.sessionPath, text: effect.text, inputs: effect.inputs };
-    case 'EditRpc':
-      return { sessionPath: effect.sessionPath, text: effect.text };
     case 'InterruptRpc':
       return { sessionPath: effect.sessionPath };
     case 'TruncateRpc':
@@ -829,10 +806,6 @@ function rpcResultFor(
     ...outcome,
   };
   switch (effect.kind) {
-    case 'SendRpc':
-      return { kind: 'SendResult', ...base };
-    case 'EditRpc':
-      return { kind: 'EditResult', ...base };
     case 'InterruptRpc':
       return { kind: 'InterruptResult', ...base };
     case 'TruncateRpc':
