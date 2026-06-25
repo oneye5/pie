@@ -18,7 +18,7 @@ done / deferred (needs user decision).
 | W2f — Pricing logic across 3 packages | S1 | done | `f2253ca` |
 | W2g — Coercion / failure-kind taxonomy (4 kind unions → shared/) | S1 | done | `d978b67` |
 | W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | done | `c909d1b` |
-| W4 — Tighten boundary-typing ring | S6 | deferred (frontier subagent blocked by session usage limit) | — |
+| W4 — Tighten boundary-typing ring | S6 | scouting | — |
 | W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | deferred (frontier + needs versioned-migration design decision) | — |
 | W9b — Install-script portability | S10 | deferred (install-script edits need careful testing) | — |
 | W7 — Refactor-hostile tests → behavior tests | S8 | deferred (after W3) | — |
@@ -70,6 +70,20 @@ done / deferred (needs user decision).
   `evictSession({removeSummary:true})`) where the old `removeSessionFromState`
   retained it. Currently unobservable (`SessionClosed` has no dispatch site) and
   aligns with full-eviction intent. Flagged by the W8 reviewer for awareness.
+- **Bash hang safeguard — IMPLEMENTED, NOT YET LOADED (commit `9584640`).**
+  `extensions/safeguard` now applies a 600s default `timeout` to every `bash`
+  call that omits a positive finite one, so hung commands (whole-PC filesystem
+  walks, infinite loops, blocked prompts) are killed instead of hanging
+  forever. Genuine long tasks are unaffected (typecheck ~18s, test ~22s, build
+  ~30s; 600s = 20× headroom); the per-call `timeout` override is preserved.
+  112 safeguard tests pass. **CAVEAT:** the repo `settings.json` `extensions`
+  array only loads `pi-web-access`, so the safeguard extension (both the new
+  timeout AND its pre-existing hard-block safety) is dormant at runtime. No
+  `~/.pi` user-scoped config exists on this machine. **User action required:**
+  add `extensions/safeguard` to `settings.json`'s `extensions` array (the user
+  will do this — orchestrator is forbidden from editing the runtime-managed
+  `settings.json`). Enabling it also turns on the destructive-command
+  hard-block/prompt safety (a runtime behavior change).
 
 ---
 
