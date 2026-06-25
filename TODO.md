@@ -82,14 +82,18 @@ Goal: make agents trigger nested subagents more often, safely.
 
 ---
 
-# Expandable UI refinement — deferred
+# Expandable UI refinement — aria-controls wired (2026-06-25)
 
-- `aria-controls`/`id` is not wired between any expandable header and its body.
-  The shared `<Collapsible>` (`extension/src/webview/panel/components/collapsible.tsx`)
-  intentionally renders its body only when `open` (perf: reasoning/tool/subagent
-  bodies are heavy). A correct `aria-controls` would require keeping the body
-  mounted with `hidden` when collapsed — revisit if that perf cost is acceptable,
-  or wire it per-site for already-always-rendered bodies.
+- `aria-controls`/`id` is now wired between every expandable header and its
+  body. `Collapsible` (reasoning / pruning-details / pruning-inline),
+  `ToolCallCard` (`.tool-call-body-wrap`), and `SubagentSingleBlock`
+  (`.subagent-messages`) each generate a stable `useId()` per instance: the
+  header carries `aria-controls={bodyId}` and the body carries `id={bodyId}`.
+  Because the bodies are lazily mounted only when open (perf: bodies are
+  heavy), `aria-controls` is set ONLY when the body is actually mounted and
+  omitted when collapsed — so the reference never points at a missing element
+  (WAI-ARIA-correct). No mount-strategy / perf change. Pinned by
+  `extension/test/aria-controls-wiring.test.ts`.
 - Composite headers (`ToolCallHeader`, `SubagentSingleBlock`) use a
   `role="button"` div rather than a real `<button>` because they contain nested
   interactive controls (copy-error `StatusChip`, file/path buttons). A real
@@ -110,10 +114,13 @@ longer claims "almost always a misunderstanding".
 
 Deferred (intentionally NOT done in this pass):
 - **Field rename** `prepassFailOpenReason` / `failOpenReason` → something neutral
-  (e.g. `prepassSafeguardReason`). Kept for protocol/analytics/transcript
-  stability; renaming ripples through webview parser, types, message-builders,
-  analytics schema, and ~15 test assertions. Revisit if the vocabulary drift
-  becomes confusing.
+  (e.g. `prepassSafeguardReason`). **DONE 2026-06-25**: renamed to
+  `prepassSafeguardReason` / `safeguardReason` (+ `skillSafeguardReason` /
+  `toolSafeguardReason` locals) across the extension webview + skill-pruner
+  producer/consumer (commit `964e133`). The host passes pruning details JSON
+  through opaquely, so producer + consumer ship together; historical analytics
+  query text mentioning the old name was left unchanged. Extension + skill-pruner
+  tests green.
 - **Distinguish legitimate full-prune from over-prune** (declined). The keep-all
   safeguard still fires for correct 100% prunes. A future heuristic (e.g. detect
   non-coding queries, or trust the prepass when reasoning explicitly justifies
@@ -233,12 +240,21 @@ Done:
 
 New deferred follow-ups (from this pass):
 - **`extension/src/host/sidebar/provider.ts` (677loc)** — soft multi-concern
-  split candidate (extract `SidebarHotReloader` + `StateAppliedWatchdog` to a
-  sibling file). Current size tolerable; lower priority.
-- **`extensions/skill-pruner` has no `tsconfig.json`** (siblings `subagent`/
-  `ask-user` do) → no standing typecheck gate; 2 genuine pre-existing type
-  issues (`llm-scorer.ts:173`, `logger.test.ts`) are undetected by CI. Add a
-  tsconfig + fix.
-- **`AlwaysKeepPicker` promotion** to `components/` deferred — depends on
-  `filterKeepCatalog` from `./settings-menu-helpers`; a clean move needs
-  relocating that helper first (else a `components/ → composer/` back-dependency).
+  split. **DONE 2026-06-25** (commit `d49fbcf`-1): extracted `SidebarHotReloader`
+  (`hot-reloader.ts`, 186loc) + `StateAppliedWatchdog` (`state-applied-watchdog.ts`,
+  198loc) into siblings; provider.ts now 422loc as the orchestrator. Behavior-
+  preserving; added `test/state-applied-watchdog.test.ts` for the throttle
+  window + ack-clearing logic.
+- **`extensions/skill-pruner` has no `tsconfig.json`** → no standing typecheck
+  gate; 2 genuine pre-existing type issues were undetected by CI. **DONE
+  2026-06-25** (commit `57aa6ab`): added `tsconfig.json` (ESM/bundler config +
+  ambient stubs for the `@mariozechner/pi-*` peer packages so the gate covers
+  internal types without flagging pi-API drift) + `types-global.d.ts`; fixed
+  the 2 issues (`llm-scorer.ts` filter type predicate, `logger.test.ts`
+  stale PruningDecision fixtures); wired `extensions:typecheck` into the root
+  `typecheck` chain. pi-API drift (pi-tui theme signature, AgentToolResult/
+  CustomMessage) remains a separate follow-up.
+- **`AlwaysKeepPicker` promotion** to `components/` **DONE 2026-06-25** (commit
+  `d49fbcf`): co-located `filterKeepCatalog` (its only consumer) with the picker
+  in `components/always-keep-picker.tsx` so the move needs no `components/ →
+  composer/` back-dependency; barrel re-exports preserved.
