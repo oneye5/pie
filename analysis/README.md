@@ -16,6 +16,8 @@ analytics source export or analytics store
   -> static localhost dashboard
 ```
 
+> **Model ranking:** see `analysis/scripts/stratified-ranker.ts` for the stratified leaderboard — per-model entries ranked within complexity bands (low/medium/high) via a per-run complexity score, and assigned to buckets.
+
 ## Local dashboard data
 
 Raw `run-analytics.json` exports and generated `analysis/site/data/*.json` are local analysis inputs/outputs. The dashboard server serves only the expected generated site-data files so accidental extra files in that directory do not affect the UI.

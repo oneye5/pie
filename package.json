@@ -1,7 +1,7 @@
 {
   "name": "pi-config",
   "private": true,
-  "//workspaces": "npm workspaces are intentionally NOT enabled. extensions/subagent, extensions/cwd-skills, and extensions/skill-pruner do not yet have package.json files; activating workspaces here would break root npm install. Track enabling this in docs/INSTALLATION_INFRA_PLAN.md.",
+  "//workspaces": "npm workspaces are intentionally NOT enabled. extensions/subagent, extensions/cwd-skills, and extensions/skill-pruner do not yet have package.json files; activating workspaces here would break root npm install. Track enabling this in TODO.md.",
   "scripts": {
     "test": "node ./scripts/run-tests.mjs",
     "typecheck": "npm run extension:typecheck && npm run analytics:typecheck && npm run extensions:typecheck",

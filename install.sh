@@ -10,7 +10,7 @@
 #
 # This is intentionally simpler than install.ps1 — full feature parity
 # (session migration, sessionDir repair, settings.json patching) is tracked in
-# docs/INSTALLATION_INFRA_PLAN.md Phase 1 (shared scripts/bootstrap.mjs).
+# TODO.md.
 #
 # Run once after cloning:
 #   chmod +x install.sh
@@ -157,5 +157,5 @@ Next steps:
   - To build the pie VS Code extension from source:
       cd extension && npm install && npm run build
   - Cross-platform feature parity with install.ps1 is tracked in
-    docs/INSTALLATION_INFRA_PLAN.md (Phase 1).
+    TODO.md.
 EOM

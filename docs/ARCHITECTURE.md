@@ -16,7 +16,7 @@ The system follows a **CQRS/Elm-style MVI** pattern. User actions and backend ev
 
 This pattern was chosen to eliminate the class of bugs caused by distributed mutable state across host and webview, ensure testability of all state transitions without I/O, and make streaming/optimistic-update interactions explicit and auditable.
 
-See git history (commit `d581d83`, file `docs/internal/archive/ARCH-MIGRATION-PLAN.md`) for historical context on the migration from Redux to this architecture.
+See git history (commit `d581d83`) for historical context on the migration from Redux to this architecture.
 
 ---
 
@@ -92,7 +92,7 @@ See git history (commit `d581d83`, file `docs/internal/archive/ARCH-MIGRATION-PL
 ### Streaming assistant reply
 
 1. PI backend emits line-by-line JSON events (`message.delta`, `tool.started`, `message.finished`, etc.).
-2. `backend-client.ts` parses each line into a typed `BackendEvent`.
+2. `extension/src/host/backend/client.ts` parses each line into a typed `BackendEvent`.
 3. The event is dispatched to the reducer.
 4. Reducer updates `ArchState.transcript` (append delta, upsert tool call, finalize message).
 5. Projection computes a ViewState; `sidebar/provider.ts` posts it to the webview.
@@ -137,7 +137,7 @@ See [`docs/STATE_CONTRACT.md`](STATE_CONTRACT.md) for the full invariant set.
 | Owner | What it holds |
 |-------|--------------|
 | **ArchState** (reducer) | All application state: sessions, transcripts, model settings, prefs, file changes, pending optimistic ops, UI logic state, interrupt-in-flight flags, backend event routing |
-| **Webview** (local only) | Scroll position, focus/caret, hover, drag, animation, context menu position, protocol bookkeeping (revision refs), token-rate telemetry, per-keystroke draft buffer |
+| **Webview** (local only) | Scroll position, focus/caret, hover, drag, animation, context menu position, protocol bookkeeping (revision refs), per-keystroke draft buffer |
 
 **Rule of thumb:** if you're unsure whether something is host state or webview state, it's host state.
 
@@ -156,7 +156,7 @@ Full allowlist of webview-local state: see `STATE_CONTRACT.md § Webview-Local S
 3. Handle in `extension/src/host/core/reducer.ts` — return state change + effects.
 4. If an RPC is needed, add Effect variant in `extension/src/host/core/effects.ts`.
 5. Add execution logic in `extension/src/host/core/effect-runner.ts`.
-6. Wire the webview message → Command conversion in `extension/src/host/extension-host.ts`.
+6. Wire the webview message → Command conversion in `extension/src/host/core/message-router.ts`.
 7. Add reducer unit test in `extension/test/`.
 
 ### Adding a new backend event type
@@ -175,7 +175,7 @@ Full allowlist of webview-local state: see `STATE_CONTRACT.md § Webview-Local S
 
 ### Adding a new Effect type
 
-Effects are grouped into namespaces (e.g., `SessionRpc`, `SessionLifecycle`, `FileOperation`, `Notification`). To add a new effect:
+Effects are grouped into namespaces (e.g., `SessionRpc`, `SessionLifecycle`, `FileOperation`, `PostImperative`). To add a new effect:
 
 1. Add variant to the appropriate group in `extension/src/host/core/effects.ts` (or create a new group if it's a new category).
 2. Add result Event variant to `extension/src/host/core/events.ts` (if the effect produces a result).
@@ -210,7 +210,7 @@ See [`docs/STATE_CONTRACT.md`](STATE_CONTRACT.md) for additional invariants (sna
 | `extension/src/backend/` | JSON-RPC server, SDK abstraction, request routing, session context |
 | `extension/src/webview/panel/` | Preact UI: transcript, composer, tabs, settings |
 | `extension/src/shared/` | Protocol types, validation, cross-layer helpers |
-| `extensions/` | Reusable pi plugins: subagent, skill-pruner, cwd-skills, safeguard |
+| `extensions/` | Reusable pi plugins: ask-user, cwd-skills, safeguard, skill-pruner, subagent |
 
 ---
 
@@ -219,4 +219,4 @@ See [`docs/STATE_CONTRACT.md`](STATE_CONTRACT.md) for additional invariants (sna
 - [`docs/STATE_CONTRACT.md`](STATE_CONTRACT.md) — authoritative host ↔ webview invariants
 - [`docs/internal/ARCH-OVERVIEW.md`](internal/ARCH-OVERVIEW.md) — concise file map and glossary
 - [`AGENTS.md`](../AGENTS.md) — repo conventions, test commands, build instructions
-- Git history: `docs/internal/archive/ARCH-MIGRATION-PLAN.md` (commit `d581d83`) — original migration plan
+- Git history (commit `d581d83`) — original migration plan

@@ -1,14 +1,14 @@
 # Expanded-section UI plan — bash/terminal tool + reasoning preview
 
-**Status:** Open (planning). Not yet implemented.
+**Status:** Implemented (live).
 
 Audit + grilling decisions for the two expandable transcript surfaces: the
 shell/terminal tool pane and the reasoning preview block. Scope is the
 user-reported pain: **expanded sections stay open too long and consume too
 much vertical space**, dominating the transcript during an active turn.
 
-The code is the authoritative record once implemented; this plan captures the
-decisions and their rationale while the work is in progress.
+The code is the authoritative record now that this is implemented; this plan
+captured the decisions and their rationale while the work was in progress.
 
 ---
 

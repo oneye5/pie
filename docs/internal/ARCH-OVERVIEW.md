@@ -30,7 +30,7 @@ All core architecture types live in `extension/src/host/core/`:
 | `reducer.ts` | Pure function `(ArchState, Event) → { archState, effects }`. No I/O. |
 | `effect-runner.ts` | Executes effects, posts result events back to reducer. Owns no state. |
 | `projection.ts` | Pure function `ArchState → ViewState`. Computes what the webview should display. |
-| `backend-event-parser.ts` | Parses raw JSON lines from the PI backend into typed `BackendEvent` objects. |
+| `event-dispatch.ts` | Dispatches raw backend JSON lines — read + `JSON.parse`d in `host/backend/client.ts` (`attachJsonlLineReader`, `JSON.parse`) — as typed `BackendEvent` objects to the reducer. |
 | `message-router.ts` | Converts `WebviewToHostMessage` into `Command` objects and dispatches to the reducer. |
 
 All application state lives in `ArchState` — no separate Redux store.
@@ -53,12 +53,9 @@ All application state lives in `ArchState` — no separate Redux store.
      Projection: ArchState → ViewState    EffectRunner executes:
                 │                           - RPCs to PI backend
                 ▼                           - File operations
-       Patch{sessionPath, ops}              - Notifications
+       Per-session snapshot channel          - Notifications
                 │                           - Analytics export
                 ▼                           Results → Event
-       Per-session revision channel
-                │
-                ▼
        Webview mirror[sessionPath]
                 │
                 ▼
@@ -89,8 +86,7 @@ All application state lives in `ArchState` — no separate Redux store.
 | **Effect** | Plain data describing a side effect, grouped by namespace | `host/core/effects.ts` |
 | **EffectRunner** | Executes effects, produces result events | `host/core/effect-runner.ts` |
 | **Projection** | `ArchState → ViewState` | `host/core/projection.ts` |
-| **ArchState** | All application state, nested into sub-states | `host/core/reducer.ts` (type) |
-| **Patch** | Session-addressed diff of ViewState | `shared/protocol.ts` |
+| **ArchState** | All application state, nested into sub-states | `host/core/arch-state.ts` |
 | **Snapshot** | Full ViewState for recovery | `shared/protocol.ts` |
 | **Mirror** | Webview-side cache of ViewState per session | `webview/panel/hooks/use-host-sync.ts` |
 
@@ -135,7 +131,6 @@ The webview owns **only** ephemeral render concerns:
 - Scroll/focus/hover/drag/animation state
 - Protocol bookkeeping (revision refs, snapshot flags)
 - Per-keystroke draft buffer (committed draft is host state)
-- Token-rate telemetry
 
 Everything else is host state delivered via ViewState. See `STATE_CONTRACT.md § Webview-Local State`.
 
@@ -146,7 +141,7 @@ Everything else is host state delivered via ViewState. See `STATE_CONTRACT.md §
 | Task | Files to touch |
 |------|---------------|
 | New user action | `commands.ts` → `events.ts` → `reducer.ts` → `effects.ts` → `effect-runner.ts` → `message-router.ts` |
-| New backend event | `events.ts` → `backend-event-parser.ts` → `reducer.ts` (+ `effects.ts` if side-effects needed) |
+| New backend event | `events.ts` → `backend/client.ts` (parse) + `event-dispatch.ts` (typed dispatch) → `reducer.ts` (+ `effects.ts` if side-effects needed) |
 | New ViewState field | `projection.ts` → `shared/protocol.ts` → webview consumer |
 | New effect type | `effects.ts` (in the right namespace) → `effect-runner.ts` → `events.ts` (result event) |
 | New webview component | `webview/panel/components/` → import in `app.tsx` |

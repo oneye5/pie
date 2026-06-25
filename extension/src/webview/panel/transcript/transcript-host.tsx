@@ -2,10 +2,10 @@
 /** @jsxImportSource preact */
 
 /**
- * TranscriptHost renders one TranscriptView per open tab path.
- * Only the active surface is visible/interactive; inactive surfaces remain
- * mounted but hidden via visibility:hidden + position:absolute to preserve
- * virtualizer measurements, scroll position, and collapsible state.
+ * TranscriptHost renders a single TranscriptSurface for the active session
+ * path only. Switching tabs remounts the surface for the newly active path,
+ * so virtualizer measurements, scroll position, and collapsible state reset
+ * on each tab switch (no hidden-but-mounted inactive surfaces are kept).
  */
 
 import type {
