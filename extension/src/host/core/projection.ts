@@ -22,6 +22,7 @@ import type {
   ViewState,
 } from '../../shared/protocol';
 import { EMPTY_TRANSCRIPT_WINDOW } from '../../shared/protocol';
+import { pruningTotals } from '../../shared/pruning.js';
 import type { ArchState } from './arch-state';
 
 // ─── Empty sentinels (stable references keep downstream shallow-equals cheap) ─
@@ -92,18 +93,14 @@ export function derivePruningResult(transcript: ChatMessage[]): PruningResult | 
 
     if (!Array.isArray(details.includedSkills)) continue;
 
-    const skillsKept = details.includedSkills.length;
-    const skillsTotal = details.includedSkills.length + details.excludedSkills.length;
-    const toolsKept = details.includedTools.length;
-    const toolsTotal = details.includedTools.length + details.excludedTools.length;
-    const tokensSaved = (details.skillTokensSaved ?? 0) + (details.toolTokensSaved ?? 0);
+    const t = pruningTotals(details);
 
     return {
-      skillsKept,
-      skillsTotal,
-      toolsKept,
-      toolsTotal,
-      tokensSaved,
+      skillsKept: t.skillsKept,
+      skillsTotal: t.skillsTotal,
+      toolsKept: t.toolsKept,
+      toolsTotal: t.toolsTotal,
+      tokensSaved: t.tokensSaved,
       hasSkillPruning: details.excludedSkills.length > 0,
       hasToolPruning: details.excludedTools.length > 0,
       details,

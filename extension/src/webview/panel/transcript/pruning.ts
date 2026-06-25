@@ -1,4 +1,8 @@
 import type { ChatMessage, PruningDetails, PruningMode } from '../../../shared/protocol';
+import { pruningTotals } from '../../../shared/pruning.js';
+// Re-export the shared numeric helper so existing import paths (e.g.
+// pruning-header.tsx) keep working while the math lives in one place.
+export { pruningTotals };
 
 export type PruningHeaderState =
   | { kind: 'pending'; label: string }
@@ -73,22 +77,7 @@ export function isPruningResultMessage(message: ChatMessage): boolean {
   return message.customType === 'pruning-result';
 }
 
-export function pruningTotals(details: PruningDetails) {
-  const skillsKept = details.includedSkills.length;
-  const skillsTotal = skillsKept + details.excludedSkills.length;
-  const toolsKept = details.includedTools.length;
-  const toolsTotal = toolsKept + details.excludedTools.length;
-  const tokensSaved = (details.skillTokensSaved ?? 0) + (details.toolTokensSaved ?? 0);
-
-  return {
-    skillsKept,
-    skillsTotal,
-    toolsKept,
-    toolsTotal,
-    tokensSaved,
-  };
-}
-
+// Numeric totals live in the shared helper; this module re-exports it.
 export function formatPruningSummary(details: PruningDetails, fallbackText = 'No skills or tools evaluated'): string {
   if (details.prepassError) {
     return 'Pruning failed';

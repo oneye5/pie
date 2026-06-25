@@ -4,6 +4,7 @@
 import { useState } from 'preact/hooks';
 
 import type { PruningDetails } from '../../../shared/protocol';
+import { pruningTotals } from '../../../shared/pruning.js';
 import { PruningDiagnostics } from './pruning-details';
 import { Collapsible } from '../components/collapsible';
 
@@ -23,15 +24,14 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
   const [expanded, setExpanded] = useState(false);
   const [rawExpanded, setRawExpanded] = useState(false);
 
-  const skillsTotal = details.includedSkills.length + details.excludedSkills.length;
-  const toolsTotal = details.includedTools.length + details.excludedTools.length;
+  const { skillsKept, skillsTotal, toolsKept, toolsTotal } = pruningTotals(details);
 
   const summaryParts: string[] = [];
   if (skillsTotal > 0) {
-    summaryParts.push(`${details.includedSkills.length}/${skillsTotal} skills kept`);
+    summaryParts.push(`${skillsKept}/${skillsTotal} skills kept`);
   }
   if (toolsTotal > 0) {
-    summaryParts.push(`${details.includedTools.length}/${toolsTotal} tools kept`);
+    summaryParts.push(`${toolsKept}/${toolsTotal} tools kept`);
   }
   const summary = summaryParts.length > 0
     ? summaryParts.join(' · ')
