@@ -1,3 +1,33 @@
+# Nested subagent expandable UI — sticky/scroll/overlap fix (2026-06-25)
+
+The nested (depth ≥ 2) subagent header was `position: sticky` inside the
+parent subagent's bounded scroll region, so it pinned to the parent's scroll
+port and bled over the parent's own sticky header (12–19px measured overlap
+via headless-Chrome CDP), and the nested body opened a second stacked 240px
+scroll container (nested-scroll hell). Fixed for depth ≥ 2 only (depth-1
+unchanged):
+
+- `tool-call-item.tsx`: `SubagentSingleBlock` computes `isNested =
+  subagentDepth > 1`; nested header gets `subagent-header-nested`;
+  `SubagentMessages` gains `isNested` → body gets `subagent-messages-scroll-
+  nested` and skips resize handles.
+- `tool-call.css`: `.subagent-header-nested { position: relative; top: auto;
+  z-index: auto; }` (relative preserves the pending-ask-user `::after`
+  anchor; z-index auto lets the parent's z-10 sticky header cover it instead
+  of the nested header bleeding over); `.subagent-messages-scroll-nested {
+  max-height: none; min-height: 0; overflow-y: visible; }` (flows inside the
+  parent's single bounded scroll region).
+- `test/nested-subagent-expand.test.ts` (NEW, 10 tests): nested recursion
+  expand/collapse + toggle independence, depth-1-vs-nested class/CSS
+  assertions, and a depth-3 fixture proving `subagentDepth` keeps
+  incrementing so every level ≥ 2 is nested.
+
+Verified: `npm test` (1591 pass), `typecheck`, `lint` green; real-browser CDP
+confirms depth-1 stays sticky/capped and nested is relative/free-flowing with
+no nested-over-outer bleed.
+
+---
+
 # Nested Subagent Enablement — Work Plan
 
 Goal: make agents trigger nested subagents more often, safely.

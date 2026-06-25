@@ -239,6 +239,23 @@
   border-left: 2px solid color-mix(in srgb, var(--panel-accent) 16%, var(--panel-border));
 }
 
+/* ── Nested (depth ≥ 2) subagent header ─────────────────────────────────── */
+/* A nested subagent renders inside a parent subagent's bounded scroll region.
+   A `sticky` header there pins to the parent's scroll port and collides with
+   the parent's own sticky header (the two overlap as the parent header sticks
+   to the main transcript viewport while the nested header sticks to the
+   parent's thread). Use `relative` instead of `sticky`: it still establishes
+   the containing block for the pending-ask-user `::after` pulse overlay (so
+   the blink anchors to this header) but does not pin, so the nested header
+   scrolls with its parent thread and never overlaps the parent header.
+   `z-index: auto` avoids creating a stacking context that could bleed over
+   neighbouring nested content. */
+.subagent-header.subagent-header-nested {
+  position: relative;
+  top: auto;
+  z-index: auto;
+}
+
 /* ── Subagent message thread ─────────────────────────────────────────────── */
 /* Nested transcript rendered beneath the subagent header when expanded.
    The thread is a bounded, vertically-resizable scroll region that defaults
@@ -267,6 +284,18 @@
   flex-direction: column;
   /* Match the main transcript's inter-message gap for visual parity */
   gap: 6px;
+}
+
+/* A nested (depth ≥ 2) subagent's body flows naturally inside the parent's
+   bounded scroll region instead of establishing its own nested scroll
+   container. This removes the nested-scroll confusion (two stacked capped
+   scroll regions) and the sticky-header overlap; the parent thread's single
+   scroll region already bounds and scrolls all nested content. */
+.subagent-messages-scroll.subagent-messages-scroll-nested {
+  max-height: none;
+  min-height: 0;
+  overflow-y: visible;
+  overscroll-behavior: auto;
 }
 
 /* ── Subagent model label ─────────────────────────────────────────────────── */

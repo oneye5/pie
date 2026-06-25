@@ -182,6 +182,10 @@ interface SubagentMessagesProps {
   onContextMenu: (e: MouseEvent) => void;
   onNestedContextMenu: TranscriptContextMenuHandler;
   renderToolCall: RenderToolCall;
+  /** When true, this body belongs to a nested (depth ≥ 2) subagent: it flows
+   *  naturally inside the parent's bounded scroll region instead of
+   *  establishing its own nested scroll container (see SubagentSingleBlock). */
+  isNested?: boolean;
 }
 
 /**
@@ -200,6 +204,7 @@ function SubagentMessages({
   onContextMenu,
   onNestedContextMenu,
   renderToolCall,
+  isNested,
 }: SubagentMessagesProps) {
   const messages = useMemo(
     () => subagentSingleResultToChatMessages(singleResult, `${toolCall.id}-${index}`),
@@ -244,7 +249,7 @@ function SubagentMessages({
       }}
       onKeyDown={(e) => e.stopPropagation()}
     >
-      {canResize && (
+      {canResize && !isNested && (
         <ResizeHandle
           edge="top"
           onMouseDown={startResize('top')}
@@ -256,7 +261,7 @@ function SubagentMessages({
         />
       )}
       <div
-        class="subagent-messages-scroll"
+        class={cx('subagent-messages-scroll', isNested && 'subagent-messages-scroll-nested')}
         ref={scrollRef}
         onScroll={handleScroll}
         style={height ? { height: `${height}px`, maxHeight: 'none' } : undefined}
@@ -292,7 +297,7 @@ function SubagentMessages({
           collapsibleKey={nestedCollapsibleDefaultsKey}
         />
       </div>
-      {canResize && (
+      {canResize && !isNested && (
         <ResizeHandle
           edge="bottom"
           onMouseDown={startResize('bottom')}
@@ -341,6 +346,13 @@ function SubagentSingleBlock({
   const parentSubagentCtx = useContext(SubagentCallContext);
   const subagentDepth = (parentSubagentCtx?.depth ?? 0) + 1;
   const subagentCallId = multipleResults ? `${toolCall.id}:${index}` : toolCall.id;
+  // Nested (depth ≥ 2) subagents live inside a parent subagent's bounded
+  // scroll region. A sticky header there pins to the parent's scroll port and
+  // collides with the parent's own sticky header (overlap), and a second
+  // nested scroll container creates nested-scroll confusion. So nested
+  // blocks use a non-sticky header (`relative`, preserving the pending-ask-user
+  // `::after` anchor) and a free-flowing body (no max-height / overflow).
+  const isNested = subagentDepth > 1;
 
   return (
     // `overflow-clip` (not `hidden`): clips children to the rounded card
@@ -352,7 +364,7 @@ function SubagentSingleBlock({
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
     >
       <div
-        class="subagent-header min-h-[32px] select-none"
+        class={cx('subagent-header min-h-[32px] select-none', isNested && 'subagent-header-nested')}
         role="button"
         tabIndex={0}
         aria-expanded={open}
@@ -380,6 +392,7 @@ function SubagentSingleBlock({
             onContextMenu={onContextMenu}
             onNestedContextMenu={onNestedContextMenu}
             renderToolCall={renderToolCall}
+            isNested={isNested}
           />
         </SubagentCallContext.Provider>
       )}
