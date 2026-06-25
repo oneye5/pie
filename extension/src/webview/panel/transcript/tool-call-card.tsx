@@ -8,7 +8,7 @@ import { cx } from '../utils/cx';
 import { getToolCallPresentation } from '../tool-call-summary';
 import { looksLikePathToken, splitQuotedToken, unwrapQuotedToken } from '../utils/looks-like-path-token';
 
-import { useEffect, useRef, useState } from 'preact/hooks';
+import { useEffect, useId, useRef, useState } from 'preact/hooks';
 
 import { ClickablePathButton } from '../file-path';
 import { CollapsibleChevron } from '../components/chevron';
@@ -47,6 +47,10 @@ interface ToolCallHeaderProps {
   sizeHint?: string;
   errorDetail?: string;
   durationMs?: number;
+  /** id of the body region this header controls, set as `aria-controls`.
+   *  Only passed when the body is actually mounted (see ToolCallCard) so the
+   *  reference never points at a missing element. */
+  ariaControls?: string;
   onOpenFile: (path: string) => void;
   /** Toggle the card's expanded state. The header is the toggle target so the
    *  card body stays a plain region (its selectable/copyable content remains
@@ -304,7 +308,7 @@ function ToolCallStatusGlyph({ status }: { status: ToolCall['status'] }) {
   return null;
 }
 
-export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, summary, summaryPath, summaryModel, sizeHint, errorDetail, durationMs, onOpenFile, onToggle }: ToolCallHeaderProps) {
+export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, summary, summaryPath, summaryModel, sizeHint, errorDetail, durationMs, ariaControls, onOpenFile, onToggle }: ToolCallHeaderProps) {
   const statusTone =
     status === 'failed' ? 'failed'
     : null;
@@ -337,6 +341,7 @@ export function ToolCallHeader({ open, bodyVisible, name, nameTitle, status, sum
       class="tool-call-header flex w-full min-h-[36px] cursor-pointer select-none items-center gap-[7px] px-2.5 py-[7px]"
       role="button"
       aria-expanded={open}
+      aria-controls={ariaControls}
       tabIndex={0}
       onClick={onToggle}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToggle(); } }}
@@ -601,6 +606,9 @@ export function ToolCallCard({
   const completedAtRef = useRef<number | null>(null);
 
   const renderBodyRef = useRef(false);
+  // Stable id for the body region so the header can reference it via
+  // `aria-controls` (only when the body is mounted — see renderBody).
+  const bodyId = useId();
 
   // Refs mirror the latest open/lingering/closing so the status-transition
   // effect (keyed on toolCall.status) always reads current values without
@@ -777,11 +785,13 @@ export function ToolCallCard({
         sizeHint={presentation.sizeHint}
         errorDetail={errorDetail}
         durationMs={toolCall.durationMs}
+        ariaControls={renderBody ? bodyId : undefined}
         onOpenFile={onOpenFile}
         onToggle={toggleOpen}
       />
       {renderBody && (
         <div
+          id={bodyId}
           class="tool-call-body-wrap"
           data-streaming={isRunning ? 'true' : undefined}
           data-expand={expand ? 'true' : undefined}

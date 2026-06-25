@@ -2,6 +2,7 @@
 /** @jsxImportSource preact */
 
 import type { ComponentChildren } from 'preact';
+import { useId } from 'preact/hooks';
 
 import { cx } from '../utils/cx';
 import { CollapsibleChevron } from './chevron';
@@ -62,6 +63,11 @@ export function Collapsible({
   children,
 }: CollapsibleProps) {
   const toggle = () => onToggle(!open);
+  // Stable id for the body region so the header button can reference it via
+  // `aria-controls`. Only set on the header when the body is actually mounted
+  // (open) — the body is lazily rendered for perf, so referencing a missing
+  // id when collapsed would be invalid per WAI-ARIA.
+  const bodyId = useId();
 
   return (
     <div
@@ -73,6 +79,7 @@ export function Collapsible({
         type="button"
         class={cx('collapsible-header', stickyHeader && 'collapsible-sticky-header', headerClass)}
         aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
         aria-label={ariaLabel}
         onClick={toggle}
       >
@@ -80,7 +87,7 @@ export function Collapsible({
         {chevron && <CollapsibleChevron open={open} />}
       </button>
       {open && (
-        <div class={cx('collapsible-body', bodyClass)}>
+        <div id={bodyId} class={cx('collapsible-body', bodyClass)}>
           {children}
         </div>
       )}

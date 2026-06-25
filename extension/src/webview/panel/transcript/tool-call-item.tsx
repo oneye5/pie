@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useContext, useEffect, useMemo, useRef } from 'preact/hooks';
+import { useContext, useEffect, useId, useMemo, useRef } from 'preact/hooks';
 import type { ChatPrefs, ToolCall } from '../../../shared/protocol';
 import { summarizeSubagentToolCallInput } from '../../../shared/tool-call-analysis';
 import { shouldOpenSubagentContextMenu } from './interactions';
@@ -186,6 +186,9 @@ interface SubagentMessagesProps {
    *  naturally inside the parent's bounded scroll region instead of
    *  establishing its own nested scroll container (see SubagentSingleBlock). */
   isNested?: boolean;
+  /** id for this body region so the subagent header can reference it via
+   *  `aria-controls` (set on the root `.subagent-messages` div). */
+  bodyId?: string;
 }
 
 /**
@@ -205,6 +208,7 @@ function SubagentMessages({
   onNestedContextMenu,
   renderToolCall,
   isNested,
+  bodyId,
 }: SubagentMessagesProps) {
   const messages = useMemo(
     () => subagentSingleResultToChatMessages(singleResult, `${toolCall.id}-${index}`),
@@ -230,6 +234,7 @@ function SubagentMessages({
 
   return (
     <div
+      id={bodyId}
       class="subagent-messages"
       onClick={(e) => {
         // Run the delegated code-block copy/toggle handler (buttons are rendered
@@ -353,6 +358,9 @@ function SubagentSingleBlock({
   // blocks use a non-sticky header (`relative`, preserving the pending-ask-user
   // `::after` anchor) and a free-flowing body (no max-height / overflow).
   const isNested = subagentDepth > 1;
+  // Stable id for the body region so the header can reference it via
+  // `aria-controls` (only when the body is mounted, i.e. open).
+  const bodyId = useId();
 
   return (
     // `overflow-clip` (not `hidden`): clips children to the rounded card
@@ -368,6 +376,7 @@ function SubagentSingleBlock({
         role="button"
         tabIndex={0}
         aria-expanded={open}
+        aria-controls={open ? bodyId : undefined}
         aria-label={`Toggle ${singleResult.agent} subagent`}
         onClick={() => setOpen((v) => !v)}
         onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
@@ -393,6 +402,7 @@ function SubagentSingleBlock({
             onNestedContextMenu={onNestedContextMenu}
             renderToolCall={renderToolCall}
             isNested={isNested}
+            bodyId={bodyId}
           />
         </SubagentCallContext.Provider>
       )}
