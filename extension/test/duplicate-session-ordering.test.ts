@@ -116,7 +116,6 @@ test('duplicateSession → backend session.duplicate rejection → handleSelecti
     },
   } as any;
 
-  let runner: EffectRunner;
   // The dispatch loop mirrors extension-host: run the reducer, then execute the
   // emitted effects via the runner. The runner's result dispatch +
   // handleSelectionFailure's recovery dispatches all re-enter here.
@@ -152,7 +151,7 @@ test('duplicateSession → backend session.duplicate rejection → handleSelecti
     dispatchCommand: () => {},
     dispatchEvent: () => {},
   };
-  runner = new EffectRunner(deps);
+  const runner = new EffectRunner(deps);
 
   tabs.duplicateSession(OLD);
   // The reducer synchronously activated the copy tab during the Command

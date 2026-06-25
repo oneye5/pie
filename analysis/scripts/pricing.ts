@@ -14,12 +14,12 @@
  * relative to this module). Override with the `PIE_MODELS_JSON` env var or the
  * explicit `modelsJsonPath` argument (used by tests).
  */
-import * as fs from 'node:fs';
-import * as path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { loadModelsJsonProviders } from './load-models.ts';
 
-const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
-const DEFAULT_MODELS_JSON_PATH = path.resolve(SCRIPT_DIR, '../../models.json');
+// Re-exported so existing imports of `resolveModelsJsonPath` from `./pricing.ts`
+// (e.g. tests) keep working now that it lives in `./load-models.ts`.
+export { resolveModelsJsonPath } from './load-models.ts';
+
 const TOKENS_PER_MILLION = 1_000_000;
 
 export interface ModelTokenPricing {
@@ -66,18 +66,6 @@ export function parseModelPricing(raw: unknown): ModelTokenPricing | undefined {
   return { input, output, cacheRead, cacheWrite };
 }
 
-/** Resolve the models.json path: explicit arg > env var > repo-root default. */
-export function resolveModelsJsonPath(modelsJsonPath?: string): string {
-  if (modelsJsonPath) {
-    return modelsJsonPath;
-  }
-  const fromEnv = process.env.PIE_MODELS_JSON;
-  if (fromEnv) {
-    return fromEnv;
-  }
-  return DEFAULT_MODELS_JSON_PATH;
-}
-
 function addRecord(map: Map<string, ModelTokenPricing>, id: string, model: Record<string, unknown>): void {
   if (!id) {
     return;
@@ -100,31 +88,12 @@ function addRecord(map: Map<string, ModelTokenPricing>, id: string, model: Recor
  */
 export function loadModelPricingMap(modelsJsonPath?: string): Map<string, ModelTokenPricing> {
   const map = new Map<string, ModelTokenPricing>();
-  const resolvedPath = resolveModelsJsonPath(modelsJsonPath);
-
-  let raw: string;
-  try {
-    raw = fs.readFileSync(resolvedPath, 'utf8');
-  } catch {
+  const providers = loadModelsJsonProviders(modelsJsonPath);
+  if (!providers) {
     return map;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return map;
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return map;
-  }
-  const providers = (parsed as Record<string, unknown>).providers;
-  if (!providers || typeof providers !== 'object' || Array.isArray(providers)) {
-    return map;
-  }
-
-  for (const providerData of Object.values(providers as Record<string, unknown>)) {
+  for (const providerData of Object.values(providers)) {
     if (!providerData || typeof providerData !== 'object') {
       continue;
     }

@@ -1,3 +1,14 @@
+/**
+ * Source analytics loader & coercer (pie-analysis standalone CLI).
+ *
+ * The run-analytics coercion logic in this file (the schema `*_KINDS`
+ * constants, `LEGACY_RESULT_ISSUE_KIND_MAP`, the legacy failure/sample split
+ * helpers, and `coerceToolUsageRollup` with its empty-rollup builders) is a thin
+ * duplicate of `extension/src/host/run-analytics/coercion-rollups.ts`
+ * (pie extension) to avoid cross-package import complexity. Keep those
+ * schema-defining coercion blocks synchronized.
+ */
+
 import * as fs from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';

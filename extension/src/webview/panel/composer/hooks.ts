@@ -85,10 +85,9 @@ export function useComposerInput({
     clearCheckpointTimer();
     checkpointTimerRef.current = setTimeout(() => {
       checkpointTimerRef.current = null;
-      console.log('[pie-undo-diag] CHECKPOINT commit=' + JSON.stringify(value) + ' present=' + JSON.stringify(history.present) + ' past=' + JSON.stringify(history.past));
       setHistory(value, true);
     }, CHECKPOINT_DEBOUNCE_MS);
-  }, [clearCheckpointTimer, setHistory, history.present, history.past]);
+  }, [clearCheckpointTimer, setHistory]);
 
   // Drop any pending checkpoint timer if the composer unmounts (e.g. the panel is
   // disposed) so it can't fire setHistory on a stale instance.
@@ -109,11 +108,6 @@ export function useComposerInput({
     }
   }, [text]);
 
-  // TEMP DIAGNOSTICS (pie-undo doubling bug)
-  useEffect(() => {
-    const textarea = textareaRef.current;
-    console.log('[pie-undo-diag] RENDER text=' + JSON.stringify(text) + ' present=' + JSON.stringify(history.present) + ' dom=' + JSON.stringify(textarea ? textarea.value : null));
-  }, [text, history.present]);
   // Latch that suppresses a second submit between the moment we post a send
   // and when the host round-trip flips `busy` to true (or clears pending
   // inputs). `busy` is the durable latch but lags a round-trip; this ref closes
@@ -253,7 +247,6 @@ export function useComposerInput({
     if (!canUndo) return;
     clearCheckpointTimer();
     const target = history.past[history.past.length - 1] ?? '';
-    console.log('[pie-undo-diag] UNDO target=' + JSON.stringify(target) + ' past=' + JSON.stringify(history.past) + ' present=' + JSON.stringify(history.present) + ' future=' + JSON.stringify(history.future));
     undo();
     setText(target);
     // Height is re-fit by the [text] effect above — we intentionally do NOT
@@ -265,7 +258,6 @@ export function useComposerInput({
     if (!canRedo) return;
     clearCheckpointTimer();
     const target = history.future[0] ?? '';
-    console.log('[pie-undo-diag] REDO target=' + JSON.stringify(target) + ' past=' + JSON.stringify(history.past) + ' present=' + JSON.stringify(history.present) + ' future=' + JSON.stringify(history.future));
     redo();
     setText(target);
     // See undoComposer: height is handled by the [text] effect, not a direct
@@ -306,11 +298,10 @@ export function useComposerInput({
 
   const handleInput = useCallback((e: Event) => {
     const target = e.target as HTMLTextAreaElement;
-    console.log('[pie-undo-diag] INPUT dom=' + JSON.stringify(target.value) + ' text=' + JSON.stringify(text));
     setText(target.value);
     resizeComposerTextarea(target);
     scheduleCheckpoint(target.value);
-  }, [scheduleCheckpoint, text]);
+  }, [scheduleCheckpoint]);
 
   const applyComposerTransfer = useCallback(async (dataTransfer: DataTransfer | null, source: 'drop' | 'paste') => {
     const { inputs, unsupportedInputs, rejectedFiles } = await extractComposerInputs(dataTransfer, source);

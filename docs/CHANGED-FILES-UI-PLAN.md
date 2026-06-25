@@ -5,7 +5,7 @@ authoritative; this plan captures the original decisions and rationale. See
 **Post-implementation revisions** below for the one change that superseded
 D2/D7 after the initial build.
 
-Grilling decisions for the right-side changed-files rail
+Grilling decisions for the left-side changed-files rail
 (`webview/panel/file-changes-panel.tsx`). Scope is the user-reported pain: the
 rail **wastes horizontal space, isn't resizable, and gets in the way during
 active work** — the user wants it out of the way while an agent works, then
@@ -17,6 +17,15 @@ decisions and their rationale while the work is in progress.
 ---
 
 ## Post-implementation revisions
+
+**Structural relocation (commit 8548ce0).** The rail was subsequently relocated
+from the right side of the panel to the left side, to avoid colliding with the
+transcript's right-edge scrollbar. It now docks left: the collapsed sliver and
+pinned drawer sit at the panel's left edge, the peek overlay anchors `left: 0`,
+and the drag handle is on the right (transcript-facing) edge (`edge="right"`,
+so drag-right = wider) — the inverse of the original right-side plan. Positional
+descriptors throughout this document have been revised to match; the code in
+`file-changes-panel.tsx` / `file-changes.css` is authoritative.
 
 These supersede the original decisions after the first implementation, driven
 by a user audit of the rendered rail:
@@ -193,7 +202,7 @@ the transcript.
 - **Why:** D1 promised zero reserved space mid-turn; a push-on-hover would
   reflow the transcript on every hover-enter/leave — jank you'd feel while an
   agent is streaming. An overlay honors D1 literally.
-- **Cost accepted:** the overlay covers the rightmost slice of transcript while
+- **Cost accepted:** the overlay covers the leftmost slice of transcript while
   peeking. Mitigated by: peek dismisses instantly on mouse-leave, and **pin**
   (reserved space) exists when you want to read both side by side.
 - **Hover region = sliver ∪ overlay:** peek must stay open while the pointer
@@ -216,8 +225,8 @@ content model; the only peek-vs-pin difference is overlay-vs-reserved.
 
 ### D5 — Drag-resize width is ephemeral per-session (v1)
 
-The pinned drawer's width is drag-resizable via a **left-edge handle** (the
-drawer is on the right, so drag-left = wider). Width is **ephemeral
+The pinned drawer's width is drag-resizable via a **right-edge handle** (the
+drawer is on the left, so drag-right = wider). Width is **ephemeral
 webview-local state** — not persisted — exactly mirroring the precedent set by
 `EXPANDED-SECTION-UI-PLAN.md` D1 for resizable *height*.
 
@@ -338,13 +347,13 @@ Files to touch (exact, for the worker):
 
 **Drag-resize width (D5)**
 - `webview/panel/components/use-resizable-width.ts` — **new**, mirroring
-  `use-resizable-height.ts` but tracking `clientX` and a single `'left'` edge
-  (drag-left = wider). Ephemeral `useState<number|null>` width, clamped to
+  `use-resizable-height.ts` but tracking `clientX` and a single `'right'` edge
+  (drag-right = wider). Ephemeral `useState<number|null>` width, clamped to
   `[minWidth, maxWidth]`.
 - `webview/panel/components/resize-handle.tsx` — extend `edge` to accept
-  `'left'` (horizontal handle), or add a parallel `ResizeHandleH`. Keep a11y
+  `'right'` (horizontal handle), or add a parallel `ResizeHandleH`. Keep a11y
   parity (`role="separator"`, arrow-key nudge, double-click reset).
-- `file-changes-panel.tsx` — render the left-edge `ResizeHandle` only when
+- `file-changes-panel.tsx` — render the right-edge `ResizeHandle` only when
   **pinned** (peek overlay is transient; resizing peek is out of scope — see
   Out of scope).
 
@@ -489,8 +498,8 @@ by coloring the file-name TEXT itself.
   — a no-deletions row no longer shifts `+N` right, for clean vertical
   eye-scanning. (Counts >4 digits overflow their cell — rare, accepted.)
 - **Peek panel refresh.** The hover overlay reads as a floating panel: an
-  accent-tinted left edge, a larger left radius, an explicit card surface, and a
-  softer/deeper layered left-casting shadow that eases in (`box-shadow` added to
+  accent-tinted right edge, a larger right radius, an explicit card surface, and a
+  softer/deeper layered right-casting shadow that eases in (`box-shadow` added to
   the transition). The shared header gets a blended control/card surface with a
   clean bottom separator. The pinned (in-flow) drawer stays a clean divider
   with no shadow.

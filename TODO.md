@@ -134,15 +134,23 @@ files-reviewed feature work. They landed with that feature in `245f351`:
 - `analysis/test/stratified-ranker.test.ts` — removed unused import `RunOutcomeResolution`
 
 ## Pre-existing lint debt (not introduced by this pass)
-- 6 `prefer-const` errors in extension test files: `let runner: EffectRunner;` is
-  declared early and assigned late because a closure references it, so it cannot
-  be `const` without a TS use-before-declaration error. Needs test restructure.
-  `npm run lint` was already failing on these before this pass (11 → 6 problems).
+- 6 `prefer-const` errors in extension test files (`let runner: EffectRunner;`
+  declared early, assigned late because a hoisted `dispatchArch` closure
+  references it). **RESOLVED 2026-06-25 maintenance pass**: converted to a plain
+  `const runner = new EffectRunner(deps);` reorder — verified this repo's eslint
+  config has `no-use-before-define` OFF and TS does not flag deferred-body
+  references, so no use-before-declaration error. `npm run lint` + `typecheck`
+  now clean (5 test files: close/create/duplicate/open-session-ordering +
+  session-tab-actions).
 - `@typescript-eslint/no-unused-vars` is `off` for `extension/test/**` by project
   convention, so ~20 unused test imports/vars there are tolerated.
 - skylos reports ~24 extension source files + `extensions/subagent/src/execute.ts`
   as having "unused imports"; `tsc --noUnusedLocals` confirms these are false
   positives (extension `src/` is fully clean). Not dead — do not remove.
+  **Re-verified 2026-06-25**: `tsc --noUnusedLocals` across extension / subagent /
+  skill-pruner reports ZERO unused symbols in any `src/` file; the only
+  genuinely-unused import in the repo was `sum` in
+  `analysis/site/charts/toolduration.ts` (removed).
 
 ---
 
@@ -170,27 +178,67 @@ gating heuristics were added — left placement removes the collision
 structurally (no scrollbar on the left; reading-rest never reaches the rail).
 
 Deferred / out of scope (revisit if wanted):
-- **Doc drift**: `docs/CHANGED-FILES-UI-PLAN.md` still describes the rail as
-  "right-side" with a "left-edge handle" and "LEFT-casting shadow". It is a
-  historical design plan; update the positional descriptors if it should
-  reflect current positioning, or leave as-is as a design record.
+- **Doc drift**: `docs/CHANGED-FILES-UI-PLAN.md` previously described the rail
+  as "right-side" with a "left-edge handle" and "left-casting shadow".
+  **RESOLVED 2026-06-25 maintenance pass**: corrected the 7 stale positional
+  descriptors to match the left-side reality AND added a move-note under
+  "Post-implementation revisions" referencing commit `8548ce0`. Also fixed the
+  stale `left-edge handle` → `right-edge handle` header comment in
+  `extension/src/webview/panel/styles/file-changes.css`.
 - **Peek covering**: peek (overlay) now anchors `left:0` and covers the start
   of agent replies during a *deliberate* glance (~260px). Acceptable since
   left placement makes peeks deliberate-only, but if the covering cost
   matters, narrow the peek `--file-changes-drawer-width` (260→~190) or make
   peek in-flow (nudge) so it covers nothing. Pin is in-flow and unaffected.
 
-Unrelated (NOT from this task — left uncommitted, per AGENTS.md):
-- A concurrent in-flight `FileName` button↔span refactor in
-  `file-changes-panel.tsx` + `file-changes.css` (the whole path is now the
-  click hitbox) is present in the working tree but was NOT committed with the
-  rail move. That refactor changed the row DOM
-  (`<button class="file-change-name">` → `<button class="file-change-path-text"><span class="file-change-name">`)
-  but did not update the 3 `FileChangesPanel` tests that assert
-  `<button class="file-change-name">`, so those 3 tests currently FAIL in the
-  working tree. The rail-move commit `8548ce0` excluded that refactor and is
-  green. Whoever owns the `FileName` refactor needs to update:
-  - `FileChangesPanel collapsed: renders sliver + aggregate header (SSR-safe)`
-  - `FileChangesPanel pinned: renders right resize handle + close, no sliver`
-    (the `resize-handle-right` assertion passes; only the `<button class="file-change-name">` assertion fails)
-  - `FileChangesPanel pinned: deleted row is disabled with a Deleted title`
+LANDED in `eb7edc0` ("Make file path the open-in-editor hitbox"): the
+`FileName` button↔span refactor (whole path is the click hitbox; row DOM
+`<button class="file-change-name">` → `<button class="file-change-path-text">
+<span class="file-change-name">`) was committed together with updates to the 3
+`FileChangesPanel` tests. **Verified 2026-06-25**: all 3 tests pass green on
+clean HEAD; no outstanding work here.
+
+---
+
+# Codebase-maintenance pass (2026-06-25)
+
+Ran the `codebase-maintenance` skill (dead-code → smells → duplicates →
+complexity → large-files → lint/test → gitignore → doc-drift). All green;
+smells (semgrep) clean. Outcomes:
+
+Done:
+- **Dead code**: `tsc --noUnusedLocals` verified the skylos import findings in
+  `extension/src/` + `extensions/subagent/src/` are false positives (src fully
+  clean). Removed the one real dead import: `sum` in
+  `analysis/site/charts/toolduration.ts`. (Test-file unused imports tolerated
+  by convention — `no-unused-vars` off for `extension/test/**`.)
+- **Lint debt**: 6 pre-existing `prefer-const` errors fixed via plain `const`
+  reorder (see section above).
+- **Duplicates**: extracted shared `loadModelsJsonProviders()` into
+  `analysis/scripts/load-models.ts` (DRY for `model-family.ts` + `pricing.ts`,
+  same package, behavior-preserving). Documented the cross-package
+  `coercion-rollups.ts` ↔ `analysis/scripts/source.ts` duplication with
+  "keep synchronized" headers (mirrors `backend/pricing.ts` pattern; extraction
+  undesirable — would create a cross-package dep). Other dupes justified
+  (test fixtures, documented structural dup).
+- **Large files / complexity**: split `settings-menu-subcomponents.tsx`
+  (996→535, UI-appearance block → new `ui-appearance-settings.tsx`) and
+  `skill-pruner/src/pruning.ts` (553→246, prepass → new `prepass.ts`). All 10
+  high-complexity functions are domain-appropriate dispatchers/validators
+  (left as-is). Removed a stale "TEMP DIAGNOSTICS" console.log block in
+  `composer/hooks.ts`.
+- **Doc drift**: corrected `CHANGED-FILES-UI-PLAN.md` positional descriptors
+  (see section above). Markdown-drift scan otherwise clean (only 2 README
+  `npmjs.com` URLs return 403 — bot-blocking, verified not broken; left as-is).
+
+New deferred follow-ups (from this pass):
+- **`extension/src/host/sidebar/provider.ts` (677loc)** — soft multi-concern
+  split candidate (extract `SidebarHotReloader` + `StateAppliedWatchdog` to a
+  sibling file). Current size tolerable; lower priority.
+- **`extensions/skill-pruner` has no `tsconfig.json`** (siblings `subagent`/
+  `ask-user` do) → no standing typecheck gate; 2 genuine pre-existing type
+  issues (`llm-scorer.ts:173`, `logger.test.ts`) are undetected by CI. Add a
+  tsconfig + fix.
+- **`AlwaysKeepPicker` promotion** to `components/` deferred — depends on
+  `filterKeepCatalog` from `./settings-menu-helpers`; a clean move needs
+  relocating that helper first (else a `components/ → composer/` back-dependency).

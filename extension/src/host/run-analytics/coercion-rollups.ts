@@ -1,3 +1,11 @@
+/**
+ * Run-analytics coercion rollups (pie extension).
+ *
+ * This is a thin duplicate of the equivalent coercion logic in
+ * `analysis/scripts/source.ts` (pie-analysis standalone CLI) to avoid
+ * cross-package import complexity. Keep constants and logic synchronized.
+ */
+
 import type { VerificationCommandKind, SubagentTaskScoreRollup, ToolFailureKind, ToolResultIssueKind } from '../../shared/tool-call-analysis';
 import type {
   FileExtensionRollup,

@@ -62,7 +62,6 @@ test('openSession serializes backend session.open requests through the lifecycle
   const context = createExtensionContext();
   let archState = createInitialArchState();
   const getArchState = () => archState;
-  let runner: EffectRunner;
   const dispatchArch = (event: Event) => {
     const result = reducer(archState, event);
     archState = result.state;
@@ -107,7 +106,7 @@ test('openSession serializes backend session.open requests through the lifecycle
     dispatchCommand: () => {},
     dispatchEvent: () => {},
   };
-  runner = new EffectRunner(deps);
+  const runner = new EffectRunner(deps);
 
   tabs.openSession(sessionPaths[0]);
   tabs.openSession(sessionPaths[1]);

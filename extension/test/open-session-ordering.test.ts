@@ -115,7 +115,6 @@ test('openSession -> backend session.open rejection -> handleSelectionFailure re
     },
   } as any;
 
-  let runner: EffectRunner;
   // The dispatch loop mirrors extension-host: run the reducer, then execute the
   // emitted effects via the runner. The runner's result dispatch +
   // handleSelectionFailure's recovery dispatches all re-enter here.
@@ -151,7 +150,7 @@ test('openSession -> backend session.open rejection -> handleSelectionFailure re
     dispatchCommand: () => {},
     dispatchEvent: () => {},
   };
-  runner = new EffectRunner(deps);
+  const runner = new EffectRunner(deps);
 
   tabs.openSession(NEW);
 

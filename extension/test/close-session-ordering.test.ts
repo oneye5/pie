@@ -103,7 +103,6 @@ test('closeSession → runner host-side cleanup → CloseSessionResult{ok:true} 
   const backend = { request: async () => ({}) } as any;
 
   const dispatchedEvents: Event[] = [];
-  let runner: EffectRunner;
   function dispatchArch(event: Event): void {
     dispatchedEvents.push(event);
     const result = reducer(archState, event);
@@ -137,7 +136,7 @@ test('closeSession → runner host-side cleanup → CloseSessionResult{ok:true} 
     dispatchCommand: () => {},
     dispatchEvent: () => {},
   };
-  runner = new EffectRunner(deps);
+  const runner = new EffectRunner(deps);
 
   // Dispatch the CloseSession Command (as the message-router does).
   dispatchArch({ kind: 'Command', cmd: { kind: 'CloseSession', corrId: 'c1', sessionPath: A } });
@@ -186,7 +185,6 @@ test('closeSession → recursive openSession(nextPath) when nextPath is NOT summ
   const backend = { request: async () => ({}) } as any;
 
   const dispatchedEvents: Event[] = [];
-  let runner: EffectRunner;
   function dispatchArch(event: Event): void {
     dispatchedEvents.push(event);
     const result = reducer(archState, event);
@@ -220,7 +218,7 @@ test('closeSession → recursive openSession(nextPath) when nextPath is NOT summ
     dispatchCommand: () => {},
     dispatchEvent: () => {},
   };
-  runner = new EffectRunner(deps);
+  const runner = new EffectRunner(deps);
 
   // Dispatch the CloseSession Command.
   dispatchArch({ kind: 'Command', cmd: { kind: 'CloseSession', corrId: 'c1', sessionPath: A } });

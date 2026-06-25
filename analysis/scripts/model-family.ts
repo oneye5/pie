@@ -14,11 +14,10 @@
  * investigate provider differences later (e.g. via the `providers` breakdown on leaderboard rows
  * or the `model_family` column in DuckDB).
  *
- * Mirrors the structure of `pricing.ts` (same `models.json`, same path resolution) so the two
- * lookups stay in lockstep.
+ * Mirrors the structure of `pricing.ts` (both delegate `models.json` loading to
+ * `./load-models.ts`) so the two lookups stay in lockstep.
  */
-import * as fs from 'node:fs';
-import { resolveModelsJsonPath } from './pricing.ts';
+import { loadModelsJsonProviders } from './load-models.ts';
 
 export interface ModelFamilyEntry {
   /** Canonical, provider-agnostic family id (e.g. 'glm-5.2'). Falls back to the model id when no `family` is declared. */
@@ -46,31 +45,12 @@ function entryFor(id: string, model: Record<string, unknown> | null | undefined,
  */
 export function loadModelFamilyMap(modelsJsonPath?: string): Map<string, ModelFamilyEntry> {
   const map = new Map<string, ModelFamilyEntry>();
-  const resolvedPath = resolveModelsJsonPath(modelsJsonPath);
-
-  let raw: string;
-  try {
-    raw = fs.readFileSync(resolvedPath, 'utf8');
-  } catch {
+  const providers = loadModelsJsonProviders(modelsJsonPath);
+  if (!providers) {
     return map;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw);
-  } catch {
-    return map;
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return map;
-  }
-  const providers = (parsed as Record<string, unknown>).providers;
-  if (!providers || typeof providers !== 'object' || Array.isArray(providers)) {
-    return map;
-  }
-
-  for (const [providerName, providerData] of Object.entries(providers as Record<string, unknown>)) {
+  for (const [providerName, providerData] of Object.entries(providers)) {
     if (!providerData || typeof providerData !== 'object') {
       continue;
     }

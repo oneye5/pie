@@ -6,7 +6,7 @@
  *  - Peek (hover/tap): an ephemeral overlay floating over the transcript
  *    edge (D3); reserves no layout space.
  *  - Pin (click / header pin button): in-flow, flex-reserved (shrinks the
- *    transcript), drag-resizable via a left-edge handle (D5).
+ *    transcript), drag-resizable via a right-edge handle (D5).
  * The durable pin (ViewState.fileChangesExpanded) is host state; peek and the
  * drag width are webview-local (STATE_CONTRACT § Webview-Local State). */
 
