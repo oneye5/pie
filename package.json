@@ -4,7 +4,7 @@
   "//workspaces": "npm workspaces are intentionally NOT enabled. extensions/subagent, extensions/cwd-skills, and extensions/skill-pruner do not yet have package.json files; activating workspaces here would break root npm install. Track enabling this in docs/INSTALLATION_INFRA_PLAN.md.",
   "scripts": {
     "test": "node ./scripts/run-tests.mjs",
-    "typecheck": "npm run extension:typecheck && npm run analytics:typecheck",
+    "typecheck": "npm run extension:typecheck && npm run analytics:typecheck && npm run extensions:typecheck",
     "analytics:typecheck": "npm --prefix analysis run typecheck --",
     "analytics:test": "node ./scripts/run-tests.mjs --package analysis",
     "analytics:build-db": "npm --prefix analysis run build-db --",
@@ -17,7 +17,8 @@
     "extension:build": "npm --prefix extension run build --",
     "extension:test": "node ./scripts/run-tests.mjs --package extension",
     "extension:typecheck": "npm --prefix extension run typecheck --",
-    "extensions:test": "node ./scripts/run-tests.mjs --package cwd-skills --package safeguard --package skill-pruner --package subagent"
+    "extensions:test": "node ./scripts/run-tests.mjs --package cwd-skills --package safeguard --package skill-pruner --package subagent",
+    "extensions:typecheck": "npm --prefix extension run typecheck:skill-pruner --"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

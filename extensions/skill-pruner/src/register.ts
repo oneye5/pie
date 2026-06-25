@@ -1,4 +1,4 @@
-import type { ExtensionAPI, BeforeAgentStartEvent, ToolCallEvent } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, BeforeAgentStartEvent, ToolCallEvent, Skill } from "@mariozechner/pi-coding-agent";
 import { appendDecision, estimateTokens, recordSkillRead, recordKnownSkills } from "../logger.js";
 import {
 	setPiApi,
@@ -38,7 +38,7 @@ export default function register(pi: ExtensionAPI) {
 	});
 
 	// --- Message renderer for pruning-result custom type ---
-	pi.registerMessageRenderer("pruning-result", (message, { expanded }, theme) => {
+	pi.registerMessageRenderer("pruning-result", (message: { content: string; details?: unknown }, { expanded }: { expanded: boolean }, theme: { bg: (key: string, child: unknown) => unknown; fg: (key: string, text: string) => string }) => {
 		return pruningResultRenderer.render(message, { expanded }, theme);
 	});
 
@@ -46,7 +46,7 @@ export default function register(pi: ExtensionAPI) {
 	pi.registerTool(requestToolDefinition);
 
 	// --- before_agent_start: skill + tool pruning ---
-	pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx) => {
+	pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: unknown) => {
 		const activeConfig = getConfig();
 		const skipInfo = shouldSkipPruning(event, activeConfig);
 		if (skipInfo.skip && skipInfo.reason === "disabled-by-toggle") {
@@ -55,7 +55,7 @@ export default function register(pi: ExtensionAPI) {
 
 		const sessionId = getSessionId(ctx);
 		const skills = event.systemPromptOptions.skills ?? [];
-		const allSkillPaths = skills.map((s) => s.filePath);
+		const allSkillPaths = skills.map((s: Skill) => s.filePath);
 
 		if (skipInfo.skip) {
 			recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
@@ -226,7 +226,7 @@ export default function register(pi: ExtensionAPI) {
 		return feedbackMessage ? { message: feedbackMessage } : undefined;
 	});
 
-	pi.on("tool_call", async (event: ToolCallEvent, ctx) => {
+	pi.on("tool_call", async (event: ToolCallEvent, ctx: unknown) => {
 		try {
 			if (event.toolName !== "read") {
 				return undefined;

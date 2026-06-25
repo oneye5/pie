@@ -164,10 +164,10 @@ function buildParsedResponse(
 		? (parsed as { pruneTools: unknown[] }).pruneTools
 		: undefined;
 	const pruneSkills = rawSkills
-		? rawSkills.filter((s: unknown) => typeof s === "string" && knownSkills.has(s))
+		? rawSkills.filter((s): s is string => typeof s === "string" && knownSkills.has(s))
 		: [];
 	const pruneTools = rawTools
-		? rawTools.filter((t: unknown) => typeof t === "string" && knownTools.has(t))
+		? rawTools.filter((t): t is string => typeof t === "string" && knownTools.has(t))
 		: [];
 	const reasoningRaw = (parsed as { reasoning?: unknown }).reasoning;
 	const result: ParsedLlmResponse = { pruneSkills, pruneTools };

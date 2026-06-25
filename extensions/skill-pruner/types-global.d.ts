@@ -1,0 +1,29 @@
+// Ambient stubs for the `@mariozechner/pi-*` peer packages.
+//
+// These are provided by the pi runtime (globally installed via
+// `@mariozechner/pi-coding-agent`); they are not in this repo's node_modules,
+// so tsc cannot resolve them. Declare them as opaque modules (every export
+// `any`) so the tsconfig typecheck gate covers skill-pruner's INTERNAL types
+// (the real goal — e.g. the llm-scorer filter narrowing + stale
+// PruningDecision fixtures that CI missed) without flagging drift against the
+// evolving pi API surface. Imports from these modules resolve to `any`.
+//
+// Aligning skill-pruner's renderer/tool/registration types with the current
+// pi API (pi-tui theme signature, pi-coding-agent AgentToolResult/CustomMessage)
+// is tracked as a separate follow-up in TODO.md. When new named imports are
+// adopted, add them here.
+declare module "@mariozechner/pi-coding-agent" {
+  export type Skill = any;
+  export type ToolInfo = any;
+  export type ExtensionAPI = any;
+  export type BeforeAgentStartEvent = any;
+  export type ToolCallEvent = any;
+  export const formatSkillsForPrompt: any;
+}
+declare module "@mariozechner/pi-ai" {
+  export const completeSimple: any;
+}
+declare module "@mariozechner/pi-tui" {
+  export const Box: any;
+  export const Text: any;
+}
