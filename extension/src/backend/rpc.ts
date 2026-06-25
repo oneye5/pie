@@ -1,4 +1,4 @@
-import type { ComposerInput, FilesystemPathComposerInput, ImageBlobComposerInput, ModelSettings, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
+import type { ComposerInput, ExtensionUIResponsePayload, FilesystemPathComposerInput, ImageBlobComposerInput, ModelSettings, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../shared/image-constraints';
 import { THINKING_LEVELS } from '../shared/thinking-level.js';
 
@@ -191,6 +191,24 @@ export function validateTruncateAfter(params: unknown): TruncateAfterParams {
   const eid = (params as Record<string, unknown>)['entryId'];
   if (typeof eid !== 'string' || !eid) fail('session.truncateAfter', 'requires a string entryId');
   return { sessionPath: sp as string, entryId: eid as string };
+}
+
+export interface ExtensionUiResponseParams {
+  sessionPath: string;
+  response: ExtensionUIResponsePayload;
+}
+
+export function validateExtensionUiResponse(params: unknown): ExtensionUiResponseParams {
+  if (!isObj(params)) fail('extension_ui.response', 'expected an object');
+  const { sessionPath } = validateSessionPath('extension_ui.response', params);
+  const response = params['response'];
+  if (!isObj(response) || typeof response['id'] !== 'string' || !response['id']) {
+    fail('extension_ui.response', 'requires a response.id string');
+  }
+  // `id` is validated above; the optional `value`/`confirmed`/`cancelled` fields
+  // are genuinely optional and consumed by `uiBridge.resolveRequest`, which
+  // tolerates their absence. Single cast at the validated seam (S6 pattern).
+  return { sessionPath, response: response as unknown as ExtensionUIResponsePayload };
 }
 
 function readNonEmptyString(method: string, field: string, value: unknown): string {

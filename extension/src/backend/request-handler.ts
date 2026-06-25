@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 
-import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ErrorPayload, type ExtensionUIResponsePayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
+import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ErrorPayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
 import {
   validateLoadTranscriptPage,
   validateMessageSend,
@@ -12,6 +12,7 @@ import {
   validateSessionPath,
   validateSettingsSet,
   validateTruncateAfter,
+  validateExtensionUiResponse,
 } from './rpc';
 import type { SdkModule, SdkSessionManager, SdkImageContent } from './sdk';
 import { buildPromptText, lowerImageInputs, normalizeThinkingLevel } from './message-inputs';
@@ -372,10 +373,7 @@ async function handleExtensionUiResponse(
   deps: BackendRequestHandlerDeps,
   request: RequestEnvelope,
 ): Promise<unknown> {
-  const params = request.params as { sessionPath: string; response: ExtensionUIResponsePayload } | undefined;
-  if (!params?.sessionPath || !params.response?.id) {
-    throw new Error('extension_ui.response requires sessionPath and response.id');
-  }
+  const params = validateExtensionUiResponse(request.params);
   const context = deps.getSessionContext(params.sessionPath);
   if (!context?.uiBridge) {
     throw new Error(`No UI bridge for session: ${params.sessionPath}`);
