@@ -326,6 +326,82 @@ describe('BUG: .envrc outside project not prompted by write handler', () => {
 
 // ─── REGRESSION: existing handler behaviour ──────────────────────────────────
 
+describe('default bash timeout safeguard', () => {
+	test('applies the default timeout when the agent omits it', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false });
+		const input = { command: 'echo hello' };
+		await handler({ toolName: 'bash', input }, ctx);
+		assert.equal(input.timeout, 600, 'default timeout should be applied when omitted');
+	});
+
+	test('applies the default timeout when input has no timeout field at all', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false });
+		const input: { command: string; timeout?: number } = { command: 'ls -la' };
+		await handler({ toolName: 'bash', input }, ctx);
+		assert.equal(input.timeout, 600);
+	});
+
+	test('preserves an explicit per-call timeout override', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false });
+		const input = { command: 'npm run build', timeout: 1200 };
+		await handler({ toolName: 'bash', input }, ctx);
+		assert.equal(input.timeout, 1200, 'explicit override must be preserved');
+	});
+
+	test('preserves a small explicit timeout (does not clamp upward)', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false });
+		const input = { command: 'sleep 1', timeout: 5 };
+		await handler({ toolName: 'bash', input }, ctx);
+		assert.equal(input.timeout, 5, 'small explicit timeout must be preserved');
+	});
+
+	test('applies the default for a non-positive timeout (treated as unset)', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false });
+		const input = { command: 'echo x', timeout: 0 };
+		await handler({ toolName: 'bash', input }, ctx);
+		assert.equal(input.timeout, 600, 'non-positive timeout should fall back to default');
+	});
+
+	test('applies the default before a hard-blocked command is denied', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false });
+		const input = { command: 'rm -rf /' };
+		const result = await handler({ toolName: 'bash', input }, ctx) as any;
+		assert.equal(result?.block, true, 'rm -rf / must still be blocked');
+		assert.equal(input.timeout, 600, 'timeout default is applied even when blocked');
+	});
+
+	test('applies the default to a command that is ultimately allowed through', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false });
+		const input = { command: 'rg TODO src/' };
+		const result = await handler({ toolName: 'bash', input }, ctx);
+		assert.equal(result, undefined, 'benign command is allowed');
+		assert.equal(input.timeout, 600, 'allowed command still gets the default timeout');
+	});
+
+	test('does not touch non-bash tools (no timeout field added)', async () => {
+		const mod = await loadSafeguard();
+		const handler = registerToolCallHandler(mod);
+		const { ctx } = makeCtx({ hasUI: false });
+		const input = { path: 'README.md' };
+		await handler({ toolName: 'read', input }, ctx);
+		assert.equal('timeout' in input, false, 'read tool input must not get a timeout');
+	});
+});
+
 describe('bash handler – hard-block notifies UI', () => {
 	test('notifies when UI is available', async () => {
 		const mod = await loadSafeguard();

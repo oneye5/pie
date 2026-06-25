@@ -14,6 +14,32 @@ import { analyzeRecursiveRm } from "./shell";
 
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
+// ─── Default bash timeout safeguard ──────────────────────────────────────────
+// The bash tool has an optional per-call `timeout` (seconds). When the agent
+// omits it, a hung command (whole-PC filesystem walk, infinite loop, blocked
+// interactive prompt) would hang indefinitely. This default is applied to every
+// bash call that does not already specify a positive finite timeout, so genuine
+// long-running tasks are unaffected and the per-call override remains
+// authoritative for tasks known to need more (set `timeout` explicitly).
+//
+// Value is grounded in measured genuine-task durations for this repo:
+//   - `npm run typecheck`  ~18s
+//   - `cd extension && npm run test` ~22s
+//   - `npm run build` (extension) ~30s  (longest observed genuine task)
+// 600s is 20× that headroom, so no real task trips it, while any *true* hang
+// (which is unbounded) is killed. Documented mechanism: extensions.md `tool_call`
+// event — "Mutations to `event.input` affect the actual tool execution".
+export const DEFAULT_BASH_TIMEOUT_SECONDS = 600;
+
+/** Apply the default timeout to a bash tool input unless the caller already
+ *  set a positive finite one. Mutates `input` in place, matching pi's
+ *  `tool_call` mutation contract. */
+function applyDefaultBashTimeout(input: { command: string; timeout?: number }): void {
+	if (typeof input.timeout !== "number" || !Number.isFinite(input.timeout) || input.timeout <= 0) {
+		input.timeout = DEFAULT_BASH_TIMEOUT_SECONDS;
+	}
+}
+
 /**
  * Wraps a command-name regex so it only matches at a "command position" —
  * start of string, after newline, or after shell operators (; && || |).
@@ -253,6 +279,9 @@ function analyzeBash(command: string, cwd: string): { action: "allow" | "block" 
 export default function (pi: ExtensionAPI) {
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName === "bash") {
+			// Apply the hang safeguard before any safety analysis so even a
+			// command that is ultimately allowed (or user-approved) is bounded.
+			applyDefaultBashTimeout(event.input as { command: string; timeout?: number });
 			return handleBash(event.input.command as string, ctx);
 		}
 
