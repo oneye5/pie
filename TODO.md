@@ -16,8 +16,8 @@ done / deferred (needs user decision).
 | W2d — Path utilities shared module | S1 | done | `99681d7` |
 | W2e — Token formatting factory | S1 | done | `b267880` |
 | W2f — Pricing logic across 3 packages | S1 | done | `f2253ca` |
-| W2g — Coercion / failure-kind taxonomy (4 kind unions → shared/) | S1 | done | `4e91679` |
-| W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | done | `ee1ee57` |
+| W2g — Coercion / failure-kind taxonomy (4 kind unions → shared/) | S1 | done | `d978b67` |
+| W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | done | `c909d1b` |
 | W4 — Tighten boundary-typing ring | S6 | deferred (frontier subagent blocked by session usage limit) | — |
 | W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | deferred (frontier + needs versioned-migration design decision) | — |
 | W9b — Install-script portability | S10 | deferred (install-script edits need careful testing) | — |
