@@ -1,3 +1,30 @@
+# Codebase review — in progress
+
+Orchestrated pass over `docs/internal/code-review/SUMMARY_structural_issues.md`
+(backlog S1–S11). Status legend: planned / scouting / in progress / in review /
+done / deferred (needs user decision).
+
+| Item | Issue | Status | Commit |
+|---|---|---|---|
+| W1 — Re-render hot path (memoize render boundary, stabilize `availableModels`) | S5 | done | `bd1eced` |
+| W8 — Extract `evictSession(state, sp, {removeSummary, removeTabs})` | S1 / 02 C1 | done | `034ef31` |
+| W9a — Archive/delete one-shot codemods | S10 | done | `58c7adf` (move `73073e1` prior) |
+| W6 — Reconcile docs with `STATE_CONTRACT.md` | S7 | done | `2310d2e` |
+| W2a — Thinking-level enum shared module | S1 | planned | — |
+| W2b — Pruning-summary math helper | S1 | planned | — |
+| W2c — Checkpoint parse/read helpers | S1 | planned | — |
+| W2d — Path utilities shared module | S1 | planned | — |
+| W2e — Token formatting factory | S1 | planned | — |
+| W2f — Pricing logic across 3 packages | S1 | planned (decision: new top-level `shared/` package) | — |
+| W2g — Coercion / failure-kind taxonomy | S1 | planned (decision: extract into `shared/`) | — |
+| W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | planned (frontier) | — |
+| W4 — Tighten boundary-typing ring | S6 | planned (frontier) | — |
+| W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | deferred (needs user decision: version table shape) | — |
+| W9b — Install-script portability | S10 | planned | — |
+| W7 — Refactor-hostile tests → behavior tests | S8 | planned (after W3) | — |
+
+---
+
 # Nested subagent expandable UI — sticky/scroll/overlap fix (2026-06-25)
 
 The nested (depth ≥ 2) subagent header was `position: sticky` inside the
