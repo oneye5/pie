@@ -22,12 +22,12 @@ import {
 
 export {
   AlwaysKeepPicker,
-} from './settings-menu-subcomponents';
+  filterKeepCatalog,
+} from '../components/always-keep-picker';
 
 export {
   computeKeepCatalog,
   computeToolKeepCatalog,
-  filterKeepCatalog,
   DEFAULT_TOOL_KEEP_CATALOG,
 } from './settings-menu-helpers';
 

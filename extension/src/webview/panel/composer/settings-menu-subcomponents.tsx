@@ -1,8 +1,6 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useEffect, useMemo, useState } from 'preact/hooks';
-
 import { playCompletionSound, warmupCompletionSoundContext } from '../completion-sound';
 
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningSettings, PruningMode, ThinkingLevel } from '../../../shared/protocol';
@@ -10,7 +8,8 @@ import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggl
 import { orderModelsForPicker } from './model-list';
 import { ModelPicker } from '../components/model-picker';
 import { CollapsibleChevron } from '../components/chevron';
-import { EXTENSIONS_WITH_SETTINGS, PRUNING_MODE_OPTIONS, THINKING_LEVEL_OPTIONS, filterKeepCatalog } from './settings-menu-helpers';
+import { EXTENSIONS_WITH_SETTINGS, PRUNING_MODE_OPTIONS, THINKING_LEVEL_OPTIONS } from './settings-menu-helpers';
+import { AlwaysKeepPicker } from '../components/always-keep-picker';
 import { UiSubmenuTrigger, UiFlyout, UiGroupLabel } from './ui-appearance-settings';
 
 export type OnSetPrefs = (prefs: Partial<ChatPrefs>) => void;
@@ -430,100 +429,6 @@ function ProvidersSection({ providers, prefs, onSetPrefs }: ProvidersSectionProp
   );
 }
 
-interface AlwaysKeepPickerProps {
-  label: string;
-  selected: string[];
-  catalog: string[];
-  category: 'skill' | 'tool';
-  onChange: (next: string[]) => void;
-}
-
-export function AlwaysKeepPicker({ label, selected, catalog, category, onChange }: AlwaysKeepPickerProps) {
-  const availableOptions = useMemo(() => filterKeepCatalog(catalog, selected), [catalog, selected]);
-
-  // Optimistic names just added but not yet reflected in the host-persisted
-  // `selected` prop. `selected` only updates after a host round-trip, so
-  // without this gate the user can re-select an item (the <select> resets to
-  // "" while availableOptions still lists it) before the host state arrives,
-  // firing a duplicate setPruningSettings.
-  const [pending, setPending] = useState<string[]>([]);
-
-  // Release optimistic entries once the host-persisted `selected` catches up.
-  useEffect(() => {
-    if (pending.length === 0) return;
-    const remaining = pending.filter((name) => !selected.includes(name));
-    if (remaining.length !== pending.length) {
-      setPending(remaining);
-    }
-  }, [selected, pending]);
-
-  const addName = (rawName: string) => {
-    const name = rawName.trim();
-    if (!name) return;
-    if (selected.includes(name) || pending.includes(name)) return;
-    setPending((current) => [...current, name]);
-    onChange([...selected, name]);
-    // Safety net: if the host round-trip never arrives, release the lock so
-    // the item becomes selectable again.
-    window.setTimeout(() => {
-      setPending((current) => current.filter((entry) => entry !== name));
-    }, 2000);
-  };
-
-  const removeName = (name: string) => {
-    onChange(selected.filter((n) => n !== name));
-  };
-
-  return (
-    <div class="toolbar-settings-keep-picker">
-      <div class="toolbar-settings-keep-picker-label">{label}</div>
-      {selected.length > 0 && (
-        <div class="toolbar-settings-keep-chips">
-          {selected.map((name) => (
-            <span key={name} class="toolbar-settings-keep-chip">
-              <span>{name}</span>
-              <button
-                type="button"
-                class="toolbar-settings-keep-chip-remove"
-                aria-label={`Remove ${name}`}
-                onClick={() => removeName(name)}
-              >
-                <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <line x1="3" y1="3" x2="10" y2="10" />
-                  <line x1="10" y1="3" x2="3" y2="10" />
-                </svg>
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-      <div class="toolbar-settings-keep-picker-wrap">
-        <select
-          class="toolbar-settings-select toolbar-settings-keep-select"
-          value=""
-          aria-label={label}
-          disabled={availableOptions.length === 0}
-          onChange={(e) => {
-            const name = (e.target as HTMLSelectElement).value;
-            if (name) {
-              addName(name);
-              (e.target as HTMLSelectElement).value = '';
-            }
-          }}
-        >
-          <option value="">
-            {availableOptions.length === 0
-              ? `No ${category}s available`
-              : `Select ${category} to omit from pruning...`}
-          </option>
-          {availableOptions.map((name) => (
-            <option key={name} value={name}>{name}</option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
-}
 
 export {
   ChatPrefSections,

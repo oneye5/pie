@@ -129,12 +129,6 @@ export function computeKeepCatalog(
   return [...set].sort((a, b) => a.localeCompare(b));
 }
 
-/** Filter catalog by hiding already-selected names. */
-export function filterKeepCatalog(catalog: string[], selected: string[]): string[] {
-  const selectedSet = new Set(selected);
-  return catalog.filter((name) => !selectedSet.has(name));
-}
-
 /** Compute the tool catalog, including provider tools that may be hidden by pruning. */
 export function computeToolKeepCatalog(
   discoveredNames: string[],
