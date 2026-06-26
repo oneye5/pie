@@ -20,7 +20,7 @@ done / deferred (needs user decision).
 | W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | done | `c909d1b` |
 | W4 — Tighten boundary-typing ring | S6 | done (4 commits: W4a `915c4aa`, W4b `a6c205c`, W4c `f99b797`, W4d `5dcba6d`) | `915c4aa`+`a6c205c`+`f99b797`+`5dcba6d` |
 | W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | done (5 commits: W5a `cd16d2b`, W5d `16ceeee`, W5e `66a9f8b`, W5b `c17f46f`, W5c `cfed164`) | `cd16d2b`+`16ceeee`+`66a9f8b`+`c17f46f`+`cfed164` |
-| W9b — Install-script portability | S10 | deferred (install-script edits need careful testing) | — |
+| W9b — Install-script portability | S10 | done (install.sh `shasum`→portable, install.ps1 exit-nonzero) | — |
 | W7 — Refactor-hostile tests → behavior tests | S8 | deferred (after W3) | — |
 
 ## Decisions pending (resolve before resuming)
@@ -101,6 +101,32 @@ done / deferred (needs user decision).
     { data?: unknown }`) WITHOUT formally adding `data?` to the `ErrorPayload`
     interface (which has `requestId?`). Formally add `data?` to `ErrorPayload`
     if a consumer starts reading it.
+- **W9b — install.sh vs install.ps1 feature gap (S10, documented):**
+  `install.sh` (Linux/macOS) is a SUBSET of `install.ps1` (Windows). The ps1
+  script additionally: (a) migrates legacy session files into the local
+  sessions dir (`Merge-LegacySessionFiles`), (b) patches `sessionDir` in
+  `settings.json` to point at the local sessions dir, (c) builds/packages the
+  VS Code extension and installs the `.vsix`. `install.sh` does NONE of these
+  — it only migrates `auth.json`, relocates the secret, and runs `pi update`.
+  Linux/macOS users get an incomplete install (no session migration, no
+  settings patch, no extension build). Closing the gap means porting those
+  three ps1 steps to bash (and deciding whether `settings.json` patching is
+  desirable cross-platform). Deferred — the gap is now documented.
+  **W9b done in this pass:** `install.sh` `shasum` → portable resolver
+  (`shasum -a 256` → `sha256sum` fallback → degrade-with-warn) so the
+  auth-relocation no longer aborts mid-flight on Linux under `set -euo
+  pipefail`; `install.ps1` extension build/package/install failures now set a
+  flag and `exit 1` (were `Write-Warning` + exit 0).
+  **W9b remaining ps1 follow-ups (Medium, deferred — need careful testing on a
+  clean Windows box):**
+  - `settings.json` rewrite via `ConvertTo-Json` loses key order/formatting
+    (lines ~238, ~256). Preserve order with an ordered approach
+    (`[ordered]@{}` reconstruction or a surgical string patch).
+  - VS Code path probe checks only the User install (`%LOCALAPPDATA%\Programs\
+    Microsoft VS Code`); no Insiders/probe fallback.
+  - ACL applied after source deletion in the auth-relocation path — apply ACL
+    to the target BEFORE deleting the in-tree source so a failure between
+    delete+ACL doesn't leave the secret un-protected.
 - **`header.ts` token grouping** changed from host-locale to `en-US` in W2e
   (intentional, deterministic). Confirmed acceptable.
 - **`handleSessionClosed`** now drops the session summary (via

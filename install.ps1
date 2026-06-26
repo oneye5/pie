@@ -412,6 +412,7 @@ Write-Host "==> Building pie VSCode extension"
 $extensionDir = Join-Path $repoRoot 'extension'
 
 Push-Location $extensionDir
+$extensionBuildFailed = $false
 try {
   npm install
   if ($LASTEXITCODE -ne 0) { throw "npm install failed in extension/" }
@@ -435,14 +436,23 @@ try {
     & $codeCli --install-extension $vsix.FullName
     if ($LASTEXITCODE -ne 0) {
       Write-Warning "code CLI failed - install manually: code --install-extension $($vsix.FullName)"
+      $extensionBuildFailed = $true
     }
   } else {
     Write-Warning "No .vsix found after packaging - check vsce output above"
+    $extensionBuildFailed = $true
   }
 } catch {
   Write-Warning "Extension build failed: $_"
+  $extensionBuildFailed = $true
 } finally {
   Pop-Location
+}
+
+if ($extensionBuildFailed) {
+  Write-Host ""
+  Write-Host "==> Extension step failed or incomplete (see warnings above). If a .vsix was built, install it manually: code --install-extension <path-to-vsix>"
+  exit 1
 }
 
 Write-Host ""

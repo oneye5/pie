@@ -104,13 +104,33 @@ if [[ -f "$in_tree_auth" && -z "$auth_dir_env" ]]; then
     mkdir -p "$target_auth_dir"
     cp "$in_tree_auth" "$target_auth"
 
-    # Verify the copy
-    source_hash="$(shasum -a 256 "$in_tree_auth" | cut -d' ' -f1)"
-    dest_hash="$(shasum -a 256 "$target_auth" | cut -d' ' -f1)"
-    if [[ "$source_hash" != "$dest_hash" ]]; then
-      rm -f "$target_auth"
-      echo "WARN: Hash verification failed after copy. auth.json was NOT moved." >&2
+    # Verify the copy. Resolve a SHA-256 command portably: `shasum -a 256` is
+    # macOS/BSD (a Perl script), `sha256sum` is the Linux coreutils default.
+    # Under `set -euo pipefail`, calling `shasum` on a Linux box without it
+    # would abort mid-flight (after the copy, before chmod/rm/breadcrumb), so
+    # resolve the command first and degrade gracefully if neither exists.
+    if command -v shasum >/dev/null 2>&1; then
+      sha_cmd=(shasum -a 256)
+    elif command -v sha256sum >/dev/null 2>&1; then
+      sha_cmd=(sha256sum)
     else
+      sha_cmd=()
+    fi
+
+    hash_verified=1
+    if [[ ${#sha_cmd[@]} -gt 0 ]]; then
+      source_hash="$("${sha_cmd[@]}" "$in_tree_auth" | cut -d' ' -f1)"
+      dest_hash="$("${sha_cmd[@]}" "$target_auth" | cut -d' ' -f1)"
+      if [[ "$source_hash" != "$dest_hash" ]]; then
+        rm -f "$target_auth"
+        echo "WARN: Hash verification failed after copy. auth.json was NOT moved." >&2
+        hash_verified=0
+      fi
+    else
+      echo "WARN: Neither shasum nor sha256sum found; proceeding with the move WITHOUT integrity verification." >&2
+    fi
+
+    if [[ "$hash_verified" != "0" ]]; then
       chmod 600 "$target_auth"
 
       # Remove the in-tree file and leave a breadcrumb
