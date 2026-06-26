@@ -514,7 +514,7 @@ export class BackendServer {
     } catch (error) {
       const details = extractRequestError(error);
       backendTrace('request', 'error', { id: request.id, method: request.method, code: details.code, message: details.message });
-      writeStdout(responseError(request.id, details.code, details.message));
+      writeStdout(responseError(request.id, details.code, details.message, details.data));
       this.emit('error', details);
     }
   }

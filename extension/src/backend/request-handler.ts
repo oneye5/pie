@@ -17,6 +17,7 @@ import {
 import type { SdkModule, SdkSessionManager, SdkImageContent } from './sdk';
 import { buildPromptText, lowerImageInputs, normalizeThinkingLevel } from './message-inputs';
 import type { SessionContext, SessionContextCreationReason } from './server-types';
+import { BackendError } from './server-io';
 
 export interface BackendRequestHandlerDeps {
   sdkPath: string;
@@ -53,7 +54,7 @@ export interface BackendRequestHandlerDeps {
 type RequestHandler = (deps: BackendRequestHandlerDeps, request: RequestEnvelope) => Promise<unknown>;
 
 function unknownMethodResponse(method: string): never {
-  throw new Error(`Unknown method: ${method}`);
+  throw new BackendError('UNKNOWN_METHOD', `Unknown method: ${method}`);
 }
 
 async function handleAppPing(
@@ -179,7 +180,7 @@ async function handleSessionTruncateAfter(
 
   const existingCtx = deps.getSessionContext(params.sessionPath);
   if (existingCtx?.activeRequest || existingCtx?.session.isStreaming) {
-    throw new Error('Cannot truncate a session that is currently streaming.');
+    throw new BackendError('STREAMING_BUSY', 'Cannot truncate a session that is currently streaming.');
   }
 
   const raw = await fs.readFile(params.sessionPath, 'utf8');
@@ -305,7 +306,7 @@ async function handleMessageSend(
   const params = validateMessageSend(request.params);
   const context = await deps.ensureSessionContext(params.sessionPath);
   if (context.activeRequest || context.session.isStreaming) {
-    throw new Error('A request is already in progress for this session.');
+    throw new BackendError('REQUEST_IN_PROGRESS', 'A request is already in progress for this session.');
   }
 
   const requestId = crypto.randomUUID();
@@ -350,10 +351,10 @@ async function handleMessageInterrupt(
   const params = validateSessionPath('message.interrupt', request.params);
   const context = deps.getSessionContext(params.sessionPath);
   if (!context) {
-    throw new Error(`Cannot interrupt an unopened session: ${params.sessionPath}`);
+    throw new BackendError('SESSION_NOT_FOUND', `Cannot interrupt an unopened session: ${params.sessionPath}`);
   }
   if (!context.activeRequest && !context.session.isStreaming) {
-    throw new Error(`Cannot interrupt a session that is not running: ${params.sessionPath}`);
+    throw new BackendError('SESSION_NOT_RUNNING', `Cannot interrupt a session that is not running: ${params.sessionPath}`);
   }
   if (context.activeRequest) {
     context.activeRequest.aborted = true;
@@ -376,7 +377,7 @@ async function handleExtensionUiResponse(
   const params = validateExtensionUiResponse(request.params);
   const context = deps.getSessionContext(params.sessionPath);
   if (!context?.uiBridge) {
-    throw new Error(`No UI bridge for session: ${params.sessionPath}`);
+    throw new BackendError('NO_UI_BRIDGE', `No UI bridge for session: ${params.sessionPath}`);
   }
   context.uiBridge.resolveRequest(params.response);
   return { ok: true };
@@ -412,21 +413,21 @@ async function handleSettingsSet(
       const available = targetContext.runtime.services?.modelRegistry?.getAvailable() ?? [];
       const info = available.find((model) => model.id === params.defaultModel);
       if (!info) {
-        throw new Error(`Model not available in this session: ${params.defaultModel}`);
+        throw new BackendError('MODEL_UNAVAILABLE', `Model not available in this session: ${params.defaultModel}`);
       }
 
       const resolvedModel = targetContext.runtime.services.modelRegistry.find(info.provider, info.id);
       if (!resolvedModel) {
-        throw new Error(`Could not resolve model in registry: ${params.defaultModel}`);
+        throw new BackendError('MODEL_UNAVAILABLE', `Could not resolve model in registry: ${params.defaultModel}`);
       }
 
       if (typeof targetContext.session.setModel !== 'function') {
-        throw new Error('This PI session does not support live model switching.');
+        throw new BackendError('MODEL_SWITCH_UNSUPPORTED', 'This PI session does not support live model switching.');
       }
 
       await targetContext.session.setModel(resolvedModel);
       if (targetContext.session.model?.id !== params.defaultModel) {
-        throw new Error(`Live model switch did not take effect: ${params.defaultModel}`);
+        throw new BackendError('MODEL_SWITCH_FAILED', `Live model switch did not take effect: ${params.defaultModel}`);
       }
 
       if (params.defaultThinkingLevel) {

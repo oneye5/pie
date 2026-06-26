@@ -1,6 +1,7 @@
 import type { ComposerInput, ExtensionUIResponsePayload, FilesystemPathComposerInput, ImageBlobComposerInput, ModelSettings, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../shared/image-constraints';
 import { THINKING_LEVELS } from '../shared/thinking-level.js';
+import { BackendError } from './server-io';
 
 export { MAX_IMAGE_INPUT_BYTES } from '../shared/image-constraints';
 
@@ -80,7 +81,7 @@ function isObj(value: unknown): value is Record<string, unknown> {
 }
 
 function fail(method: string, detail: string): never {
-  throw new Error(`Invalid params for ${method}: ${detail}`);
+  throw new BackendError('INVALID_PARAMS', `Invalid params for ${method}: ${detail}`);
 }
 
 function readSelectionToken(method: string, params: Record<string, unknown>): string | undefined {

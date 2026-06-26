@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import test from 'node:test';
 
 import { handleBackendRequest, type BackendRequestHandlerDeps } from '../src/backend/request-handler';
+import { BackendError } from '../src/backend/server-io';
 import type { ModelSettings } from '../src/shared/protocol';
 import type { SessionContext } from '../src/backend/server-types';
 
@@ -403,4 +404,32 @@ test('handleBackendRequest rejects unknown methods', async () => {
     async () => await handleBackendRequest(harness.deps, { id: '1', method: 'missing.method' }),
     /Unknown method: missing.method/,
   );
+});
+
+test('handleBackendRequest unknown method throws BackendError with UNKNOWN_METHOD code', async () => {
+  const harness = createHarness();
+  try {
+    await handleBackendRequest(harness.deps, { id: '1', method: 'missing.method' });
+    assert.fail('expected unknown method to throw');
+  } catch (error) {
+    assert.ok(error instanceof BackendError, 'unknown method should throw a BackendError');
+    assert.equal((error as BackendError).code, 'UNKNOWN_METHOD');
+  }
+});
+
+test('message.send while busy throws BackendError with REQUEST_IN_PROGRESS code', async () => {
+  const harness = createHarness({
+    sessionOverrides: { isStreaming: true },
+  });
+  try {
+    await handleBackendRequest(harness.deps, {
+      id: '1',
+      method: 'message.send',
+      params: { sessionPath: '/repo/session.jsonl', text: 'Hi', inputs: [] },
+    });
+    assert.fail('expected busy send to throw');
+  } catch (error) {
+    assert.ok(error instanceof BackendError, 'busy send should throw a BackendError');
+    assert.equal((error as BackendError).code, 'REQUEST_IN_PROGRESS');
+  }
 });
