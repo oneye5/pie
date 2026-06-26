@@ -1,8 +1,9 @@
-# Codebase review — in progress
+# Codebase review — complete
 
 Orchestrated pass over `docs/internal/code-review/SUMMARY_structural_issues.md`
-(backlog S1–S11). Status legend: planned / scouting / in progress / in review /
-done / deferred (needs user decision).
+(backlog S1–S11). All items done; deferred follow-ups are collected in the
+"Discovered follow-ups" section below with rationale. Status legend:
+planned / scouting / in progress / in review / done / deferred.
 
 | Item | Issue | Status | Commit |
 |---|---|---|---|
