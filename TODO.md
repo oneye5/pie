@@ -21,7 +21,7 @@ done / deferred (needs user decision).
 | W4 — Tighten boundary-typing ring | S6 | done (4 commits: W4a `915c4aa`, W4b `a6c205c`, W4c `f99b797`, W4d `5dcba6d`) | `915c4aa`+`a6c205c`+`f99b797`+`5dcba6d` |
 | W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | done (5 commits: W5a `cd16d2b`, W5d `16ceeee`, W5e `66a9f8b`, W5b `c17f46f`, W5c `cfed164`) | `cd16d2b`+`16ceeee`+`66a9f8b`+`c17f46f`+`cfed164` |
 | W9b — Install-script portability | S10 | done (install.sh `shasum`→portable, install.ps1 exit-nonzero) | — |
-| W7 — Refactor-hostile tests → behavior tests | S8 | deferred (after W3) | — |
+| W7 — Refactor-hostile tests → behavior tests (scoped: EffectRunnerDeps typed factory) | S8 | done (scoped `6ba0293`) | `6ba0293` |
 
 ## Decisions pending (resolve before resuming)
 - **W5 versioned-migration design — RESOLVED (user discretion):** option (a) —
@@ -127,6 +127,28 @@ done / deferred (needs user decision).
   - ACL applied after source deletion in the auth-relocation path — apply ACL
     to the target BEFORE deleting the in-tree source so a failure between
     delete+ACL doesn't leave the secret un-protected.
+- **W7 follow-ups (deferred — larger separate efforts):**
+  - **`FileDiffServiceLike` interface**: the W7 typed factory types `service`/
+    `statsService` directly against their `*Like` interfaces (full drift
+    detection), but `fileDiffService` is `Pick<FileDiffService, 3 methods>` +
+    `as unknown as FileDiffService` because `FileDiffService` is a CLASS with
+    private members (a literal can't satisfy it). A newly-added PUBLIC method on
+    `FileDiffService` beyond the 3 runner-used ones would NOT be caught. Fix:
+    introduce a `FileDiffServiceLike` interface in `effect-runner.ts` (production
+    change) and type the dep + the factory against it.
+  - **Source-text/regex structural tests → behavior tests (S8 H2, highest-value):
+    `webview-style-contract.test.ts`, `arch-boundary-guards.test.ts`,
+    `tool-call-heading-css.test.ts`** read source files and assert regexes/
+    strings on the SOURCE TEXT (a formatter pass or var rename trips red with
+    zero behavior change). Rewriting each to assert on OBSERVABLE BEHAVIOR
+    (rendered DOM, actual guard outcomes) is a per-file effort — deferred.
+  - **Dedicated `message-router.test.ts` (S8 H1)** — the riskiest impure-plumbing
+    layer (SDK event → arch Event translation, ordering, error paths) has only
+    incidental coverage. Deferred.
+  - **UI tests assert rendered HTML strings (S8 H3)** — 14 files use
+    `preact-render-to-string` + `assert.match`; `@testing-library/preact` is a
+    devDep used by 0 files. Migrating to DOM-behavior interactions is a larger
+    effort — deferred.
 - **`header.ts` token grouping** changed from host-locale to `en-US` in W2e
   (intentional, deterministic). Confirmed acceptable.
 - **`handleSessionClosed`** now drops the session summary (via
