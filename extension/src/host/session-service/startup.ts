@@ -105,11 +105,20 @@ function persistIfTabStateChanged(
     restoredPinnedTabs.length !== storedPinned.length
     || restoredPinnedTabs.some((p, i) => p !== storedPinned[i]);
   if (tabsChanged) {
-    void options.context.globalState.update('openTabPaths', rawTabs);
-    void options.context.globalState.update('activeSessionPath', restoredStartupPath ?? undefined);
+    void Promise.resolve(options.context.globalState.update('openTabPaths', rawTabs)).catch((error) => {
+      // Non-fatal: tab-path persistence failure must not block startup restore.
+      console.warn('[pie] globalState.update failed for openTabPaths:', toErrorMessage(error));
+    });
+    void Promise.resolve(options.context.globalState.update('activeSessionPath', restoredStartupPath ?? undefined)).catch((error) => {
+      // Non-fatal: startup-path persistence failure must not block startup restore.
+      console.warn('[pie] globalState.update failed for activeSessionPath:', toErrorMessage(error));
+    });
   }
   if (pinnedChanged) {
-    void options.context.globalState.update('pinnedTabPaths', restoredPinnedTabs);
+    void Promise.resolve(options.context.globalState.update('pinnedTabPaths', restoredPinnedTabs)).catch((error) => {
+      // Non-fatal: pinned-tab persistence failure must not block startup restore.
+      console.warn('[pie] globalState.update failed for pinnedTabPaths:', toErrorMessage(error));
+    });
   }
 }
 
@@ -158,7 +167,10 @@ async function resolveAndCacheRuntimePaths(options: StartSessionBackendOptions):
       exec: createCommandExecutor(),
     });
     if (shouldUseSdkCache) {
-      void options.context.globalState.update(SDK_PATH_CACHE_KEY, sdkPath);
+      void Promise.resolve(options.context.globalState.update(SDK_PATH_CACHE_KEY, sdkPath)).catch((error) => {
+        // Non-fatal: sdk-path cache failure must not block runtime resolution.
+        console.warn('[pie] globalState.update failed for resolvedSdkPath:', toErrorMessage(error));
+      });
     }
     return { nodePath, sdkPath };
   } catch (err) {

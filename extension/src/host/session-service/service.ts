@@ -13,6 +13,7 @@ import { SessionServiceEvents } from './events';
 import { SessionMessageActions } from './message-actions';
 import { SessionServiceState } from './state';
 import { startSessionBackend } from './startup';
+import { toErrorMessage } from '../util/error-message';
 import { SessionTabActions } from './tab-actions';
 import type { OnSessionCompleted, PostImperative, ScheduleRender } from './types';
 import type { Event } from '../core/events';
@@ -210,15 +211,19 @@ export class SessionService implements vscode.Disposable {
     // NOT dispatch another SetPrefs Command here — that would recurse through
     // the reducer → EffectRunner → service.setPrefs → Command → ... and
     // overflow the stack.
-    void this.context.globalState.update(PREFS_STORAGE_KEY, merged);
+    void Promise.resolve(this.context.globalState.update(PREFS_STORAGE_KEY, merged)).catch((error) => {
+      // Non-fatal: persistence failure must not break the in-memory prefs update.
+      console.warn('[pie] globalState.update failed for prefs:', toErrorMessage(error));
+    });
     void this.backend.request('runtimePrefs.set', {
       providerToggles: merged.providerToggles,
       extensionToggles: merged.extensionToggles,
       subagentAlwaysParentModel: merged.subagentAlwaysParentModel,
       subagentMaxDepth: merged.subagentMaxDepth,
       subagentMaxTreeSessions: merged.subagentMaxTreeSessions,
-    }).catch(() => {
+    }).catch((error) => {
       // Non-fatal: the backend may be restarting or may not support runtime prefs yet.
+      console.warn('[pie] runtimePrefs.set failed (non-fatal):', toErrorMessage(error));
     });
   }
 
