@@ -116,6 +116,16 @@ export async function exportRunAnalyticsStore(
   };
 
   await fs.mkdir(path.dirname(targetPath), { recursive: true });
-  await fs.writeFile(targetPath, JSON.stringify(payload, null, 2) + '\n', 'utf8');
+  const tmpPath = path.join(
+    path.dirname(targetPath),
+    `.${path.basename(targetPath)}.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`,
+  );
+  try {
+    await fs.writeFile(tmpPath, JSON.stringify(payload, null, 2) + '\n', 'utf8');
+    await fs.rename(tmpPath, targetPath);
+  } catch (error) {
+    await fs.unlink(tmpPath).catch(() => undefined);
+    throw error;
+  }
   return payload;
 }
