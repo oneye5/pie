@@ -7,6 +7,7 @@ import {
   type PersistedSessionRunState,
   type RunCheckpoint,
 } from '../run-analytics/types';
+import { MIGRATION_FAILED, migrateCheckpoint } from './checkpoint-migrations';
 
 // Import choice / cycle-avoidance:
 //  - RUN_ANALYTICS_SCHEMA_VERSION + PersistedSessionRunState + RunCheckpoint come from
@@ -64,15 +65,40 @@ export function parseCheckpoint(raw: string): RunCheckpoint | null {
       seq?: unknown;
       sessions?: unknown;
     };
-    if (value.schemaVersion !== RUN_ANALYTICS_SCHEMA_VERSION || typeof value.seq !== 'number') {
+    if (typeof value.schemaVersion !== 'number' || typeof value.seq !== 'number') {
       return null;
     }
-    if (!isObjectRecord(value.sessions)) {
+    const fileVersion = value.schemaVersion;
+
+    // Resolve the raw checkpoint value to the current schema version.
+    //  - Equal version: no migration, v1 path is byte-identical to pre-fix behavior.
+    //  - Older version: walk the migration registry up to RUN_ANALYTICS_SCHEMA_VERSION.
+    //  - Newer version: this code is older than the file — refuse loudly.
+    let resolved: typeof value;
+    if (fileVersion === RUN_ANALYTICS_SCHEMA_VERSION) {
+      resolved = value;
+    } else if (fileVersion < RUN_ANALYTICS_SCHEMA_VERSION) {
+      const migrated = migrateCheckpoint(value, fileVersion, RUN_ANALYTICS_SCHEMA_VERSION);
+      if (migrated === MIGRATION_FAILED) {
+        console.warn(
+          `[pie] checkpoint migration failed: cannot migrate schema version ${fileVersion} to ${RUN_ANALYTICS_SCHEMA_VERSION} (missing migration step or up threw); dropping checkpoint`,
+        );
+        return null;
+      }
+      resolved = migrated as typeof value;
+    } else {
+      console.warn(
+        `[pie] checkpoint from newer schema version ${fileVersion} (this build understands up to ${RUN_ANALYTICS_SCHEMA_VERSION}); dropping (upgrade pi to read it)`,
+      );
+      return null;
+    }
+
+    if (!isObjectRecord(resolved.sessions)) {
       return null;
     }
 
     const sessions: Record<string, PersistedSessionRunState> = {};
-    for (const [sessionPath, sessionState] of Object.entries(value.sessions)) {
+    for (const [sessionPath, sessionState] of Object.entries(resolved.sessions)) {
       const parsed = parsePersistedSessionRunState(sessionState);
       if (!parsed) {
         continue;
