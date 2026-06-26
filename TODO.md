@@ -18,7 +18,7 @@ done / deferred (needs user decision).
 | W2f — Pricing logic across 3 packages | S1 | done | `f2253ca` |
 | W2g — Coercion / failure-kind taxonomy (4 kind unions → shared/) | S1 | done | `d978b67` |
 | W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | done | `c909d1b` |
-| W4 — Tighten boundary-typing ring | S6 | scouting | — |
+| W4 — Tighten boundary-typing ring | S6 | done (4 commits: W4a `915c4aa`, W4b `a6c205c`, W4c `f99b797`, W4d `5dcba6d`) | `915c4aa`+`a6c205c`+`f99b797`+`5dcba6d` |
 | W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | deferred (frontier + needs versioned-migration design decision) | — |
 | W9b — Install-script portability | S10 | deferred (install-script edits need careful testing) | — |
 | W7 — Refactor-hostile tests → behavior tests | S8 | deferred (after W3) | — |
@@ -64,6 +64,22 @@ done / deferred (needs user decision).
   into `shared/tool-analysis-kinds.ts` (blessing the array form, with
   `source.ts` constructing its `Set` from it) and dedup the coercion functions
   into a shared `coercion-core.ts` — a larger, separate effort.
+- **W4 deferred S6 follow-ups (lower-priority boundary `any`/double-casts,
+  not in the core ring tightened by W4a–W4d):**
+  - `extension/src/backend/session-event-handler.ts:261`
+    `mapAssistantMessage(messageId, event.message as any, …)` on the hot
+    assistant path — `event.message`'s SDK shape could be typed via the same
+    local minimal-event pattern used in W4d.
+  - `extension/src/webview/panel/transcript/virtual-list-row.tsx:9`
+    `return renderer(props) as any` defeats return-type checking of registered
+    renderers; `registry.ts` uses bare `string` keys (no union, silent
+    override). Tighten the renderer-registry signature.
+  - Double-casts: `session-metadata.ts:~172` `as unknown as`; tool-call
+    renderers `e as unknown as MouseEvent` (~5 sites).
+  - `coercion-snapshots.ts:~164` `const c = candidate as RunSnapshot` after a
+    partial predicate — any `RunSnapshot` field added without a matching
+    `validateX` becomes silently unvalidated on read. Strengthen the predicate
+    to cover all required fields (or cast only the validated subset).
 - **`header.ts` token grouping** changed from host-locale to `en-US` in W2e
   (intentional, deterministic). Confirmed acceptable.
 - **`handleSessionClosed`** now drops the session summary (via
