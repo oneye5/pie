@@ -10,6 +10,7 @@ import { EffectRunner, type EffectRunnerDeps } from '../src/host/core/effect-run
 import { reducer, initialArchState, type ArchState } from '../src/host/core/reducer';
 import type { Effect } from '../src/host/core/effects';
 import type { Event, EffectResultEvent } from '../src/host/core/events';
+import { makeEffectRunnerDeps } from './helpers/effect-runner-deps';
 
 /**
  * Build a harness that serializes lifecycle tasks the same way `SessionServiceState`
@@ -29,15 +30,13 @@ function makeSerializingDeps(): {
   let lifecycleQueue: Promise<void> = Promise.resolve();
   const sessionQueues = new Map<string, Promise<void>>();
 
-  const deps: EffectRunnerDeps = {
-    backend: {
-      async request<T = unknown>(method: string, params?: unknown): Promise<T> {
-        // Record execution order by method name.
-        executionOrder.push(method);
-        // Simulate a small async delay to make ordering meaningful.
-        await new Promise<void>((r) => setImmediate(r));
-        return {} as T;
-      },
+  const { deps } = makeEffectRunnerDeps({
+    requestImpl: async (method: string) => {
+      // Record execution order by method name.
+      executionOrder.push(method);
+      // Simulate a small async delay to make ordering meaningful.
+      await new Promise<void>((r) => setImmediate(r));
+      return {};
     },
     queues: {
       enqueueLifecycle<T>(task: () => Promise<T>): Promise<T> {
@@ -64,38 +63,13 @@ function makeSerializingDeps(): {
         return result;
       },
     },
-    tabs: { async persistTabs() {} },
-    log: { log() {} },
-    postImperative: { postImperative() {} },
-    modal: { async showWarningModal() { return undefined; } },
-    fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
-    service: {
-      async hydrateModelState() {},
-      setPrefs() {},
-      bumpSessionDataEpoch() {},
-      onModelConfigChanged() {},
+    serviceOverrides: {
       suppressNextCompletionNotificationFor(sessionPath: string) {
         suppressCalls.push(sessionPath);
       },
-      async loadOlderTranscript() {},
-      async loadNewerTranscript() {},
-      async jumpToLatestTranscript() {},
-      async closeSession() {},
-      async setPruningSettings() {},
-      handleSelectionFailure() {},
-    },
-    statsService: {
-      prepareForSend() {},
-      onTruncatedAfter() {},
-      onMessageEdited() {},
-      recordOutcome() {},
-      startNewTask() {},
-      continueTask() {},
     },
     dispatch: (e) => events.push(e),
-    dispatchCommand: () => {},
-    dispatchEvent: () => {},
-  };
+  });
 
   return { deps, executionOrder, events, suppressCalls };
 }

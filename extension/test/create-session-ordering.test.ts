@@ -23,6 +23,7 @@ import { SessionTabActions } from '../src/host/session-service/tab-actions';
 import type { SessionSummary } from '../src/shared/protocol';
 import { EffectRunner, type EffectRunnerDeps } from '../src/host/core/effect-runner';
 import type { Event, EffectResultEvent } from '../src/host/core/events';
+import { makeEffectRunnerDeps } from './helpers/effect-runner-deps';
 
 function createExtensionContext(): any {
   return {
@@ -126,26 +127,13 @@ test('createNewSession → backend session.create rejection → handleSelectionF
     state, getArchState, dispatchArch,
   });
 
-  const deps: EffectRunnerDeps = {
+  const { deps } = makeEffectRunnerDeps({
     backend,
-    queues: { async enqueueLifecycle(t) { return t(); }, async enqueueSessionOperation(_sp, t) { return t(); } },
-    tabs: { async persistTabs() {} },
-    log: { log() {} },
-    postImperative: { postImperative() {} },
-    modal: { async showWarningModal() { return undefined; } },
-    fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
-    service: {
-      async hydrateModelState() {}, setPrefs() {}, bumpSessionDataEpoch() {}, onModelConfigChanged() {},
-      suppressNextCompletionNotificationFor() {}, async loadOlderTranscript() {},
-      async loadNewerTranscript() {}, async jumpToLatestTranscript() {}, async closeSession() {},
-      async setPruningSettings() {},
+    serviceOverrides: {
       handleSelectionFailure: (token: string, notice: string) => state.handleSelectionFailure(token, notice),
-    } as any,
-    statsService: { prepareForSend() {}, onTruncatedAfter() {}, onMessageEdited() {}, recordOutcome() {}, startNewTask() {}, continueTask() {} },
+    },
     dispatch: (e: EffectResultEvent) => dispatchArch(e),
-    dispatchCommand: () => {},
-    dispatchEvent: () => {},
-  };
+  });
   const runner = new EffectRunner(deps);
 
   const pendingPath = tabs.createNewSession();

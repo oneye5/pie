@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { EffectRunner, type EffectRunnerDeps, type TimerSink, type TimerHandle } from '../src/host/core/effect-runner';
 import type { Effect } from '../src/host/core/effects';
 import type { EffectResultEvent, CommandEvent, Event } from '../src/host/core/events';
+import { makeEffectRunnerDeps } from './helpers/effect-runner-deps';
 
 /** Deterministic timer sink: records scheduled timers and fires them on
  *  `runAll()` instead of waiting on wall-clock time. Eliminates real-timer
@@ -34,98 +35,6 @@ class FakeTimerSink implements TimerSink {
   get size(): number { return this.pending.length; }
 }
 
-type Call =
-  | { kind: 'lifecycle' }
-  | { kind: 'session'; sessionPath: string }
-  | { kind: 'request'; method: string; params: unknown }
-  | { kind: 'persistTabs'; openTabPaths: string[]; active: string | null; pinnedTabPaths: string[] }
-  | { kind: 'log'; level: string; message: string }
-  | { kind: 'showWarningModal'; message: string; confirmChoice: string }
-  | { kind: 'bumpEpoch'; sessionPath: string }
-  | { kind: 'onModelConfigChanged'; sessionPath: string; modelId: string; thinkingLevel: string }
-  | { kind: 'handleSelectionFailure'; token: string; notice: string };
-
-function makeDeps(opts: { requestImpl?: (method: string) => Promise<unknown>; modalChoice?: string | undefined; optimisticOpTimeoutMs?: number; timer?: TimerSink } = {}): {
-  deps: EffectRunnerDeps;
-  calls: Call[];
-  events: EffectResultEvent[];
-  commands: import('../src/host/core/events').CommandEvent[];
-} {
-  const calls: Call[] = [];
-  const events: EffectResultEvent[] = [];
-  const commands: import('../src/host/core/events').CommandEvent[] = [];
-  const deps: EffectRunnerDeps = {
-    backend: {
-      async request<T = unknown>(method: string, params?: unknown): Promise<T> {
-        calls.push({ kind: 'request', method, params });
-        if (opts.requestImpl) return (await opts.requestImpl(method)) as T;
-        return {} as T;
-      },
-    },
-    queues: {
-      async enqueueLifecycle(task) {
-        calls.push({ kind: 'lifecycle' });
-        return task();
-      },
-      async enqueueSessionOperation(sessionPath, task) {
-        calls.push({ kind: 'session', sessionPath });
-        return task();
-      },
-    },
-    tabs: {
-      async persistTabs(openTabPaths, active, pinnedTabPaths) {
-        calls.push({ kind: 'persistTabs', openTabPaths, active, pinnedTabPaths });
-      },
-    },
-    log: {
-      log(level, message) {
-        calls.push({ kind: 'log', level, message });
-      },
-    },
-    postImperative: { postImperative() {} },
-    modal: {
-      async showWarningModal(message: string, confirmChoice: string) {
-        calls.push({ kind: 'showWarningModal', message, confirmChoice });
-        return opts.modalChoice;
-      },
-    },
-    fileDiffService: { openFileDiff: async () => {}, openFileInEditor: async () => {}, revertFile: async () => {} } as any,
-    service: {
-      async hydrateModelState() {},
-      setPrefs() {},
-      bumpSessionDataEpoch(sessionPath: string) {
-        calls.push({ kind: 'bumpEpoch', sessionPath });
-      },
-      onModelConfigChanged(sessionPath: string, modelId: string, thinkingLevel: string) {
-        calls.push({ kind: 'onModelConfigChanged', sessionPath, modelId, thinkingLevel });
-      },
-      suppressNextCompletionNotificationFor() {},
-      async loadOlderTranscript() {},
-      async loadNewerTranscript() {},
-      async jumpToLatestTranscript() {},
-      async closeSession() {},
-      async setPruningSettings() {},
-      handleSelectionFailure(token: string, notice: string) {
-        calls.push({ kind: 'handleSelectionFailure', token, notice });
-      },
-    },
-    statsService: {
-      prepareForSend() {},
-      onTruncatedAfter() {},
-      onMessageEdited() {},
-      recordOutcome() {},
-      startNewTask() {},
-      continueTask() {},
-    },
-    dispatch: (e) => events.push(e),
-    dispatchCommand: (cmd) => commands.push(cmd),
-    dispatchEvent: () => {},
-    optimisticOpTimeoutMs: opts.optimisticOpTimeoutMs,
-    timer: opts.timer,
-  };
-  return { deps, calls, events, commands };
-}
-
 async function settle(): Promise<void> {
   // Allow the runner's async work (microtasks + queued promises) to drain.
   for (let i = 0; i < 5; i++) {
@@ -134,7 +43,7 @@ async function settle(): Promise<void> {
 }
 
 test('EffectRunner routes InterruptRpc through enqueueLifecycle → enqueueSessionOperation (double-wrap)', async () => {
-  const { deps, calls, events } = makeDeps();
+  const { deps, calls, events } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   const effect: Effect = { kind: 'InterruptRpc', corrId: 'c1', sessionPath: '/a' };
@@ -157,7 +66,7 @@ test('EffectRunner routes InterruptRpc through enqueueLifecycle → enqueueSessi
 });
 
 test('EffectRunner CreateSession issues session.create (with the pre-minted token) on the lifecycle queue and dispatches CreateSessionResult{ok:true}', async () => {
-  const { deps, calls, events } = makeDeps();
+  const { deps, calls, events } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   const effect: Effect = {
@@ -182,7 +91,7 @@ test('EffectRunner CreateSession issues session.create (with the pre-minted toke
 });
 
 test('EffectRunner CreateSession calls handleSelectionFailure + dispatches CreateSessionResult{ok:false} when session.create rejects', async () => {
-  const { deps, calls, events } = makeDeps({ requestImpl: (method) => method === 'session.create' ? Promise.reject(new Error('backend down')) : Promise.resolve({}) });
+  const { deps, calls, events } = makeEffectRunnerDeps({ requestImpl: (method) => method === 'session.create' ? Promise.reject(new Error('backend down')) : Promise.resolve({}) });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'CreateSession', corrId: 'c2b', sessionPath: '/__pending__:new2', cwd: '/w', selectionToken: 'tok-2' });
@@ -195,7 +104,7 @@ test('EffectRunner CreateSession calls handleSelectionFailure + dispatches Creat
 });
 
 test('EffectRunner OpenSession issues session.open (with the pre-minted token) on the lifecycle queue and dispatches OpenSessionResult{ok:true}', async () => {
-  const { deps, calls, events } = makeDeps();
+  const { deps, calls, events } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   const effect: Effect = {
@@ -219,7 +128,7 @@ test('EffectRunner OpenSession issues session.open (with the pre-minted token) o
 });
 
 test('EffectRunner OpenSession calls handleSelectionFailure + dispatches OpenSessionResult{ok:false} when session.open rejects', async () => {
-  const { deps, calls, events } = makeDeps({ requestImpl: (method) => method === 'session.open' ? Promise.reject(new Error('backend down')) : Promise.resolve({}) });
+  const { deps, calls, events } = makeEffectRunnerDeps({ requestImpl: (method) => method === 'session.open' ? Promise.reject(new Error('backend down')) : Promise.resolve({}) });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'OpenSession', corrId: 'c3b', sessionPath: '/existing2', selectionToken: 'tok-2' });
@@ -232,7 +141,7 @@ test('EffectRunner OpenSession calls handleSelectionFailure + dispatches OpenSes
 });
 
 test('EffectRunner DuplicateSession issues session.duplicate (with the SOURCE path + pre-minted token) on the lifecycle queue and dispatches DuplicateSessionResult{ok:true}', async () => {
-  const { deps, calls, events } = makeDeps();
+  const { deps, calls, events } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   const effect: Effect = {
@@ -259,7 +168,7 @@ test('EffectRunner DuplicateSession issues session.duplicate (with the SOURCE pa
 });
 
 test('EffectRunner DuplicateSession calls handleSelectionFailure + dispatches DuplicateSessionResult{ok:false} when session.duplicate rejects', async () => {
-  const { deps, calls, events } = makeDeps({ requestImpl: (method) => method === 'session.duplicate' ? Promise.reject(new Error('backend down')) : Promise.resolve({}) });
+  const { deps, calls, events } = makeEffectRunnerDeps({ requestImpl: (method) => method === 'session.duplicate' ? Promise.reject(new Error('backend down')) : Promise.resolve({}) });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'DuplicateSession', corrId: 'c4b', sessionPath: '/__pending__:copy2', sourceSessionPath: '/src2', selectionToken: 'tok-d2' });
@@ -272,7 +181,7 @@ test('EffectRunner DuplicateSession calls handleSelectionFailure + dispatches Du
 });
 
 test('EffectRunner dispatches a failure result when an RPC rejects', async () => {
-  const { deps, events } = makeDeps({
+  const { deps, events } = makeEffectRunnerDeps({
     requestImpl: () => Promise.reject(new Error('boom')),
   });
   const runner = new EffectRunner(deps);
@@ -289,7 +198,7 @@ test('EffectRunner dispatches a failure result when an RPC rejects', async () =>
 });
 
 test('EffectRunner runs PersistTabs synchronously without queueing', async () => {
-  const { deps, calls, events } = makeDeps();
+  const { deps, calls, events } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   runner.run({
@@ -314,7 +223,7 @@ test('EffectRunner runs PersistTabs synchronously without queueing', async () =>
 });
 
 test('EffectRunner runs Log directly via the log sink (no dispatch event)', async () => {
-  const { deps, calls, events } = makeDeps();
+  const { deps, calls, events } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'Log', corrId: 'c5', level: 'warn', message: 'hello' });
@@ -325,7 +234,7 @@ test('EffectRunner runs Log directly via the log sink (no dispatch event)', asyn
 });
 
 test('EffectRunner ShowModelSwitchConfirm dispatches ModelSwitchConfirmResult matching the user choice', async () => {
-  const { deps, calls, events } = makeDeps({ modalChoice: 'Switch Model' });
+  const { deps, calls, events } = makeEffectRunnerDeps({ modalChoice: 'Switch Model' });
   const runner = new EffectRunner(deps);
 
   runner.run({
@@ -346,7 +255,7 @@ test('EffectRunner ShowModelSwitchConfirm dispatches ModelSwitchConfirmResult ma
 });
 
 test('EffectRunner ShowModelSwitchConfirm maps a dismissal (undefined choice) to confirmed:false', async () => {
-  const { deps, events } = makeDeps({ modalChoice: undefined });
+  const { deps, events } = makeEffectRunnerDeps({ modalChoice: undefined });
   const runner = new EffectRunner(deps);
 
   runner.run({
@@ -364,7 +273,7 @@ test('EffectRunner ShowModelSwitchConfirm maps a dismissal (undefined choice) to
 });
 
 test('EffectRunner SetModelRpc writes settings.set, bumps the epoch, notifies the observer, and dispatches SetModelResult{ok:true}', async () => {
-  const { deps, calls, events } = makeDeps();
+  const { deps, calls, events } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   runner.run({
@@ -390,7 +299,7 @@ test('EffectRunner SetModelRpc writes settings.set, bumps the epoch, notifies th
 });
 
 test('EffectRunner SetModelRpc dispatches SetModelResult{ok:false} when settings.set rejects (no epoch/observer call)', async () => {
-  const { deps, calls, events } = makeDeps({ requestImpl: () => Promise.reject(new Error('backend down')) });
+  const { deps, calls, events } = makeEffectRunnerDeps({ requestImpl: () => Promise.reject(new Error('backend down')) });
   const runner = new EffectRunner(deps);
 
   runner.run({
@@ -411,7 +320,7 @@ test('EffectRunner SetModelRpc dispatches SetModelResult{ok:false} when settings
 // ─── DrainPendingSendQueue ────────────────────────────────────────────────────
 
 test('EffectRunner DrainPendingSendQueue re-dispatches Send Commands with the resolved session path', async () => {
-  const { deps, commands } = makeDeps();
+  const { deps, commands } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   runner.run({
@@ -443,7 +352,7 @@ test('EffectRunner DrainPendingSendQueue re-dispatches Send Commands with the re
 });
 
 test('EffectRunner DrainPendingSendQueue with empty entries dispatches nothing', async () => {
-  const { deps, commands } = makeDeps();
+  const { deps, commands } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   runner.run({
@@ -460,7 +369,7 @@ test('EffectRunner DrainPendingSendQueue with empty entries dispatches nothing',
 // ─── DrainBackendReadyQueue + Watchdog ────────────────────────────────────────
 
 test('EffectRunner DrainBackendReadyQueue re-dispatches Send Commands for each entry + clears watchdog', async () => {
-  const { deps, commands, events } = makeDeps();
+  const { deps, commands, events } = makeEffectRunnerDeps();
   const runner = new EffectRunner(deps);
 
   // First start the watchdog (so we can verify it's cleared).
@@ -494,7 +403,7 @@ test('EffectRunner DrainBackendReadyQueue re-dispatches Send Commands for each e
 
 test('EffectRunner StartBackendReadyWatchdog starts a timer that dispatches BackendReadyWatchdogFired on fire', () => {
   const timers = new FakeTimerSink();
-  const { deps } = makeDeps({ timer: timers });
+  const { deps } = makeEffectRunnerDeps({ timer: timers });
   const dispatchedEvents: Event[] = [];
   const runner = new EffectRunner({
     ...deps,
@@ -511,7 +420,7 @@ test('EffectRunner StartBackendReadyWatchdog starts a timer that dispatches Back
 
 test('EffectRunner CancelBackendReadyWatchdog prevents the timer from firing', () => {
   const timers = new FakeTimerSink();
-  const { deps } = makeDeps({ timer: timers });
+  const { deps } = makeEffectRunnerDeps({ timer: timers });
   const dispatchedEvents: Event[] = [];
   const runner = new EffectRunner({
     ...deps,
@@ -530,7 +439,7 @@ test('EffectRunner CancelBackendReadyWatchdog prevents the timer from firing', (
 
 test('EffectRunner SendRpc starts an optimistic-op timer that is cancelled on success', async () => {
   const timers = new FakeTimerSink();
-  const { deps, events } = makeDeps({
+  const { deps, events } = makeEffectRunnerDeps({
     requestImpl: () => Promise.resolve({ requestId: 'req-1' }),
     optimisticOpTimeoutMs: 50,
     timer: timers,
@@ -555,7 +464,7 @@ test('EffectRunner SendRpc starts an optimistic-op timer that is cancelled on su
 
 test('EffectRunner SendRpc dispatches SendResult{ok:false} on timeout when backend hangs', async () => {
   const timers = new FakeTimerSink();
-  const { deps, events } = makeDeps({
+  const { deps, events } = makeEffectRunnerDeps({
     requestImpl: () => new Promise(() => {}), // never resolves
     optimisticOpTimeoutMs: 50,
     timer: timers,
@@ -578,7 +487,7 @@ test('EffectRunner SendRpc dispatches SendResult{ok:false} on timeout when backe
 
 test('EffectRunner EditRpc dispatches EditResult{ok:false} on timeout when backend hangs', async () => {
   const timers = new FakeTimerSink();
-  const { deps, events } = makeDeps({
+  const { deps, events } = makeEffectRunnerDeps({
     requestImpl: () => new Promise(() => {}), // never resolves
     optimisticOpTimeoutMs: 50,
     timer: timers,
@@ -600,7 +509,7 @@ test('EffectRunner EditRpc dispatches EditResult{ok:false} on timeout when backe
 
 test('EffectRunner SendRpc cancels timer on failure (no spurious timeout)', async () => {
   const timers = new FakeTimerSink();
-  const { deps, events } = makeDeps({
+  const { deps, events } = makeEffectRunnerDeps({
     requestImpl: () => Promise.reject(new Error('boom')),
     optimisticOpTimeoutMs: 50,
     timer: timers,
@@ -625,7 +534,7 @@ test('EffectRunner SendRpc cancels timer on failure (no spurious timeout)', asyn
 
 test('EffectRunner dispose clears all optimistic-op timers', async () => {
   const timers = new FakeTimerSink();
-  const { deps, events } = makeDeps({
+  const { deps, events } = makeEffectRunnerDeps({
     requestImpl: () => new Promise(() => {}), // never resolves
     optimisticOpTimeoutMs: 1000,
     timer: timers,
