@@ -19,15 +19,19 @@ done / deferred (needs user decision).
 | W2g — Coercion / failure-kind taxonomy (4 kind unions → shared/) | S1 | done | `d978b67` |
 | W3 — Decompose `EffectRunner.run()` into dispatch table | S2 / 02 H1-H2 | done | `c909d1b` |
 | W4 — Tighten boundary-typing ring | S6 | done (4 commits: W4a `915c4aa`, W4b `a6c205c`, W4c `f99b797`, W4d `5dcba6d`) | `915c4aa`+`a6c205c`+`f99b797`+`5dcba6d` |
-| W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | deferred (frontier + needs versioned-migration design decision) | — |
+| W5 — Fix silent error swallowing + atomic persistence + versioned migration | S3 | done (5 commits: W5a `cd16d2b`, W5d `16ceeee`, W5e `66a9f8b`, W5b `c17f46f`, W5c `cfed164`) | `cd16d2b`+`16ceeee`+`66a9f8b`+`c17f46f`+`cfed164` |
 | W9b — Install-script portability | S10 | deferred (install-script edits need careful testing) | — |
 | W7 — Refactor-hostile tests → behavior tests | S8 | deferred (after W3) | — |
 
 ## Decisions pending (resolve before resuming)
-- **W5 versioned-migration design** — `parseCheckpoint` returns null on schemaVersion
-  mismatch today; the next schema bump silently drops all user analytics. Need a
-  version-table shape + migration path before implementing atomic persistence.
-  Propose options to the user before spawning.
+- **W5 versioned-migration design — RESOLVED (user discretion):** option (a) —
+  a migrations registry (`Array<{from, to, up}>` up-step functions) consulted by
+  `parseCheckpoint`; it walks the chain from the file's `schemaVersion` up to
+  `RUN_ANALYTICS_SCHEMA_VERSION`, then validates. Empty for v1 (no migrations
+  yet); forward-looking, no behavior change for existing v1 data. Scoped to the
+  `RunCheckpoint` (the single schema-versioned user-data artifact; the export
+  payload's `schemaVersion` is a regenerated snapshot, not a migrated store).
+  Implement before atomic persistence.
 - **W2g type ownership — RESOLVED (user discretion):** option (a) — `shared/`
   owns the canonical 4 kind unions; both `extension/src/shared/tool-call-analysis`
   and `analysis/scripts/contracts.ts` re-export from there. Matches the W2f
@@ -80,6 +84,23 @@ done / deferred (needs user decision).
     partial predicate — any `RunSnapshot` field added without a matching
     `validateX` becomes silently unvalidated on read. Strengthen the predicate
     to cover all required fields (or cast only the validated subset).
+- **W5 follow-ups (deferred, lower priority):**
+  - **`++this.seq` on persist failure** was intentionally NOT restructured (W5c).
+    `seq` labels checkpoint snapshots and the reader takes the higher-seq slot,
+    so a missed intermediate seq is not data loss (snapshot semantics).
+    Restructuring to increment-seq-only-on-success would risk the slot/pointer
+    ordering invariant. Revisit only if a per-seq audit/gap signal is wanted.
+  - **Persist failure with no subsequent `schedulePersist`** is recorded only
+    when the next `schedulePersist`'s leading `.catch` observes the rejected
+    queue (inherent to the promise-chain design). A bare `flush()` after a
+    failure may show a stale/absent `getPersistError()`. Fixing would require a
+    side-effecting rejection observer on the queue — out of scope for the
+    behavior-preserving W5c fix.
+  - **`error.data` on `ErrorPayload`**: W5d threads `BackendError.data`
+    additively through `extractRequestError`'s return type (`ErrorPayload &
+    { data?: unknown }`) WITHOUT formally adding `data?` to the `ErrorPayload`
+    interface (which has `requestId?`). Formally add `data?` to `ErrorPayload`
+    if a consumer starts reading it.
 - **`header.ts` token grouping** changed from host-locale to `en-US` in W2e
   (intentional, deterministic). Confirmed acceptable.
 - **`handleSessionClosed`** now drops the session summary (via
