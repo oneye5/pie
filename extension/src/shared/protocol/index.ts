@@ -1,4 +1,5 @@
 export * from './core.js';
+export * from './event-payloads.js';
 export * from './models.js';
 export * from './messages.js';
 export * from './sessions.js';

@@ -4,7 +4,7 @@ import type { ArchState } from '../../core/arch-state';
 import type { SessionServiceState } from '../state';
 import type { Event } from '../../core/events';
 import type { OnSessionCompleted } from '../types';
-import type { BusyChangedPayload, SessionOpenedPayload } from '../../../shared/protocol';
+import type { BusyChangedPayload, EventEnvelope, SessionOpenedPayload } from '../../../shared/protocol';
 import { resolveSessionOpenedTranscript } from '../../core/session-opened-transcript';
 import { deriveFileChangesFromTranscript } from '../../core/file-change-derivation';
 import { deriveAvailableExtensions } from './session.js';
@@ -276,15 +276,15 @@ interface AttachDeps {
 
 export function attach(
   backend: {
-    onEvent: (handler: (event: any) => void) => vscode.Disposable;
+    onEvent: (handler: (event: EventEnvelope) => void) => vscode.Disposable;
     onExit: (handler: (info: { code: number | null; stderr: string }) => void) => vscode.Disposable;
   },
   deps: AttachDeps,
   handlers: {
-    handleBackendEvent: (event: any) => void;
+    handleBackendEvent: (event: EventEnvelope) => void;
   },
 ): vscode.Disposable[] {
-  const eventDisposable = backend.onEvent((event: any) => {
+  const eventDisposable = backend.onEvent((event: EventEnvelope) => {
     handlers.handleBackendEvent(event);
   });
 

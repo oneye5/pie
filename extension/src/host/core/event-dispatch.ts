@@ -16,6 +16,23 @@ import type {
   ToolProgressPayload,
   ToolStartedPayload,
 } from '../../shared/protocol';
+import {
+  isBusyChangedPayload,
+  isContextUsageChangedPayload,
+  isCustomMessagePayload,
+  isErrorPayload,
+  isExtensionUIRequestPayload,
+  isMessageAbortedPayload,
+  isMessageDeltaPayload,
+  isMessageFinishedPayload,
+  isMessageStartedPayload,
+  isMessageThinkingPayload,
+  isSessionListChangedPayload,
+  isSessionOpenedPayload,
+  isToolFinishedPayload,
+  isToolProgressPayload,
+  isToolStartedPayload,
+} from '../../shared/protocol/event-payloads.js';
 
 export interface SessionBackendEventHandlers {
   onSessionOpened(payload: SessionOpenedPayload): void;
@@ -35,55 +52,76 @@ export interface SessionBackendEventHandlers {
   onError(payload: ErrorPayload): void;
 }
 
+/**
+ * Validate a backend event payload at the stdio boundary and either hand the
+ * narrowed payload to the handler or drop it loudly. Mirrors the `handleLine`
+ * precedent in `backend/client.ts`: malformed data is warn+dropped rather than
+ * cast-and-hoped. Behavior-preserving for all well-formed payloads.
+ */
+function dispatch<TPayload>(
+  event: EventEnvelope,
+  guard: (value: unknown) => value is TPayload,
+  handle: (payload: TPayload) => void,
+): void {
+  const payload = event.payload;
+  if (!guard(payload)) {
+    console.warn(
+      `[pie] dropped malformed backend event '${event.event}' (payload failed validation)`,
+    );
+    return;
+  }
+  handle(payload);
+}
+
 export function dispatchSessionBackendEvent(
   event: EventEnvelope,
   handlers: SessionBackendEventHandlers,
 ): void {
   switch (event.event) {
     case 'session.opened':
-      handlers.onSessionOpened(event.payload as SessionOpenedPayload);
+      dispatch(event, isSessionOpenedPayload, handlers.onSessionOpened);
       return;
     case 'session.list.changed':
-      handlers.onSessionListChanged(event.payload as SessionListChangedPayload);
+      dispatch(event, isSessionListChangedPayload, handlers.onSessionListChanged);
       return;
     case 'message.started':
-      handlers.onMessageStarted(event.payload as MessageStartedPayload);
+      dispatch(event, isMessageStartedPayload, handlers.onMessageStarted);
       return;
     case 'message.delta':
-      handlers.onMessageDelta(event.payload as MessageDeltaPayload);
+      dispatch(event, isMessageDeltaPayload, handlers.onMessageDelta);
       return;
     case 'message.thinking':
-      handlers.onMessageThinking(event.payload as MessageThinkingPayload);
+      dispatch(event, isMessageThinkingPayload, handlers.onMessageThinking);
       return;
     case 'tool.started':
-      handlers.onToolStarted(event.payload as ToolStartedPayload);
+      dispatch(event, isToolStartedPayload, handlers.onToolStarted);
       return;
     case 'tool.finished':
-      handlers.onToolFinished(event.payload as ToolFinishedPayload);
+      dispatch(event, isToolFinishedPayload, handlers.onToolFinished);
       return;
     case 'tool.progress':
-      handlers.onToolProgress(event.payload as ToolProgressPayload);
+      dispatch(event, isToolProgressPayload, handlers.onToolProgress);
       return;
     case 'message.finished':
-      handlers.onMessageFinished(event.payload as MessageFinishedPayload);
+      dispatch(event, isMessageFinishedPayload, handlers.onMessageFinished);
       return;
     case 'message.custom':
-      handlers.onCustomMessage(event.payload as CustomMessagePayload);
+      dispatch(event, isCustomMessagePayload, handlers.onCustomMessage);
       return;
     case 'message.aborted':
-      handlers.onMessageAborted(event.payload as MessageAbortedPayload);
+      dispatch(event, isMessageAbortedPayload, handlers.onMessageAborted);
       return;
     case 'busy.changed':
-      handlers.onBusyChanged(event.payload as BusyChangedPayload);
+      dispatch(event, isBusyChangedPayload, handlers.onBusyChanged);
       return;
     case 'contextUsage.changed':
-      handlers.onContextUsageChanged(event.payload as ContextUsageChangedPayload);
+      dispatch(event, isContextUsageChangedPayload, handlers.onContextUsageChanged);
       return;
     case 'extension_ui.request':
-      handlers.onExtensionUIRequest(event.payload as ExtensionUIRequestPayload);
+      dispatch(event, isExtensionUIRequestPayload, handlers.onExtensionUIRequest);
       return;
     case 'error':
-      handlers.onError(event.payload as ErrorPayload);
+      dispatch(event, isErrorPayload, handlers.onError);
       return;
   }
 }
