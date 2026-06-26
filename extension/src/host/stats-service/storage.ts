@@ -43,6 +43,7 @@ export class RunAnalyticsStorage {
   private persistenceQueue: Promise<void> = Promise.resolve();
   private seq = 0;
   private activeSlot: CheckpointSlot = 'a';
+  private lastPersistError: { message: string; at: string } | null = null;
 
   constructor(options: RunAnalyticsStorageOptions) {
     const workspaceIds = [...new Set([options.workspaceId, ...(options.legacyWorkspaceIds ?? [])])];
@@ -92,7 +93,12 @@ export class RunAnalyticsStorage {
   schedulePersist(snapshotToAppend?: RunSnapshot, outcomeToAppend?: OutcomeHistoryLogEntry): void {
     const checkpoint = this.buildCheckpoint(++this.seq);
     this.persistenceQueue = this.persistenceQueue
-      .catch(() => undefined)
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        const at = this.isoNow();
+        this.lastPersistError = { message, at };
+        console.warn(`[pie] run-analytics persist failed at ${at}: ${message}`);
+      })
       .then(async () => {
         await fs.mkdir(this.storageDir, { recursive: true });
         if (snapshotToAppend) {
@@ -116,7 +122,13 @@ export class RunAnalyticsStorage {
         }
         await this.writeCheckpoint(checkpoint);
         await this.writeAutoExportSafely();
+        this.lastPersistError = null;
       });
+  }
+
+  /** The most recent persistence failure, or null if the last persist succeeded. */
+  getPersistError(): { message: string; at: string } | null {
+    return this.lastPersistError;
   }
 
   async flush(): Promise<void> {
