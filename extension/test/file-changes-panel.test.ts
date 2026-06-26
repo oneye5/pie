@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
 import { h } from 'preact';
@@ -357,4 +358,66 @@ test('FileChangeContextMenu: labels the mark-read action by captured read state'
   assert.doesNotMatch(readHtml, /Mark as read/);
   assert.match(unreadHtml, /Mark as read/);
   assert.doesNotMatch(unreadHtml, /Mark as unread/);
+});
+
+// ---------------------------------------------------------------------------
+// Scroll behaviour when packed with many files (regression guard).
+// Both the collapsed sliver preview (.file-changes-sliver-files) and the
+// pinned/peek drawer list (.file-changes-list) must scroll, and their rows
+// must NOT be collapsed by flex-shrink. Root cause: each row carries
+// `overflow: hidden`, which zeroes its automatic min-height; without
+// `flex-shrink: 0` the flex-column scroll container shrinks the rows to fit
+// instead of overflowing into a scroll — the sliver didn't scroll at all (it
+// clipped with a fade), and the drawer scrolled but its rows shrank below
+// their line height, clipping the path/stats text vertically.
+// ---------------------------------------------------------------------------
+
+async function readFileChangesCss() {
+  return readFile(new URL('../src/webview/panel/styles/file-changes.css', import.meta.url), 'utf8');
+}
+
+/** Pull the first CSS rule whose selector starts with `sel` (exact, so
+ * `.foo` won't match `.foo:hover` / `.foo-bar`). */
+function rule(css: string, sel: string): string | undefined {
+  const escaped = sel.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const m = css.match(new RegExp(`${escaped}\\s*\\{[\\s\\S]*?\\n\\}`));
+  return m ? m[0] : undefined;
+}
+
+test('changed-file rows are flex-shrink:0 so a packed list scrolls instead of collapsing', async () => {
+  const css = await readFileChangesCss();
+
+  // Drawer rows keep their content height so the scrollable list overflows and
+  // scrolls (without this they shrank below the line height and clipped text).
+  const itemRule = rule(css, '.file-change-item');
+  assert.ok(itemRule, 'expected .file-change-item rule in file-changes.css');
+  assert.match(itemRule, /flex-shrink:\s*0;/);
+
+  // Sliver preview rows: same fix — without it the sliver's rows shrank to fit
+  // the box and the preview never overflowed (no scroll, just a fade clip).
+  const sliverFileRule = rule(css, '.sliver-file');
+  assert.ok(sliverFileRule, 'expected .sliver-file rule in file-changes.css');
+  assert.match(sliverFileRule, /flex-shrink:\s*0;/);
+});
+
+test('collapsed sliver preview scrolls (overflow-y:auto) and drops the static fade mask', async () => {
+  const css = await readFileChangesCss();
+  const filesRule = rule(css, '.file-changes-sliver-files');
+  assert.ok(filesRule, 'expected .file-changes-sliver-files rule in file-changes.css');
+  assert.match(filesRule, /overflow-y:\s*auto;/);
+  assert.match(filesRule, /overscroll-behavior:\s*contain;/);
+  // The fade mask is gone: a static mask would permanently dim the last file
+  // once scrolled to the bottom, and the scrollbar now signals "more below".
+  assert.doesNotMatch(filesRule, /mask-image:/);
+});
+
+test('drawer list keeps a stable scrollbar gutter and scrolls when packed', async () => {
+  const css = await readFileChangesCss();
+  const listRule = rule(css, '.file-changes-list');
+  assert.ok(listRule, 'expected .file-changes-list rule in file-changes.css');
+  assert.match(listRule, /overflow-y:\s*auto;/);
+  assert.match(listRule, /overscroll-behavior:\s*contain;/);
+  // Stable gutter so rows don't reflow horizontally as files stream in mid-run
+  // and the scrollbar appears/disappears across the scroll threshold.
+  assert.match(listRule, /scrollbar-gutter:\s*stable;/);
 });

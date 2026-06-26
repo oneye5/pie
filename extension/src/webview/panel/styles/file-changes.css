@@ -140,8 +140,10 @@
    file occupies two rows — row 1 is the kind-colored truncated basename, row 2
    is the per-file +/- churn — so the tall sliver's vertical room surfaces
    per-file magnitude (extending the aggregate +/- total down to each file) at
-   a glance. Read-only; peek/pin for the full, interactive list. Each entry's
-   outer span carries the full path + kind label as a hover title. */
+   a glance. Scrollable in place so a packed sliver (many files) can be skimmed
+   without pinning — the primary affordance on touch, where there's no
+   hover-peek; on desktop, hover still peeks the full interactive list. Each
+   entry's outer span carries the full path + kind label as a hover title. */
 .file-changes-sliver-files {
   flex: 1 1 auto;
   min-height: 0;
@@ -150,12 +152,32 @@
   align-items: stretch;
   gap: 0;
   width: 100%;
-  overflow: hidden;
+  /* overflow-y:auto (was hidden + a fade mask) so the preview scrolls instead
+     of clipping when packed. The mask is dropped: a static fade would
+     permanently dim the last file once scrolled to the bottom, and the
+     scrollbar now signals "more below" on its own. overscroll-behavior keeps
+     the wheel self-contained so scrolling the sliver doesn't drag the page. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
   margin-top: 2px;
   padding: var(--panel-gap-xs) 0;
   border-top: 1px solid var(--panel-border-subtle);
-  mask-image: linear-gradient(to bottom, black calc(100% - 16px), transparent 100%);
-  -webkit-mask-image: linear-gradient(to bottom, black calc(100% - 16px), transparent 100%);
+}
+
+/* A thin scrollbar for the narrow sliver preview — the global 6px webkit
+   scrollbar eats too much of the 56px width. */
+.file-changes-sliver-files::-webkit-scrollbar {
+  width: 4px;
+}
+
+.file-changes-sliver-files::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--panel-foreground) 16%, transparent);
+  border-radius: 999px;
+}
+
+.file-changes-sliver-files::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 .sliver-file {
@@ -163,6 +185,12 @@
   flex-direction: column;
   gap: 0;
   min-width: 0;
+  /* flex-shrink:0 keeps each row at its content height so a packed sliver
+     overflows the (now scrollable) .file-changes-sliver-files container and
+     scrolls, instead of flex-shrink collapsing the rows to fit (the sliver's
+     `overflow:hidden` zeroes the automatic min-height, so without this the
+     rows shrink to ~5px and never overflow). */
+  flex-shrink: 0;
   padding: 1px 3px;
   border-radius: var(--panel-radius-sm);
   font-family: var(--panel-font-mono);
@@ -368,6 +396,10 @@
   /* Keep the list scroll self-contained so a long list doesn't drag the
      transcript along at the scroll boundary. */
   overscroll-behavior: contain;
+  /* Reserve a stable scrollbar gutter so rows don't reflow horizontally as
+     files stream in mid-run and the scrollbar appears/disappears across the
+     scroll threshold. */
+  scrollbar-gutter: stable;
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -383,6 +415,12 @@
   display: flex;
   align-items: center;
   gap: var(--panel-gap-xs);
+  /* flex-shrink:0 keeps each row at its content height so a packed list
+     overflows the scrollable .file-changes-list and scrolls cleanly, instead
+     of flex-shrink collapsing the rows (the row's `overflow:hidden` zeroes
+     the automatic min-height, so without this the rows shrink below their
+     line height and clip their text when the list is long). */
+  flex-shrink: 0;
   padding: var(--panel-gap-xs) var(--panel-gap-sm);
   border: 1px solid color-mix(in srgb, var(--panel-border-subtle) 35%, transparent);
   border-radius: var(--panel-radius-sm);
