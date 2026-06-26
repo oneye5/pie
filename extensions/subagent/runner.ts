@@ -20,10 +20,63 @@ import {
 	type ParentBridge,
 } from "./src/parent-extension-ui-bridge-proxy.js";
 
+/**
+ * Minimal contract for the session events emitted by the pi SDK's
+ * `createAgentSession` session. Mirrors the backend's `SdkSessionEvent`
+ * (extension/src/backend/sdk.ts) — the SAME SDK's event surface — but defined
+ * LOCALLY in the subagent package to avoid a cross-tree import (S9).
+ * Typed only for the fields the subagent actually consumes; unknown SDK
+ * fields are intentionally omitted to keep the minimal contract minimal.
+ */
+interface SubagentSessionEvent {
+	type:
+		| "session_start"
+		| "agent_start"
+		| "agent_end"
+		| "message_start"
+		| "message_update"
+		| "message_end"
+		| "tool_execution_start"
+		| "tool_execution_update"
+		| "tool_execution_end"
+		| string;
+	message?: SubagentEventMessage;
+	assistantMessageEvent?: {
+		type: "text_delta" | "thinking_delta" | string;
+		delta?: string;
+		thinking?: string;
+	};
+	toolCallId?: string;
+	toolName?: string;
+}
+
+/**
+ * Minimal message shape carried on session events. The SDK's runtime event
+ * `message` is a partial/streaming shape, so this is NOT the full `Message`
+ * from `@mariozechner/pi-ai` — only the fields the subagent reads. Consumers
+ * that need the full `Message` (e.g. to push into `result.messages`) narrow
+ * via the existing `as Message` cast.
+ */
+interface SubagentEventMessage {
+	role?: string;
+	content?: unknown;
+	stopReason?: string;
+	model?: string;
+	errorMessage?: string;
+	usage?: {
+		input?: number;
+		output?: number;
+		cacheRead?: number;
+		cacheWrite?: number;
+		cost?: { total?: number };
+		totalTokens?: number;
+	};
+}
+
 interface SessionLike {
 	agent?: { state?: { model?: { id: string } } };
 	extensionRunner: { setUIContext: (ctx: unknown) => void };
-	subscribe: (cb: (event: any) => void) => () => void;
+	subscribe: (cb: (event: SubagentSessionEvent) => void) => () => void;
 	prompt: (prompt: string) => Promise<void>;
 	abort: () => Promise<void>;
 	dispose: () => void;
@@ -250,7 +303,7 @@ function createUpdateEmitter(
 }
 
 /** Record a completed assistant message's usage and metadata into the result. */
-function recordAssistantMessage(result: SingleResult, msg: any): void {
+function recordAssistantMessage(result: SingleResult, msg: SubagentEventMessage): void {
 	result.usage.turns++;
 	const usage = msg.usage;
 	if (usage) {
@@ -268,7 +321,7 @@ function recordAssistantMessage(result: SingleResult, msg: any): void {
 
 /** Wire up a subscription to session events, mutating `result` and emitting updates. */
 function subscribeToSession(
-	session: { subscribe: (cb: (event: any) => void) => () => void },
+	session: { subscribe: (cb: (event: SubagentSessionEvent) => void) => () => void },
 	result: SingleResult,
 	emitUpdate: () => void,
 	streamingTextRef: { value: string },
@@ -296,7 +349,7 @@ function subscribeToSession(
 
 /** Handle streaming text_delta events from the assistant. */
 function handleMessageUpdate(
-	event: any,
+	event: SubagentSessionEvent,
 	result: SingleResult,
 	emitUpdate: () => void,
 	streamingTextRef: { value: string },
@@ -314,7 +367,7 @@ function handleMessageUpdate(
 
 /** Handle a completed message, recording usage and resetting streaming buffers. */
 function handleMessageEnd(
-	rawMessage: any,
+	rawMessage: SubagentEventMessage,
 	result: SingleResult,
 	emitUpdate: () => void,
 	streamingTextRef: { value: string },
