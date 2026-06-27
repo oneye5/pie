@@ -16,6 +16,7 @@ import {
 import type { ReducerResult } from './helpers.js';
 import { resolveAlias, enforceLoadedWindowBudget } from './helpers.js';
 import type { Event, BackendEvent } from '../events.js';
+import type { Effect } from '../effects.js';
 
 export function handleMessageStarted(state: ArchState, event: Extract<Event, { kind: 'MessageStarted' }>): ReducerResult {
   const { sessionPath, messageId, requestId, modelId, thinkingLevel, timestamp } = event;
@@ -24,6 +25,27 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
   // Determine if this is a continuation (alias) of an existing turn
   const isAlias = !!(requestId && currentTurn && currentTurn.requestId === requestId);
   const canonicalMessageId = isAlias ? currentTurn!.firstMessageId : messageId;
+
+  // Commit point: a promoted (early-acked) send has started streaming. The
+  // reducer drops its rollback snapshot (below in produce) AND emits a
+  // ClearSendTimer effect so EffectRunner cancels the post-ack send-timer for
+  // this corrId (Brief B). Both the pre-ack RequestTracker timeout and the
+  // send-timer are short-circuited by this commit point, so neither can fire
+  // for this send afterward. MessageStarted carries requestId and precedes any
+  // Delta, so it is the precise commit point. (Aliases — continuations of an
+  // existing turn — already had their promoted entry dropped at the first
+  // MessageStarted, so the scan is skipped for them.)
+  const effects: Effect[] = [];
+  let promotedCorrId: string | undefined;
+  if (!isAlias && requestId) {
+    for (const [cid, op] of Object.entries(state.pending.promoted)) {
+      if (op.requestId === requestId) {
+        promotedCorrId = cid;
+        effects.push({ kind: 'ClearSendTimer', corrId: cid });
+        break;
+      }
+    }
+  }
 
   const nextState = produce(state, (draft) => {
     // Update alias map or currentTurnBySession
@@ -36,16 +58,8 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
       // assistant message ID, not the user message ID. Reconciliation will be
       // handled when the backend echoes localId back in a future event.
       delete draft.pending.requestIdToLocalId[requestId];
-      // Commit point: a promoted (early-acked) send has started streaming —
-      // drop its rollback snapshot. A later failure becomes an in-turn error,
-      // never a rollback (see STATE_CONTRACT § Optimistic Reconciliation "Two
-      // failure windows for send"). MessageStarted carries requestId and
-      // precedes any Delta, so it is the precise commit point.
-      for (const [cid, op] of Object.entries(draft.pending.promoted)) {
-        if (op.requestId === requestId) {
-          delete draft.pending.promoted[cid];
-          break;
-        }
+      if (promotedCorrId) {
+        delete draft.pending.promoted[promotedCorrId];
       }
     }
 
@@ -101,7 +115,7 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
     }
   });
 
-  return { state: nextState, effects: [] };
+  return { state: nextState, effects };
 }
 
 export function handleMessageDelta(state: ArchState, event: Extract<Event, { kind: 'MessageDelta' }>): ReducerResult {

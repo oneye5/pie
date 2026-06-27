@@ -2,7 +2,7 @@ import * as cp from 'node:child_process';
 import * as vscode from 'vscode';
 
 import { attachJsonlLineReader, serializeJsonLine } from '../../shared/jsonl';
-import { RequestTracker } from '../../shared/request-tracker';
+import { RequestTracker, type RequestOptions } from '../../shared/request-tracker';
 import { bootTraceSync } from '../util/audit';
 import { toErrorMessage } from '../util/error-message';
 import {
@@ -30,6 +30,13 @@ const DEFAULT_RPC_TIMEOUT_MS = 30_000;
 /**
  * Per-method timeouts. Methods doing disk I/O or batch work get a longer
  * budget; very fast in-memory queries can use the default.
+ *
+ * `message.send` is sized short (~10s) because Brief A made it early-ack at
+ * queue time (before the pruning prepass): it only needs to cover accepting
+ * the prompt, not the prepass or first token. The post-ack, pre-commit phase
+ * is owned by `EffectRunner`'s send-timer (dispatches `PreflightFailed` on
+ * fire). See `docs/STATE_CONTRACT.md` § Optimistic Reconciliation "Timer
+ * ownership". A per-call override can be passed via `request`'s `options`.
  */
 const RPC_TIMEOUTS_MS: Record<string, number> = {
   'runtimePrefs.set': 5_000,
@@ -42,6 +49,7 @@ const RPC_TIMEOUTS_MS: Record<string, number> = {
   'settings.get': 15_000,
   'models.list': 15_000,
   'app.ping': 10_000,
+  'message.send': 10_000,
   'message.interrupt': 15_000,
   'extension_ui.response': 10_000,
 };
@@ -184,14 +192,24 @@ export class BackendClient implements vscode.Disposable {
     });
   }
 
-  async request<TResult = unknown>(method: string, params?: unknown): Promise<TResult> {
+  /** Issue a JSON-RPC request and await its response.
+   *
+   *  `options.timeoutMs` overrides the method default (`RPC_TIMEOUTS_MS`);
+   *  `options.signal` aborts an in-flight request cleanly (Brief E cancels an
+   *  in-flight `message.send` on interrupt; session stop rejects all via
+   *  `rejectAll`). The tracker timeout owns the pre-ack window. */
+  async request<TResult = unknown>(
+    method: string,
+    params?: unknown,
+    options?: RequestOptions,
+  ): Promise<TResult> {
     if (!this.proc?.stdin) {
       throw new Error('Backend is not running');
     }
 
     const id = `req-${++this.requestCounter}`;
-    const timeoutMs = RPC_TIMEOUTS_MS[method] ?? DEFAULT_RPC_TIMEOUT_MS;
-    const responsePromise = this.requests.create(id, timeoutMs);
+    const timeoutMs = options?.timeoutMs ?? RPC_TIMEOUTS_MS[method] ?? DEFAULT_RPC_TIMEOUT_MS;
+    const responsePromise = this.requests.create(id, timeoutMs, options?.signal);
 
     bootTraceSync('backend-client', 'request.sent', { id, method, timeoutMs });
     this.proc.stdin.write(serializeJsonLine({ id, method, params }));
@@ -225,30 +243,67 @@ export class BackendClient implements vscode.Disposable {
 
   private handleLine(line: string): void {
     let value: unknown;
+    let parseError: Error | undefined;
 
     try {
       value = JSON.parse(line);
     } catch (error) {
-      // The backend should only emit valid JSON-RPC envelopes on stdout. A parse
-      // failure here typically means a stray log line or a corrupted stream,
-      // and silently dropping it has previously been a source of "random hangs"
-      // (an expected event never arrives, the UI stays busy forever, the RPC
-      // eventually times out with no clear cause). Surface it loudly so the
-      // failure mode is debuggable.
-      const preview = line.length > 200 ? `${line.slice(0, 200)}…` : line;
-       
-      console.warn(`[pie] dropped non-JSON backend line: ${toErrorMessage(error)} :: ${preview}`);
-      return;
+      parseError = error instanceof Error ? error : new Error(String(error));
     }
 
-    if (isResponseEnvelope(value)) {
-      this.requests.resolve(value.id, value);
-      return;
+    if (parseError === undefined) {
+      if (isResponseEnvelope(value)) {
+        this.requests.resolve(value.id, value);
+        return;
+      }
+
+      if (isEventEnvelope(value)) {
+        this.events.fire(value);
+        return;
+      }
+      // Parsed JSON but not a recognized envelope — fall through to
+      // correlation (it may carry an `id` for a pending request).
     }
 
-    if (isEventEnvelope(value)) {
-      this.events.fire(value);
+    // Dropped line (non-JSON or an unrecognized envelope). The backend should
+    // only emit valid JSON-RPC envelopes on stdout; a stray log line or a
+    // corrupted stream previously caused "random hangs" — an expected response
+    // never arrives, the UI stays busy, the RPC eventually times out with no
+    // clear cause. Brief B: attempt to correlate the dropped line to a pending
+    // `req-NN` and reject that request with a diagnostic (snippet + stderr
+    // tail) instead of letting it time out opaquely. Brief H maps these to
+    // plain-language messages.
+    const reqId = extractRequestId(line, value);
+    if (reqId) {
+      const error = this.buildDroppedLineError(reqId, line, parseError);
+      if (this.requests.reject(reqId, error)) {
+        return;
+      }
     }
+
+    // No correlation possible (no recoverable id, or no pending request for
+    // it) — log loudly so the failure mode stays debuggable.
+    const preview = line.length > 200 ? `${line.slice(0, 200)}…` : line;
+    const reason = parseError ? toErrorMessage(parseError) : 'unrecognized envelope';
+    console.warn(`[pie] dropped unparseable backend line: ${reason} :: ${preview}`);
+  }
+
+  /** Build a descriptive rejection error for a dropped line correlated to a
+   *  pending request. Includes the parse reason, a line snippet, and the
+   *  stderr tail when present (Brief H consumes this for plain-language
+   *  mapping). */
+  private buildDroppedLineError(
+    reqId: string,
+    line: string,
+    parseError: Error | undefined,
+  ): Error {
+    const snippet = line.length > 200 ? `${line.slice(0, 200)}…` : line;
+    const reason = parseError ? toErrorMessage(parseError) : 'unrecognized response envelope';
+    const stderrTail = this.stderrBuffer.trim();
+    const stderrPart = stderrTail ? ` (stderr tail: ${stderrTail.slice(-200)})` : '';
+    return new Error(
+      `Backend sent an unparseable response for ${reqId}: ${reason} :: ${snippet}${stderrPart}`,
+    );
   }
 
   private appendStderr(chunk: string): void {
@@ -272,4 +327,23 @@ export class BackendClient implements vscode.Disposable {
     this.events.dispose();
     this.exits.dispose();
   }
+}
+
+/** Best-effort extraction of a pending `req-NN` id from a dropped backend line.
+ *  Handles both parsed-but-unrecognized envelopes (with an `id` field) and
+ *  truncated/garbled JSON (regex on the raw line). Returns `undefined` when no
+ *  request id can be recovered. The caller (`handleLine`) passes the result to
+ *  `RequestTracker.reject`, which no-ops if the id is not pending — so a
+ *  spurious extraction is harmless. Exported for direct unit testing. */
+export function extractRequestId(line: string, value: unknown): string | undefined {
+  if (value && typeof value === 'object') {
+    const id = (value as { id?: unknown }).id;
+    if (typeof id === 'string') {
+      return id;
+    }
+  }
+  // Truncated/partial JSON: best-effort regex extract of the only id scheme
+  // the client mints (`req-${++requestCounter}`).
+  const match = /"id"\s*:\s*"(req-\d+)"/.exec(line);
+  return match?.[1];
 }

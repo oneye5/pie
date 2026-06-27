@@ -435,93 +435,163 @@ test('EffectRunner CancelBackendReadyWatchdog prevents the timer from firing', (
   assert.equal(dispatchedEvents.length, 0);
 });
 
-// ─── Optimistic-op TTL ──────────────────────────────────────────────────────
+// ─── Send-timer (Brief B): post-ack, pre-commit phase ─────────────────────
 
-test('EffectRunner SendRpc starts an optimistic-op timer that is cancelled on success', async () => {
+// The send-timer owns the pre-ack-to-first-delta phase. It is started at RPC
+// dispatch, cleared at the commit point (first MessageStarted → ClearSendTimer
+// effect), and on fire dispatches PreflightFailed. The pre-ack phase is owned
+// by the RequestTracker timeout (rejection → catch → clearInFlightSend).
+
+test('EffectRunner SendRpc keeps the send-timer armed after early-ack (cleared at the commit point via ClearSendTimer)', async () => {
   const timers = new FakeTimerSink();
   const { deps, events } = makeEffectRunnerDeps({
     requestImpl: () => Promise.resolve({ requestId: 'req-1' }),
-    optimisticOpTimeoutMs: 50,
+    sendTimerTimeoutMs: 50,
     timer: timers,
   });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'SendRpc', corrId: 'c-ttl-ok', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
   await settle();
-  // The success path must have cancelled the timer; firing pending timers must
-  // not produce a spurious timeout.
-  assert.equal(timers.size, 0);
-  timers.runAll();
-
+  // Early-ack succeeded (SendResult{ok:true}); the send-timer stays armed — it
+  // owns the post-ack, pre-commit phase and is cleared at the commit point
+  // (first MessageStarted → ClearSendTimer), NOT at ack.
   assert.equal(events.length, 1);
   assert.equal(events[0]?.kind, 'SendResult');
   assert.equal(events[0]?.ok, true);
   if (events[0]?.ok === true) {
     assert.equal(events[0].requestId, 'req-1');
   }
+  assert.equal(timers.size, 1);
+
+  // Commit point: the reducer emits ClearSendTimer; the runner clears the
+  // send-timer so it cannot fire during a long-but-progressing turn.
+  runner.run({ kind: 'ClearSendTimer', corrId: 'c-ttl-ok' });
+  assert.equal(timers.size, 0);
+  timers.runAll(); // no spurious PreflightFailed dispatch
+  assert.equal(events.length, 1);
   runner.dispose();
 });
 
-test('EffectRunner SendRpc dispatches SendResult{ok:false} on timeout when backend hangs', async () => {
+test('EffectRunner SendRpc send-timer dispatches PreflightFailed on timeout (post-ack, no commit point)', async () => {
   const timers = new FakeTimerSink();
+  const dispatchedEvents: Event[] = [];
   const { deps, events } = makeEffectRunnerDeps({
-    requestImpl: () => new Promise(() => {}), // never resolves
-    optimisticOpTimeoutMs: 50,
+    requestImpl: () => Promise.resolve({ requestId: 'req-7' }),
+    sendTimerTimeoutMs: 50,
     timer: timers,
+    dispatchEvent: (e) => dispatchedEvents.push(e),
   });
   const runner = new EffectRunner(deps);
 
-  runner.run({ kind: 'SendRpc', corrId: 'c-ttl-hang', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
+  runner.run({ kind: 'SendRpc', corrId: 'c-pf', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
   await settle();
-  // Fire the optimistic-op TTL timer synchronously.
-  timers.runAll();
-
+  // Early-ack happened (SendResult{ok:true}); the send-timer is armed (no
+  // commit point reached — no ClearSendTimer dispatched).
   assert.equal(events.length, 1);
   assert.equal(events[0]?.kind, 'SendResult');
-  assert.equal(events[0]?.ok, false);
-  if (events[0]?.ok === false) {
-    assert.match(events[0].error ?? '', /Timed out/);
+  assert.equal(events[0]?.ok, true);
+  assert.equal(timers.size, 1);
+
+  // Fire the send-timer → PreflightFailed dispatched WITH corrId (the
+  // reducer's explicit-corrId path short-circuits its requestId scan).
+  timers.runAll();
+  assert.equal(dispatchedEvents.length, 1);
+  const pf = dispatchedEvents[0];
+  assert.equal(pf?.kind, 'PreflightFailed');
+  if (pf?.kind === 'PreflightFailed') {
+    assert.equal(pf.corrId, 'c-pf');
+    assert.equal(pf.sessionPath, '/a');
+    assert.equal(pf.requestId, 'req-7');
+    assert.match(pf.error, /Timed out/);
   }
   runner.dispose();
 });
 
-test('EffectRunner EditRpc dispatches EditResult{ok:false} on timeout when backend hangs', async () => {
+test('EffectRunner SendRpc send-timer budget honors getSendTimerTimeoutMs (prepass-aware; takes precedence over the 120s default)', async () => {
+  // The production wiring derives the budget from the current prepassTimeoutSec
+  // (+ first-token headroom) so a long-but-legitimate prepass never trips a
+  // spurious PreflightFailed. Verify the getter governs the timer: the fire
+  // error reflects the getter's budget, NOT the 120s default.
   const timers = new FakeTimerSink();
-  const { deps, events } = makeEffectRunnerDeps({
-    requestImpl: () => new Promise(() => {}), // never resolves
-    optimisticOpTimeoutMs: 50,
+  const dispatchedEvents: Event[] = [];
+  const { deps } = makeEffectRunnerDeps({
+    requestImpl: () => Promise.resolve({ requestId: 'req-pp' }),
+    getSendTimerTimeoutMs: () => 210_000, // e.g. prepassTimeoutSec=180 + 30s headroom
     timer: timers,
+    dispatchEvent: (e) => dispatchedEvents.push(e),
   });
   const runner = new EffectRunner(deps);
 
-  runner.run({ kind: 'EditRpc', corrId: 'c-ttl-edit', sessionPath: '/a', messageId: 'msg-1', text: 'edited', localId: 'loc-e1' });
+  runner.run({ kind: 'SendRpc', corrId: 'c-pp', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-pp' });
   await settle();
-  timers.runAll();
-
-  assert.equal(events.length, 1);
-  assert.equal(events[0]?.kind, 'EditResult');
-  assert.equal(events[0]?.ok, false);
-  if (events[0]?.ok === false) {
-    assert.match(events[0].error ?? '', /Timed out/);
+  assert.equal(timers.size, 1); // send-timer armed after early-ack
+  timers.runAll(); // fire
+  const pf = dispatchedEvents[0];
+  assert.equal(pf?.kind, 'PreflightFailed');
+  if (pf?.kind === 'PreflightFailed') {
+    // 210s (the getter's budget), NOT 120s (the default) — proves the
+    // prepass-aware budget governs the timer + the error message.
+    assert.match(pf.error, /210s/);
+    assert.ok(!/120s/.test(pf.error));
   }
   runner.dispose();
 });
 
-test('EffectRunner SendRpc cancels timer on failure (no spurious timeout)', async () => {
+test('EffectRunner EditRpc send-timer dispatches PreflightFailed on timeout (edit follows the same phase-scoped shape)', async () => {
   const timers = new FakeTimerSink();
+  const dispatchedEvents: Event[] = [];
+  const { deps, events } = makeEffectRunnerDeps({
+    requestImpl: () => Promise.resolve({ requestId: 'req-9' }),
+    sendTimerTimeoutMs: 50,
+    timer: timers,
+    dispatchEvent: (e) => dispatchedEvents.push(e),
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'EditRpc', corrId: 'c-pf-edit', sessionPath: '/a', messageId: 'msg-1', text: 'edited', localId: 'loc-e1' });
+  await settle();
+  // Early-ack happened (EditResult{ok:true}); the send-timer is armed.
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.kind, 'EditResult');
+  assert.equal(events[0]?.ok, true);
+  assert.equal(timers.size, 1);
+
+  // Fire the send-timer → PreflightFailed (STATE_CONTRACT § Optimistic
+  // Reconciliation "Timer ownership": edit follows the same phase-scoped shape).
+  timers.runAll();
+  assert.equal(dispatchedEvents.length, 1);
+  const pf = dispatchedEvents[0];
+  assert.equal(pf?.kind, 'PreflightFailed');
+  if (pf?.kind === 'PreflightFailed') {
+    assert.equal(pf.corrId, 'c-pf-edit');
+    assert.equal(pf.requestId, 'req-9');
+  }
+  runner.dispose();
+});
+
+test('EffectRunner SendRpc clears the send-timer on pre-ack failure (no spurious PreflightFailed)', async () => {
+  // Pre-ack failure window: the RequestTracker rejection (or abort) rejects
+  // backend.request → the catch clears the send-timer (no commit will come) and
+  // dispatches SendResult{ok:false}. The send-timer never fires → no double
+  // rollback path (never both timers fire for one send).
+  const timers = new FakeTimerSink();
+  const dispatchedEvents: Event[] = [];
   const { deps, events } = makeEffectRunnerDeps({
     requestImpl: () => Promise.reject(new Error('boom')),
-    optimisticOpTimeoutMs: 50,
+    sendTimerTimeoutMs: 50,
     timer: timers,
+    dispatchEvent: (e) => dispatchedEvents.push(e),
   });
   const runner = new EffectRunner(deps);
 
   runner.run({ kind: 'SendRpc', corrId: 'c-ttl-fail', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
   await settle();
-  // The failure path must have cancelled the timer; firing pending timers must
-  // not produce a spurious timeout.
+  // The failure path must have cancelled the send-timer; firing pending timers
+  // must not produce a spurious PreflightFailed.
   assert.equal(timers.size, 0);
   timers.runAll();
+  assert.equal(dispatchedEvents.length, 0);
 
   assert.equal(events.length, 1);
   assert.equal(events[0]?.kind, 'SendResult');
@@ -532,11 +602,40 @@ test('EffectRunner SendRpc cancels timer on failure (no spurious timeout)', asyn
   runner.dispose();
 });
 
-test('EffectRunner dispose clears all optimistic-op timers', async () => {
+test('EffectRunner send-timer fire is idempotent — a late ClearSendTimer no-ops (no double dispatch)', async () => {
+  // Double-rollback absence: if the send-timer fires (PreflightFailed) and the
+  // commit point then arrives late, the ClearSendTimer is a no-op (the send is
+  // already disposed) — exactly one PreflightFailed, never two. The reducer's
+  // handlePreflightFailed also no-ops if promoted was already dropped, so a
+  // post-fire commit cannot double-rollback.
+  const timers = new FakeTimerSink();
+  const dispatchedEvents: Event[] = [];
+  const { deps } = makeEffectRunnerDeps({
+    requestImpl: () => Promise.resolve({ requestId: 'req-dd' }),
+    sendTimerTimeoutMs: 50,
+    timer: timers,
+    dispatchEvent: (e) => dispatchedEvents.push(e),
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-dd', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
+  await settle();
+  timers.runAll(); // fire → PreflightFailed dispatched once
+  assert.equal(dispatchedEvents.length, 1);
+  assert.equal(dispatchedEvents[0]?.kind, 'PreflightFailed');
+
+  // A late ClearSendTimer (commit point arriving after the fire) must no-op.
+  runner.run({ kind: 'ClearSendTimer', corrId: 'c-dd' });
+  timers.runAll();
+  assert.equal(dispatchedEvents.length, 1); // still exactly one
+  runner.dispose();
+});
+
+test('EffectRunner dispose clears all send-timers', async () => {
   const timers = new FakeTimerSink();
   const { deps, events } = makeEffectRunnerDeps({
     requestImpl: () => new Promise(() => {}), // never resolves
-    optimisticOpTimeoutMs: 1000,
+    sendTimerTimeoutMs: 1000,
     timer: timers,
   });
   const runner = new EffectRunner(deps);
@@ -549,4 +648,60 @@ test('EffectRunner dispose clears all optimistic-op timers', async () => {
   timers.runAll();
 
   assert.equal(events.length, 0);
+});
+
+test('EffectRunner abortInFlightSend cancels an in-flight message.send (pre-ack) → SendResult{ok:false} + send-timer cleared', async () => {
+  // Cancel path (Brief E consumes this): aborting the in-flight send's
+  // AbortController rejects backend.request → catch → SendResult{ok:false}
+  // (pre-ack rollback) + the send-timer cleared (no spurious PreflightFailed).
+  const timers = new FakeTimerSink();
+  const dispatchedEvents: Event[] = [];
+  const { deps, events } = makeEffectRunnerDeps({
+    requestImpl: () => new Promise(() => {}), // hangs until aborted
+    sendTimerTimeoutMs: 50,
+    timer: timers,
+    dispatchEvent: (e) => dispatchedEvents.push(e),
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-abort', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
+  await settle();
+  // The send is in-flight (pre-ack, hanging). Abort it (Brief E interrupt).
+  assert.equal(runner.abortInFlightSend('/a'), true);
+  await settle();
+
+  // The abort rejected the in-flight message.send → SendResult{ok:false} + the
+  // send-timer cleared (no spurious PreflightFailed).
+  assert.equal(events.length, 1);
+  assert.equal(events[0]?.kind, 'SendResult');
+  assert.equal(events[0]?.ok, false);
+  if (events[0]?.ok === false) {
+    assert.match(events[0].error ?? '', /cancelled/i);
+  }
+  assert.equal(timers.size, 0);
+  assert.equal(dispatchedEvents.length, 0);
+  timers.runAll(); // no spurious PreflightFailed
+  assert.equal(events.length, 1);
+
+  // abortInFlightSend on a session with no in-flight send returns false.
+  assert.equal(runner.abortInFlightSend('/none'), false);
+  runner.dispose();
+});
+
+test('EffectRunner abortInFlightSend returns false when the send already early-acked-and-committed (cleared)', async () => {
+  // After the commit point (ClearSendTimer), the in-flight send context is
+  // gone, so a later abort is a safe no-op (returns false) — no stale abort.
+  const timers = new FakeTimerSink();
+  const { deps } = makeEffectRunnerDeps({
+    requestImpl: () => Promise.resolve({ requestId: 'req-cl' }),
+    sendTimerTimeoutMs: 50,
+    timer: timers,
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-cl', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-1' });
+  await settle();
+  runner.run({ kind: 'ClearSendTimer', corrId: 'c-cl' });
+  assert.equal(runner.abortInFlightSend('/a'), false);
+  runner.dispose();
 });

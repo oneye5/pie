@@ -63,11 +63,19 @@
 > soon as the prompt is *queued* (before the pruning prepass), `state.pending.promoted`
 > exists, and the `SendResult{ok:true}` ops→promoted move, the post-ack
 > `PreflightFailed` rollback, and the commit-point drop at the first `MessageStarted`
-> are all in code. What remains for Brief C is the `sendRejected.inputs` payload
-> and the webview composer-input restore (plus composer clear-at-send): until C
-> lands, the post-ack rollback restores host-side `pendingComposerInputsBySession`
-> from `pending.promoted[corrId].inputs` but does not yet carry `inputs` on the
-> `sendRejected` imperative. The subsection below describes the full target state.
+> are all in code. Brief B implemented the **send-timer** that *dispatches*
+> `PreflightFailed` (with `corrId`) when the post-ack, pre-commit phase elapses
+> with no commit point — closing the gap where a hung prepass left
+> `pending.promoted[corrId]` until a commit point that never came (Brief A had
+> wired only the backend prepass-failure bridge, which dispatches *without*
+> `corrId`); see the "Timer ownership" bullet below. Brief C landed the `sendRejected.inputs` payload
+> and the webview composer-input restore (plus composer clear-at-send): the
+> post-ack rollback restores host-side `pendingComposerInputsBySession`
+> from `pending.promoted[corrId].inputs` AND carries `inputs` on the
+> `sendRejected` imperative; the pre-ack `SendResult{ok:false}` path mirrors
+> it (restores from `pending.ops[corrId].inputs`). The webview stages the
+> imperative's `inputs` as a transient override of `pendingComposerInputs`
+> until the next snapshot confirms. The subsection below describes the full state.
 
 `message.send` will resolve as soon as the prompt is *queued* (before the pruning prepass), so an optimistic send will have two failure windows, not one:
 
@@ -78,7 +86,7 @@
 
 A post-ack, pre-commit `PreflightFailed` must: remove the optimistic transcript entry by `pending.promoted[corrId].localId`, restore `pending.promoted[corrId].previousSummary`, restore `pendingComposerInputsBySession[sessionPath]` from `pending.promoted[corrId].inputs`, clear `pending.requestIdToLocalId[requestId]`, fire a `sendRejected` imperative (carrying `inputs`), and surface a plain-language error.
 
-**Timer ownership:** a send has two phase-scoped timers, never racing. A short `RequestTracker` timeout owns the pre-ack (queue-time) RPC; its rejection is the pre-ack failure window. One send-timer owns the pre-ack-to-first-delta phase; it is started at RPC dispatch and cleared at the commit point (first streaming `Delta` for the `requestId`), and on fire it dispatches `PreflightFailed`. Both timers are short-circuited by the same commit-point event, so they can never both fire for one send. `edit` follows the same phase-scoped shape.
+**Timer ownership:** a send has two phase-scoped timers, never racing. A short `RequestTracker` timeout owns the pre-ack (queue-time) RPC (`message.send` is sized ~10s in `RPC_TIMEOUTS_MS`); its rejection is the pre-ack failure window. One send-timer owns the pre-ack-to-first-delta phase; it is started at RPC dispatch and cleared at the commit point (first streaming `MessageStarted` for the `requestId` — the same commit point at which `handleMessageStarted` drops `pending.promoted[corrId]` and emits a `ClearSendTimer` effect), and on fire it dispatches `PreflightFailed` *with `corrId`* (the reducer's explicit-corrId path short-circuits its `requestId` scan). Both timers are short-circuited by the same commit-point event, so they can never both fire for one send; the pre-ack rejection also clears the send-timer (no commit will come), and `handlePreflightFailed` no-ops if `promoted` was already dropped (commit happened) — so a late fire cannot double-rollback. `edit` follows the same phase-scoped shape. *(Implemented in Brief B: the send-timer lives in `EffectRunner` (`startInFlightSend`/`clearInFlightSend`/`onSendTimerFire`), the `ClearSendTimer` effect is emitted by `handleMessageStarted`, and the `AbortController` passed to `backend.request` is abortable via `EffectRunner.abortInFlightSend(sessionPath)` — Brief E's interrupt hook.)*
 
 ## Webview-Local State
 
@@ -90,7 +98,7 @@ The webview must not hold logic state in local `useState`/`useReducer`. Only the
 - **input focus / caret position** — DOM focus state
 - **drag state** — transient tab drag-and-drop position
 - **animation / transition state** — CSS transition tracking
-- **protocol-sync bookkeeping** — `lastRevisionRef`, `awaitingSnapshotRef`, `hostInstanceIdRef`, pending-draft-restore tracking, in-flight `corrId` set for UI gating
+- **protocol-sync bookkeeping** — `lastRevisionRef`, `awaitingSnapshotRef`, `hostInstanceIdRef`, pending-draft-restore tracking, pending-composer-inputs-restore tracking (Brief C: a transient render override of `pendingComposerInputs` staged between a `sendRejected` imperative and the next confirming snapshot — the analog of draft-restore), in-flight `corrId` set for UI gating
 - **derived UI telemetry** — FPS counters, render-timing buffers. (Token-rate measurement is no longer webview-local: it runs host-side in `TokenRateService`, which ticks every running session — including ones that are not the active/selected tab — using the transcripts the host already holds, and posts the per-session states as `ViewState.tokenRateBySession`. The webview just displays the active session's pre-computed state.)
 - **per-keystroke draft buffer** inside an active input (the committed draft on blur/send/tab-switch is host state; the live keystroke buffer is not)
 - **optimistic user message overlay** — pending user messages shown instantly before the host confirms them. The webview generates a `localId`, sends it with the `send` protocol message, and displays the message in the transcript immediately. When the host state arrives containing a message with that `localId`, the optimistic overlay entry is reconciled away. On `sendRejected`, the overlay entry is removed and the draft is restored.

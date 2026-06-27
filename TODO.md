@@ -460,13 +460,13 @@ Plan: `docs/UX_RELIABILITY_PLAN.md`. Wave-orchestrated briefs targeting the
 clunky edit/interrupt/multi-prompt UX, stale-state ("old + new message at
 once"), pasted-image stickiness, pruning-prepass slowness, and general
 fragility — judged against Nielsen's 10 usability heuristics. Status:
-in progress — Round 1 done (A ✅, G ✅, reviewer-approved; A's edit-path post-ack rollback regression caught & fixed in review). Actual rounds (re-scheduled from the plan's §1 diagram to honor its 'parallel only when file-disjoint' rule — A & B share client.ts/effect-runner.ts and B is post-A, so sequential):
+in progress — Rounds 1-2 done (A, G, B, C ✅ reviewer-approved; A's edit-path rollback regression + B's send-timer-budget orphaned-reply risk both caught in review and fixed). Actual rounds (re-scheduled from the plan's §1 diagram to honor its 'parallel only when file-disjoint' rule — A & B share client.ts/effect-runner.ts and B is post-A, so sequential):
 
 | Brief | Issue | Wave | Bucket | Depends on |
 |---|---|---|---|---|
 | A ✅(R1) | Decouple `message.send` RPC from pruning prepass (root cause of req-NN timeout + image stick + prepass perception) | 1 | frontier | — |
-| B | Request timeout strategy & correlation hardening (de-dupe the 30s/60s racing timers; dropped-line diagnostics; cancel hook) | 1 | frontier | — |
-| C | Optimistic lifecycle for composer inputs (pasted-image stickiness) | 2 | medium | A |
+| B ✅(R2) | Request timeout strategy & correlation hardening (de-dupe the 30s/60s racing timers; dropped-line diagnostics; cancel hook) | 1 | frontier | — |
+| C ✅(R2) | Optimistic lifecycle for composer inputs (pasted-image stickiness) | 2 | medium | A |
 | F | Pruning prepass UX: live, cancelable status indicator + skip/bypass | 2 | medium | A, E |
 | E | Edit / interrupt UX clunkiness (instant interrupt, no truncate-flash; second send rejected with clear message, no queue) | 2 | medium | A, B |
 | G ✅(R1) | Projection memoization & render-path perf (O(1) unchanged-delta projection) | 2 | medium | — |

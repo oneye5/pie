@@ -266,7 +266,8 @@ export type Effect =
   | DrainPendingSendQueueEffect
   | DrainBackendReadyQueueEffect
   | StartBackendReadyWatchdogEffect
-  | CancelBackendReadyWatchdogEffect;
+  | CancelBackendReadyWatchdogEffect
+  | ClearSendTimerEffect;
 
 /**
  * Drain queued sends when a pending session path resolves to a real path.
@@ -308,6 +309,20 @@ export interface StartBackendReadyWatchdogEffect extends EffectBase {
  */
 export interface CancelBackendReadyWatchdogEffect extends EffectBase {
   kind: 'CancelBackendReadyWatchdog';
+}
+
+/**
+ * Clear the post-ack send-timer for an in-flight send/edit. Emitted by the
+ * reducer at the **commit point** (first `MessageStarted` for the `requestId`,
+ * where `handleMessageStarted` also drops `pending.promoted[corrId]`) so the
+ * `EffectRunner` cancels the send-timer that owns the pre-ack-to-first-delta
+ * phase. Both the pre-ack `RequestTracker` timeout and this send-timer are
+ * short-circuited by the same commit-point event, so they can never both fire
+ * for one send. See `docs/STATE_CONTRACT.md` § Optimistic Reconciliation
+ * "Timer ownership" (Brief B).
+ */
+export interface ClearSendTimerEffect extends EffectBase {
+  kind: 'ClearSendTimer';
 }
 
 // ─── Type guards ────────────────────────────────────────────────────────────────

@@ -208,7 +208,11 @@ test('reducer: Send command inserts optimistic message and produces SendRpc', ()
   }
 });
 
-test('reducer: SendResult{ok:true} clears pending and composer inputs directly', () => {
+test('reducer: SendResult{ok:true} moves the rollback snapshot ops→promoted (composer inputs cleared at send time, not ack)', () => {
+  // Brief C: pending composer inputs are cleared at SEND time (handleSend
+  // captures the snapshot onto the PendingOp and clears
+  // `pendingComposerInputsBySession`), so SendResult{ok:true} no longer clears
+  // them — the inputs ride on the promoted snapshot for a post-ack rollback.
   const state: ArchState = {
     ...initialArchState,
     composer: {
@@ -224,8 +228,20 @@ test('reducer: SendResult{ok:true} clears pending and composer inputs directly',
   const result = reducer(state, { kind: 'SendResult', corrId: 'c-ok', sessionPath: '/s', ok: true });
 
   assert.equal(result.state.pending.ops['c-ok'], undefined);
-  // Composer inputs cleared directly in state.
-  assert.equal(result.state.composer.pendingComposerInputsBySession['/s'], undefined);
+  // The op MOVED to promoted (early-ack retention for a post-ack rollback).
+  assert.deepEqual(result.state.pending.promoted['c-ok'], {
+    kind: 'send',
+    sessionPath: '/s',
+    localId: 'loc-1',
+    previousSummary: null,
+  });
+  // Composer inputs are NOT cleared at ack time (send time owns the clear).
+  // In the real flow handleSend already cleared them; this artificial state
+  // skipped handleSend, so they remain — confirming SendResult{ok:true} is
+  // no longer responsible for the clear.
+  assert.deepEqual(result.state.composer.pendingComposerInputsBySession['/s'], [
+    { id: 'in1', kind: 'filesystemPathRef', path: '/f', name: 'f', source: 'picker' },
+  ]);
   // No effects — state mutation only.
   assert.equal(result.effects.length, 0);
 });
@@ -1710,12 +1726,11 @@ const imgInput = { id: 'in1', kind: 'filesystemPathRef' as const, path: '/f', na
 const userWindow = { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true };
 
 test('reducer: SendResult{ok:true} (early-ack) moves the rollback snapshot ops→promoted carrying inputs', () => {
+  // Realistic post-handleSend state: handleSend captured the inputs onto the
+  // PendingOp AND cleared `pendingComposerInputsBySession` at send time, so by
+  // the time SendResult{ok:true} fires the composer is already clean.
   const state: ArchState = {
     ...initialArchState,
-    composer: {
-      ...initialArchState.composer,
-      pendingComposerInputsBySession: { '/s': [imgInput] },
-    },
     pending: {
       ...initialArchState.pending,
       ops: { 'c-promote': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null, text: 'hi', inputs: [imgInput] } },
@@ -1738,7 +1753,8 @@ test('reducer: SendResult{ok:true} (early-ack) moves the rollback snapshot ops�
     inputs: [imgInput],
     requestId: 'req-7',
   });
-  // Composer inputs cleared at ack time (Brief C will move this to send-time).
+  // Composer inputs were cleared at SEND time (handleSend), not at ack time.
+  // SendResult{ok:true} does not touch `pendingComposerInputsBySession`.
   assert.equal(result.state.composer.pendingComposerInputsBySession['/s'], undefined);
   // requestId→localId still recorded for optimistic ID finalization.
   assert.deepEqual(result.state.pending.requestIdToLocalId['req-7'], { sessionPath: '/s', localId: 'loc-1' });
@@ -1782,6 +1798,9 @@ test('reducer: post-ack PreflightFailed rolls back via promoted, restores inputs
   assert.match(result.state.settings.notice!, /Failed to start this turn/);
   assert.match(result.state.settings.notice!, /prepass blew up/);
   // Fires a sendRejected imperative so the webview drops its overlay + restores draft.
+  // Brief C: the imperative carries `inputs` so the webview can restore the
+  // composer attachments immediately (the host-side restore above is the
+  // source of truth the next snapshot confirms).
   assert.equal(result.effects.length, 1);
   assert.equal(result.effects[0]?.kind, 'PostImperative');
   if (result.effects[0]?.kind === 'PostImperative') {
@@ -1790,6 +1809,7 @@ test('reducer: post-ack PreflightFailed rolls back via promoted, restores inputs
       sessionPath: '/s',
       text: 'hey',
       localId: 'loc-2',
+      inputs: [imgInput],
     });
   }
 });
@@ -1895,4 +1915,204 @@ test('reducer: post-ack PreflightFailed rolls back an EDIT via promoted (no send
   assert.match(result.state.settings.notice!, /prepass blew up/);
   // Edits do NOT fire sendRejected (matches legacy EditResult{ok:false}).
   assert.deepEqual(result.effects, []);
+});
+
+// ─── Brief C: optimistic lifecycle for composer inputs (pasted-image stickiness) ─
+// See docs/UX_RELIABILITY_PLAN.md §5. Pasted images must disappear from the
+// composer IMMEDIATELY on send (cleared at send time, not ack time), and on send
+// rejection the images must restore on BOTH rollback paths (no data loss):
+// pre-ack `SendResult{ok:false}` and post-ack `PreflightFailed`. These tests
+// drive the full flow through `handleSend` so the send-time clear + snapshot
+// capture are exercised, then assert each rollback path restores inputs
+// host-side AND carries `inputs` on the `sendRejected` imperative.
+
+test('reducer: Send command clears pending composer inputs at send time and captures them onto the PendingOp', () => {
+  // Heuristic #8: the inputs are already folded into the sent message by
+  // MessageRouter, so keeping them as pending cards past send is pure visual
+  // debt. handleSend clears `pendingComposerInputsBySession` and stashes the
+  // snapshot on the PendingOp so a rollback can hand them back.
+  const state: ArchState = {
+    ...readyState,
+    composer: {
+      ...initialArchState.composer,
+      pendingComposerInputsBySession: { '/s': [imgInput] },
+    },
+  };
+
+  const result = reducer(state, {
+    kind: 'Command',
+    cmd: {
+      kind: 'Send',
+      corrId: 'c-send-clear',
+      sessionPath: '/s',
+      text: 'hi',
+      inputs: [],
+      composedText: 'hi',
+      localId: 'loc-send-clear',
+      previousSummary: null,
+      timestamp: 1,
+    },
+  });
+
+  // Composer inputs cleared immediately at send time (composer is clean for
+  // the next turn, regardless of prepass duration).
+  assert.equal(result.state.composer.pendingComposerInputsBySession['/s'], undefined);
+  // The snapshot rides on the PendingOp for a rollback restore.
+  assert.deepEqual(result.state.pending.ops['c-send-clear']?.inputs, [imgInput]);
+});
+
+test('reducer: pre-ack SendResult{ok:false} restores composer inputs host-side and carries inputs on sendRejected', () => {
+  // Full flow: handleSend (clears + captures) → SendResult{ok:false} (rollback).
+  let state: ArchState = {
+    ...readyState,
+    composer: {
+      ...initialArchState.composer,
+      pendingComposerInputsBySession: { '/s': [imgInput] },
+    },
+    transcript: {
+      ...initialArchState.transcript,
+      windowBySession: { '/s': userWindow },
+    },
+  };
+
+  state = reducer(state, {
+    kind: 'Command',
+    cmd: {
+      kind: 'Send',
+      corrId: 'c-preack',
+      sessionPath: '/s',
+      text: 'hi',
+      inputs: [],
+      composedText: 'hi',
+      localId: 'loc-preack',
+      previousSummary: null,
+      timestamp: 1,
+    },
+  }).state;
+
+  // Send-time clear: inputs gone from the composer host state.
+  assert.equal(state.composer.pendingComposerInputsBySession['/s'], undefined);
+  assert.deepEqual(state.pending.ops['c-preack']?.inputs, [imgInput]);
+
+  // Pre-ack failure: the message.send RPC itself rejected.
+  const result = reducer(state, {
+    kind: 'SendResult',
+    corrId: 'c-preack',
+    sessionPath: '/s',
+    ok: false,
+    error: 'backend down',
+  });
+
+  // Composer inputs RESTORED from the send-time snapshot (no data loss) so a
+  // retry can re-send them.
+  assert.deepEqual(result.state.composer.pendingComposerInputsBySession['/s'], [imgInput]);
+  // sendRejected carries the inputs so the webview can restore the composer
+  // attachments immediately (before the debounced snapshot confirms).
+  const postImperative = result.effects.find((e) => e.kind === 'PostImperative');
+  assert.ok(postImperative && postImperative.kind === 'PostImperative');
+  assert.equal(postImperative!.imperativeMessage.type, 'sendRejected');
+  assert.deepEqual(postImperative!.imperativeMessage.inputs, [imgInput]);
+  assert.equal(postImperative!.imperativeMessage.text, 'hi');
+  assert.equal(postImperative!.imperativeMessage.localId, 'loc-preack');
+});
+
+test('reducer: post-ack PreflightFailed (send) restores composer inputs host-side and carries inputs on sendRejected', () => {
+  // Full flow: handleSend (clears + captures) → SendResult{ok:true} (promote) →
+  // PreflightFailed (post-ack rollback). The prepass fails AFTER the RPC acked.
+  let state: ArchState = {
+    ...readyState,
+    composer: {
+      ...initialArchState.composer,
+      pendingComposerInputsBySession: { '/s': [imgInput] },
+    },
+    transcript: {
+      ...initialArchState.transcript,
+      windowBySession: { '/s': userWindow },
+    },
+  };
+
+  state = reducer(state, {
+    kind: 'Command',
+    cmd: {
+      kind: 'Send',
+      corrId: 'c-postack',
+      sessionPath: '/s',
+      text: 'hey',
+      inputs: [],
+      composedText: 'hey',
+      localId: 'loc-postack',
+      previousSummary: null,
+      timestamp: 1,
+    },
+  }).state;
+
+  // Send-time clear + capture.
+  assert.equal(state.composer.pendingComposerInputsBySession['/s'], undefined);
+  assert.deepEqual(state.pending.ops['c-postack']?.inputs, [imgInput]);
+
+  // Early ack: the prompt was queued. The snapshot MOVES to promoted (not
+  // deleted); composer inputs stay cleared (send time owns the clear).
+  state = reducer(state, {
+    kind: 'SendResult',
+    corrId: 'c-postack',
+    sessionPath: '/s',
+    ok: true,
+    requestId: 'req-postack',
+  }).state;
+  assert.equal(state.composer.pendingComposerInputsBySession['/s'], undefined);
+  assert.deepEqual(state.pending.promoted['c-postack']?.inputs, [imgInput]);
+
+  // Post-ack prepass failure.
+  const result = reducer(state, {
+    kind: 'PreflightFailed',
+    corrId: 'c-postack',
+    sessionPath: '/s',
+    requestId: 'req-postack',
+    error: 'prepass blew up',
+  });
+
+  // Composer inputs RESTORED from the promoted snapshot (no data loss).
+  assert.deepEqual(result.state.composer.pendingComposerInputsBySession['/s'], [imgInput]);
+  // sendRejected carries the inputs.
+  const postImperative = result.effects.find((e) => e.kind === 'PostImperative');
+  assert.ok(postImperative && postImperative.kind === 'PostImperative');
+  assert.equal(postImperative!.imperativeMessage.type, 'sendRejected');
+  assert.deepEqual(postImperative!.imperativeMessage.inputs, [imgInput]);
+  assert.equal(postImperative!.imperativeMessage.text, 'hey');
+  assert.equal(postImperative!.imperativeMessage.localId, 'loc-postack');
+});
+
+test('reducer: pre-ack SendResult{ok:false} with no captured inputs restores nothing and omits a non-empty inputs payload', () => {
+  // A text-only send (no pending composer inputs) must not resurrect stale
+  // attachments on rejection. inputs is [] (captured at send time), so the
+  // restore guard (length > 0) is a no-op and sendRejected.inputs is empty.
+  let state: ArchState = { ...readyState };
+  state = reducer(state, {
+    kind: 'Command',
+    cmd: {
+      kind: 'Send',
+      corrId: 'c-textonly',
+      sessionPath: '/s',
+      text: 'plain',
+      inputs: [],
+      composedText: 'plain',
+      localId: 'loc-textonly',
+      previousSummary: null,
+      timestamp: 1,
+    },
+  }).state;
+  assert.equal(state.composer.pendingComposerInputsBySession['/s'], undefined);
+
+  const result = reducer(state, {
+    kind: 'SendResult',
+    corrId: 'c-textonly',
+    sessionPath: '/s',
+    ok: false,
+    error: 'boom',
+  });
+  // No inputs to restore.
+  assert.equal(result.state.composer.pendingComposerInputsBySession['/s'], undefined);
+  const postImperative = result.effects.find((e) => e.kind === 'PostImperative');
+  assert.ok(postImperative && postImperative.kind === 'PostImperative');
+  assert.deepEqual(postImperative!.imperativeMessage.inputs, []);
 });

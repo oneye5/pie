@@ -417,7 +417,9 @@ test('WebviewToHostMessage includes run outcome and task-control actions', () =>
   assert.equal(continueTask.type, 'continueTask');
 });
 
-test('HostToWebviewMessage.sendRejected restores only the text draft payload', () => {
+test('HostToWebviewMessage.sendRejected carries the text draft payload and optional composer inputs', () => {
+  // Minimal shape: sendRejected can be constructed with only the text draft
+  // payload (a text-only send rejection carries no inputs).
   const msg: HostToWebviewMessage = {
     type: 'sendRejected',
     sessionPath: '/workspace/a.ts',
@@ -427,6 +429,21 @@ test('HostToWebviewMessage.sendRejected restores only the text draft payload', (
   if (msg.type === 'sendRejected') {
     assert.equal(msg.sessionPath, '/workspace/a.ts');
     assert.equal(msg.text, 'hello');
+    // Brief C: inputs is optional — absent for a text-only rejection.
+    assert.equal(msg.inputs, undefined);
+  }
+
+  // Full shape: a send rejection carrying pasted/dropped attachments so the
+  // webview can restore them to the composer (no data loss on rollback).
+  const withInputs: HostToWebviewMessage = {
+    type: 'sendRejected',
+    sessionPath: '/workspace/a.ts',
+    text: 'hello',
+    inputs: [{ id: 'in1', kind: 'filesystemPathRef', path: '/f', name: 'f', source: 'picker' }],
+  };
+  if (withInputs.type === 'sendRejected') {
+    assert.equal(withInputs.inputs?.length, 1);
+    assert.equal(withInputs.inputs?.[0]?.id, 'in1');
   }
 });
 

@@ -53,10 +53,14 @@ import { toErrorMessage } from '../util/error-message';
 import type { EffectResultEvent, CommandEvent } from './events';
 import type { FileDiffService } from './file-diff-service';
 import type { ChatPrefs, ComposerInput, PruningSettings, RunOutcome, ThinkingLevel } from '../../shared/protocol';
+import type { RequestOptions } from '../../shared/request-tracker';
 
 /** Minimal backend surface the runner needs. Matches `BackendClient.request`. */
 export interface BackendLike {
-  request<T = unknown>(method: string, params?: unknown): Promise<T>;
+  /** Issue a JSON-RPC request. `options.timeoutMs` overrides the method
+   *  default; `options.signal` aborts an in-flight request (Brief E cancels
+   *  an in-flight `message.send` on interrupt). */
+  request<T = unknown>(method: string, params?: unknown, options?: RequestOptions): Promise<T>;
 }
 
 /**
@@ -168,13 +172,28 @@ export interface EffectRunnerDeps {
    */
   dispatchEvent: (event: import('./events').Event) => void;
   /**
-   * Override the optimistic-op TTL (default 60s). Used by tests to avoid
-   * waiting the full timeout. When the timer fires, the runner dispatches a
-   * `*Result{ok:false}` event so the reducer reverts the optimistic change.
+   * Override the send-timer budget (default 120s). The send-timer owns the
+   * post-ack, pre-commit phase (early-ack → first `MessageStarted`); on fire
+   * it dispatches `PreflightFailed` so the reducer reverts via
+   * `pending.promoted[corrId]`. Used by tests to avoid waiting the full
+   * timeout. Ignored when `getSendTimerTimeoutMs` is provided.
    */
-  optimisticOpTimeoutMs?: number;
+  sendTimerTimeoutMs?: number;
   /**
-   * Timer sink used for the backend-ready watchdog + optimistic-op TTL.
+   * Dynamic send-timer budget, read fresh at each send-dispatch (so a user
+   * changing `prepassTimeoutSec` at runtime takes effect immediately). When
+   * provided, takes precedence over the static `sendTimerTimeoutMs`. The
+   * production wiring (`extension-host`) derives this from the current
+   * `settings.pruningSettings.prepassTimeoutSec` + first-token headroom so a
+   * long-but-legitimate prepass never trips a spurious `PreflightFailed`
+   * (which would roll back the user message — `promoted` is still present —
+   * and orphan a late `MessageStarted` reply). Falls back to the 120s default
+   * when `prepassTimeoutSec` is null/invalid (SDK-owned default, presumed well
+   * under 120s).
+   */
+  getSendTimerTimeoutMs?: () => number;
+  /**
+   * Timer sink used for the backend-ready watchdog + send-timer.
    * Defaults to real `setTimeout`/`clearTimeout`. Tests inject a fake to
    * advance timers synchronously without wall-clock waits.
    */
@@ -187,24 +206,54 @@ export interface EffectRunnerDeps {
  *  key type — not the value type — provides compile-time exhaustiveness. */
 type EffectHandler = (effect: any) => void;
 
+/** Per-send in-flight context for the post-ack send-timer (Brief B). The
+ *  send-timer owns the pre-ack-to-first-delta phase; on fire it dispatches
+ *  `PreflightFailed` (post-ack, `requestId` known). The `abort` controller is
+ *  passed to `backend.request` so Brief E can cancel an in-flight
+ *  `message.send` on interrupt. Keyed by `corrId` in `EffectRunner`. */
+interface InFlightSend {
+  corrId: string;
+  sessionPath: string;
+  /** Which optimistic op this is — surfaces in the fire error + rollback kind. */
+  kind: 'send' | 'edit';
+  /** The send-timer handle (cleared at the commit point / pre-ack failure / fire). */
+  timer: TimerHandle | null;
+  /** The budget this send's timer was armed with (prepass-aware when
+   *  `getSendTimerTimeoutMs` is wired); surfaces in the fire error message. */
+  budgetMs: number;
+  /** Caller-owned cancel controller passed to `backend.request` as the signal. */
+  abort: AbortController;
+  /** Backend-assigned request id, stamped after early-ack so the fire callback
+   *  can dispatch `PreflightFailed` with it. */
+  requestId?: string;
+  /** Guards against double-settle (fire after clear, etc.). */
+  disposed: boolean;
+}
+
 export class EffectRunner {
   /** The backend-ready watchdog timer. Started by `StartBackendReadyWatchdog`,
    * cleared by `CancelBackendReadyWatchdog` / `DrainBackendReadyQueue` / fire. */
   private backendReadyWatchdog: TimerHandle | null = null;
 
-  /** Per-corrId timers for optimistic-op TTL. Started in runSendRpc/runEditRpc,
-   * cancelled when the RPC completes. On fire, dispatches *Result{ok:false}
-   * so the reducer reverts the optimistic change (same as a backend error). */
-  private optimisticOpTimers: Map<string, TimerHandle> = new Map();
+  /** Per-corrId in-flight send/edit context: the post-ack send-timer + the
+   *  abort controller (Brief E cancels an in-flight `message.send` on
+   *  interrupt). Keyed by corrId, with a `sessionPath → corrId` index for
+   *  cancel-by-session. */
+  private inFlightSends: Map<string, InFlightSend> = new Map();
+
+  /** Secondary index: which corrId owns the in-flight send for a session
+   *  (one at a time under FIFO serialization). Used by `abortInFlightSend`. */
+  private inFlightSendBySession: Map<string, string> = new Map();
 
   /** Injectable timer sink (real timers in production, fake in tests). */
   private readonly timer: TimerSink;
 
-  /** The timeout for optimistic ops. Generous — message.send usually returns
-   * in <1s, but a hung backend should not leave the session stuck forever. */
-  private static readonly OPTIMISTIC_OP_TIMEOUT_MS = 60_000;
+  /** The send-timer budget. Sized for worst-case prepass + first-token
+   *  latency (post-Brief-A early-ack). On fire, dispatches `PreflightFailed`
+   *  so the reducer reverts via `pending.promoted[corrId]`. */
+  private static readonly SEND_TIMER_TIMEOUT_MS = 120_000;
 
-  private readonly optimisticOpTimeoutMs: number;
+  private readonly sendTimerTimeoutMs: number;
 
   /** Dispatch table: one handler per `Effect['kind']`. The `Record` key type
    *  forces every kind to have an entry (compile-time exhaustiveness). Built
@@ -212,7 +261,7 @@ export class EffectRunner {
   private readonly handlers: Record<Effect['kind'], EffectHandler>;
 
   constructor(private readonly deps: EffectRunnerDeps) {
-    this.optimisticOpTimeoutMs = deps.optimisticOpTimeoutMs ?? EffectRunner.OPTIMISTIC_OP_TIMEOUT_MS;
+    this.sendTimerTimeoutMs = deps.sendTimerTimeoutMs ?? EffectRunner.SEND_TIMER_TIMEOUT_MS;
     this.timer = deps.timer ?? defaultTimerSink;
     this.handlers = {
       // ── RPC kinds: route through the double-wrap. `runRpc` short-circuits
@@ -240,6 +289,10 @@ export class EffectRunner {
       DrainBackendReadyQueue: (e) => this.handleDrainBackendReadyQueue(e),
       StartBackendReadyWatchdog: (e) => this.handleStartBackendReadyWatchdog(e),
       CancelBackendReadyWatchdog: (e) => this.handleCancelBackendReadyWatchdog(e),
+      // ── Send-timer (Brief B): clear the post-ack send-timer at the commit
+      //    point (the reducer emits this in `handleMessageStarted` where it
+      //    drops `pending.promoted`). ──
+      ClearSendTimer: (e) => this.clearInFlightSend(e.corrId),
       HydrateModel: (e) => this.handleHydrateModel(e),
       // ── Template rows (pure 1:1 effect → *Result). ──
       FileDiff: this.templateRow({ resultKind: 'FileDiffResult', withSessionPath: true, call: (e, d) => d.fileDiffService.openFileDiff(e.sessionPath, e.filePath) }),
@@ -519,39 +572,96 @@ export class EffectRunner {
     }
   }
 
-  /** Start the optimistic-op TTL timer for a corrId. On fire, dispatches
-   *  a *Result{ok:false} event so the reducer reverts the optimistic change.
-   *  No-op if a timer is already running for this corrId. */
-  private startOptimisticOpTimer(corrId: string, sessionPath: string, kind: 'send' | 'edit'): void {
-    if (this.optimisticOpTimers.has(corrId)) return; // already running
-    const timer = this.timer.schedule(() => {
-      this.optimisticOpTimers.delete(corrId);
-      const error = `Timed out waiting for backend response (${this.optimisticOpTimeoutMs / 1000}s)`;
-      if (kind === 'send') {
-        this.deps.dispatch({ kind: 'SendResult', corrId, sessionPath, ok: false, error });
-      } else {
-        this.deps.dispatch({ kind: 'EditResult', corrId, sessionPath, ok: false, error });
-      }
-    }, this.optimisticOpTimeoutMs);
-    this.optimisticOpTimers.set(corrId, timer);
+  /** Start the send-timer + abort controller for an in-flight send/edit.
+   *  The send-timer owns the post-ack, pre-commit phase (early-ack → first
+   *  `MessageStarted`); on fire it dispatches `PreflightFailed` (post-ack,
+   *  `requestId` known). The pre-ack phase is owned by the `RequestTracker`
+   *  timeout (10s for `message.send`), whose rejection clears this timer via
+   *  the catch block — so the send-timer never fires pre-ack in practice. */
+  private startInFlightSend(corrId: string, sessionPath: string, kind: 'send' | 'edit'): InFlightSend {
+    const abort = new AbortController();
+    // Prepass-aware budget (read fresh each send so a runtime prepassTimeoutSec
+    // change takes effect); falls back to the static override/default.
+    const budgetMs = this.deps.getSendTimerTimeoutMs?.() ?? this.sendTimerTimeoutMs;
+    const send: InFlightSend = { corrId, sessionPath, kind, timer: null, budgetMs, abort, disposed: false };
+    send.timer = this.timer.schedule(() => this.onSendTimerFire(send), budgetMs);
+    this.inFlightSends.set(corrId, send);
+    // One in-flight send per session under FIFO serialization. A second send
+    // for the same session (post-ack on the first, pre-ack on the second) is
+    // possible; the "delete if mine" guard in clear/fire prevents the second
+    // from clobbering the first's index entry.
+    this.inFlightSendBySession.set(sessionPath, corrId);
+    return send;
   }
 
-  /** Cancel the optimistic-op TTL timer for a corrId (the RPC completed). */
-  private clearOptimisticOpTimer(corrId: string): void {
-    const timer = this.optimisticOpTimers.get(corrId);
-    if (timer) {
-      this.timer.cancel(timer);
-      this.optimisticOpTimers.delete(corrId);
+  /** Send-timer fire: the post-ack, pre-commit phase elapsed with no commit
+   *  point. Dispatch `PreflightFailed` (the reducer rolls back via
+   *  `pending.promoted[corrId]`, explicit-corrId short-circuiting its scan).
+   *  If `requestId` is unknown (early-ack never happened), the pre-ack
+   *  `RequestTracker` timeout should have rejected first and cleared this
+   *  timer via the catch — log so the degenerate case is debuggable. */
+  private onSendTimerFire(send: InFlightSend): void {
+    if (send.disposed) return;
+    send.disposed = true;
+    this.inFlightSends.delete(send.corrId);
+    if (this.inFlightSendBySession.get(send.sessionPath) === send.corrId) {
+      this.inFlightSendBySession.delete(send.sessionPath);
     }
+    if (send.requestId) {
+      this.deps.dispatchEvent({
+        kind: 'PreflightFailed',
+        corrId: send.corrId,
+        sessionPath: send.sessionPath,
+        requestId: send.requestId,
+        error: `Timed out waiting for the turn to start streaming (${send.budgetMs / 1000}s)`,
+      });
+      return;
+    }
+    this.deps.log.log(
+      'warn',
+      `send-timer fired before early-ack for corrId=${send.corrId} session=${send.sessionPath} (pre-ack RequestTracker timer should have fired first)`,
+    );
+  }
+
+  /** Clear the send-timer + abort context for a corrId. Called on pre-ack
+   *  failure (RPC rejected — no commit will come), at the commit point
+   *  (`ClearSendTimer` effect — first `MessageStarted`), and on dispose. */
+  private clearInFlightSend(corrId: string): void {
+    const send = this.inFlightSends.get(corrId);
+    if (!send) return;
+    send.disposed = true;
+    if (send.timer) this.timer.cancel(send.timer);
+    this.inFlightSends.delete(corrId);
+    if (this.inFlightSendBySession.get(send.sessionPath) === send.corrId) {
+      this.inFlightSendBySession.delete(send.sessionPath);
+    }
+  }
+
+  /** Abort the in-flight `message.send` for a session (Brief E: interrupt
+   *  cancels a slow prepass-gated send). Aborts the `AbortController` passed
+   *  to `backend.request`: pre-ack, the `RequestTracker` rejects → the catch
+   *  dispatches `SendResult{ok:false}`/`EditResult{ok:false}` (pre-ack
+   *  rollback) and clears the send-timer. Returns true if an in-flight send
+   *  was aborted. Post-ack (RPC already resolved), the abort is a no-op on
+   *  the RPC; Brief E handles the post-ack interrupt via `message.interrupt`. */
+  abortInFlightSend(sessionPath: string): boolean {
+    const corrId = this.inFlightSendBySession.get(sessionPath);
+    if (!corrId) return false;
+    const send = this.inFlightSends.get(corrId);
+    if (!send) return false;
+    if (!send.abort.signal.aborted) send.abort.abort();
+    return true;
   }
 
   /** Dispose of the runner's resources (called on shutdown). */
   dispose(): void {
     this.clearBackendReadyWatchdog();
-    for (const timer of this.optimisticOpTimers.values()) {
-      this.timer.cancel(timer);
+    for (const send of this.inFlightSends.values()) {
+      send.disposed = true;
+      if (send.timer) this.timer.cancel(send.timer);
     }
-    this.optimisticOpTimers.clear();
+    this.inFlightSends.clear();
+    this.inFlightSendBySession.clear();
   }
 
   /**
@@ -597,7 +707,9 @@ export class EffectRunner {
     const { queues, backend, dispatch, service, statsService } = this.deps;
     void queues.enqueueLifecycle(async () => {
       await queues.enqueueSessionOperation(effect.sessionPath, async () => {
-        this.startOptimisticOpTimer(effect.corrId, effect.sessionPath, 'send');
+        // Start the send-timer at RPC dispatch (queue time) + arm the abort
+        // controller (Brief E cancels an in-flight message.send on interrupt).
+        const send = this.startInFlightSend(effect.corrId, effect.sessionPath, 'send');
         try {
           service.bumpSessionDataEpoch(effect.sessionPath);
           statsService.prepareForSend(effect.sessionPath, effect.inputs);
@@ -606,8 +718,12 @@ export class EffectRunner {
             text: effect.text,
             inputs: effect.inputs,
             localId: effect.localId,
-          });
-          this.clearOptimisticOpTimer(effect.corrId);
+          }, { signal: send.abort.signal });
+          // Early-ack succeeded: stamp requestId so the send-timer's fire
+          // callback can dispatch PreflightFailed (post-ack) if the turn
+          // never commits. The send-timer stays armed — cleared at the commit
+          // point (first MessageStarted → ClearSendTimer) or on fire.
+          send.requestId = response.requestId;
           dispatch({
             kind: 'SendResult',
             corrId: effect.corrId,
@@ -616,7 +732,10 @@ export class EffectRunner {
             requestId: response.requestId,
           });
         } catch (err) {
-          this.clearOptimisticOpTimer(effect.corrId);
+          // Pre-ack failure (RequestTracker timeout/rejection, or abort): no
+          // commit will come — clear the send-timer and dispatch the pre-ack
+          // failure (rollback via pending.ops[corrId]).
+          this.clearInFlightSend(effect.corrId);
           dispatch({
             kind: 'SendResult',
             corrId: effect.corrId,
@@ -638,7 +757,11 @@ export class EffectRunner {
     const { queues, backend, dispatch, service, statsService } = this.deps;
     void queues.enqueueLifecycle(async () => {
       await queues.enqueueSessionOperation(effect.sessionPath, async () => {
-        this.startOptimisticOpTimer(effect.corrId, effect.sessionPath, 'edit');
+        // edit follows the same phase-scoped shape as send (STATE_CONTRACT §
+        // Optimistic Reconciliation "Timer ownership"): one send-timer owns the
+        // post-ack, pre-commit phase; the abort controller covers the whole
+        // truncate-then-send operation (Brief E cancels it on interrupt).
+        const send = this.startInFlightSend(effect.corrId, effect.sessionPath, 'edit');
         try {
           service.bumpSessionDataEpoch(effect.sessionPath);
           statsService.onTruncatedAfter(effect.sessionPath, effect.messageId);
@@ -647,7 +770,7 @@ export class EffectRunner {
           await backend.request('session.truncateAfter', {
             sessionPath: effect.sessionPath,
             entryId: effect.messageId,
-          });
+          }, { signal: send.abort.signal });
           // Capture the backend-assigned requestId so a post-ack prepass
           // failure (`PreflightFailed`) and the commit-point `MessageStarted`
           // can resolve the edit's corrId via `pending.promoted` (mirrors
@@ -656,11 +779,11 @@ export class EffectRunner {
             sessionPath: effect.sessionPath,
             text: effect.text,
             localId: effect.localId,
-          });
-          this.clearOptimisticOpTimer(effect.corrId);
+          }, { signal: send.abort.signal });
+          send.requestId = response.requestId;
           dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true, requestId: response.requestId });
         } catch (err) {
-          this.clearOptimisticOpTimer(effect.corrId);
+          this.clearInFlightSend(effect.corrId);
           dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });
         }
       });

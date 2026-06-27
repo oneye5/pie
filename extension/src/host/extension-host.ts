@@ -157,6 +157,20 @@ export class PieExtension implements vscode.Disposable {
 
     this.effectRunner = new EffectRunner({
       backend: this.backend,
+      // Prepass-aware send-timer budget (Brief B follow-up): when the user sets
+      // an explicit `prepassTimeoutSec`, budget for it + first-token headroom so
+      // a long-but-legitimate prepass never trips a spurious `PreflightFailed`
+      // (which would roll back the user message — promoted still present — and
+      // orphan a late `MessageStarted` reply). Falls back to the 120s default
+      // when `prepassTimeoutSec` is unset/invalid (SDK default, presumed < 120s).
+      // Read fresh each send so a runtime settings change takes effect.
+      getSendTimerTimeoutMs: () => {
+        const p = this.archState.settings.pruningSettings.prepassTimeoutSec;
+        const HEADROOM_SEC = 30;
+        return typeof p === 'number' && Number.isFinite(p) && p > 0
+          ? (p + HEADROOM_SEC) * 1000
+          : 120_000;
+      },
       queues: this.service.queues,
       tabs: {
         // PersistTabs: write openTabPaths + activeSessionPath to globalState,

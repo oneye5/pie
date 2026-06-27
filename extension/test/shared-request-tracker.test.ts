@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { RequestTracker } from '../src/shared/request-tracker';
+import { RequestTracker, isCancelledError } from '../src/shared/request-tracker';
 
 /**
  * `RequestTracker` is a promise + timeout bookkeeping map keyed by request id.
@@ -107,4 +107,103 @@ test('RequestTracker resolves typed values via the generic parameter', async () 
   const p = tracker.create('n', LONG_TIMEOUT);
   tracker.resolve('n', 42);
   assert.equal(await p, 42);
+});
+
+// ─── Brief B: cancellation + per-call override ────────────────────────────────
+
+test('create with an AbortSignal rejects with a cancel error when the signal aborts', async () => {
+  const tracker = new RequestTracker<string>();
+  const controller = new AbortController();
+  const p = tracker.create('id', LONG_TIMEOUT, controller.signal);
+  controller.abort();
+  await assert.rejects(p, /was cancelled/);
+});
+
+test('create with an already-aborted signal rejects synchronously and does not store the entry', async () => {
+  const tracker = new RequestTracker<string>();
+  const controller = new AbortController();
+  controller.abort();
+  const p = tracker.create('pre', LONG_TIMEOUT, controller.signal);
+  await assert.rejects(p, /was cancelled/);
+  // Not stored: a later resolve is a no-op (no dangling timer).
+  assert.equal(tracker.resolve('pre', 'x'), false);
+});
+
+test('resolve detaches the abort listener so a later abort is a no-op (no late reject, no leak)', async () => {
+  const tracker = new RequestTracker<string>();
+  const controller = new AbortController();
+  const p = tracker.create('id', LONG_TIMEOUT, controller.signal);
+  assert.equal(tracker.resolve('id', 'value'), true);
+  assert.equal(await p, 'value');
+  // Aborting after resolve must not reject the settled promise nor throw.
+  controller.abort();
+  await new Promise<void>((r) => setTimeout(r, 5));
+  assert.equal(await p, 'value');
+});
+
+test('cancel(id, reason) rejects a pending request with a descriptive cancel error', async () => {
+  const tracker = new RequestTracker<string>();
+  const p = tracker.create('id', LONG_TIMEOUT);
+  assert.equal(tracker.cancel('id', 'interrupted'), true);
+  await assert.rejects(p, /was cancelled: interrupted/);
+});
+
+test('cancel returns false for an unknown id', () => {
+  const tracker = new RequestTracker<string>();
+  assert.equal(tracker.cancel('nope'), false);
+});
+
+test('rejectAll detaches abort listeners (a later abort does not throw)', async () => {
+  const tracker = new RequestTracker<string>();
+  const c1 = new AbortController();
+  const c2 = new AbortController();
+  const p1 = tracker.create('a', LONG_TIMEOUT, c1.signal);
+  const p2 = tracker.create('b', LONG_TIMEOUT, c2.signal);
+  tracker.rejectAll(new Error('shutdown'));
+  await assert.rejects(p1, /shutdown/);
+  await assert.rejects(p2, /shutdown/);
+  // Aborting after rejectAll must not throw (listeners detached, entries gone).
+  c1.abort();
+  c2.abort();
+  // Subsequent resolves/rejects are no-ops.
+  assert.equal(tracker.resolve('a', 'x'), false);
+  assert.equal(tracker.reject('b', new Error('x')), false);
+});
+
+test('isCancelledError recognises cancel errors produced by the tracker', () => {
+  // Brief E/H seam: distinguish a cancel from a backend failure when mapping
+  // to a user-facing message.
+  const tracker = new RequestTracker<string>();
+  return assert.rejects(
+    (async () => {
+      const p = tracker.create('id', LONG_TIMEOUT);
+      tracker.cancel('id', 'user interrupted');
+      await p;
+    })(),
+    (err: unknown) => {
+      assert.equal(isCancelledError(err), true);
+      return true;
+    },
+  );
+});
+
+test('create honours a per-call timeout budget (override) — fires at the given budget', async () => {
+  // RequestTracker.create takes timeoutMs per-call; callers that know they are
+  // prepass-gated or trivial pass an appropriate value (Brief B).
+  const tracker = new RequestTracker<string>();
+  const p = tracker.create('fast', 2); // 2ms override
+  await assert.rejects(p, /Timed out waiting for response to fast/);
+});
+
+test('create with a per-call timeout override is shorter than the method default (no opaque 30s wait)', async () => {
+  // The override lets callers shrink the window: a 2ms budget fires in ~2ms,
+  // not the 30s default. Asserts the override is honoured, not ignored.
+  const tracker = new RequestTracker<string>();
+  const start = Date.now();
+  try {
+    await tracker.create('fast', 2);
+  } catch {
+    // elapsed well under a second → override honoured.
+    assert.ok(Date.now() - start < 1000, 'override timeout did not fire promptly');
+  }
 });

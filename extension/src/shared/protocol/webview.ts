@@ -132,6 +132,15 @@ export type HostToWebviewMessage =
       /** Local ID of the rejected optimistic message, so the webview can
        * remove it from its local overlay. */
       localId?: string;
+      /** Composer inputs captured at Send command time, so the webview can
+       * restore the pasted/dropped attachments to the composer for a retry
+       * (no data loss). Populated on both rollback paths: pre-ack
+       * `SendResult{ok:false}` (from `pending.ops[corrId].inputs`) and
+       * post-ack `PreflightFailed` (from `pending.promoted[corrId].inputs`).
+       * The host also restores `pendingComposerInputsBySession` host-side
+       * in the same transition; this payload lets the webview restore the
+       * composer immediately, without waiting for the debounced snapshot. */
+      inputs?: ComposerInput[];
     }
   | {
       /** Posted by the host when a session completes under the completion-

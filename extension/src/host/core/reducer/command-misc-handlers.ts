@@ -111,6 +111,13 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
     };
     draft.sessions.runningSessionPaths = nextRunningPaths;
     delete draft.composer.draftTextBySession[cmd.sessionPath];
+    // Clear pending composer inputs at SEND time (not ack time): the inputs
+    // have already been folded into the sent message by MessageRouter, so
+    // keeping them as pending cards past send is pure visual debt (Heuristic
+    // #8). The snapshot captured above rides on the PendingOp so a rollback
+    // (pre-ack `SendResult{ok:false}` or post-ack `PreflightFailed`) can
+    // restore them — see `handleSendResult` / `handlePreflightFailed`.
+    delete draft.composer.pendingComposerInputsBySession[cmd.sessionPath];
   });
 
   return {

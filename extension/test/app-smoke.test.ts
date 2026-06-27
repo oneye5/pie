@@ -463,3 +463,68 @@ test('stateApplied telemetry samples DOM after render commit', async () => {
   assert.equal(applied.payload.domTranscriptLoaderPresent, false);
   assert.equal(applied.payload.domTabsConnectingPresent, false);
 });
+
+test('sendRejected.inputs restores composer attachments immediately (inputsRestore override) and the next state snapshot confirms', () => {
+  // Brief C: on send rejection the host fires sendRejected carrying `inputs`;
+  // the webview stages them as a transient override of pendingComposerInputs
+  // so the attachments reappear instantly (before the debounced host snapshot
+  // arrives). The next `state` message (host-restored inputs) clears the
+  // override with no flicker.
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState();
+
+  act(() => {
+    render(h(App, { adapter }), container);
+  });
+
+  // Prime the active-session ref so the sendRejected handler can route the
+  // draft restore to the active session.
+  const stateMsg: HostToWebviewMessage = {
+    type: 'state',
+    hostInstanceId: 'host-1',
+    revision: 1,
+    state: sessionViewState({ pendingComposerInputs: [] }),
+  } as any;
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: stateMsg }));
+  });
+
+  // No attachments yet.
+  assert.equal(container.querySelector('.attachment-card'), null);
+
+  // sendRejected carrying a pasted/dropped attachment.
+  const imgInput = { id: 'in1', kind: 'filesystemPathRef' as const, path: '/f', name: 'f', source: 'picker' as const };
+  const rejectedMsg: HostToWebviewMessage = {
+    type: 'sendRejected',
+    sessionPath: '/session/a',
+    text: 'try again',
+    inputs: [imgInput],
+  } as any;
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: rejectedMsg }));
+  });
+
+  // The attachment reappears immediately via the inputsRestore override
+  // (the host snapshot has not arrived yet).
+  const card = container.querySelector('.attachment-card');
+  assert.ok(card, 'composer should show the restored attachment immediately');
+  assert.ok(card!.textContent!.includes('f'), 'attachment card should name the input');
+
+  // The draft text is also restored.
+  const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+  assert.equal(textarea.value, 'try again');
+
+  // The next state snapshot carries the host-restored inputs; the override is
+  // cleared and the authoritative snapshot takes over (no flicker, same card).
+  const confirmedMsg: HostToWebviewMessage = {
+    type: 'state',
+    hostInstanceId: 'host-1',
+    revision: 2,
+    state: sessionViewState({ pendingComposerInputs: [imgInput] }),
+  } as any;
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', { data: confirmedMsg }));
+  });
+
+  assert.ok(container.querySelector('.attachment-card'), 'attachment still shown from the host snapshot after override clears');
+});

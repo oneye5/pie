@@ -10,6 +10,7 @@ import { clearCollapsibleCache } from '../transcript/use-collapsible-open';
 import type {
   ChatMessage,
   ChatPrefs,
+  ComposerInput,
   HostToWebviewMessage,
   ModelInfo,
   PruningCatalog,
@@ -240,6 +241,20 @@ interface DraftRestoreOps {
   restoreNow: (text: string) => void;
 }
 
+/**
+ * Immediate composer-input restore ops. When a `sendRejected` imperative
+ * carries `inputs`, `restoreNow` stages them as a transient override of
+ * `viewState.pendingComposerInputs` so the attachments reappear in the
+ * composer instantly — without waiting for the debounced host snapshot
+ * (which restores `pendingComposerInputsBySession` host-side in the same
+ * reducer transition). The override is cleared on the next `state` message,
+ * by which point the host snapshot carries the restored inputs (no flicker).
+ */
+interface InputsRestoreOps {
+  restoreNow: (inputs: ComposerInput[]) => void;
+  clear: () => void;
+}
+
 interface HostMessageContext {
   resetPerSessionState: () => void;
   hostInstanceIdRef: { current: string };
@@ -248,6 +263,7 @@ interface HostMessageContext {
   clearTransientUi: () => void;
   optimisticOps: OptimisticMessageOps;
   draftOps: DraftRestoreOps;
+  inputsOps: InputsRestoreOps;
   setViewState: (v: ViewState) => void;
   setPendingStateApplied: (v: PendingStateApplied | null) => void;
 }
@@ -299,6 +315,12 @@ function handleStateMessage(msg: HostToWebviewMessage, ctx: HostMessageContext) 
     ctx.draftOps.applyQueued(nextActiveSessionPath);
   }
 
+  // A post-rejection snapshot now carries the host-restored composer inputs
+  // (the reducer restores `pendingComposerInputsBySession` in the same
+  // transition that fires `sendRejected`), so the transient inputs override
+  // has done its job — clear it so the authoritative snapshot takes over.
+  ctx.inputsOps.clear();
+
   ctx.setViewState(hydrateViewState(m.state));
   ctx.setPendingStateApplied({
     revision: m.revision,
@@ -317,13 +339,21 @@ function handlePlayCompletionSound(msg: HostToWebviewMessage) {
 
 function handleSendRejectedMessage(
   msg: HostToWebviewMessage,
-  ctx: Pick<HostMessageContext, 'optimisticOps' | 'draftOps' | 'activeSessionPathRef'>,
+  ctx: Pick<HostMessageContext, 'optimisticOps' | 'draftOps' | 'inputsOps' | 'activeSessionPathRef'>,
 ) {
   const m = msg as Extract<HostToWebviewMessage, { type: 'sendRejected' }>;
   if (m.localId) {
     ctx.optimisticOps.removeByLocalId(m.localId);
   } else {
     ctx.optimisticOps.removeBySessionPath(m.sessionPath);
+  }
+
+  // Restore pasted/dropped attachments to the composer immediately (no data
+  // loss on rejection). The host also restores `pendingComposerInputsBySession`
+  // in the same transition; this override bridges the debounced-snapshot gap so
+  // the attachments reappear instantly. Cleared on the next `state` message.
+  if (m.inputs && m.inputs.length > 0) {
+    ctx.inputsOps.restoreNow(m.inputs);
   }
 
   if (m.sessionPath === ctx.activeSessionPathRef.current) {
@@ -362,6 +392,7 @@ export function useHostSync(
 ): HostSyncState {
   const [viewState, setViewState] = useState<ViewState>(initialState ?? EMPTY_VIEW_STATE);
   const [draftRestore, setDraftRestore] = useState<{ text: string; nonce: number } | null>(null);
+  const [inputsRestore, setInputsRestore] = useState<{ inputs: ComposerInput[]; nonce: number } | null>(null);
   const [optimisticMessages, setOptimisticMessages] = useState<OptimisticUserMessage[]>([]);
   const [pendingStateApplied, setPendingStateApplied] = useState<PendingStateApplied | null>(null);
 
@@ -372,6 +403,7 @@ export function useHostSync(
 
   const clearTransientUi = useCallback(() => {
     setDraftRestore(null);
+    setInputsRestore(null);
     setOptimisticMessages([]);
     pendingDraftRestoreRef.current.clear();
     clearCollapsibleCache();
@@ -390,6 +422,14 @@ export function useHostSync(
   }, []);
 
   const mergedTranscript = useMergedTranscript(viewState, optimisticMessages);
+
+  // When a `sendRejected` carries inputs, stage them as a transient override of
+  // `pendingComposerInputs` so the composer re-shows the attachments
+  // instantly (the host restores `pendingComposerInputsBySession` in the same
+  // reducer transition, but its snapshot is debounced). The override is cleared
+  // on the next `state` message (`handleStateMessage`), by which point the host
+  // snapshot carries the restored inputs — so the handoff is flicker-free
+  // (both render the same inputs).
 
   const optimisticOpsRef = useRef<OptimisticMessageOps>({
     clear: () => setOptimisticMessages([]),
@@ -426,6 +466,15 @@ export function useHostSync(
     },
   });
 
+  const inputsOpsRef = useRef<InputsRestoreOps>({
+    restoreNow: (inputs) => {
+      setInputsRestore({ inputs, nonce: Date.now() });
+    },
+    clear: () => {
+      setInputsRestore(null);
+    },
+  });
+
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       // Guard against malformed messages from non-host sources (browser
@@ -440,6 +489,7 @@ export function useHostSync(
         clearTransientUi,
         optimisticOps: optimisticOpsRef.current,
         draftOps: draftOpsRef.current,
+        inputsOps: inputsOpsRef.current,
         setViewState,
         setPendingStateApplied,
       });
@@ -455,5 +505,10 @@ export function useHostSync(
 
   useFocusRefresh(postMessage);
 
-  return { viewState, mergedTranscript, draftRestore, activeSessionPathRef, setDraftRestore, addOptimisticMessage };
+  const effectiveViewState = useMemo<ViewState>(
+    () => (inputsRestore ? { ...viewState, pendingComposerInputs: inputsRestore.inputs } : viewState),
+    [viewState, inputsRestore],
+  );
+
+  return { viewState: effectiveViewState, mergedTranscript, draftRestore, activeSessionPathRef, setDraftRestore, addOptimisticMessage };
 }

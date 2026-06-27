@@ -53,7 +53,11 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
         ...pending,
         ...(event.requestId ? { requestId: event.requestId } : {}),
       };
-      delete draft.composer.pendingComposerInputsBySession[pending.sessionPath];
+      // Composer inputs were cleared at SEND time (handleSend captures the
+      // snapshot onto the PendingOp and clears `pendingComposerInputsBySession`
+      // so the composer is immediately clean). Nothing to clear here at ack
+      // time — the inputs ride on the promoted snapshot for a post-ack
+      // `PreflightFailed` rollback.
       if (event.requestId) {
         draft.pending.requestIdToLocalId[event.requestId] = {
           sessionPath: pending.sessionPath,
@@ -70,7 +74,13 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
     {
       kind: 'PostImperative',
       corrId: event.corrId,
-      imperativeMessage: { type: 'sendRejected', sessionPath: pending.sessionPath, text: pending.text ?? '', localId: pending.localId },
+      imperativeMessage: {
+        type: 'sendRejected',
+        sessionPath: pending.sessionPath,
+        text: pending.text ?? '',
+        localId: pending.localId,
+        inputs: pending.inputs ?? [],
+      },
     },
   ];
 
@@ -85,6 +95,13 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
     );
     // Set notice
     draft.settings.notice = `Failed to send message: ${event.error ?? 'unknown error'}`;
+    // Restore composer inputs from the send-time snapshot so a retry can
+    // re-send them (no data loss). Inputs were cleared at send time (handleSend);
+    // the pre-ack failure must hand them back. Mirrors the post-ack
+    // `handlePreflightFailed` restore from `pending.promoted[corrId].inputs`.
+    if (pending.inputs && pending.inputs.length > 0) {
+      draft.composer.pendingComposerInputsBySession[pending.sessionPath] = [...pending.inputs];
+    }
     // Restore session summary if we had one
     if (pending.previousSummary) {
       const idx = draft.sessions.sessions.findIndex((s) => s.path === pending.previousSummary!.path);
@@ -139,9 +156,9 @@ export function handlePreflightFailed(state: ArchState, event: Extract<Event, { 
   // — matching the legacy pre-ack `EditResult{ok:false}` path (the inline
   // editor is already closed by the Edit command; restoring the edited text
   // to the composer draft would be a UX change Brief E owns). The `inputs`
-  // payload on sendRejected is owned by Brief C (protocol field + webview
-  // restore); the host-side composer-input restore below is this brief's
-  // concern.
+  // payload on sendRejected (Brief C) lets the webview restore the composer
+  // attachments immediately; the host-side composer-input restore below
+  // (Brief A) is the source of truth the next snapshot confirms.
   const effects: Effect[] =
     snapshot.kind === 'send'
       ? [
@@ -153,6 +170,7 @@ export function handlePreflightFailed(state: ArchState, event: Extract<Event, { 
               sessionPath: snapshot.sessionPath,
               text: snapshot.text ?? '',
               localId: snapshot.localId,
+              inputs: snapshot.inputs ?? [],
             },
           },
         ]

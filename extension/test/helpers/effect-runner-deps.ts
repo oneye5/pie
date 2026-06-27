@@ -13,7 +13,7 @@
  *
  * Tests that need custom behavior pass it through the `opts` hooks
  * (`backend`, `queues`, `serviceOverrides`, `dispatch`, `dispatchCommand`,
- * `dispatchEvent`, `requestImpl`, `modalChoice`, `optimisticOpTimeoutMs`,
+ * `dispatchEvent`, `requestImpl`, `modalChoice`, `sendTimerTimeoutMs`,
  * `timer`) rather than re-inlining an `as any` mock.
  */
 import type {
@@ -27,6 +27,7 @@ import type {
 import type { FileDiffService } from '../../src/host/core/file-diff-service';
 import type { EffectResultEvent, CommandEvent, Event } from '../../src/host/core/events';
 import type { ThinkingLevel } from '../../src/shared/protocol';
+import type { RequestOptions } from '../../src/shared/request-tracker';
 
 export type Call =
   | { kind: 'lifecycle' }
@@ -44,8 +45,12 @@ export interface MakeEffectRunnerDepsOpts {
   requestImpl?: (method: string) => Promise<unknown>;
   /** Resolved choice for `modal.showWarningModal` (undefined = dismissal). */
   modalChoice?: string | undefined;
-  /** Override the optimistic-op TTL (default 60s). */
-  optimisticOpTimeoutMs?: number;
+  /** Override the send-timer budget (default 120s). The send-timer owns the
+   *  post-ack, pre-commit phase; on fire it dispatches PreflightFailed. */
+  sendTimerTimeoutMs?: number;
+  /** Dynamic send-timer budget (prepass-aware production wiring); takes
+   *  precedence over `sendTimerTimeoutMs`. Used to test the getter path. */
+  getSendTimerTimeoutMs?: () => number;
   /** Injectable timer sink (tests pass a fake to drive timers deterministically). */
   timer?: TimerSink;
   /** Inject a custom `BackendLike` (e.g. one shared with `SessionServiceState`). */
@@ -76,10 +81,33 @@ export function makeEffectRunnerDeps(opts: MakeEffectRunnerDepsOpts = {}): MakeE
   const commands: CommandEvent[] = [];
 
   const backend: BackendLike = opts.backend ?? {
-    async request<T = unknown>(method: string, params?: unknown): Promise<T> {
+    request<T = unknown>(method: string, params?: unknown, options?: RequestOptions): Promise<T> {
       calls.push({ kind: 'request', method, params });
-      if (opts.requestImpl) return (await opts.requestImpl(method)) as T;
-      return {} as T;
+      const sig = options?.signal;
+      // Signal-aware: a hanging requestImpl rejects when the signal aborts, so
+      // the effect-runner's abortInFlightSend (Brief E) can cancel an in-flight
+      // message.send in tests. Without a signal, delegates to requestImpl (or
+      // resolves {} by default — the original behavior). Options are NOT
+      // recorded on the Call (existing assertions deepEqual {method,params}).
+      if (!opts.requestImpl && !sig) return Promise.resolve({} as T);
+      return new Promise<T>((resolve, reject) => {
+        let settled = false;
+        const onAbort = (): void => {
+          if (settled) return;
+          settled = true;
+          reject(new Error(`Request ${method} was cancelled.`));
+        };
+        if (sig) {
+          if (sig.aborted) { settled = true; reject(new Error(`Request ${method} was cancelled.`)); return; }
+          sig.addEventListener('abort', onAbort);
+        }
+        if (opts.requestImpl) {
+          Promise.resolve(opts.requestImpl(method)).then(
+            (v) => { if (settled) return; settled = true; if (sig) sig.removeEventListener('abort', onAbort); resolve(v as T); },
+            (e) => { if (settled) return; settled = true; if (sig) sig.removeEventListener('abort', onAbort); reject(e); },
+          );
+        }
+      });
     },
   };
 
@@ -174,7 +202,8 @@ export function makeEffectRunnerDeps(opts: MakeEffectRunnerDepsOpts = {}): MakeE
     dispatch: opts.dispatch ?? ((e) => events.push(e)),
     dispatchCommand: opts.dispatchCommand ?? ((cmd) => commands.push(cmd)),
     dispatchEvent: opts.dispatchEvent ?? (() => {}),
-    optimisticOpTimeoutMs: opts.optimisticOpTimeoutMs,
+    sendTimerTimeoutMs: opts.sendTimerTimeoutMs,
+    getSendTimerTimeoutMs: opts.getSendTimerTimeoutMs,
     timer: opts.timer,
   };
 
