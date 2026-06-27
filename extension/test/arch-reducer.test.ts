@@ -189,6 +189,7 @@ test('reducer: Send command inserts optimistic message and produces SendRpc', ()
     localId: 'loc-1',
     previousSummary: null,
     text: 'raw',
+    inputs: [],
   });
 
   // Optimistic user message inserted in transcript.
@@ -411,7 +412,10 @@ test('reducer: Edit command records pending, inserts optimistic message, produce
   }
 });
 
-test('reducer: EditResult{ok:true} clears pending with no extra effects', () => {
+test('reducer: EditResult{ok:true} (early-ack) moves the rollback snapshot ops→promoted carrying requestId', () => {
+  // Mirror of the SendResult{ok:true} promote test: the edit op MOVES to
+  // pending.promoted (not deleted) so a post-ack PreflightFailed can still roll
+  // it back. Dropped at the commit point (first MessageStarted for requestId).
   const state: ArchState = {
     ...initialArchState,
     pending: {
@@ -420,9 +424,16 @@ test('reducer: EditResult{ok:true} clears pending with no extra effects', () => 
     },
   };
 
-  const result = reducer(state, { kind: 'EditResult', corrId: 'c-edit-ok', sessionPath: '/s', ok: true });
+  const result = reducer(state, { kind: 'EditResult', corrId: 'c-edit-ok', sessionPath: '/s', ok: true, requestId: 'req-e2' });
 
   assert.equal(result.state.pending.ops['c-edit-ok'], undefined);
+  assert.deepEqual(result.state.pending.promoted['c-edit-ok'], {
+    kind: 'edit',
+    sessionPath: '/s',
+    localId: 'loc-e2',
+    previousSummary: null,
+    requestId: 'req-e2',
+  });
   assert.deepEqual(result.effects, []);
 });
 
@@ -1685,4 +1696,203 @@ test('reducer: late SendResult after a timeout-induced SendResult{ok:false} is a
   assert.equal(afterLate.effects.length, 0);
   // State is unchanged from afterTimeout.
   assert.deepEqual(afterLate.state, afterTimeout.state);
+});
+
+// ─── Brief A: early-ack two failure windows for send ─────────────────────────
+// See docs/STATE_CONTRACT.md § Optimistic Reconciliation "Two failure windows
+// for send". message.send now resolves as soon as the prompt is QUEUED (before
+// the pruning prepass); a SendResult{ok:true} MOVES the rollback snapshot to
+// pending.promoted (it is NOT deleted) so a post-ack PreflightFailed can still
+// roll back. The snapshot is dropped at the commit point (first MessageStarted
+// for the requestId).
+
+const imgInput = { id: 'in1', kind: 'filesystemPathRef' as const, path: '/f', name: 'f', source: 'picker' as const };
+const userWindow = { totalCount: 1, loadedStart: 0, loadedEnd: 1, hasOlder: false, hasNewer: false, isPartial: false, hasUserMessages: true };
+
+test('reducer: SendResult{ok:true} (early-ack) moves the rollback snapshot ops→promoted carrying inputs', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    composer: {
+      ...initialArchState.composer,
+      pendingComposerInputsBySession: { '/s': [imgInput] },
+    },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c-promote': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null, text: 'hi', inputs: [imgInput] } },
+    },
+  };
+
+  const result = reducer(state, { kind: 'SendResult', corrId: 'c-promote', sessionPath: '/s', ok: true, requestId: 'req-7' });
+
+  // The op left `ops`...
+  assert.equal(result.state.pending.ops['c-promote'], undefined);
+  // ...and MOVED to `promoted` (not deleted), carrying the inputs snapshot and
+  // stamped with requestId so a later PreflightFailed / commit-point can resolve
+  // corrId without a reverse map.
+  assert.deepEqual(result.state.pending.promoted['c-promote'], {
+    kind: 'send',
+    sessionPath: '/s',
+    localId: 'loc-1',
+    previousSummary: null,
+    text: 'hi',
+    inputs: [imgInput],
+    requestId: 'req-7',
+  });
+  // Composer inputs cleared at ack time (Brief C will move this to send-time).
+  assert.equal(result.state.composer.pendingComposerInputsBySession['/s'], undefined);
+  // requestId→localId still recorded for optimistic ID finalization.
+  assert.deepEqual(result.state.pending.requestIdToLocalId['req-7'], { sessionPath: '/s', localId: 'loc-1' });
+  assert.equal(result.effects.length, 0);
+});
+
+test('reducer: post-ack PreflightFailed rolls back via promoted, restores inputs, fires sendRejected', () => {
+  // Post-ack state: the send was promoted (SendResult{ok:true}), so composer
+  // inputs were cleared and the rollback snapshot lives in `promoted`.
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: { ...initialArchState.sessions, runningSessionPaths: ['/s'] },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-2', role: 'user' as const, createdAt: '', markdown: 'hey', status: 'completed' as const }] },
+      windowBySession: { '/s': userWindow },
+    },
+    pending: {
+      ...initialArchState.pending,
+      promoted: { 'c-fl': { kind: 'send', sessionPath: '/s', localId: 'loc-2', previousSummary: null, text: 'hey', inputs: [imgInput], requestId: 'req-9' } },
+      requestIdToLocalId: { 'req-9': { sessionPath: '/s', localId: 'loc-2' } },
+    },
+  };
+
+  // Dispatched from the backend prepass-failure bridge WITHOUT corrId (the
+  // backend mints requestId but never sees the host corrId); the reducer resolves
+  // corrId by scanning promoted for the matching requestId.
+  const result = reducer(state, { kind: 'PreflightFailed', sessionPath: '/s', requestId: 'req-9', error: 'prepass blew up' });
+
+  // Promoted snapshot dropped (rollback consumed).
+  assert.equal(result.state.pending.promoted['c-fl'], undefined);
+  // Optimistic user message removed from transcript.
+  assert.ok(!result.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-2'));
+  // Host-side optimistic running state cleared.
+  assert.ok(!result.state.sessions.runningSessionPaths.includes('/s'));
+  // requestId→localId cleared (the send will never stream).
+  assert.equal(result.state.pending.requestIdToLocalId['req-9'], undefined);
+  // Composer inputs RESTORED from the promoted snapshot (no data loss).
+  assert.deepEqual(result.state.composer.pendingComposerInputsBySession['/s'], [imgInput]);
+  // Plain-language error surfaced (Brief H refines the copy).
+  assert.match(result.state.settings.notice!, /Failed to start this turn/);
+  assert.match(result.state.settings.notice!, /prepass blew up/);
+  // Fires a sendRejected imperative so the webview drops its overlay + restores draft.
+  assert.equal(result.effects.length, 1);
+  assert.equal(result.effects[0]?.kind, 'PostImperative');
+  if (result.effects[0]?.kind === 'PostImperative') {
+    assert.deepEqual(result.effects[0].imperativeMessage, {
+      type: 'sendRejected',
+      sessionPath: '/s',
+      text: 'hey',
+      localId: 'loc-2',
+    });
+  }
+});
+
+test('reducer: PreflightFailed with explicit corrId (Brief B send-timer) rolls back the matching promoted op', () => {
+  // Brief B's send-timer dispatches PreflightFailed WITH corrId; verify that
+  // path resolves without scanning (and that an unknown corrId no-ops).
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: { ...initialArchState.sessions, runningSessionPaths: ['/s'] },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-b', role: 'user' as const, createdAt: '', markdown: 'go', status: 'completed' as const }] },
+      windowBySession: { '/s': userWindow },
+    },
+    pending: {
+      ...initialArchState.pending,
+      promoted: { 'c-b': { kind: 'send', sessionPath: '/s', localId: 'loc-b', previousSummary: null, text: 'go', inputs: [], requestId: 'req-b' } },
+    },
+  };
+
+  const result = reducer(state, { kind: 'PreflightFailed', corrId: 'c-b', sessionPath: '/s', requestId: 'req-b', error: 'timed out' });
+  assert.equal(result.state.pending.promoted['c-b'], undefined);
+  assert.ok(!result.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-b'));
+  assert.equal(result.effects.length, 1);
+});
+
+test('reducer: commit-point first MessageStarted drops the promoted snapshot (later failure is in-turn, not rollback)', () => {
+  const state: ArchState = {
+    ...initialArchState,
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-3', role: 'user' as const, createdAt: '', markdown: 'go', status: 'completed' as const }] },
+      windowBySession: { '/s': userWindow },
+    },
+    pending: {
+      ...initialArchState.pending,
+      promoted: { 'c-commit': { kind: 'send', sessionPath: '/s', localId: 'loc-3', previousSummary: null, text: 'go', requestId: 'req-11' } },
+      requestIdToLocalId: { 'req-11': { sessionPath: '/s', localId: 'loc-3' } },
+    },
+  };
+
+  const result = reducer(state, { kind: 'MessageStarted', sessionPath: '/s', messageId: 'asst-1', requestId: 'req-11', timestamp: 1 });
+
+  // Commit point reached: the promoted rollback snapshot is dropped — a later
+  // failure becomes an in-turn error, never a rollback.
+  assert.equal(result.state.pending.promoted['c-commit'], undefined);
+  // requestIdToLocalId also cleaned up (existing behavior).
+  assert.equal(result.state.pending.requestIdToLocalId['req-11'], undefined);
+  // The assistant streaming message was inserted.
+  assert.ok(result.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'asst-1'));
+});
+
+test('reducer: PreflightFailed after the commit point (promoted already dropped) is a no-op', () => {
+  // Post-commit failure: promoted was dropped at MessageStarted, so a later
+  // PreflightFailed cannot roll back — it no-ops (the in-turn error path
+  // surfaces its own notice).
+  const state: ArchState = {
+    ...initialArchState,
+    settings: { ...initialArchState.settings, notice: null },
+    pending: { ...initialArchState.pending }, // promoted empty
+  };
+
+  const result = reducer(state, { kind: 'PreflightFailed', sessionPath: '/s', requestId: 'req-gone', error: 'late' });
+  assert.deepEqual(result.state, state);
+  assert.deepEqual(result.effects, []);
+});
+
+test('reducer: post-ack PreflightFailed rolls back an EDIT via promoted (no sendRejected; kind-aware notice)', () => {
+  // Post-ack edit failure: the edit was promoted (EditResult{ok:true}), so the
+  // rollback snapshot lives in `promoted`. PreflightFailed rolls it back — but,
+  // matching the legacy pre-ack EditResult{ok:false} path, edits do NOT fire
+  // sendRejected (the inline editor is already closed by the Edit command;
+  // restoring the edited text to the composer is a UX change Brief E owns).
+  // Pre-Brief-A-fix this path silently lost the rollback (optimistic edit
+  // message stuck, running stuck on, no error).
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: { ...initialArchState.sessions, runningSessionPaths: ['/s'] },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-ee', role: 'user' as const, createdAt: '', markdown: 'edited', status: 'completed' as const }] },
+      windowBySession: { '/s': userWindow },
+    },
+    pending: {
+      ...initialArchState.pending,
+      promoted: { 'c-edit-fl': { kind: 'edit', sessionPath: '/s', localId: 'loc-ee', previousSummary: null, requestId: 'req-ee' } },
+    },
+  };
+
+  const result = reducer(state, { kind: 'PreflightFailed', sessionPath: '/s', requestId: 'req-ee', error: 'prepass blew up' });
+
+  // Promoted edit snapshot dropped (rollback consumed).
+  assert.equal(result.state.pending.promoted['c-edit-fl'], undefined);
+  // Optimistic edit message removed from transcript (was stuck before the fix).
+  assert.ok(!result.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-ee'));
+  // Host-side optimistic running state cleared (was stuck before the fix).
+  assert.ok(!result.state.sessions.runningSessionPaths.includes('/s'));
+  // requestId→localId clear (edit never records it, but the delete is a safe no-op).
+  assert.equal(result.state.pending.requestIdToLocalId['req-ee'], undefined);
+  // Kind-aware notice (Brief H refines the copy).
+  assert.match(result.state.settings.notice!, /Failed to edit message/);
+  assert.match(result.state.settings.notice!, /prepass blew up/);
+  // Edits do NOT fire sendRejected (matches legacy EditResult{ok:false}).
+  assert.deepEqual(result.effects, []);
 });

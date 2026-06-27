@@ -254,13 +254,21 @@ test('message.send accepts requests, handles preflight rejection, and guards con
       },
     },
   });
-  await assert.rejects(
-    async () => await handleBackendRequest(rejectedHarness.deps, {
-      id: '3',
-      method: 'message.send',
-      params: { sessionPath: '/repo/session.jsonl', text: 'Nope', inputs: [] },
-    }),
-    /Prompt rejected before PI accepted the request/,
+  // Early-ack (Brief A): message.send resolves as soon as the prompt is QUEUED,
+  // before the pruning prepass. A prepass rejection no longer rejects the RPC —
+  // it is surfaced post-ack via the `preflight.failed` backend event so the
+  // host dispatches PreflightFailed and reverts via pending.promoted.
+  const rejected = await handleBackendRequest(rejectedHarness.deps, {
+    id: '3',
+    method: 'message.send',
+    params: { sessionPath: '/repo/session.jsonl', text: 'Nope', inputs: [] },
+  });
+  assert.equal(typeof (rejected as { requestId: string }).requestId, 'string');
+  const failed = rejectedHarness.emitted.find((e) => e.event === 'preflight.failed');
+  assert.ok(failed, 'expected a preflight.failed event on prepass rejection');
+  assert.equal(
+    (failed?.payload as { error?: string }).error,
+    'Prompt rejected before PI accepted the request.',
   );
   assert.equal(rejectedHarness.context.activeRequest, undefined);
 });

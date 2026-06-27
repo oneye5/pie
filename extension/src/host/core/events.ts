@@ -54,6 +54,11 @@ export interface EditResultEvent {
   corrId: string;
   sessionPath: string;
   ok: boolean;
+  /** Backend-assigned request ID (early-ack). Stamped on success so a
+   *  post-ack `PreflightFailed` and the commit-point `MessageStarted` can
+   *  resolve the edit's corrId via `pending.promoted` — mirroring `SendResult`.
+   *  See STATE_CONTRACT § Optimistic Reconciliation "Two failure windows". */
+  requestId?: string;
   error?: string;
 }
 
@@ -506,6 +511,27 @@ export interface PendingPathReplacedEvent {
   newSessionPath: string;
 }
 
+/** Post-ack, pre-commit prepass failure for an early-acked send. The
+ *  `message.send` RPC already succeeded (the prompt was queued); the pruning
+ *  prepass then failed. This is the post-ack failure window distinct from a
+ *  pre-ack `SendResult{ok:false}` (see `docs/STATE_CONTRACT.md` § Optimistic
+ *  Reconciliation "Two failure windows for send"). The reducer reverts via
+ *  `pending.promoted[corrId]`.
+ *
+ *  `corrId` is present when the dispatcher knows it (e.g. Brief B's send-timer,
+ *  started in `runSendRpc` where the effect's `corrId` is known). It is absent
+ *  when dispatched from the backend prepass-failure bridge — the backend mints
+ *  `requestId` but never sees the host `corrId` — in which case the reducer
+ *  resolves `corrId` by scanning `pending.promoted` for the matching
+ *  `requestId`. */
+export interface PreflightFailedEvent {
+  kind: 'PreflightFailed';
+  corrId?: string;
+  sessionPath: string;
+  requestId: string;
+  error: string;
+}
+
 /** Emitted when a session's transcript is trimmed (eviction). */
 export interface TranscriptTrimmedEvent {
   kind: 'TranscriptTrimmed';
@@ -606,6 +632,7 @@ export type HostEvent =
   | SessionSummariesReplacedEvent
   | SessionScopeClearedEvent
   | TabOpenedEvent
-  | OpenTabsChangedEvent;
+  | OpenTabsChangedEvent
+  | PreflightFailedEvent;
 
 export type Event = CommandEvent | EffectResultEvent | BackendEvent | HostEvent;

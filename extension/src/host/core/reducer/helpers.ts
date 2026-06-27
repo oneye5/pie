@@ -152,6 +152,14 @@ export function evictSession(
     if (op.sessionPath !== sp) remainingOps[corrId] = op;
   }
 
+  // Drop promoted (early-acked) sends for the evicted session so a late
+  // PreflightFailed no-ops instead of reverting into a closed session, and
+  // the rollback snapshot does not leak past close.
+  const remainingPromoted: Record<string, PendingOp> = {};
+  for (const [corrId, op] of Object.entries(state.pending.promoted)) {
+    if (op.sessionPath !== sp) remainingPromoted[corrId] = op;
+  }
+
   // Drop in-flight setModel lifecycles for the evicted session (both the
   // modal-confirm phase and the RPC phase). A late ModelSwitchConfirmResult /
   // SetModelResult for these corrIds then no-ops instead of applying to — or
@@ -249,6 +257,7 @@ export function evictSession(
       pending: {
         ...state.pending,
         ops: remainingOps,
+        promoted: remainingPromoted,
         currentTurnBySession: remainingTurns,
         messageIdAlias: remainingMessageIdAlias,
         requestIdToLocalId: remainingRequestIdToLocalId,

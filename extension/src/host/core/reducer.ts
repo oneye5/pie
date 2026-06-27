@@ -33,7 +33,7 @@ export { initialArchState };
 
 // Handler modules
 import { handleCommand } from './reducer/command-handlers.js';
-import { handleEffectResult, handleModelSwitchConfirmResult } from './reducer/result-handlers.js';
+import { handleEffectResult, handleModelSwitchConfirmResult, handlePreflightFailed } from './reducer/result-handlers.js';
 import { handleStreamingEvent } from './reducer/streaming-handlers.js';
 import {
   handleSessionClosed,
@@ -255,6 +255,10 @@ export function reducer(state: ArchState, event: Event): ReducerResult {
 
     case 'OpenTabsChanged': {
       return handleOpenTabsChanged(state, event);
+    }
+
+    case 'PreflightFailed': {
+      return handlePreflightFailed(state, event);
     }
 
     // ─── UI events ─────────────────────────────────────────────────────────

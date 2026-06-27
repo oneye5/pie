@@ -395,15 +395,24 @@ export class PieExtension implements vscode.Disposable {
    * pure projection).
    */
   private buildViewState(): ViewState {
-    const viewState = selectViewState(this.archState);
-    viewState.tokenRateBySession = this.tokenRateService.getRates();
-    return viewState;
+    // Spread (do NOT mutate) so the memoized projection returned by
+    // selectViewState is never corrupted: `tokenRateBySession` is host-side
+    // and varies every tick independently of the cached signature, so override
+    // it on a fresh top-level object while every other slice keeps its
+    // (cached, structurally-shared) reference. This preserves the webview's
+    // pickStable / memo barriers — unchanged slices stay referentially stable
+    // across posts.
+    const projected = selectViewState(this.archState);
+    return {
+      ...projected,
+      tokenRateBySession: this.tokenRateService.getRates(),
+    };
   }
 
   private scheduleRender(): void {
     // Read ArchState fields directly instead of paying for a full ViewState
     // projection on every event — these bootLog/status-bar fields are all
-    // available on ArchState without the (un-memoized, O(transcript))
+    // available on ArchState without the (now-memoized, but still non-trivial)
     // projection that selectViewState would run. scheduleRender fires once per
     // backend event, so this was previously 2 full projections per delta.
     const activeSessionPath = this.archState.sessions.activeSessionPath ?? null;

@@ -31,6 +31,7 @@ import type {
   MessageFinishedPayload,
   MessageStartedPayload,
   MessageThinkingPayload,
+  PreflightFailedPayload,
   SessionListChangedPayload,
   SessionOpenedPayload,
   ToolFinishedPayload,
@@ -286,6 +287,15 @@ export function isErrorPayload(value: unknown): value is ErrorPayload {
     && isString(value.code)
     && isString(value.message)
     && isOptionalString(value.requestId)
+  );
+}
+
+export function isPreflightFailedPayload(value: unknown): value is PreflightFailedPayload {
+  return (
+    isObject(value)
+    && isString(value.requestId)
+    && isString(value.sessionPath)
+    && isString(value.error)
   );
 }
 

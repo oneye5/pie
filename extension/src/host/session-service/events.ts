@@ -12,7 +12,7 @@ import type { OnSessionCompleted, ScheduleRender } from './types';
 import type { Event } from '../core/events';
 import type { ArchState } from '../core/arch-state';
 import { SessionServiceState } from './state';
-import { onMessageDelta, onMessageThinking, onMessageStarted, onMessageFinished, onMessageAborted } from './handlers/streaming.js';
+import { onMessageDelta, onMessageThinking, onMessageStarted, onMessageFinished, onMessageAborted, onPreflightFailed } from './handlers/streaming.js';
 import { onToolStarted, onToolFinished, onToolProgress } from './handlers/tools.js';
 import { onSessionListChanged, onCustomMessage, onExtensionUIRequest, onError, onContextUsageChanged } from './handlers/session.js';
 import { applySessionOpenedPayload, handleBusyChangedPayload, attach as attachHandlers, detach as detachHandlers } from './handlers/attach.js';
@@ -105,6 +105,7 @@ export class SessionServiceEvents {
       onMessageFinished: (payload) => onMessageFinished(payload, deps),
       onCustomMessage: (payload) => onCustomMessage(payload, deps),
       onMessageAborted: (payload) => onMessageAborted(payload, deps),
+      onPreflightFailed: (payload) => onPreflightFailed(payload, deps),
       onBusyChanged: (payload) => this.onBusyChanged(payload),
       onContextUsageChanged: (payload) => onContextUsageChanged(payload, deps),
       onExtensionUIRequest: (payload) => onExtensionUIRequest(payload, deps),

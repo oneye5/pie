@@ -180,6 +180,18 @@ export interface PendingOp {
   previousSummary: SessionSummary | null;
   /** The raw user text sent (for send ops only — used to restore the draft on sendRejected). */
   text?: string;
+  /** Composer inputs captured at Send command time (from
+   *  `pendingComposerInputsBySession[sessionPath]`), carried onto the
+   *  promoted snapshot so a post-ack `PreflightFailed` can restore them.
+   *  Populated for send ops by Brief A; the webview `sendRejected.inputs`
+   *  restore is wired by Brief C. */
+  inputs?: ComposerInput[];
+  /** Backend-assigned request ID, stamped when a send is promoted
+   *  (`SendResult{ok:true}`) so a post-ack `PreflightFailed` (which carries
+   *  requestId but not corrId — the backend never sees the host corrId) and
+   *  the commit-point `MessageStarted` can resolve corrId without a reverse
+   *  map. Absent pre-ack (the host learns requestId only on `SendResult`). */
+  requestId?: string;
 }
 
 /** Snapshot of the state an optimistic `SetModel` changed, for rollback when
@@ -281,8 +293,16 @@ export interface BackendReadyQueueEntry {
  * This sub-state is only touched by the reducer — never by the webview.
  */
 export interface PendingState {
-  /** Optimistic pending operations keyed by `corrId`. */
+  /** Optimistic pending operations keyed by `corrId` (pre-ack). */
   ops: Record<string, PendingOp>;
+  /** Promoted (early-acked) sends awaiting their commit point, keyed by
+   *  `corrId`. On `SendResult{ok:true}` the rollback snapshot MOVES here from
+   *  `ops` (it is NOT deleted) so a post-ack prepass failure
+   *  (`PreflightFailed`) can still roll back. Dropped at the commit point
+   *  (first `MessageStarted` for the requestId) — a later failure then becomes
+   *  an in-turn error, never a rollback. See `docs/STATE_CONTRACT.md` §
+   *  Optimistic Reconciliation "Two failure windows for send". */
+  promoted: Record<string, PendingOp>;
   /** In-flight `SetModel` lifecycles keyed by `corrId` (modal-confirm + RPC). */
   setModelByCorrId: Record<string, SetModelPending>;
   /** Maps aliased message IDs to { canonicalId, sessionPath } (for multi-turn continuations). */
@@ -365,6 +385,7 @@ export function createInitialArchState(): ArchState {
     },
     pending: {
       ops: {},
+      promoted: {},
       setModelByCorrId: {},
       messageIdAlias: {},
       currentTurnBySession: {},

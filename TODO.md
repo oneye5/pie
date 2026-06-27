@@ -460,23 +460,20 @@ Plan: `docs/UX_RELIABILITY_PLAN.md`. Wave-orchestrated briefs targeting the
 clunky edit/interrupt/multi-prompt UX, stale-state ("old + new message at
 once"), pasted-image stickiness, pruning-prepass slowness, and general
 fragility — judged against Nielsen's 10 usability heuristics. Status:
-planned (none started). Waves & buckets:
+in progress — Round 1 done (A ✅, G ✅, reviewer-approved; A's edit-path post-ack rollback regression caught & fixed in review). Actual rounds (re-scheduled from the plan's §1 diagram to honor its 'parallel only when file-disjoint' rule — A & B share client.ts/effect-runner.ts and B is post-A, so sequential):
 
 | Brief | Issue | Wave | Bucket | Depends on |
 |---|---|---|---|---|
-| A | Decouple `message.send` RPC from pruning prepass (root cause of req-NN timeout + image stick + prepass perception) | 1 | frontier | — |
+| A ✅(R1) | Decouple `message.send` RPC from pruning prepass (root cause of req-NN timeout + image stick + prepass perception) | 1 | frontier | — |
 | B | Request timeout strategy & correlation hardening (de-dupe the 30s/60s racing timers; dropped-line diagnostics; cancel hook) | 1 | frontier | — |
 | C | Optimistic lifecycle for composer inputs (pasted-image stickiness) | 2 | medium | A |
 | F | Pruning prepass UX: live, cancelable status indicator + skip/bypass | 2 | medium | A, E |
 | E | Edit / interrupt UX clunkiness (instant interrupt, no truncate-flash; second send rejected with clear message, no queue) | 2 | medium | A, B |
-| G | Projection memoization & render-path perf (O(1) unchanged-delta projection) | 2 | medium | — |
+| G ✅(R1) | Projection memoization & render-path perf (O(1) unchanged-delta projection) | 2 | medium | — |
 | D | Stale-state / "old + new message at once" (webview revision + length/identity guards made total; G-enabled debounce cut; watchdog **unchanged** — resnapshot already self-heals while streaming, force-reload suppression is a correct invariant) | 3 | frontier | G |
 | H | Error prevention, messaging & graceful degradation (no `req-NN` in UI; plain-language errors + recovery actions) | 3 | medium | A, B |
 
-Execution: spawn Wave 1 (A, B) in parallel `frontier` workers → `reviewer`
-gate → rebuild + smoke test → Wave 2 (C, E, F, G) parallel → gate → Wave 3
-(D, H) parallel → gate. Preserve all `STATE_CONTRACT.md` invariants (§11 of
-the plan); any relaxation must update the contract in the same change.
+Execution (actual): Round 1 = A (frontier) ∥ G (medium) — disjoint files; Round 2 = B (frontier) ∥ C (medium) — B builds on A's early-ack; Round 3 = E (medium) ∥ D (frontier) — D builds on G; Round 4 = F (medium) ∥ H (medium). Each round: parallel worker(s) → orchestrator serial typecheck+test+build → `reviewer` gate. (Re-scheduled from the plan's §1 diagram, which drew A/B parallel and F in wave 2: A & B share `client.ts`/`effect-runner.ts` and B's timer design is explicitly post-A, and F depends on E — so the disjoint-file rule governs.) Preserve all `STATE_CONTRACT.md` invariants (§11 of the plan); any relaxation updates the contract in the same change.
 
 ## Grilling decisions (2026-06-27, `grill-with-docs` skill)
 Decisions recorded inline in `STATE_CONTRACT.md` + `docs/UX_RELIABILITY_PLAN.md`;

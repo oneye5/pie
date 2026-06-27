@@ -57,11 +57,17 @@
 - On RPC failure: revert via `state.pending.ops[corrId]` — remove the optimistic transcript entry by `localId`, restore `previousSummary`, fire a `sendRejected` imperative, drop the entry.
 - Backend events arriving before `SendRpcResult` are applied normally — the pending user message is already in the transcript, so assistant deltas append after it.
 
-### Two failure windows for `send` (target state — Brief A/C, not yet implemented)
+### Two failure windows for `send` (mechanism implemented in Brief A; inputs payload/webview restore added in Brief C)
 
-> The following describes the **target** state after Briefs A and C land. Today `message.send`
-> resolves only after the prepass and there is no `pending.promoted`; this subsection specifies
-> what the early-ack design must uphold. `state.pending.promoted` does not exist in code yet.
+> The early-ack mechanism is implemented in Brief A: `message.send` now resolves as
+> soon as the prompt is *queued* (before the pruning prepass), `state.pending.promoted`
+> exists, and the `SendResult{ok:true}` ops→promoted move, the post-ack
+> `PreflightFailed` rollback, and the commit-point drop at the first `MessageStarted`
+> are all in code. What remains for Brief C is the `sendRejected.inputs` payload
+> and the webview composer-input restore (plus composer clear-at-send): until C
+> lands, the post-ack rollback restores host-side `pendingComposerInputsBySession`
+> from `pending.promoted[corrId].inputs` but does not yet carry `inputs` on the
+> `sendRejected` imperative. The subsection below describes the full target state.
 
 `message.send` will resolve as soon as the prompt is *queued* (before the pruning prepass), so an optimistic send will have two failure windows, not one:
 

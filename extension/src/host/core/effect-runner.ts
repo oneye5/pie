@@ -648,13 +648,17 @@ export class EffectRunner {
             sessionPath: effect.sessionPath,
             entryId: effect.messageId,
           });
-          await backend.request('message.send', {
+          // Capture the backend-assigned requestId so a post-ack prepass
+          // failure (`PreflightFailed`) and the commit-point `MessageStarted`
+          // can resolve the edit's corrId via `pending.promoted` (mirrors
+          // runSendRpc). See STATE_CONTRACT § Optimistic Reconciliation.
+          const response = await backend.request<{ requestId?: string }>('message.send', {
             sessionPath: effect.sessionPath,
             text: effect.text,
             localId: effect.localId,
           });
           this.clearOptimisticOpTimer(effect.corrId);
-          dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true });
+          dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: true, requestId: response.requestId });
         } catch (err) {
           this.clearOptimisticOpTimer(effect.corrId);
           dispatch({ kind: 'EditResult', corrId: effect.corrId, sessionPath: effect.sessionPath, ok: false, error: toErrorMessage(err) });

@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 
-import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ErrorPayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
+import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ErrorPayload, type ModelInfo, type ModelSettings, type PreflightFailedPayload, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
 import { toErrorMessage } from '../shared/error-message';
 import {
   validateLoadTranscriptPage,
@@ -212,41 +212,6 @@ async function handleSessionTruncateAfter(
   return truncatePayload;
 }
 
-interface PreflightGate {
-  isSettled(): boolean;
-  settle(): void;
-}
-
-function createPreflightGate(): PreflightGate {
-  let settled = false;
-  return {
-    isSettled: () => settled,
-    settle: () => {
-      settled = true;
-    },
-  };
-}
-
-function applyPreflightResult(
-  gate: PreflightGate,
-  deps: BackendRequestHandlerDeps,
-  context: SessionContext,
-  success: boolean,
-  onRejection: (reason: Error) => void,
-  onResolution: () => void,
-): void {
-  if (gate.isSettled()) {
-    return;
-  }
-  gate.settle();
-  if (!success) {
-    onRejection(new Error('Prompt rejected before PI accepted the request.'));
-    return;
-  }
-  deps.emitBusyChanged(context, true);
-  onResolution();
-}
-
 function clearActiveRequest(
   context: SessionContext,
   requestId: string,
@@ -271,33 +236,29 @@ function reportPromptFailure(
   deps.emitBusyChanged(context, false);
 }
 
-function startPromptBackground(
+/**
+ * Post-ack, pre-commit prepass failure: `message.send` has already early-acked
+ * (the prompt was queued) but the pruning prepass then failed. Surface it via
+ * the dedicated `preflight.failed` backend event so the host dispatches
+ * `PreflightFailed` and reverts via `pending.promoted[corrId]` (resolved by
+ * `requestId`). Clearing `activeRequest` matches the pre-early-ack failure
+ * path: the turn is not proceeding to streaming, so a subsequent send must not
+ * be blocked by `REQUEST_IN_PROGRESS`. The host clears its optimistic running
+ * state in the `PreflightFailed` reducer handler. See `docs/STATE_CONTRACT.md`
+ * § Optimistic Reconciliation "Two failure windows for send".
+ */
+function emitPreflightFailed(
   deps: BackendRequestHandlerDeps,
   context: SessionContext,
   requestId: string,
-  promptText: string,
-  imagePayload: SdkImageContent[] | undefined,
-  gate: PreflightGate,
-): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    void context.session
-      .prompt(promptText, {
-        source: 'rpc',
-        images: imagePayload,
-        preflightResult: (success) => {
-          applyPreflightResult(gate, deps, context, success, reject, resolve);
-        },
-      })
-      .catch((error: Error) => {
-        if (!gate.isSettled()) {
-          gate.settle();
-          reject(error);
-          return;
-        }
-        reportPromptFailure(deps, context, requestId, error);
-        resolve();
-      });
-  });
+  message: string,
+): void {
+  deps.emit('preflight.failed', {
+    requestId,
+    sessionPath: context.sessionPath,
+    error: message,
+  } satisfies PreflightFailedPayload);
+  clearActiveRequest(context, requestId);
 }
 
 async function handleMessageSend(
@@ -326,20 +287,60 @@ async function handleMessageSend(
   const imagePayload = images.length > 0 ? images : undefined;
   const promptText = buildPromptText(params.text, params.inputs);
 
-  const accepted = startPromptBackground(
-    deps,
-    context,
-    requestId,
-    promptText,
-    imagePayload,
-    createPreflightGate(),
-  );
+  // Early ack: resolve {requestId} as soon as the prompt is QUEUED (before the
+  // pruning prepass), so a slow prepass can no longer time out `message.send`.
+  // The prepass runs concurrently inside `session.prompt()`; its outcome is
+  // surfaced post-ack via the `preflightResult` callback:
+  //  - success → the turn proceeds to streaming (commit point = first
+  //    `MessageStarted` for the requestId, handled host-side).
+  //  - failure → emit `preflight.failed` so the host dispatches `PreflightFailed`
+  //    and reverts via `pending.promoted` (STATE_CONTRACT § Optimistic
+  //    Reconciliation "Two failure windows for send").
+  // `preflightFailed` makes the failure emission one-shot so `preflightResult`
+  // and a concurrent `session.prompt()` rejection cannot both emit.
+  let preflightFailed = false;
 
   try {
-    await accepted;
-  } catch (error) {
+    context.session
+      .prompt(promptText, {
+        source: 'rpc',
+        images: imagePayload,
+        preflightResult: (success) => {
+          if (preflightFailed) return;
+          if (success) {
+            // Prepass succeeded: the turn is proceeding to streaming.
+            // `emitBusyChanged(true)` is idempotent (the host set running
+            // optimistically at Send time; `agent_start` will also fire it) —
+            // kept for parity with the pre-early-ack path.
+            deps.emitBusyChanged(context, true);
+          } else {
+            preflightFailed = true;
+            emitPreflightFailed(deps, context, requestId, 'Prompt rejected before PI accepted the request.');
+          }
+        },
+      })
+      .catch((error: Error) => {
+        // `session.prompt()` rejected. With early ack the RPC has already
+        // resolved, so this is a post-ack failure. If streaming already started
+        // (commit point reached) it is an in-turn error → legacy `error` emit
+        // (no rollback, matching the post-commit contract). Otherwise it is a
+        // pre-commit failure → emit `preflight.failed` so the host reverts via
+        // `pending.promoted`. `preflightFailed` guards a double emit when
+        // `preflightResult(false)` already settled.
+        if (preflightFailed) return;
+        if (context.activeRequest?.currentMessageId) {
+          reportPromptFailure(deps, context, requestId, error);
+          return;
+        }
+        preflightFailed = true;
+        emitPreflightFailed(deps, context, requestId, error.message || 'Prompt failed before streaming started.');
+      });
+  } catch (syncError) {
+    // `session.prompt` threw synchronously before returning a promise — treat
+    // as a pre-ack failure: clear activeRequest and let the RPC reject so the
+    // host dispatches `SendResult{ok:false}` and reverts via `pending.ops`.
     clearActiveRequest(context, requestId);
-    throw error;
+    throw syncError;
   }
 
   return { requestId };

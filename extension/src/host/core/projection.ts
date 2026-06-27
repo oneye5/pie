@@ -1,9 +1,13 @@
 /**
  * Pure projection: ArchState → ViewState
  *
- * Derives the webview-visible shape from the CQRS state tree.
- * No memoization here — that's a later optimisation. Every call recomputes
- * from scratch, which is fine for the initial migration.
+ * Derives the webview-visible shape from the CQRS state tree. The derivation
+ * (`projectViewState`) is pure and side-effect-free — no I/O, no `Date.now`,
+ * no randomness (STATE_CONTRACT § Reducer Purity governs the reducer; the
+ * same discipline is kept here). `selectViewState` wraps it in a
+ * single-entry memoizing cache keyed by a cheap object-identity signature so
+ * unchanged-delta posts (token-rate ticks, no-op events, background session
+ * streaming) are O(1) amortized — see "Memoization" below.
  */
 
 import type {
@@ -23,7 +27,13 @@ import type {
 } from '../../shared/protocol';
 import { EMPTY_TRANSCRIPT_WINDOW } from '../../shared/protocol';
 import { pruningTotals } from '../../shared/pruning.js';
-import type { ArchState } from './arch-state';
+import type {
+  ArchState,
+  ComposerState,
+  FileChangesState,
+  SessionsState,
+  SettingsState,
+} from './arch-state';
 
 // ─── Empty sentinels (stable references keep downstream shallow-equals cheap) ─
 
@@ -109,13 +119,140 @@ export function derivePruningResult(transcript: ChatMessage[]): PruningResult | 
   return null;
 }
 
+// ─── Memoization ──────────────────────────────────────────────────────────────
+//
+// selectViewState is memoized with a single-entry cache keyed by a cheap
+// object-identity signature of the ArchState slices the projection reads.
+// Every reducer handler uses Immer `produce` (see core/reducer/*.ts), so
+// structural sharing gives a valid revision signal: a slice's reference
+// changes iff the reducer mutated that slice. Comparing the references of
+// the slices the projection reads is therefore both cheap (O(1) pointer
+// compares) and exact — a cache hit guarantees an identical ViewState, so the
+// SAME reference (and the SAME slice references) can be returned.
+//
+// Active-session scoping: the signature captures the active session's
+// transcript sub-references (bySession / windowBySession / systemPromptsBy /
+// editingMessageIdBy) rather than the whole `transcript` slice, so a
+// *background* session streaming while another is viewed does NOT bust the
+// cache for the unchanged active view. That is what keeps unchanged-delta
+// posts O(1) amortized under Brief D's higher post frequency.
+//
+// Purity: the cache is transparent memoization — selectViewState remains a
+// pure function of its input (deterministic; same input ⇒ same output
+// reference). STATE_CONTRACT § Reducer Purity governs the reducer; projection
+// keeps the same discipline, which memoization preserves.
+
+interface ProjectionSignature {
+  activeSessionPath: string | null;
+  transcriptLoaded: boolean;
+  sessions: SessionsState;
+  settings: SettingsState;
+  composer: ComposerState;
+  fileChanges: FileChangesState;
+  activeTranscript: ChatMessage[];
+  activeTranscriptWindow: TranscriptWindow;
+  activeSystemPrompts: SystemPromptEntry[];
+  activeEditingMessageId: string | null;
+  // ── Brief F seam ─────────────────────────────────────────────────────────
+  // Brief F will add `prepassPhase` / `prepassStartedAt` to the ViewState,
+  // derived from a new ArchState input (a per-session prepass clock, likely
+  // under `composer` or `pending`). When F lands it MUST add that backing
+  // reference to this signature so the cache busts iff the prepass phase
+  // changes. It is deliberately absent now: the field's mere addition to the
+  // projection must not bust the cache on its own, and a missing signature
+  // entry would let a stale phase leak — so F wires its input in explicitly.
+}
+
+function computeProjectionSignature(state: ArchState): ProjectionSignature {
+  const activePath = state.sessions.activeSessionPath;
+  const windowBySession = state.transcript.windowBySession;
+  return {
+    activeSessionPath: activePath,
+    transcriptLoaded: activePath
+      ? Object.prototype.hasOwnProperty.call(windowBySession, activePath)
+      : false,
+    sessions: state.sessions,
+    settings: state.settings,
+    composer: state.composer,
+    fileChanges: state.fileChanges,
+    activeTranscript: activePath
+      ? state.transcript.bySession[activePath] ?? EMPTY_TRANSCRIPT
+      : EMPTY_TRANSCRIPT,
+    activeTranscriptWindow: activePath
+      ? windowBySession[activePath] ?? EMPTY_TRANSCRIPT_WINDOW
+      : EMPTY_TRANSCRIPT_WINDOW,
+    activeSystemPrompts: activePath
+      ? state.transcript.systemPromptsBySession[activePath] ?? EMPTY_SYSTEM_PROMPTS
+      : EMPTY_SYSTEM_PROMPTS,
+    activeEditingMessageId: activePath
+      ? state.transcript.editingMessageIdBySession[activePath] ?? null
+      : null,
+  };
+}
+
+function signaturesEqual(a: ProjectionSignature, b: ProjectionSignature): boolean {
+  return (
+    a.activeSessionPath === b.activeSessionPath &&
+    a.transcriptLoaded === b.transcriptLoaded &&
+    a.sessions === b.sessions &&
+    a.settings === b.settings &&
+    a.composer === b.composer &&
+    a.fileChanges === b.fileChanges &&
+    a.activeTranscript === b.activeTranscript &&
+    a.activeTranscriptWindow === b.activeTranscriptWindow &&
+    a.activeSystemPrompts === b.activeSystemPrompts &&
+    a.activeEditingMessageId === b.activeEditingMessageId
+  );
+}
+
+let cachedSignature: ProjectionSignature | null = null;
+let cachedViewState: ViewState | null = null;
+
+/**
+ * Drop the projection cache. Production never needs this — the reducer always
+ * produces a fresh Immer tree, so references stay honest. Tests that mutate
+ * ArchState in place (bypassing Immer) between selectViewState calls should
+ * call this to avoid a stale cache hit.
+ */
+export function resetProjectionCache(): void {
+  cachedSignature = null;
+  cachedViewState = null;
+}
+
 // ─── Main projection ──────────────────────────────────────────────────────────
 
 /**
  * Project the full CQRS `ArchState` into the `ViewState` consumed by the
- * webview. Pure function — no side effects, no memoization.
+ * webview. Pure and memoized: a second call with an unchanged signature
+ * (same slice references) returns the SAME ViewState reference in O(1), so
+ * unchanged-delta posts pay nothing. A signature change recomputes via
+ * {@link projectViewState} with full structural sharing — unchanged slices
+ * reuse their references, keeping the webview's `pickStable` / `memo`
+ * barriers effective (see hydrateViewState).
  */
 export function selectViewState(state: ArchState): ViewState {
+  const signature = computeProjectionSignature(state);
+  if (
+    cachedViewState !== null &&
+    cachedSignature !== null &&
+    signaturesEqual(cachedSignature, signature)
+  ) {
+    return cachedViewState;
+  }
+  const viewState = projectViewState(state);
+  cachedSignature = signature;
+  cachedViewState = viewState;
+  return viewState;
+}
+
+/**
+ * Pure, un-memoized derivation of the ViewState from ArchState. Structural
+ * sharing is inherent: pass-through fields reuse their ArchState references
+ * and empty cases reuse the EMPTY_* sentinels, so callers that compare slice
+ * references (e.g. the webview `pickStable` barrier) see stability across
+ * recomputes that leave a slice untouched.
+ */
+function projectViewState(state: ArchState): ViewState {
   const { sessions, transcript, settings, composer, fileChanges } = state;
   const activePath = sessions.activeSessionPath;
 

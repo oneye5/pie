@@ -157,6 +157,7 @@ test('arch: concurrent sends across different sessions do not interfere', () => 
     localId: 'loc-a',
     previousSummary: null,
     text: 'text-a',
+    inputs: [],
   });
   assert.deepEqual(result.state.pending.ops['c-b'], {
     kind: 'send',
@@ -164,6 +165,7 @@ test('arch: concurrent sends across different sessions do not interfere', () => 
     localId: 'loc-b',
     previousSummary: null,
     text: 'text-b',
+    inputs: [],
   });
 });
 

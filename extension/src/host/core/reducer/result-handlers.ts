@@ -41,10 +41,18 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
   const { [event.corrId]: _removed, ...restOps } = state.pending.ops;
 
   if (event.ok) {
-    // Success: clear composer inputs directly + remove pending op
-    // Also record requestId→localId mapping for optimistic ID finalization.
+    // Early-ack success: the prompt was queued. The rollback snapshot MOVES
+    // to `pending.promoted` (it is NOT deleted) so a post-ack prepass failure
+    // (`PreflightFailed`) can still roll back via `promoted[corrId]`. The
+    // snapshot is dropped at the commit point (first `MessageStarted` for the
+    // requestId) — see STATE_CONTRACT § Optimistic Reconciliation "Two failure
+    // windows for send".
     const nextState = produce(state, (draft) => {
       draft.pending.ops = restOps;
+      draft.pending.promoted[event.corrId] = {
+        ...pending,
+        ...(event.requestId ? { requestId: event.requestId } : {}),
+      };
       delete draft.composer.pendingComposerInputsBySession[pending.sessionPath];
       if (event.requestId) {
         draft.pending.requestIdToLocalId[event.requestId] = {
@@ -91,6 +99,103 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
   return { state: nextState, effects };
 }
 
+/**
+ * Post-ack, pre-commit prepass failure (the `message.send` RPC succeeded but
+ * the pruning prepass then failed). Reverts the promoted send via
+ * `pending.promoted[corrId]`: removes the optimistic transcript entry, restores
+ * the session summary, restores `pendingComposerInputsBySession` from the
+ * promoted `inputs` snapshot, clears `requestIdToLocalId`, fires a
+ * `sendRejected` imperative, and surfaces a plain-language error. A later
+ * failure (after the commit point) is an in-turn error, never a rollback.
+ *
+ * `corrId` resolution: the backend prepass-failure bridge dispatches WITHOUT
+ * `corrId` (the backend mints `requestId` but never sees the host corrId), so
+ * the reducer scans `pending.promoted` for the matching `requestId`. Brief B's
+ * send-timer dispatches WITH `corrId`. See STATE_CONTRACT § Optimistic
+ * Reconciliation "Two failure windows for send".
+ */
+export function handlePreflightFailed(state: ArchState, event: Extract<Event, { kind: 'PreflightFailed' }>): ReducerResult {
+  let corrId = event.corrId;
+  let promoted = corrId ? state.pending.promoted[corrId] : undefined;
+  if (!promoted) {
+    for (const [cid, op] of Object.entries(state.pending.promoted)) {
+      if (op.requestId === event.requestId) {
+        corrId = cid;
+        promoted = op;
+        break;
+      }
+    }
+  }
+  // Stale/unknown: the send already committed (promoted dropped at the commit
+  // point) or was never promoted — a later failure is an in-turn error, not a
+  // rollback. No-op (the in-turn error path surfaces its own notice).
+  if (!corrId || !promoted) return { state, effects: [] };
+
+  const { [corrId]: _removed, ...restPromoted } = state.pending.promoted;
+  const snapshot = promoted;
+
+  // Fire sendRejected (send ops only) so the webview removes its optimistic
+  // overlay entry and restores the draft text. Edits do NOT fire sendRejected
+  // — matching the legacy pre-ack `EditResult{ok:false}` path (the inline
+  // editor is already closed by the Edit command; restoring the edited text
+  // to the composer draft would be a UX change Brief E owns). The `inputs`
+  // payload on sendRejected is owned by Brief C (protocol field + webview
+  // restore); the host-side composer-input restore below is this brief's
+  // concern.
+  const effects: Effect[] =
+    snapshot.kind === 'send'
+      ? [
+          {
+            kind: 'PostImperative',
+            corrId,
+            imperativeMessage: {
+              type: 'sendRejected',
+              sessionPath: snapshot.sessionPath,
+              text: snapshot.text ?? '',
+              localId: snapshot.localId,
+            },
+          },
+        ]
+      : [];
+
+  const nextState = produce(state, (draft) => {
+    draft.pending.promoted = restPromoted;
+    // Remove optimistic user message from transcript
+    removeMessage(draft, snapshot.sessionPath, snapshot.localId);
+    // Clear the host-side optimistic running state set at Send time
+    draft.sessions.runningSessionPaths = removeFromArray(
+      draft.sessions.runningSessionPaths,
+      snapshot.sessionPath,
+    );
+    // The send will never stream — drop its requestId→localId mapping
+    if (event.requestId) {
+      delete draft.pending.requestIdToLocalId[event.requestId];
+    }
+    // Restore composer inputs from the promoted snapshot so a retry can re-send
+    // them (no data loss). Brief C wires the webview-side restore.
+    if (snapshot.inputs && snapshot.inputs.length > 0) {
+      draft.composer.pendingComposerInputsBySession[snapshot.sessionPath] = [...snapshot.inputs];
+    }
+    // Surface a plain-language error (Brief H refines the copy). Kind-aware so
+    // an edit failure reads as an edit failure (matches the legacy wording).
+    draft.settings.notice =
+      snapshot.kind === 'edit'
+        ? `Failed to edit message: ${event.error ?? 'the prompt was rejected before it began.'}`
+        : `Failed to start this turn: ${event.error ?? 'the prompt was rejected before it began.'}`;
+    // Restore session summary if the optimistic send had renamed it
+    if (snapshot.previousSummary) {
+      const idx = draft.sessions.sessions.findIndex((s) => s.path === snapshot.previousSummary!.path);
+      if (idx >= 0) {
+        draft.sessions.sessions[idx] = snapshot.previousSummary;
+      } else {
+        draft.sessions.sessions.push(snapshot.previousSummary);
+      }
+    }
+  });
+
+  return { state: nextState, effects };
+}
+
 export function handleEditResult(state: ArchState, event: Extract<Event, { kind: 'EditResult' }>): ReducerResult {
   const pending = state.pending.ops[event.corrId];
   if (!pending) return { state, effects: [] };
@@ -98,10 +203,19 @@ export function handleEditResult(state: ArchState, event: Extract<Event, { kind:
   const { [event.corrId]: _removed, ...restOps } = state.pending.ops;
 
   if (event.ok) {
-    const nextState = {
-      ...state,
-      pending: { ...state.pending, ops: restOps },
-    };
+    // Early-ack success (mirrors handleSendResult): the prompt was queued.
+    // The rollback snapshot MOVES to `pending.promoted` (not deleted) so a
+    // post-ack prepass failure (`PreflightFailed`) can still roll back the
+    // edit. Dropped at the commit point (first `MessageStarted` for the
+    // requestId). See STATE_CONTRACT § Optimistic Reconciliation "Two failure
+    // windows for send" — edit follows the same phase-scoped shape.
+    const nextState = produce(state, (draft) => {
+      draft.pending.ops = restOps;
+      draft.pending.promoted[event.corrId] = {
+        ...pending,
+        ...(event.requestId ? { requestId: event.requestId } : {}),
+      };
+    });
     return { state: nextState, effects: [] };
   }
 

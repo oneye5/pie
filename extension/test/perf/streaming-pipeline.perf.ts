@@ -6,7 +6,8 @@
  * the REAL CQRS pipeline:
  *
  *   dispatch()          ── pure reducer (O(transcript) find per delta today)
- *   selectViewState()   ── pure projection (un-memoized; O(transcript) walk)
+ *   selectViewState()   ── pure projection (memoized; O(1) on unchanged-delta
+ *                          posts, O(transcript) recompute on a genuine delta)
  *   buildStateEnvelope()── pure snapshot builder
  *   structuredClone()    ── proxy for webview.postMessage clone cost
  *

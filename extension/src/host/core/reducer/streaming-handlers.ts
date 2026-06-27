@@ -36,6 +36,17 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
       // assistant message ID, not the user message ID. Reconciliation will be
       // handled when the backend echoes localId back in a future event.
       delete draft.pending.requestIdToLocalId[requestId];
+      // Commit point: a promoted (early-acked) send has started streaming —
+      // drop its rollback snapshot. A later failure becomes an in-turn error,
+      // never a rollback (see STATE_CONTRACT § Optimistic Reconciliation "Two
+      // failure windows for send"). MessageStarted carries requestId and
+      // precedes any Delta, so it is the precise commit point.
+      for (const [cid, op] of Object.entries(draft.pending.promoted)) {
+        if (op.requestId === requestId) {
+          delete draft.pending.promoted[cid];
+          break;
+        }
+      }
     }
 
     // Ensure assistant message in transcript

@@ -219,6 +219,18 @@ export interface ErrorPayload {
   requestId?: string;
 }
 
+/** Post-ack, pre-commit prepass failure payload. Emitted by the backend when
+ *  `message.send` has already early-acked (the prompt was queued) but the
+ *  pruning prepass then fails. Carries `requestId` (not the host `corrId` —
+ *  the backend never sees it); the host reducer resolves `corrId` from
+ *  `pending.promoted`. See `docs/STATE_CONTRACT.md` § Optimistic
+ *  Reconciliation "Two failure windows for send". */
+export interface PreflightFailedPayload {
+  requestId: string;
+  sessionPath: string;
+  error: string;
+}
+
 export type FileChangeKind = 'created' | 'modified' | 'deleted';
 
 export interface FileChangeEntry {

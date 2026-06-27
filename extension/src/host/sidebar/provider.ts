@@ -25,7 +25,17 @@ import { validateWebviewToHostMessage } from '../../shared/protocol-validation';
 
 /** Debounce window for batching rapid store changes into a single snapshot post. */
 const SCHEDULE_DEBOUNCE_MS = 50;
-/** Debounce window while sessions are actively streaming. */
+/**
+ * Debounce window while sessions are actively streaming.
+ *
+ * ── Brief D seam (UX_RELIABILITY_PLAN §6) ──────────────────────────────────
+ * Brief D may lower this toward 50–80 now that Brief G memoizes
+ * `selectViewState`: unchanged-delta posts (token-rate ticks, no-op events,
+ * background-session streaming) are O(1) amortized, so posting more often no
+ * longer pays the O(transcript) projection cost. Lower it ONLY from Brief D,
+ * alongside that brief's webview revision/length-identity guard work which
+ * owns this constant — Brief G deliberately leaves the number unchanged.
+ */
 const STREAMING_SCHEDULE_DEBOUNCE_MS = 150;
 
 /**

@@ -94,6 +94,11 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
   // (instead of waiting for the backend's agent_start event which fires
   // after the pruning prepass).
   const nextRunningPaths = addToArray(state.sessions.runningSessionPaths, cmd.sessionPath);
+  // Snapshot the pending composer inputs onto the optimistic op so the
+  // promoted rollback snapshot (after early-ack) carries them — a post-ack
+  // PreflightFailed restores them to the composer host state, and Brief C
+  // wires the webview `sendRejected.inputs` restore from the same payload.
+  const inputsSnapshot = state.composer.pendingComposerInputsBySession[cmd.sessionPath] ?? [];
   const nextState = produce(state, (draft) => {
     appendLocalUserMessage(draft, cmd.sessionPath, cmd.localId, cmd.composedText, cmd.userParts, new Date(cmd.timestamp).toISOString());
     draft.pending.ops[cmd.corrId] = {
@@ -102,6 +107,7 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
       localId: cmd.localId,
       previousSummary: cmd.previousSummary,
       text: cmd.text,
+      inputs: [...inputsSnapshot],
     };
     draft.sessions.runningSessionPaths = nextRunningPaths;
     delete draft.composer.draftTextBySession[cmd.sessionPath];

@@ -9,6 +9,7 @@ import type {
   MessageFinishedPayload,
   MessageStartedPayload,
   MessageThinkingPayload,
+  PreflightFailedPayload,
 } from '../../../shared/protocol';
 import type { TurnThroughputStatus } from '../../run-analytics';
 
@@ -156,4 +157,28 @@ export function onMessageAborted(payload: MessageAbortedPayload, deps: HandlerDe
 
   deps.runObserver.onInterrupted(sessionPath);
   deps.state.touchSessionTranscript(sessionPath);
+}
+
+/**
+ * Post-ack, pre-commit prepass failure: `message.send` already early-acked
+ * (prompt queued) but the pruning prepass then failed. Forward as a
+ * `PreflightFailed` reducer event so the reducer reverts via
+ * `pending.promoted[corrId]` (resolved by `requestId`). The backend mints
+ * `requestId` but never sees the host `corrId`, so no `corrId` is dispatched
+ * here; the reducer resolves it. (Brief B's send-timer dispatches the same
+ * event WITH `corrId`.) See `docs/STATE_CONTRACT.md` § Optimistic
+ * Reconciliation "Two failure windows for send".
+ */
+export function onPreflightFailed(payload: PreflightFailedPayload, deps: HandlerDeps): void {
+  const sessionPath = deps.requireEventSessionPath('preflight.failed', payload.sessionPath);
+  if (!sessionPath) {
+    return;
+  }
+
+  deps.dispatchArch({
+    kind: 'PreflightFailed',
+    sessionPath,
+    requestId: payload.requestId,
+    error: payload.error,
+  });
 }

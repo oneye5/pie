@@ -10,6 +10,7 @@ import type {
   MessageFinishedPayload,
   MessageStartedPayload,
   MessageThinkingPayload,
+  PreflightFailedPayload,
   SessionListChangedPayload,
   SessionOpenedPayload,
   ToolFinishedPayload,
@@ -27,6 +28,7 @@ import {
   isMessageFinishedPayload,
   isMessageStartedPayload,
   isMessageThinkingPayload,
+  isPreflightFailedPayload,
   isSessionListChangedPayload,
   isSessionOpenedPayload,
   isToolFinishedPayload,
@@ -46,6 +48,7 @@ export interface SessionBackendEventHandlers {
   onMessageFinished(payload: MessageFinishedPayload): void;
   onCustomMessage(payload: CustomMessagePayload): void;
   onMessageAborted(payload: MessageAbortedPayload): void;
+  onPreflightFailed(payload: PreflightFailedPayload): void;
   onBusyChanged(payload: BusyChangedPayload): void;
   onContextUsageChanged(payload: ContextUsageChangedPayload): void;
   onExtensionUIRequest(payload: ExtensionUIRequestPayload): void;
@@ -110,6 +113,9 @@ export function dispatchSessionBackendEvent(
       return;
     case 'message.aborted':
       dispatch(event, isMessageAbortedPayload, handlers.onMessageAborted);
+      return;
+    case 'preflight.failed':
+      dispatch(event, isPreflightFailedPayload, handlers.onPreflightFailed);
       return;
     case 'busy.changed':
       dispatch(event, isBusyChangedPayload, handlers.onBusyChanged);
