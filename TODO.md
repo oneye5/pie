@@ -450,3 +450,30 @@ New deferred follow-ups (from this pass):
   `d49fbcf`): co-located `filterKeepCatalog` (its only consumer) with the picker
   in `components/always-keep-picker.tsx` so the move needs no `components/ →
   composer/` back-dependency; barrel re-exports preserved.
+
+---
+
+# UX & Reliability Remediation — planned (2026-06-27)
+
+Plan: `docs/UX_RELIABILITY_PLAN.md`. Wave-orchestrated briefs targeting the
+`Failed to send message: Timed out waiting for response to req-NN` errors,
+clunky edit/interrupt/multi-prompt UX, stale-state ("old + new message at
+once"), pasted-image stickiness, pruning-prepass slowness, and general
+fragility — judged against Nielsen's 10 usability heuristics. Status:
+planned (none started). Waves & buckets:
+
+| Brief | Issue | Wave | Bucket | Depends on |
+|---|---|---|---|---|
+| A | Decouple `message.send` RPC from pruning prepass (root cause of req-NN timeout + image stick + prepass perception) | 1 | frontier | — |
+| B | Request timeout strategy & correlation hardening (de-dupe the 30s/60s racing timers; dropped-line diagnostics; cancel hook) | 1 | frontier | — |
+| C | Optimistic lifecycle for composer inputs (pasted-image stickiness) | 2 | medium | A |
+| F | Pruning prepass UX: live, cancelable status indicator + skip/bypass | 2 | medium | A, E |
+| E | Edit / interrupt UX clunkiness (instant interrupt, no truncate-flash, queued-state) | 2 | medium | A, B |
+| G | Projection memoization & render-path perf (O(1) unchanged-delta projection) | 2 | medium | — |
+| D | Stale-state / "old + new message at once" (revision-gated watchdog self-heal while streaming; length/identity guards; debounce tuning) | 3 | frontier | G |
+| H | Error prevention, messaging & graceful degradation (no `req-NN` in UI; plain-language errors + recovery actions) | 3 | medium | A, B |
+
+Execution: spawn Wave 1 (A, B) in parallel `frontier` workers → `reviewer`
+gate → rebuild + smoke test → Wave 2 (C, E, F, G) parallel → gate → Wave 3
+(D, H) parallel → gate. Preserve all `STATE_CONTRACT.md` invariants (§11 of
+the plan); any relaxation must update the contract in the same change.
