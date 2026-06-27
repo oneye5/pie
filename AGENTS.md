@@ -27,3 +27,11 @@ _Avoid_: bucket leaderboard, model ranker
 
 **Complexity score** — a per-run 0–1 heuristic computed from observable signals (lines changed, files touched, tool calls, duration, etc.) used to split runs into low/medium/high bands for stratified ranking.
 _Avoid_: difficulty score, task weight
+
+### Chat / RPC lifecycle
+
+**Prepass** — the pruning-context LLM call run by the `skill-pruner` extension (a `before_agent_start` extension). The canonical user-facing term: `PruningDetails` (`prepassModel`, `prepassLatencyMs`, `prepassError`, `prepassTimeoutSec`), the settings menu, and the webview pruning components all say "prepass".
+_Avoid_: preflight (when describing the pruning LLM call itself)
+
+**Preflight** — the SDK's `before_agent_start` acceptance gate, surfaced via the `preflightResult` callback. An RPC/host-internal term, not user-facing. `preflightResult` fires after *all* `before_agent_start` extensions accept the prompt (the prepass is one of them), so it is broader than "prepass finished." The `PreflightFailed` event and `pending.promoted` post-ack rollback window (see `STATE_CONTRACT.md`) are named for the gate, not the prepass specifically.
+_Avoid_: prepass (when describing the gate/callback or the post-ack failure window)

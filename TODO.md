@@ -468,12 +468,53 @@ planned (none started). Waves & buckets:
 | B | Request timeout strategy & correlation hardening (de-dupe the 30s/60s racing timers; dropped-line diagnostics; cancel hook) | 1 | frontier | — |
 | C | Optimistic lifecycle for composer inputs (pasted-image stickiness) | 2 | medium | A |
 | F | Pruning prepass UX: live, cancelable status indicator + skip/bypass | 2 | medium | A, E |
-| E | Edit / interrupt UX clunkiness (instant interrupt, no truncate-flash, queued-state) | 2 | medium | A, B |
+| E | Edit / interrupt UX clunkiness (instant interrupt, no truncate-flash; second send rejected with clear message, no queue) | 2 | medium | A, B |
 | G | Projection memoization & render-path perf (O(1) unchanged-delta projection) | 2 | medium | — |
-| D | Stale-state / "old + new message at once" (revision-gated watchdog self-heal while streaming; length/identity guards; debounce tuning) | 3 | frontier | G |
+| D | Stale-state / "old + new message at once" (webview revision + length/identity guards made total; G-enabled debounce cut; watchdog **unchanged** — resnapshot already self-heals while streaming, force-reload suppression is a correct invariant) | 3 | frontier | G |
 | H | Error prevention, messaging & graceful degradation (no `req-NN` in UI; plain-language errors + recovery actions) | 3 | medium | A, B |
 
 Execution: spawn Wave 1 (A, B) in parallel `frontier` workers → `reviewer`
 gate → rebuild + smoke test → Wave 2 (C, E, F, G) parallel → gate → Wave 3
 (D, H) parallel → gate. Preserve all `STATE_CONTRACT.md` invariants (§11 of
 the plan); any relaxation must update the contract in the same change.
+
+## Grilling decisions (2026-06-27, `grill-with-docs` skill)
+Decisions recorded inline in `STATE_CONTRACT.md` + `docs/UX_RELIABILITY_PLAN.md`;
+terminology in `AGENTS.md`. Summary:
+
+1. **Brief A post-ack prepass failure** — distinct `PreflightFailed` event (not a
+   reused `SendResult{ok:false}`); rollback snapshot retained in a new
+   `pending.promoted[corrId]` past the ack; **commit point = first streaming `Delta`**
+   for the `requestId`, after which a failure is an in-turn error, not a rollback.
+   (`STATE_CONTRACT.md` § Optimistic Reconciliation now has a "Two failure windows"
+   subsection.)
+2. **Brief E second send** — reject with a clear plain-language message; **no
+   deferred-prompt queue** (the FIFO-queue acceptance criterion was an invented
+   requirement). `Execution Ordering` unchanged.
+3. **Brief B timers** — **phase-scoped, not "single timer"**: short `req-XX` owns
+   pre-ack; one send-timer owns pre-ack-to-first-delta and dispatches
+   `PreflightFailed` on timeout; both cleared by the commit-point event. The
+   original "two racing timers" framing is mooted by Brief A's early ack.
+   (`STATE_CONTRACT.md` § Optimistic Reconciliation "Timer ownership" bullet.)
+4. **Brief D re-diagnosis** — the watchdog's `runningCount > 0` suppression is **a
+   correct invariant, not the prime suspect**. The resnapshot path already self-heals
+   while streaming; only the nuclear force-reload is suppressed, and that prevents
+   the very "old + new at once" symptom. Brief D re-anchored on webview revision +
+   length/identity guards (made total) + G-enabled debounce cut. Watchdog untouched.
+   (`STATE_CONTRACT.md` § Snapshot Recovery new bullet.)
+5. **Brief F live chip** — host-timer-driven (start at send dispatch; clear on
+   earliest of {first `message.custom`, `PreflightFailed`, commit-point `Delta`});
+   `message.custom` fires on completion, not start, so it cannot drive the chip.
+   `prepassPhase`/`prepassStartedAt` live in host ViewState (webview stays passive).
+6. **Terminology** — `prepass` (the pruning LLM call, user-facing) vs `preflight`
+   (the SDK `before_agent_start` acceptance gate / `preflightResult` callback,
+   host-internal; broader than just the prepass). Plan no longer uses them
+   interchangeably. (`AGENTS.md` § Terminology → Chat / RPC lifecycle.)
+
+## Cross-repo follow-up (out of this repo's scope)
+- **SDK `preflightStarted` event** in `@earendil-works/pi-coding-agent` /
+  `skill-pruner`. Today there is no SDK event at prepass start; the host infers it
+  at send dispatch. A real `preflightStarted` event would replace the inferred
+  start with a precise signal for Brief F's chip. **Refinement, not a blocker** —
+  the host-timer chip ships first; consume the SDK event when it lands. Coordinated
+  PR to the other repo; not executable by in-repo `worker` subagents.

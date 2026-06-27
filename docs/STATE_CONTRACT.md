@@ -32,6 +32,7 @@
 - When visibility returns, the next host-to-webview sync is a full snapshot.
 - The webview clears overlay/transient UI when the host instance changes or the active session changes.
 - A busy `session.opened` refresh may update tab/session metadata, but it must not discard in-memory optimistic or streaming transcript state that is newer than the backend snapshot.
+- **Watchdog force-reload suppression while streaming is a correct invariant, not a bug.** The `StateAppliedWatchdog` first does a revision-gated **resnapshot** (re-post the dirty snapshot) on a missed ack — this runs regardless of running count and is the self-healing path. Only the *consecutive-timeout* **force-reload** is suppressed when `runningCount > 0`, because a mid-stream reload discards transient streaming state and produces the exact "old + new at once" symptom. Do not remove this suppression. Lowering streaming debounce (Brief G-enabled) and making webview revision/length-identity guards total are the correct levers; the watchdog is not.
 
 ## Execution Ordering
 
@@ -51,10 +52,27 @@
 ## Optimistic Reconciliation
 
 - Optimistic mutations (send, edit) are tagged with a `corrId` that correlates the command, the pending state entry, and the eventual `EffectResult`.
-- `state.pending: Record<corrId, PendingOp>` tracks in-flight optimistic operations with rollback snapshots.
+- `state.pending.ops: Record<corrId, PendingOp>` tracks in-flight optimistic operations with rollback snapshots.
 - On RPC success: promote pending → authoritative (clear `corrId` tag, finalize backend-assigned id).
-- On RPC failure: revert via `state.pending[corrId].snapshot`, drop entry.
+- On RPC failure: revert via `state.pending.ops[corrId]` — remove the optimistic transcript entry by `localId`, restore `previousSummary`, fire a `sendRejected` imperative, drop the entry.
 - Backend events arriving before `SendRpcResult` are applied normally — the pending user message is already in the transcript, so assistant deltas append after it.
+
+### Two failure windows for `send` (target state — Brief A/C, not yet implemented)
+
+> The following describes the **target** state after Briefs A and C land. Today `message.send`
+> resolves only after the prepass and there is no `pending.promoted`; this subsection specifies
+> what the early-ack design must uphold. `state.pending.promoted` does not exist in code yet.
+
+`message.send` will resolve as soon as the prompt is *queued* (before the pruning prepass), so an optimistic send will have two failure windows, not one:
+
+1. **Pre-ack failure** — the `message.send` RPC itself rejects. Revert via `state.pending.ops[corrId]`, exactly as the legacy contract describes. `SendResult{ok:false}` is the trigger.
+2. **Post-ack, pre-commit failure** — the RPC succeeded but the prepass then fails. The trigger is a dedicated `PreflightFailed{corrId, sessionPath, requestId, error}` event, **not** a reused `SendResult{ok:false}` (the RPC genuinely succeeded; the prepass is a distinct phase). On `SendResult{ok:true}` the rollback snapshot is **not** deleted — it moves from `state.pending.ops[corrId]` to `state.pending.promoted[corrId]`, which retains the snapshot and composer-input restore payload until the turn commits.
+
+**Commit point:** a promoted send commits at the **first streaming event** (`MessageStarted`/first `Delta`) for its `requestId`. At that point `pending.promoted[corrId]` is dropped and a later prepass/turn failure becomes an in-turn error (surfaced by the error mapper), never a rollback. This bounds the rollback window so a flaky prepass cannot yank a turn the user has already watched start streaming.
+
+A post-ack, pre-commit `PreflightFailed` must: remove the optimistic transcript entry by `pending.promoted[corrId].localId`, restore `pending.promoted[corrId].previousSummary`, restore `pendingComposerInputsBySession[sessionPath]` from `pending.promoted[corrId].inputs`, clear `pending.requestIdToLocalId[requestId]`, fire a `sendRejected` imperative (carrying `inputs`), and surface a plain-language error.
+
+**Timer ownership:** a send has two phase-scoped timers, never racing. A short `RequestTracker` timeout owns the pre-ack (queue-time) RPC; its rejection is the pre-ack failure window. One send-timer owns the pre-ack-to-first-delta phase; it is started at RPC dispatch and cleared at the commit point (first streaming `Delta` for the `requestId`), and on fire it dispatches `PreflightFailed`. Both timers are short-circuited by the same commit-point event, so they can never both fire for one send. `edit` follows the same phase-scoped shape.
 
 ## Webview-Local State
 
