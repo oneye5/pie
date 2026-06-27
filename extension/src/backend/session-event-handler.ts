@@ -124,7 +124,15 @@ export function handleSdkSessionEvent(
         context.activeRequest.providerFirstDeltaAt = Date.now();
       }
 
-      deps.emitContextUsageChanged(context);
+      // Do NOT emitContextUsageChanged here. Deriving the context-window
+      // footprint resolves the full session branch (sessionManager.getBranch()),
+      // which is O(branch length) per call — and quadratic in the SDK today
+      // (repeated Array.unshift). Calling it on every text/thinking delta made
+      // streaming O(n²) per token: replies stalled on long conversations
+      // regardless of provider. The footprint only steps forward when a new
+      // assistant usage lands, which happens at message_end (and agent_start /
+      // tool_execution_end) — those call emitContextUsageChanged. Usage never
+      // arrives on a message_update, so recomputing here is pure waste.
       return;
     }
 
@@ -167,7 +175,11 @@ export function handleSdkSessionEvent(
         toolCallId: event.toolCallId ?? '',
         partialResult: event.partialResult,
       } satisfies ToolProgressPayload);
-      deps.emitContextUsageChanged(context);
+      // Same rationale as message_update above: the context-window footprint
+      // is static during tool execution (no new assistant usage until
+      // message_end), and tool_execution_update can fire repeatedly for
+      // streaming-output tools (e.g. long bash output) — each call would
+      // re-resolve the O(n) getBranch() for no benefit. message_end refreshes it.
       return;
     }
 

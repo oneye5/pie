@@ -43,6 +43,23 @@ planned / scouting / in progress / in review / done / deferred.
   dedup (`coerceToolUsageRollup` etc.) is left as a follow-up.
 
 ## Discovered follow-ups (not in original backlog)
+- **Streaming perf — SDK `SessionManager.getBranch()` is O(n²) (quadratic)**
+  due to repeated `Array.unshift` in its leaf→root walk. Root cause of the pie
+  extension "chugging regardless of provider" on long conversations: the pie
+  backend called `emitContextUsageChanged` → `deriveContextUsageFromBranch(
+  getBranch(), …)` on EVERY `message_update` token, making streaming O(n²)
+  per token (measured: 5µs→2.6ms per call from 100→4000 branch entries; ×4 per
+  doubling). Fixed on the pie side — `session-event-handler.ts` no longer
+  calls `emitContextUsageChanged` on deltas (usage only lands at
+  `message_end`). The SDK `getBranch()` itself remains O(n²); now only hit per
+  turn (context build / compaction / branch ops) which is tolerable, but
+  should be made O(n) (build with `push` + single `reverse`, or index from
+  root) in the `@earendil-works/pi-coding-agent` repo to defuse the latent
+  quadratic for very long sessions and to benefit the pi CLI/TUI.
+- **Stray stderr debug in `session-event-handler.ts` `tool_execution_start`**
+  (`process.stderr.write` per tool call, captured into the host's 64KB stderr
+  ring buffer). Not a perf issue (per tool call, not per token) but is debug
+  litter; remove when file-changes tracking debug is no longer needed.
 - **`pruning-settings.ts:24` `VALID_MODES`** omits `'custom'` (mirrors the
   `VALID_PRUNING_MODES` drift W2a fixed in protocol-validation). Host-side
   persistence may reject a `custom` pruning mode. Fix in a follow-up.

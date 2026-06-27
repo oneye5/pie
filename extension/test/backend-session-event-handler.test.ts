@@ -124,7 +124,68 @@ test('message_start and message_update emit assistant events and update request 
     messageId: 'req-1:1',
     thinking: 'Reasoning',
   });
-  assert.equal(getContextUsageChangedCount(), 5);
+  // agent_start + message_start only — message_update deltas no longer
+  // recompute context usage (was 5: each delta called emitContextUsageChanged).
+  assert.equal(getContextUsageChangedCount(), 2);
+});
+
+test('streaming deltas and tool progress do not recompute context usage (avoids O(n) getBranch per token)', () => {
+  // Regression: emitContextUsageChanged resolves the session branch
+  // (sessionManager.getBranch()) to derive the context-window footprint.
+  // getBranch() walks leaf→root calling Array.unshift each step, so it is
+  // O(branch length) per call — and quadratic in the SDK today. Calling it
+  // on every text/thinking delta (and every tool-progress event) made
+  // streaming O(n²) per token: replies ground to a halt on long
+  // conversations regardless of provider. The footprint only steps forward
+  // when a new assistant usage lands (message_end), so deltas and tool
+  // progress must NOT trigger the recomputation.
+  const { deps, getContextUsageChangedCount } = createDeps();
+  const context = createContext({
+    activeRequest: {
+      id: 'req-delta',
+      messageIndex: 0,
+      modelId: 'claude-test',
+      thinkingLevel: 'medium',
+      aborted: false,
+    },
+  });
+
+  handleSdkSessionEvent(deps, context, { type: 'agent_start' });
+  handleSdkSessionEvent(deps, context, { type: 'message_start', message: { role: 'assistant' } });
+  const beforeDeltas = getContextUsageChangedCount(); // agent_start + message_start
+
+  // A burst of streaming deltas must not add any context-usage recomputation.
+  for (let i = 0; i < 50; i++) {
+    handleSdkSessionEvent(deps, context, {
+      type: 'message_update',
+      message: { role: 'assistant' },
+      assistantMessageEvent: { type: 'text_delta', delta: `token${i} ` },
+    });
+  }
+  assert.equal(getContextUsageChangedCount(), beforeDeltas, 'deltas must not recompute context usage');
+
+  // Streaming tool-progress events must not recompute context usage either
+  // (tool_execution_update can fire repeatedly for streaming-output tools).
+  for (let i = 0; i < 20; i++) {
+    handleSdkSessionEvent(deps, context, {
+      type: 'tool_execution_update',
+      toolCallId: 'tool-1',
+      partialResult: `chunk ${i}`,
+    });
+  }
+  assert.equal(getContextUsageChangedCount(), beforeDeltas, 'tool progress must not recompute context usage');
+
+  // message_end is where usage actually lands → recomputation is expected there.
+  handleSdkSessionEvent(deps, context, {
+    type: 'message_end',
+    message: {
+      role: 'assistant',
+      content: [{ type: 'text', text: 'done' }],
+      stopReason: 'end_turn',
+      usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+    },
+  } as SdkSessionEvent);
+  assert.ok(getContextUsageChangedCount() > beforeDeltas, 'message_end recomputes context usage');
 });
 
 test('tool execution events emit progress only when an active assistant message exists', () => {
@@ -188,7 +249,9 @@ test('tool execution events emit progress only when an active assistant message 
     durationMs: (emitted[2]?.payload as { durationMs: number }).durationMs,
   });
   assert.equal(typeof (emitted[2]?.payload as { durationMs: number }).durationMs, 'number');
-  assert.equal(getContextUsageChangedCount(), 3);
+  // tool_execution_start + tool_execution_end only — tool_execution_update
+  // no longer recomputes context usage (was 3).
+  assert.equal(getContextUsageChangedCount(), 2);
 });
 
 test('message_end emits finished and aborted payloads and clears the current message id', () => {
@@ -440,7 +503,9 @@ test('message_update emits thinking content from the explicit thinking field and
       thinking: 'full reasoning',
     },
   }]);
-  assert.equal(getContextUsageChangedCount(), 1);
+  // message_update no longer recomputes context usage; the tool_execution_start
+  // below targets a request with no lastAssistantMessageId, so it early-returns.
+  assert.equal(getContextUsageChangedCount(), 0);
 });
 
 test('tool execution and message end events cover completed payloads and fallback message ids', () => {
