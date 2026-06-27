@@ -31,6 +31,7 @@ import {
 } from './contracts.ts';
 import { ensureDir, writeJsonFile } from './fs-utils.ts';
 import { createModelLeaderboard } from './leaderboard.ts';
+import { parseJsonOrThrow } from '../../shared/error-message.js';
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
@@ -878,7 +879,7 @@ export function validateSiteDataBundle(bundle: SiteDataBundle): void {
 export async function readSiteDataBundle(outputDir: string): Promise<SiteDataBundle> {
   await assertNoUnexpectedSiteDataFiles(outputDir);
   const fileMap = await Promise.all(SITE_DATA_FILE_NAMES.map(async (fileName) => {
-    const content = JSON.parse(await fs.readFile(path.join(outputDir, fileName), 'utf8')) as unknown;
+    const content = parseJsonOrThrow<unknown>(await fs.readFile(path.join(outputDir, fileName), 'utf8'), path.join(outputDir, fileName));
     return [fileName, content] as const;
   }));
   const files = Object.fromEntries(fileMap) as Record<SiteDataFileName, unknown>;

@@ -17,6 +17,7 @@ import type {
   SimpleModelConfig,
   ThinkingLevel,
 } from "./bridge.js";
+import { parseJsonOrThrow } from "../../shared/error-message.js";
 
 // Re-export ThinkingLevel for consumers (agent frontmatter parsing, etc.).
 export type { ThinkingLevel };
@@ -111,7 +112,7 @@ export function loadModelConfig(configPath: string): SimpleModelConfig[] {
     return parsed.profiles ?? [];
   }
   const raw = readFileSync(configPath, "utf-8");
-  const parsed = JSON.parse(raw) as { profiles?: SimpleModelConfig[] };
+  const parsed = parseJsonOrThrow<{ profiles?: SimpleModelConfig[] }>(raw, "model profiles");
   return parsed.profiles ?? [];
 }
 
@@ -123,7 +124,7 @@ export function parseProviderToggles(
   if (!raw) return {};
 
   try {
-    const parsed = JSON.parse(raw) as unknown;
+    const parsed = parseJsonOrThrow<unknown>(raw, "provider toggles");
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
       return {};
 

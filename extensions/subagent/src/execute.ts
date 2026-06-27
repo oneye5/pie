@@ -5,6 +5,7 @@
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
+import { parseJsonOrThrow } from "../../../shared/error-message.js";
 import { type AgentConfig, type AgentScope, discoverAgents } from "../agents.js";
 import {
 	readRuntimeContext,
@@ -58,7 +59,7 @@ export function readAlwaysParentModel(): boolean {
 export function readConfirmDefaultFromSettings(settingsPath: string): boolean | undefined {
 	if (!existsSync(settingsPath)) return undefined;
 	try {
-		const parsed = JSON.parse(readFileSync(settingsPath, "utf-8")) as Record<string, unknown>;
+		const parsed = parseJsonOrThrow<Record<string, unknown>>(readFileSync(settingsPath, "utf-8"), settingsPath);
 		const subagent = parsed.subagent as Record<string, unknown> | undefined;
 		if (subagent && typeof subagent.confirmProjectAgents === "boolean") {
 			return subagent.confirmProjectAgents;

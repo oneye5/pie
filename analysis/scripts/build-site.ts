@@ -3,6 +3,7 @@ import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { build } from 'esbuild';
+import { toErrorMessage } from '../../shared/error-message.js';
 
 const SITE_DIR = fileURLToPath(new URL('../site', import.meta.url));
 const ENTRY_PATH = path.join(SITE_DIR, 'app.ts');
@@ -24,6 +25,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error('build-site failed:', toErrorMessage(error));
   process.exitCode = 1;
 });

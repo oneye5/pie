@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { serializeJsonLine } from '../../shared/jsonl';
+import { toErrorMessage, parseJsonOrThrow } from '../../shared/error-message';
 import { parseCheckpoint, readOptionalText } from '../shared/checkpoint-io';
 import { workspaceHash } from './helpers';
 import {
@@ -94,7 +95,7 @@ export class RunAnalyticsStorage {
     const checkpoint = this.buildCheckpoint(++this.seq);
     this.persistenceQueue = this.persistenceQueue
       .catch((error) => {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = toErrorMessage(error);
         const at = this.isoNow();
         this.lastPersistError = { message, at };
         console.warn(`[pie] run-analytics persist failed at ${at}: ${message}`);
@@ -326,12 +327,12 @@ export class RunAnalyticsStorage {
     normalizedLine: string,
   ): { key: string; recency: string } {
     try {
-      const parsed = JSON.parse(normalizedLine) as {
+      const parsed = parseJsonOrThrow<{
         kind?: unknown;
         recordedAt?: unknown;
         runId?: unknown;
         run?: { runId?: unknown; updatedAt?: unknown; finalizedAt?: unknown };
-      };
+      }>(normalizedLine, 'stats line');
 
       if (fileName === 'run-snapshots.jsonl'
         && parsed.kind === 'run_snapshot'
@@ -375,7 +376,7 @@ export class RunAnalyticsStorage {
     try {
       await this.writeAutoExport();
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       console.warn(`[pie] Failed to refresh run analytics export at ${this.autoExportPath}: ${message}`);
     }
   }

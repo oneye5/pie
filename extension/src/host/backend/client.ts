@@ -204,7 +204,7 @@ export class BackendClient implements vscode.Disposable {
       }
       return response.result as TResult;
     } catch (error) {
-      bootTraceSync('backend-client', 'request.failed', { id, method, error: error instanceof Error ? error.message : String(error) });
+      bootTraceSync('backend-client', 'request.failed', { id, method, error: toErrorMessage(error) });
       throw error;
     }
   }

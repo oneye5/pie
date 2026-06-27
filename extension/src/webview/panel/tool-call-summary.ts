@@ -50,6 +50,7 @@ function toFileSystemPath(value: string): string | null {
 
     return parsed.host ? `//${parsed.host}${pathname}` : pathname;
   } catch {
+    // Not a valid file: URL; no path to extract.
     return null;
   }
 }

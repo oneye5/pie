@@ -25,7 +25,7 @@ export function modelSupportsInputKind(
   sessionPath: string,
   requestedModelId: string | undefined,
   inputKind: 'text' | 'image',
-  getArchState: GetArchState = () => { throw new Error('getArchState not provided'); },
+  getArchState: GetArchState = () => { throw new Error('getArchState is required to resolve model input-kind support, but no thunk was provided'); },
 ): boolean {
   const archState = getArchState();
   const modelId = requestedModelId

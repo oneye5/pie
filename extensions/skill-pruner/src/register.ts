@@ -6,6 +6,7 @@ import {
 	getPiToolSeams,
 	state,
 } from "./state.js";
+import { toErrorMessage } from "../../../shared/error-message.js";
 import { requestToolDefinition } from "./tools.js";
 import { pruningResultRenderer } from "./render.js";
 import {
@@ -237,7 +238,7 @@ export default function register(pi: ExtensionAPI) {
 				recordSkillRead(getSessionId(ctx), readPath);
 			}
 		} catch (error) {
-			console.warn(`[skill-pruner] failed to record skill read: ${error instanceof Error ? error.message : String(error)}`);
+			console.warn(`[skill-pruner] failed to record skill read: ${toErrorMessage(error)}`);
 		}
 		return undefined;
 	});

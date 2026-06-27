@@ -251,6 +251,7 @@ export function formatValueAsHighlightedYaml(value: unknown): string {
     // lineWidth: 0 disables line wrapping so code/paths stay intact.
     text = stringifyYaml(value, { indent: 2, lineWidth: 0 });
   } catch {
+    // YAML serialization can fail (e.g. cycles); fall back to JSON, then String.
     try {
       text = JSON.stringify(value, null, 2);
     } catch {

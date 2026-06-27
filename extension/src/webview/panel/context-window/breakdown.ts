@@ -113,6 +113,7 @@ function estimateSerializedTokens(value: unknown): number {
   try {
     return estimateTextTokens(JSON.stringify(value));
   } catch {
+    // JSON.stringify can fail (e.g. cycles); fall back to a string estimate.
     return estimateTextTokens(String(value));
   }
 }

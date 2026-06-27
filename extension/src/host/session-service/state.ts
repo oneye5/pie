@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 
 import { BackendClient } from '../backend/client';
 import { assertInvariant, auditLog, bootLog } from '../util/audit';
+import { toErrorMessage } from '../util/error-message';
 import {
   PENDING_SESSION_PREFIX,
   isPendingTabPath,
@@ -436,7 +437,7 @@ export class SessionServiceState {
       .catch((error) => {
         auditLog(this.context, 'session-service', 'session.preload.failed', {
           sessionPath,
-          message: error instanceof Error ? error.message : String(error),
+          message: toErrorMessage(error),
         });
       })
       .finally(() => {

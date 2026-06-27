@@ -14,6 +14,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseJsonOrThrow } from '../../shared/error-message.js';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DEFAULT_MODELS_JSON_PATH = path.resolve(SCRIPT_DIR, '../../models.json');
@@ -50,7 +51,7 @@ export function loadModelsJsonProviders(modelsJsonPath?: string): Record<string,
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = parseJsonOrThrow<unknown>(raw, resolvedPath);
   } catch {
     return null;
   }

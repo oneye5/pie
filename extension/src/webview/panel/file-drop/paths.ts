@@ -1,5 +1,6 @@
 import { extractTransferFiles } from './files';
 import type { DataTransferLike, FileLike } from './types';
+import { toErrorMessage } from '../../../shared/error-message';
 
 const FILES_TYPE = 'Files';
 const CODE_FILES_TYPE = 'CodeFiles';
@@ -108,6 +109,7 @@ function safeGetData(dataTransfer: DataTransferLike, format: string): string {
   try {
     return dataTransfer.getData(format) ?? '';
   } catch {
+    // getData can throw for unsupported/unavailable formats at hover time; ignore.
     return '';
   }
 }
@@ -151,7 +153,9 @@ function extractPathsFromCodeEditors(value: string): string[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
-  } catch {
+  } catch (err) {
+    // Non-fatal: a malformed CodeEditors drop payload just yields no paths.
+    console.warn(`CodeEditors drop payload JSON parse failed: ${toErrorMessage(err)}`);
     return [];
   }
 
@@ -243,7 +247,9 @@ function parseJsonStringArray(value: string): string[] {
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
-  } catch {
+  } catch (err) {
+    // Non-fatal: a malformed drop payload just yields no string entries.
+    console.warn(`Drop payload JSON parse failed: ${toErrorMessage(err)}`);
     return [];
   }
 
@@ -259,6 +265,7 @@ function fileUriToFsPath(rawValue: string): string | null {
   try {
     url = new URL(rawValue);
   } catch {
+    // Not a valid URL (e.g. a bare path); not a file:// URI we can map.
     return null;
   }
 

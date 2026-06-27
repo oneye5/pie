@@ -10,6 +10,7 @@ import {
   type RunSnapshot,
 } from './index';
 import { parseCheckpoint, readOptionalText } from '../shared/checkpoint-io';
+import { parseJsonOrThrow } from '../../shared/error-message';
 import { resolveCheckpointSlot } from '../shared/checkpoint-slots';
 
 export interface RunAnalyticsQueryResult {
@@ -40,7 +41,7 @@ async function readJsonlObjects(filePath: string): Promise<unknown[]> {
     .filter((line) => line.length > 0)
     .map((line) => {
       try {
-        return JSON.parse(line) as unknown;
+        return parseJsonOrThrow<unknown>(line, 'analytics line');
       } catch {
         return null;
       }

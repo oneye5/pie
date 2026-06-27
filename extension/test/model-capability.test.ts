@@ -121,6 +121,6 @@ test('a model declaring only image still reports text=false (pure .includes chec
 test('omitting getArchState uses the default that throws', () => {
   assert.throws(
     () => modelSupportsInputKind('/s', 'm', 'text'),
-    /getArchState not provided/,
+    /getArchState is required to resolve model input-kind support/,
   );
 });

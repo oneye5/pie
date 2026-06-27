@@ -23,6 +23,7 @@
 
 import { parseModelPricing } from '../../../shared/pricing-core.js';
 import type { ModelPricingRecord } from '../../../shared/pricing-core.js';
+import { parseJsonOrThrow } from '../shared/error-message';
 
 // Re-export the shared core under the original public names so existing
 // consumers (subagent-profiles.ts, extension/test/pricing.test.ts,
@@ -51,7 +52,7 @@ export function loadModelPricing(modelsJsonPath: string): Map<string, ModelPrici
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(raw);
+    parsed = parseJsonOrThrow<unknown>(raw, modelsJsonPath);
   } catch {
     return map;
   }

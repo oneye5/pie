@@ -13,6 +13,7 @@ import * as fs from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { parseJsonOrThrow } from '../../shared/error-message.js';
 
 import {
   RUN_ANALYTICS_SCHEMA_VERSION,
@@ -945,7 +946,7 @@ function readPruningLog(configRoot: string): { decisions: PruningSourceDecision[
   const EVENT_TYPES = new Set(['skill_read', 'skill_miss', 'shadow_miss_candidate', 'tool_recovered']);
   for (const line of lines) {
     try {
-      const parsed = JSON.parse(line);
+      const parsed = parseJsonOrThrow<any>(line, pruningPath);
       // Decision-shaped line: has mode + included/excluded (no `event` field).
       if (
         typeof parsed.timestamp === 'string' &&
@@ -1005,12 +1006,9 @@ export async function readSourceAnalyticsPayload(filePath: string): Promise<Sour
     throw new Error(`Unable to read source analytics payload at ${filePath}: ${(error as Error).message}`);
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(raw) as unknown;
-  } catch (error) {
-    throw new Error(`Invalid JSON in source analytics payload at ${filePath}: ${(error as Error).message}`);
-  }
+  // parseJsonOrThrow raises a contextual Error naming the payload + path on
+  // malformed JSON, so we let it propagate directly (no double-wrapping).
+  const parsed = parseJsonOrThrow<unknown>(raw, `source analytics payload at ${filePath}`);
 
   return coerceSourceAnalyticsPayload(parsed);
 }

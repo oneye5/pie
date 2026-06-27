@@ -15,6 +15,7 @@ import type {
   PreparedVerificationUsageRow,
 } from './contracts.ts';
 import { ensureDir, sqlStringLiteral, writeJsonFile } from './fs-utils.ts';
+import { parseJsonOrThrow } from '../../shared/error-message.js';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 
@@ -849,7 +850,7 @@ async function populateTableFromJson(connection: { run: (sql: string) => Promise
     schemaSql,
   ]);
 
-  const rawRows = JSON.parse(await fs.readFile(sourcePath, 'utf8')) as unknown[];
+  const rawRows = parseJsonOrThrow<unknown[]>(await fs.readFile(sourcePath, 'utf8'), sourcePath);
   if (rawRows.length === 0) {
     return;
   }

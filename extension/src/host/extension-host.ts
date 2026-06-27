@@ -24,6 +24,7 @@ import { SessionService } from './session-service';
 import { TokenRateService } from './token-rate-service';
 import { OPEN_TABS_STORAGE_KEY, ACTIVE_SESSION_STORAGE_KEY, PINNED_TABS_STORAGE_KEY } from './session-service/state';
 import { StatsService } from './stats-service';
+import { toErrorMessage } from './util/error-message';
 import type { WebviewToHostMessage, ViewState } from '../shared/protocol';
 import { EffectRunner } from './core/effect-runner';
 import { dispatch } from './core/dispatch';
@@ -364,7 +365,7 @@ export class PieExtension implements vscode.Disposable {
       }
       return payload;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = toErrorMessage(error);
       if (shouldNotify) {
         void vscode.window.showErrorMessage(`pie: Failed to export run analytics: ${message}`);
       }

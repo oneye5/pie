@@ -20,6 +20,7 @@ import type {
   PruningImpactData,
 } from '../scripts/contracts.ts';
 import { meanDifferenceInterval, meanInterval, wilsonInterval } from './chart-stats.ts';
+import { toErrorMessage } from '../../shared/error-message.js';
 
 export { meanDifferenceInterval, meanInterval, wilsonInterval };
 
@@ -240,7 +241,7 @@ export async function renderChartEntries(entries: ChartEntry[], ctx: ChartContex
     } catch (error) {
       const target = document.getElementById(entry.id);
       if (target) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = toErrorMessage(error);
         target.innerHTML = `<div class="chart-empty">Unable to render chart: ${escapeHtml(message)}</div>`;
       }
       console.warn(`[pie-analysis] chart ${entry.id} failed:`, error);

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { parseCliOptions, formatUsage } from './cli.ts';
+import { toErrorMessage } from '../../shared/error-message.js';
 import { buildDuckDbDatabase } from './duckdb.ts';
 import { DEFAULT_DUCKDB_PATH, DEFAULT_SITE_DATA_DIR, DEFAULT_STAGING_EXPORTS_DIR, loadSourceAnalytics } from './source.ts';
 import { prepareSourceAnalytics } from './prepare.ts';
@@ -35,6 +36,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error('export-site-data failed:', toErrorMessage(error));
   process.exitCode = 1;
 });

@@ -13,6 +13,7 @@ import {
 	COPILOT_IDE_HEADERS,
 } from "./copilot-headers.js";
 import type { PrepassRunResult } from "./pruning-types.js";
+import { toErrorMessage } from "../../../shared/error-message.js";
 
 export const LLM_TIMEOUT_MS_BY_THINKING_LEVEL: Record<string, number> = {
 	minimal: 20_000,
@@ -119,7 +120,9 @@ export function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 			}
 		}
 		if (!state._piCompleteSimple) {
-			throw new Error("@mariozechner/pi-ai not available");
+			throw new Error(
+				"@mariozechner/pi-ai is not available; install it (npm install @mariozechner/pi-ai) or run via the pi host that provides it",
+			);
 		}
 		const systemMsg = context.find((m) => m.role === "system");
 		const nonSystemMsgs = context.filter((m) => m.role !== "system");
@@ -253,7 +256,7 @@ export async function runPruningPrepass(
 		}
 		auth = await resolveAuth(ctx, model);
 	} catch (error) {
-		return emptyResult(activeConfig.thinkingLevel, `LLM pruning failed: ${error instanceof Error ? error.message : String(error)}`);
+		return emptyResult(activeConfig.thinkingLevel, `LLM pruning failed: ${toErrorMessage(error)}`);
 	}
 
 	const attempts = buildPrepassThinkingAttempts(activeConfig.thinkingLevel);
@@ -290,7 +293,7 @@ export async function runPruningPrepass(
 				console.warn(`[skill-pruner] ${latestResult.error}; retrying with minimal reasoning`);
 			}
 		} catch (error) {
-			const errorMessage = `LLM pruning failed: ${error instanceof Error ? error.message : String(error)}`;
+			const errorMessage = `LLM pruning failed: ${toErrorMessage(error)}`;
 			if (index < attempts.length - 1) {
 				latestResult = {
 					...latestResult,

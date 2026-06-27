@@ -2,6 +2,7 @@ import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 
 import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ErrorPayload, type ModelInfo, type ModelSettings, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
+import { toErrorMessage } from '../shared/error-message';
 import {
   validateLoadTranscriptPage,
   validateMessageSend,
@@ -363,7 +364,7 @@ async function handleMessageInterrupt(
   void context.session.abort().catch((error: unknown) => {
     deps.emit('error', {
       code: 'MESSAGE_INTERRUPT_FAILED',
-      message: error instanceof Error ? error.message : String(error),
+      message: toErrorMessage(error),
       requestId: context.activeRequest?.id,
     } satisfies ErrorPayload);
   });

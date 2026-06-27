@@ -2,6 +2,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import path from "node:path";
 import type { PruningDecision, PruningMode } from "./types.js";
 import { countTokens } from "./tokenize.js";
+import { toErrorMessage } from "../../shared/error-message.js";
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
 const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..");
@@ -39,7 +40,7 @@ function appendJsonLine(event: JsonLineEvent): void {
 		mkdirSync(path.dirname(logPath), { recursive: true });
 		appendFileSync(logPath, `${JSON.stringify(event)}\n`, "utf-8");
 	} catch (error) {
-		console.warn(`[skill-pruner] failed to append pruning log: ${error instanceof Error ? error.message : String(error)}`);
+		console.warn(`[skill-pruner] failed to append pruning log: ${toErrorMessage(error)}`);
 	}
 }
 

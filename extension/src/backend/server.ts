@@ -2,6 +2,7 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 
 import { attachJsonlLineReader } from '../shared/jsonl';
+import { toErrorMessage, parseJsonOrThrow } from '../shared/error-message';
 import {
   PROTOCOL_VERSION,
   type BusyChangedPayload,
@@ -78,7 +79,7 @@ function timed<T>(label: string, op: () => T | Promise<T>): T | Promise<T> {
           return value;
         },
         (error) => {
-          backendTrace('timing', 'op.failed', { label, durationMs: Date.now() - start, error: error instanceof Error ? error.message : String(error) });
+          backendTrace('timing', 'op.failed', { label, durationMs: Date.now() - start, error: toErrorMessage(error) });
           throw error;
         },
       );
@@ -89,7 +90,7 @@ function timed<T>(label: string, op: () => T | Promise<T>): T | Promise<T> {
   try {
     return finish(op());
   } catch (error) {
-    backendTrace('timing', 'op.failed', { label, durationMs: Date.now() - start, error: error instanceof Error ? error.message : String(error) });
+    backendTrace('timing', 'op.failed', { label, durationMs: Date.now() - start, error: toErrorMessage(error) });
     throw error;
   }
 }
@@ -427,7 +428,7 @@ export class BackendServer {
     const defaults: ModelSettings = { defaultModel: '', defaultThinkingLevel: 'medium' };
     try {
       const raw = await fs.readFile(path.join(this.agentDir, 'settings.json'), 'utf8');
-      const parsed = JSON.parse(raw) as Partial<ModelSettings>;
+      const parsed = parseJsonOrThrow<Partial<ModelSettings>>(raw, 'settings.json');
       return {
         defaultModel: parsed.defaultModel ?? defaults.defaultModel,
         defaultThinkingLevel: (parsed.defaultThinkingLevel as ThinkingLevel) ?? defaults.defaultThinkingLevel,
@@ -441,7 +442,8 @@ export class BackendServer {
     const settingsPath = path.join(this.agentDir, 'settings.json');
     let existing: Record<string, unknown> = {};
     try {
-      existing = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>;
+      const raw = await fs.readFile(settingsPath, 'utf8');
+      existing = parseJsonOrThrow<Record<string, unknown>>(raw, settingsPath);
     } catch {
       // may not exist yet
     }
@@ -500,7 +502,7 @@ export class BackendServer {
   private async handleLine(line: string): Promise<void> {
     let request: RequestEnvelope;
     try {
-      request = JSON.parse(line) as RequestEnvelope;
+      request = parseJsonOrThrow<RequestEnvelope>(line, 'request envelope');
     } catch (error) {
       writeStdout(responseError('parse-error', 'PARSE_ERROR', String(error)));
       return;

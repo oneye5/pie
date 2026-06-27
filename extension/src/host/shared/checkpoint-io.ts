@@ -8,6 +8,7 @@ import {
   type RunCheckpoint,
 } from '../run-analytics/types';
 import { MIGRATION_FAILED, migrateCheckpoint } from './checkpoint-migrations';
+import { parseJsonOrThrow } from '../../shared/error-message';
 
 // Import choice / cycle-avoidance:
 //  - RUN_ANALYTICS_SCHEMA_VERSION + PersistedSessionRunState + RunCheckpoint come from
@@ -60,11 +61,11 @@ function parsePersistedSessionRunState(value: unknown): PersistedSessionRunState
 
 export function parseCheckpoint(raw: string): RunCheckpoint | null {
   try {
-    const value = JSON.parse(raw) as {
+    const value = parseJsonOrThrow<{
       schemaVersion?: unknown;
       seq?: unknown;
       sessions?: unknown;
-    };
+    }>(raw, 'checkpoint file');
     if (typeof value.schemaVersion !== 'number' || typeof value.seq !== 'number') {
       return null;
     }

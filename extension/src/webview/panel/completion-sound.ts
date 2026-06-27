@@ -68,7 +68,9 @@ export function playCompletionSound(volume: number): void {
   };
 
   if (ctx.state === 'suspended') {
-    void ctx.resume().then(play).catch(() => {});
+    void ctx.resume().then(play).catch(() => {
+      // AudioContext.resume() may reject under autoplay policies; non-fatal.
+    });
   } else {
     play();
   }

@@ -33,6 +33,7 @@ import { readFileSync } from "node:fs";
 
 import { parseModelPricing } from "../../shared/pricing-core.js";
 import type { ModelPricingRecord } from "../../shared/pricing-core.js";
+import { parseJsonOrThrow } from "../../shared/error-message.js";
 
 // Re-export the shared core under the original public names so existing
 // consumers (extensions/subagent/test/pricing.test.ts) keep working unchanged.
@@ -71,7 +72,7 @@ export function loadModelPricing(modelsJsonPath: string): Map<string, ModelPrici
 
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(raw);
+		parsed = parseJsonOrThrow(raw, modelsJsonPath);
 	} catch {
 		return map;
 	}

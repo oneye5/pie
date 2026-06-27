@@ -1,6 +1,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { PruningConfig, PruningMode, PruningStrategy, ToolPruningConfig } from "./types.js";
+import { toErrorMessage, parseJsonOrThrow } from "../../shared/error-message.js";
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
 const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..");
@@ -150,9 +151,9 @@ export function loadConfig(
 
 	let parsed: unknown;
 	try {
-		parsed = JSON.parse(readFileSync(settingsPath, "utf-8"));
+		parsed = parseJsonOrThrow(readFileSync(settingsPath, "utf-8"), "pruning settings");
 	} catch (error) {
-		warn(`failed to parse settings.json at ${settingsPath}; using pruning defaults: ${error instanceof Error ? error.message : String(error)}`);
+		warn(`failed to parse settings.json at ${settingsPath}; using pruning defaults: ${toErrorMessage(error)}`);
 		return cloneDefault();
 	}
 

@@ -4,6 +4,7 @@ import * as path from 'node:path';
 
 import { DEFAULT_PRUNING_SETTINGS, type PruningMode, type PruningSettings, type ThinkingLevel } from '../../shared/protocol';
 import { THINKING_LEVEL_SET } from '../../shared/thinking-level.js';
+import { parseJsonOrThrow } from '../util/error-message';
 
 /**
  * Resolve the settings.json path from PI_CODING_AGENT_DIR.
@@ -51,7 +52,7 @@ export async function readPruningSettings(): Promise<PruningSettings> {
 
   try {
     const raw = await fs.readFile(settingsPath, 'utf8');
-    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const parsed = parseJsonOrThrow<Record<string, unknown>>(raw, `pruning settings (${settingsPath})`);
     const pruning = parsed.pruning as Record<string, unknown> | undefined;
     if (!pruning || typeof pruning !== 'object') {
       return cloneDefaultPruningSettings();
@@ -114,12 +115,12 @@ export async function writePruningSettings(
 ): Promise<PruningSettings> {
   const settingsPath = resolveSettingsPath();
   if (!settingsPath) {
-    throw new Error('PI_CODING_AGENT_DIR is not set; cannot write pruning settings.');
+    throw new Error('PI_CODING_AGENT_DIR is not set; cannot write pruning settings (set it to the pi config directory that contains settings.json).');
   }
 
   let existing: Record<string, unknown> = {};
   try {
-    existing = JSON.parse(await fs.readFile(settingsPath, 'utf8')) as Record<string, unknown>;
+    existing = parseJsonOrThrow<Record<string, unknown>>(await fs.readFile(settingsPath, 'utf8'), settingsPath);
   } catch {
     // File may not exist yet — start fresh.
   }

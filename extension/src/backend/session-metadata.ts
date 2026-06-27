@@ -1,6 +1,7 @@
 import * as fs from 'node:fs/promises';
 
 import { deriveSessionNameFromText, NEW_SESSION_NAME } from '../shared/session-name';
+import { parseJsonOrThrow } from '../shared/error-message';
 import type {
   ChatMessage,
   ModelInfo,
@@ -30,12 +31,14 @@ function textFromSessionMessageContent(content: unknown): string {
 export async function deriveNameFromFile(filePath: string): Promise<string> {
   try {
     const content = await fs.readFile(filePath, 'utf8');
-    for (const line of content.split('\n')) {
+    const lines = content.split('\n');
+    for (let i = 0; i < lines.length; i += 1) {
+      const line = lines[i];
       if (!line.trim()) {
         continue;
       }
       try {
-        const entry = JSON.parse(line) as SessionEntryLike;
+        const entry = parseJsonOrThrow<SessionEntryLike>(line, `session metadata line ${i + 1}`);
         if (entry.type === 'message' && entry.message?.role === 'user') {
           const derived = deriveSessionNameFromText(
             textFromSessionMessageContent(entry.message.content),

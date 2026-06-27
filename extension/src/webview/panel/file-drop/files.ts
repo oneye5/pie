@@ -80,6 +80,7 @@ export async function fileToImageInput(
   try {
     buffer = await file.arrayBuffer();
   } catch {
+    // Unreadable file (e.g. revoked blob); skip this image.
     return null;
   }
 

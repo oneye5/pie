@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import type { SiteDataBundle } from './contracts.ts';
+import { toErrorMessage } from '../../shared/error-message.js';
 import { parseCliOptions, formatUsage } from './cli.ts';
 import { DEFAULT_SITE_DATA_DIR, loadSourceAnalytics } from './source.ts';
 import { prepareSourceAnalytics } from './prepare.ts';
@@ -77,6 +78,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
+  console.error('validate-site-data failed:', toErrorMessage(error));
   process.exitCode = 1;
 });

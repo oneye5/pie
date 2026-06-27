@@ -3,6 +3,8 @@ import * as path from 'node:path';
 
 import { parse as parseYaml } from 'yaml';
 
+import { parseJsonOrThrow } from '../shared/error-message';
+
 import type { ModelSubagentInfo } from '../shared/protocol';
 import { estimateNormalizedCost, loadModelPricing } from './pricing';
 
@@ -62,7 +64,7 @@ function parseFile(raw: string, ext: string): Map<string, ModelSubagentInfo> {
   if (ext === '.yaml' || ext === '.yml') {
     return parseProfilesFromObject(parseYaml(raw));
   }
-  return parseProfilesFromObject(JSON.parse(raw));
+  return parseProfilesFromObject(parseJsonOrThrow<unknown>(raw, 'subagent profiles'));
 }
 
 /** Resolve the profiles file, preferring YAML. */

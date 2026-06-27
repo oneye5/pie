@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { PruningConfig } from "./types.js";
+import { parseJsonOrThrow } from "../../shared/error-message.js";
 
 export interface SkillCandidate {
 	name: string;
@@ -178,7 +179,7 @@ function buildParsedResponse(
 /** Try to JSON.parse `candidate` and convert the result. Returns `null` on any failure. */
 function tryParseJson(candidate: string, knownSkills: Set<string>, knownTools: Set<string>): ParsedLlmResponse | null {
 	try {
-		return buildParsedResponse(JSON.parse(candidate), knownSkills, knownTools);
+		return buildParsedResponse(parseJsonOrThrow(candidate, "LLM pruning response"), knownSkills, knownTools);
 	} catch {
 		return null;
 	}

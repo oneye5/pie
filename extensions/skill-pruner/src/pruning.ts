@@ -8,6 +8,7 @@ import {
 	CONFIG_ROOT,
 	PROCESS_SESSION_ID,
 } from "./state.js";
+import { parseJsonOrThrow } from "../../../shared/error-message.js";
 
 export {
 	buildPruningPayload,
@@ -194,7 +195,7 @@ export function isExtensionDisabledByToggle(extensionId: string): boolean {
 	const raw = process.env["PIE_EXTENSION_TOGGLES_JSON"];
 	if (!raw) return false;
 	try {
-		const parsed = JSON.parse(raw) as Record<string, unknown>;
+		const parsed = parseJsonOrThrow<Record<string, unknown>>(raw, "extension toggles");
 		if (!parsed || typeof parsed !== "object") return false;
 		return parsed[extensionId] === false;
 	} catch {

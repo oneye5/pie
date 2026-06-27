@@ -15,6 +15,7 @@ import type { ThinkingLevel, BucketSelection } from "./bucket-selector.js";
 import { resolveExecutionModel } from "./model-resolution.js";
 import type { OnUpdateCallback, SingleResult, SubagentDetails } from "./types.js";
 import { createInvalidAgentResult } from "./validation.js";
+import { toErrorMessage } from "../../shared/error-message.js";
 import {
 	ParentExtensionUIBridgeProxy,
 	type ParentBridge,
@@ -438,7 +439,7 @@ function applyStopReason(result: SingleResult, parentAborted: boolean): void {
 /** Apply a thrown error to a result, preserving any previously-recorded message. */
 function applyThrownError(result: SingleResult, err: unknown): void {
 	result.exitCode = 1;
-	const message = err instanceof Error ? err.message : String(err);
+	const message = toErrorMessage(err);
 	result.errorMessage = result.errorMessage || message;
 	result.stderr = result.stderr || message;
 	result.streamingText = undefined;

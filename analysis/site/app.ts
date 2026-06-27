@@ -12,6 +12,7 @@ import { computeComplexityScores, complexityWeightedMean, hasComplexityVariance 
 import { meanDifferenceInterval, meanInterval, wilsonInterval } from './chart-stats.ts';
 import { renderChartEntries, type ChartContext } from './lib.ts';
 import { newCharts } from './charts/index.ts';
+import { toErrorMessage } from '../../shared/error-message.js';
 
 import type {
   BackendErrorData,
@@ -107,7 +108,7 @@ async function fetchOptionalJson<TValue>(relativePath: string): Promise<TValue |
   try {
     return await fetchJson<TValue>(relativePath);
   } catch (error) {
-    console.warn(`[pie-analysis] ${error instanceof Error ? error.message : String(error)}`);
+    console.warn(`[pie-analysis] ${toErrorMessage(error)}`);
     return null;
   }
 }
@@ -493,7 +494,7 @@ async function renderSpec(
     if (!isCurrentRender(renderToken)) {
       return;
     }
-    const message = error instanceof Error ? error.message : String(error);
+    const message = toErrorMessage(error);
     target.innerHTML = `<div class="chart-empty">Unable to render chart: ${escapeHtml(message)}</div>`;
   }
 }
@@ -4459,7 +4460,7 @@ async function main(): Promise<void> {
 // module importable in Node (e.g. for unit-testing `leaderboardRows`) without touching `document`.
 if (typeof document !== 'undefined') {
   main().catch((error) => {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = toErrorMessage(error);
     document.body.innerHTML = `<div class="shell"><section class="panel chart-empty">${escapeHtml(message)}</section></div>`;
   });
 }
