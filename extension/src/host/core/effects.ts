@@ -18,7 +18,7 @@
  * so the reducer can reconcile optimistic state (Phase 4).
  */
 
-import type { ComposerInput, ModelSettings, ChatPrefs, HostToWebviewMessage } from '../../shared/protocol';
+import type { ComposerInput, ModelSettings, ChatPrefs, HostToWebviewMessage, PruningMode } from '../../shared/protocol';
 import type { PendingSendQueueEntry } from './arch-state';
 import type { BackendReadyQueueEntry } from './arch-state';
 
@@ -34,6 +34,10 @@ export interface SendRpcEffect extends EffectBase {
   inputs: ComposerInput[];
   /** Pre-generated local ID for optimistic message reconciliation. */
   localId: string;
+  /** Brief H: prior pruning mode to restore after a "retry without pruning" send
+   *  resolves (threads `SendCommand.priorPruningMode` → the EffectRunner's
+   *  in-flight send, which restores it at commit/fire/pre-ack-failure). */
+  priorPruningMode?: PruningMode;
 }
 
 export interface EditRpcEffect extends EffectBase {

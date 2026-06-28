@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useState, useEffect, useMemo, useCallback } from 'preact/hooks';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'preact/hooks';
 import { memo } from 'preact/compat';
 import type {
   ViewState,
@@ -25,6 +25,7 @@ import { resolveComposerModelState } from './composer/model-state';
 import { SessionTabs, Composer } from './ui';
 import { RunOutcomeDialog } from './run-outcome-dialog';
 import { NoticeBanner } from './components/notice-banner';
+import { type NoticeAction } from '../../shared/error-mapping';
 import { NoticeContext } from './hooks/notice-context';
 import { AskUserContext } from './hooks/ask-user-context';
 import { useHostSync } from './hooks/use-host-sync';
@@ -304,10 +305,13 @@ interface BottomSectionProps {
   transcriptWindow: ViewState['transcriptWindow'];
   draftRestore: { text: string; nonce: number } | null;
   draftText: string;
+  /** Brief H: AppBody registers the composer's `sendAsRetry` here so the
+   *  NoticeBanner's Retry button (AppBody-level) can re-send the live draft. */
+  sendRetryDraftRef?: { current: ((disablePruning?: boolean) => void) | null };
   pendingComposerInputs: ViewState['pendingComposerInputs'];
   activeRunSummary: ViewState['activeRunSummary'];
   tokenRateBySession: ViewState['tokenRateBySession'];
-  handlers: Pick<AppHandlers, 'handleSend' | 'handleInterrupt' | 'handleOpenFilePicker' | 'handleAddComposerInput' | 'handleRemoveComposerInput' | 'handleModelChange' | 'handleSetPrefs' | 'handleSetPruningSettings' | 'handleMarkComplete'>;
+  handlers: Pick<AppHandlers, 'handleSend' | 'handleRetrySend' | 'handleInterrupt' | 'handleOpenFilePicker' | 'handleAddComposerInput' | 'handleRemoveComposerInput' | 'handleModelChange' | 'handleSetPrefs' | 'handleSetPruningSettings' | 'handleMarkComplete'>;
 }
 
 const BottomSection = memo(function BottomSection({
@@ -336,6 +340,7 @@ const BottomSection = memo(function BottomSection({
   transcriptWindow,
   draftRestore,
   draftText,
+  sendRetryDraftRef,
   pendingComposerInputs,
   activeRunSummary,
   tokenRateBySession,
@@ -374,11 +379,13 @@ const BottomSection = memo(function BottomSection({
         transcript={transcript}
         transcriptWindow={transcriptWindow}
         draftRestore={draftRestore}
+        sendRetryDraftRef={sendRetryDraftRef}
         pendingComposerInputs={pendingComposerInputs}
         activeRunSummary={activeRunSummary}
         tokenRateBySession={tokenRateBySession}
         focusTrigger={activeSession?.path}
         onSend={handlers.handleSend}
+        onRetrySend={handlers.handleRetrySend}
         onInterrupt={handlers.handleInterrupt}
         onOpenFilePicker={handlers.handleOpenFilePicker}
         onAddInput={handlers.handleAddComposerInput}
@@ -408,6 +415,12 @@ export function AppBody({ adapter }: AppBodyProps) {
   // (`busy` flips false) or the active session changes. Allowlisted webview-
   // local protocol-sync bookkeeping (in-flight UI gating).
   const [interrupting, setInterrupting] = useState(false);
+
+  // Brief H: bridge from the AppBody-level NoticeBanner's Retry button to the
+  //  composer-level live draft. The composer registers its `sendAsRetry` here;
+  //  `handleNoticeAction` invokes it on a Retry click. A ref (not state) so a
+  //  Retry click doesn't re-render — it just calls the latest registered closure.
+  const sendRetryDraftRef = useRef<((disablePruning?: boolean) => void) | null>(null);
 
   const handlers = useAppHandlers(
     postMessage,
@@ -447,6 +460,36 @@ export function AppBody({ adapter }: AppBodyProps) {
   // abort completes). The transcript components are unchanged — only the
   // `busy` value they receive is gated.
   const transcriptBusy = viewState.busy && !interrupting;
+
+  // Brief H: map a NoticeBanner recovery action to the matching
+  //  WebviewToHostMessage. Retry / Retry-without-pruning re-send the live
+  //  composer draft (via `sendRetryDraftRef`) as a `retrySend` — the host
+  //  disables pruning atomically before the re-send for the latter. Retry +
+  //  Restart dismiss the notice (the action addresses the error); Show logs /
+  //  Open settings do not (the error still stands — the user just opened a
+  //  surface to inspect it).
+  const handleNoticeAction = useCallback((action: NoticeAction) => {
+    switch (action) {
+      case 'retry':
+        sendRetryDraftRef.current?.();
+        postMessage({ type: 'dismissNotice' });
+        break;
+      case 'retry-without-pruning':
+        sendRetryDraftRef.current?.(true);
+        postMessage({ type: 'dismissNotice' });
+        break;
+      case 'restart-backend':
+        postMessage({ type: 'restartBackend' });
+        postMessage({ type: 'dismissNotice' });
+        break;
+      case 'show-logs':
+        postMessage({ type: 'showLogs' });
+        break;
+      case 'open-settings':
+        postMessage({ type: 'openSettings' });
+        break;
+    }
+  }, [postMessage]);
 
   useSessionRecovery(viewState.backendReady, derived.needsSessionRecovery, derived.recoverySessionPath, viewState.notice, postMessage);
 
@@ -612,7 +655,12 @@ export function AppBody({ adapter }: AppBodyProps) {
         />
       )}
       {viewState.notice && (
-        <NoticeBanner notice={viewState.notice} onDismiss={() => postMessage({ type: 'dismissNotice' })} />
+        <NoticeBanner
+          notice={viewState.notice}
+          kind={viewState.noticeKind}
+          onAction={handleNoticeAction}
+          onDismiss={() => postMessage({ type: 'dismissNotice' })}
+        />
       )}
 
       {derived.showSessionChrome && (
@@ -693,6 +741,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         transcriptWindow={viewState.transcriptWindow}
         draftRestore={draftRestore}
         draftText={viewState.draftText}
+        sendRetryDraftRef={sendRetryDraftRef}
         pendingComposerInputs={viewState.pendingComposerInputs}
         activeRunSummary={viewState.activeRunSummary}
         tokenRateBySession={viewState.tokenRateBySession}

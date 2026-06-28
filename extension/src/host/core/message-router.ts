@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 
 import * as vscode from 'vscode';
 
-import type { WebviewToHostMessage, SessionSummary, ChatPrefs, PruningSettings } from '../../shared/protocol';
+import type { WebviewToHostMessage, SessionSummary, ChatPrefs, PruningSettings, PruningMode } from '../../shared/protocol';
 import type { Event } from './events';
 import type { ArchState } from './reducer';
 import { bootLog } from '../util/audit';
@@ -234,7 +234,7 @@ export class MessageRouter {
     this.sidebarProvider.postState();
   }
 
-  private async onSend(msg: Extract<WebviewToHostMessage, { type: 'send' }>): Promise<void> {
+  private async onSend(msg: Extract<WebviewToHostMessage, { type: 'send' }>, opts?: { priorPruningMode?: PruningMode }): Promise<void> {
     const sessionPath = typeof msg.sessionPath === 'string' ? msg.sessionPath : null;
     const text = typeof msg.text === 'string' ? msg.text : '';
     const webviewLocalId = msg.localId;
@@ -281,7 +281,7 @@ export class MessageRouter {
     const corrId = crypto.randomUUID();
     this.dispatchEvent({
       kind: 'Command',
-      cmd: { kind: 'Send', corrId, sessionPath, text, inputs, composedText, localId, userParts, previousSummary, timestamp: Date.now() },
+      cmd: { kind: 'Send', corrId, sessionPath, text, inputs, composedText, localId, userParts, previousSummary, priorPruningMode: opts?.priorPruningMode, timestamp: Date.now() },
     });
   }
 
@@ -706,23 +706,38 @@ export class MessageRouter {
    *  stale settings. Delegates to {@link onSend} so the optimistic message,
    *  session-name derivation, and input pickup are identical to a fresh send. */
   private async onRetrySend(msg: Extract<WebviewToHostMessage, { type: 'retrySend' }>): Promise<void> {
+    let priorPruningMode: PruningMode | undefined;
     if (msg.disablePruning) {
-      // TODO(Brief H follow-up): capture the prior pruning mode + restore it
-      // after the retry send completes, so "retry without pruning" doesn't
-      // leave pruning permanently off. Dormant today (the recovery action
-      // button isn't wired in app-body yet).
-      try {
-        await this.service.setPruningSettings({ mode: 'off' });
-      } catch (err) {
-        bootLog('webview', 'retrySend.disablePruningFailed', { error: String(err) });
+      // Brief H: capture the user's prior pruning mode BEFORE disabling, so the
+      //   host restores it once the retried send resolves (commit / fire /
+      //   pre-ack failure — handled by the EffectRunner's in-flight send via
+      //   `restorePruningMode`; or the backend-ready-watchdog drop for a queued
+      //   retry that never recovers). Only capture+disable when pruning isn't
+      //   already off: a chained retry-without-pruning (a second click while the
+      //   first is still in flight) would otherwise capture 'off' and restore to
+      //   'off' permanently. The first retry's restore covers the original
+      //   mode. (A concurrent retry whose commit fires mid a second retry's
+      //   prepass is a narrow remaining race — the original mode is restored
+      //   correctly, but the second retry's prepass may run with pruning on.)
+      const currentMode = this.getArchState().settings.pruningSettings.mode;
+      if (currentMode !== 'off') {
+        priorPruningMode = currentMode;
+        try {
+          await this.service.setPruningSettings({ mode: 'off' });
+        } catch (err) {
+          bootLog('webview', 'retrySend.disablePruningFailed', { error: String(err) });
+        }
       }
     }
-    await this.onSend({
-      type: 'send',
-      sessionPath: msg.sessionPath,
-      text: msg.text,
-      localId: msg.localId,
-    });
+    await this.onSend(
+      {
+        type: 'send',
+        sessionPath: msg.sessionPath,
+        text: msg.text,
+        localId: msg.localId,
+      },
+      priorPruningMode !== undefined ? { priorPruningMode } : undefined,
+    );
   }
 
   // ---------------------------------------------------------------------------

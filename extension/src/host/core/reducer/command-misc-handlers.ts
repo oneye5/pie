@@ -49,6 +49,7 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
           // by drain time the session has a real summary from session.opened.
           previousSummary: null,
           timestamp: cmd.timestamp,
+          priorPruningMode: cmd.priorPruningMode,
         },
       ];
       delete draft.composer.draftTextBySession[cmd.sessionPath];
@@ -83,6 +84,7 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
           userParts: cmd.userParts,
           previousSummary: null,
           timestamp: cmd.timestamp,
+          priorPruningMode: cmd.priorPruningMode,
         },
       ];
       delete draft.composer.draftTextBySession[cmd.sessionPath];
@@ -144,6 +146,7 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
         text: cmd.text,
         inputs: cmd.inputs,
         localId: cmd.localId,
+        priorPruningMode: cmd.priorPruningMode,
       },
     ],
   };

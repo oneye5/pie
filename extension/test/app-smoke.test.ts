@@ -591,3 +591,142 @@ test('Brief D: a host-instance change rebases the revision guard (a fresh host\'
   act(() => { window.dispatchEvent(new MessageEvent('message', { data: state1NewHost })); });
   assert.equal(adapter.messages.filter((m) => m.type === 'stateApplied').at(-1)?.payload.revision, 1, 'fresh host rev 1 accepted after host-instance change');
 });
+
+// ─── Brief H: NoticeBanner recovery action buttons (wired) ─────────────────
+// The NoticeBanner renders recovery action buttons for a projected noticeKind
+// (Brief H). Retry / Retry-without-pruning re-send the live composer draft as a
+// `retrySend` (the host disables pruning atomically first for the latter);
+// Show logs / Open settings / Restart backend post the matching side-effect
+// message. Retry + Restart dismiss the notice; Show logs / Open settings do not.
+
+function findNoticeAction(container: HTMLElement, label: string): HTMLButtonElement | null {
+  const buttons = Array.from(container.querySelectorAll<HTMLButtonElement>('button.notice-action'));
+  for (const b of buttons) {
+    if ((b.textContent ?? '').trim() === label) return b;
+  }
+  return null;
+}
+
+test('Brief H: NoticeBanner renders recovery action buttons for a projected noticeKind', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState({
+    notice: 'Pruning took too long to start this turn. You can retry, or retry without pruning.',
+    noticeKind: 'prepass-timeout',
+  });
+  act(() => { render(h(App, { adapter }), container); });
+
+  // prepass-timeout → [retry, retry-without-pruning, open-settings] (noticeActionsFor).
+  assert.ok(findNoticeAction(container, 'Retry'), 'Retry button renders');
+  assert.ok(findNoticeAction(container, 'Retry without pruning'), 'Retry-without-pruning button renders');
+  assert.ok(findNoticeAction(container, 'Open settings'), 'Open settings button renders');
+  // No restart-backend / show-logs for this kind.
+  assert.equal(findNoticeAction(container, 'Restart backend'), null);
+  assert.equal(findNoticeAction(container, 'Show logs'), null);
+});
+
+test('Brief H: Show logs posts showLogs WITHOUT dismissing (the error still stands)', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState({
+    notice: 'The backend sent a malformed response.',
+    noticeKind: 'dropped-line',
+  });
+  act(() => { render(h(App, { adapter }), container); });
+
+  const before = adapter.messages.length;
+  act(() => { findNoticeAction(container, 'Show logs')!.click(); });
+
+  assert.ok(adapter.messages.slice(before).some((m) => m.type === 'showLogs'), 'showLogs posted');
+  // Show logs does NOT dismiss the notice — the error still stands.
+  assert.ok(!adapter.messages.slice(before).some((m) => m.type === 'dismissNotice'), 'no dismissNotice on Show logs');
+});
+
+test('Brief H: Restart backend posts restartBackend AND dismisses the notice', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState({
+    notice: 'The pie backend stopped unexpectedly. Restart the backend, then retry your message.',
+    noticeKind: 'backend-exit',
+  });
+  act(() => { render(h(App, { adapter }), container); });
+
+  const before = adapter.messages.length;
+  act(() => { findNoticeAction(container, 'Restart backend')!.click(); });
+
+  assert.ok(adapter.messages.slice(before).some((m) => m.type === 'restartBackend'), 'restartBackend posted');
+  assert.ok(adapter.messages.slice(before).some((m) => m.type === 'dismissNotice'), 'Restart dismisses the notice');
+});
+
+test('Brief H: Retry without pruning re-sends the LIVE draft as a retrySend (disablePruning: true) + dismisses', () => {
+  // The retry button re-sends the composer's current draft (not the stale
+  // draftRestore snapshot), so an edit between rejection and retry is honored.
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState({
+    notice: 'Pruning took too long to start this turn.',
+    noticeKind: 'prepass-timeout',
+  });
+  act(() => { render(h(App, { adapter }), container); });
+  // Seed activeSessionPathRef (handleRetrySend guards on it) via a state msg,
+  // mirroring the existing send test.
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'state', hostInstanceId: 'host-1', revision: 1, state: sessionViewState({
+        notice: 'Pruning took too long to start this turn.',
+        noticeKind: 'prepass-timeout',
+      }) } as any,
+    }));
+  });
+
+  // Type a (corrected) draft into the composer — the retry must send THIS text,
+  // not a stale restored snapshot.
+  const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+  act(() => {
+    textarea.value = 'try again, edited';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  const before = adapter.messages.length;
+  act(() => { findNoticeAction(container, 'Retry without pruning')!.click(); });
+  const after = adapter.messages.slice(before);
+
+  const retry = after.find((m) => m.type === 'retrySend');
+  assert.ok(retry, 'retrySend posted on Retry-without-pruning');
+  assert.equal(retry!.sessionPath, '/session/a', 'retrySend targets the active session');
+  assert.equal(retry!.text, 'try again, edited', 'retrySend carries the LIVE (edited) draft text');
+  assert.equal(retry!.disablePruning, true, 'retrySend disables pruning for "retry without pruning"');
+  assert.ok(typeof retry!.localId === 'string' && retry!.localId.length > 0, 'retrySend mints a localId for the optimistic message');
+  assert.ok(after.some((m) => m.type === 'dismissNotice'), 'Retry dismisses the notice');
+  // The composer cleared its draft (the message moved to the transcript).
+  assert.equal((container.querySelector('textarea') as HTMLTextAreaElement).value, '', 'composer draft cleared after retry');
+});
+
+test('Brief H: plain Retry re-sends the live draft as a retrySend (no disablePruning) + dismisses', () => {
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState({
+    notice: "Couldn't send your message. Please try again.",
+    noticeKind: 'send-failed',
+  });
+  act(() => { render(h(App, { adapter }), container); });
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'state', hostInstanceId: 'host-1', revision: 1, state: sessionViewState({
+        notice: "Couldn't send your message. Please try again.",
+        noticeKind: 'send-failed',
+      }) } as any,
+    }));
+  });
+
+  const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+  act(() => {
+    textarea.value = 'redo';
+    textarea.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+
+  const before = adapter.messages.length;
+  act(() => { findNoticeAction(container, 'Retry')!.click(); });
+  const after = adapter.messages.slice(before);
+
+  const retry = after.find((m) => m.type === 'retrySend');
+  assert.ok(retry, 'retrySend posted on plain Retry');
+  assert.equal(retry!.text, 'redo', 'retrySend carries the live draft');
+  assert.equal(retry!.disablePruning, undefined, 'plain Retry does NOT disable pruning');
+  assert.ok(after.some((m) => m.type === 'dismissNotice'), 'Retry dismisses the notice');
+});

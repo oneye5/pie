@@ -72,6 +72,7 @@ function TestHarness({ sessionPath, draftText, postMessage }: TestHarnessProps) 
   const { text, textareaRef, handleInput } = useComposerInput({
     busy: false,
     onSend: () => {},
+    onRetrySend: () => {},
     pendingComposerInputsLength: 0,
     sessionPath,
     draftText,

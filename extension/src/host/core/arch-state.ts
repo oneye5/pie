@@ -24,6 +24,7 @@ import type {
   ModelSettings,
   ModelInfo,
   PruningSettings,
+  PruningMode,
   ContextWindowUsage,
   SessionAnalyticsFactors,
   ChatPrefs,
@@ -292,6 +293,11 @@ export interface PendingSendQueueEntry {
   userParts?: UserContentPart[];
   previousSummary: SessionSummary | null;
   timestamp: number;
+  /** Brief H: prior pruning mode to restore after a "retry without pruning" send
+   *  resolves. Threads through the queue so a retry queued while a pending tab
+   *  resolves (or the backend is not ready) still restores pruning when the
+   *  re-dispatched send commits/fails. */
+  priorPruningMode?: PruningMode;
 }
 
 /**
@@ -319,6 +325,10 @@ export interface BackendReadyQueueEntry {
   userParts?: UserContentPart[];
   previousSummary: SessionSummary | null;
   timestamp: number;
+  /** Brief H: prior pruning mode to restore after a "retry without pruning"
+   *  send resolves — threaded through the backend-ready queue for the same
+   *  reason as `PendingSendQueueEntry.priorPruningMode`. */
+  priorPruningMode?: PruningMode;
 }
 
 /**

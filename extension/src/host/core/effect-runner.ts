@@ -52,7 +52,7 @@ import type {
 import { toErrorMessage } from '../util/error-message';
 import type { EffectResultEvent, CommandEvent } from './events';
 import type { FileDiffService } from './file-diff-service';
-import type { ChatPrefs, ComposerInput, PruningSettings, RunOutcome, ThinkingLevel } from '../../shared/protocol';
+import type { ChatPrefs, ComposerInput, PruningMode, PruningSettings, RunOutcome, ThinkingLevel } from '../../shared/protocol';
 import type { RequestOptions } from '../../shared/request-tracker';
 
 /** Minimal backend surface the runner needs. Matches `BackendClient.request`. */
@@ -228,6 +228,11 @@ interface InFlightSend {
   requestId?: string;
   /** Guards against double-settle (fire after clear, etc.). */
   disposed: boolean;
+  /** Brief H: prior pruning mode captured before a "retry without pruning" send
+   *  disabled pruning. Restored when this in-flight send resolves (commit /
+   *  fire / pre-ack failure) so pruning returns to the user's prior mode for the
+   *  next turn. Absent on a normal send (no restore). */
+  priorPruningMode?: PruningMode;
 }
 
 export class EffectRunner {
@@ -481,6 +486,7 @@ export class EffectRunner {
               userParts: entry.userParts,
               previousSummary: entry.previousSummary,
               timestamp: entry.timestamp,
+              priorPruningMode: entry.priorPruningMode,
             },
           });
         }
@@ -519,6 +525,7 @@ export class EffectRunner {
               userParts: entry.userParts,
               previousSummary: entry.previousSummary,
               timestamp: entry.timestamp,
+              priorPruningMode: entry.priorPruningMode,
             },
           });
         }
@@ -578,12 +585,12 @@ export class EffectRunner {
    *  `requestId` known). The pre-ack phase is owned by the `RequestTracker`
    *  timeout (10s for `message.send`), whose rejection clears this timer via
    *  the catch block — so the send-timer never fires pre-ack in practice. */
-  private startInFlightSend(corrId: string, sessionPath: string, kind: 'send' | 'edit'): InFlightSend {
+  private startInFlightSend(corrId: string, sessionPath: string, kind: 'send' | 'edit', priorPruningMode?: PruningMode): InFlightSend {
     const abort = new AbortController();
     // Prepass-aware budget (read fresh each send so a runtime prepassTimeoutSec
     // change takes effect); falls back to the static override/default.
     const budgetMs = this.deps.getSendTimerTimeoutMs?.() ?? this.sendTimerTimeoutMs;
-    const send: InFlightSend = { corrId, sessionPath, kind, timer: null, budgetMs, abort, disposed: false };
+    const send: InFlightSend = { corrId, sessionPath, kind, timer: null, budgetMs, abort, disposed: false, priorPruningMode };
     send.timer = this.timer.schedule(() => this.onSendTimerFire(send), budgetMs);
     this.inFlightSends.set(corrId, send);
     // One in-flight send per session under FIFO serialization. A second send
@@ -607,6 +614,10 @@ export class EffectRunner {
     if (this.inFlightSendBySession.get(send.sessionPath) === send.corrId) {
       this.inFlightSendBySession.delete(send.sessionPath);
     }
+    // Brief H: restore pruning (a "retry without pruning" send's prepass timed
+    //  out — the turn is rolling back, so pruning returns to the user's prior
+    //  mode for the next turn).
+    this.restorePruningMode(send);
     if (send.requestId) {
       this.deps.dispatchEvent({
         kind: 'PreflightFailed',
@@ -635,6 +646,24 @@ export class EffectRunner {
     if (this.inFlightSendBySession.get(send.sessionPath) === send.corrId) {
       this.inFlightSendBySession.delete(send.sessionPath);
     }
+    // Brief H: restore pruning. Reached on pre-ack failure (no commit will
+    //  come) and at the commit point (ClearSendTimer — first MessageStarted).
+    //  A second call (e.g. clear after fire) no-ops: the send was already
+    //  deleted, so `if (!send) return` short-circuits above.
+    this.restorePruningMode(send);
+  }
+
+  /** Brief H: restore pruning to the mode captured before a "retry without
+   *  pruning" send disabled it. Fire-and-forget (the next turn's prepass reads
+   *  the setting fresh); a failure here only means the user must re-enable
+   *  pruning manually — logged so it is debuggable. No-op for a normal send
+   *  (`priorPruningMode` absent). */
+  private restorePruningMode(send: InFlightSend): void {
+    const mode = send.priorPruningMode;
+    if (!mode) return;
+    void this.deps.service.setPruningSettings({ mode }).catch((err) => {
+      this.deps.log.log('warn', `failed to restore pruning mode to '${mode}' after retry (corrId=${send.corrId}): ${toErrorMessage(err)}`);
+    });
   }
 
   /** Abort the in-flight `message.send` for a session (Brief E: interrupt
@@ -721,7 +750,7 @@ export class EffectRunner {
       await queues.enqueueSessionOperation(effect.sessionPath, async () => {
         // Start the send-timer at RPC dispatch (queue time) + arm the abort
         // controller (Brief E cancels an in-flight message.send on interrupt).
-        const send = this.startInFlightSend(effect.corrId, effect.sessionPath, 'send');
+        const send = this.startInFlightSend(effect.corrId, effect.sessionPath, 'send', effect.priorPruningMode);
         try {
           service.bumpSessionDataEpoch(effect.sessionPath);
           statsService.prepareForSend(effect.sessionPath, effect.inputs);

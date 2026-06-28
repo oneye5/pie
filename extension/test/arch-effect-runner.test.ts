@@ -705,3 +705,103 @@ test('EffectRunner abortInFlightSend returns false when the send already early-a
   assert.equal(runner.abortInFlightSend('/a'), false);
   runner.dispose();
 });
+
+// ─── Brief H: retry-without-pruning restores the prior pruning mode ──────────
+// A "retry without pruning" send carries the user's prior pruning mode (captured
+// before the host disabled it). The EffectRunner restores it when the in-flight
+// send resolves — at the commit point (ClearSendTimer), on send-timer fire
+// (PreflightFailed), and on pre-ack failure — so pruning returns to the user's
+// prior mode for the next turn instead of staying permanently off.
+
+test('EffectRunner SendRpc restores prior pruning mode at the commit point (Brief H retry-without-pruning)', async () => {
+  const timers = new FakeTimerSink();
+  const pruningCalls: { mode?: string }[] = [];
+  const { deps } = makeEffectRunnerDeps({
+    requestImpl: () => Promise.resolve({ requestId: 'req-rp' }),
+    sendTimerTimeoutMs: 50,
+    timer: timers,
+    serviceOverrides: { setPruningSettings: async (updates) => { pruningCalls.push(updates as { mode?: string }); } },
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-rp', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-rp', priorPruningMode: 'auto' });
+  await settle();
+  // Early-ack: NO restore yet — the prepass is still running (pruning must stay
+  // off until the turn commits).
+  assert.equal(pruningCalls.length, 0, 'no restore at ack time (prepass still running)');
+
+  // Commit point (first MessageStarted → ClearSendTimer): restore the prior mode.
+  runner.run({ kind: 'ClearSendTimer', corrId: 'c-rp' });
+  assert.equal(pruningCalls.length, 1, 'pruning restored at the commit point');
+  assert.equal(pruningCalls[0]?.mode, 'auto', 'restored to the captured prior mode');
+  // The send-timer is cleared; a later fire cannot double-restore.
+  assert.equal(timers.size, 0);
+  timers.runAll();
+  assert.equal(pruningCalls.length, 1, 'no double-restore after clear (send already resolved)');
+  runner.dispose();
+});
+
+test('EffectRunner SendRpc restores prior pruning mode on send-timer fire (PreflightFailed — Brief H)', async () => {
+  const timers = new FakeTimerSink();
+  const pruningCalls: { mode?: string }[] = [];
+  const dispatchedEvents: Event[] = [];
+  const { deps } = makeEffectRunnerDeps({
+    requestImpl: () => Promise.resolve({ requestId: 'req-fire' }),
+    sendTimerTimeoutMs: 50,
+    timer: timers,
+    dispatchEvent: (e) => dispatchedEvents.push(e),
+    serviceOverrides: { setPruningSettings: async (updates) => { pruningCalls.push(updates as { mode?: string }); } },
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-fire', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-fire', priorPruningMode: 'shadow' });
+  await settle();
+  // No commit point — fire the send-timer (PreflightFailed: the turn never
+  // started streaming). The prepass ran (and timed out), so restoring is safe.
+  timers.runAll();
+  assert.equal(dispatchedEvents.length, 1);
+  assert.equal(dispatchedEvents[0]?.kind, 'PreflightFailed');
+  assert.equal(pruningCalls.length, 1, 'pruning restored on fire');
+  assert.equal(pruningCalls[0]?.mode, 'shadow');
+  runner.dispose();
+});
+
+test('EffectRunner SendRpc restores prior pruning mode on pre-ack failure (Brief H)', async () => {
+  const timers = new FakeTimerSink();
+  const pruningCalls: { mode?: string }[] = [];
+  const { deps, events } = makeEffectRunnerDeps({
+    requestImpl: () => Promise.reject(new Error('boom')),
+    sendTimerTimeoutMs: 50,
+    timer: timers,
+    serviceOverrides: { setPruningSettings: async (updates) => { pruningCalls.push(updates as { mode?: string }); } },
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-paf', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-paf', priorPruningMode: 'custom' });
+  await settle();
+  // Pre-ack failure: SendResult{ok:false} (no commit will come) + restore. The
+  // prepass never ran (the RPC itself failed), so restoring is safe.
+  assert.equal(events.at(-1)?.kind, 'SendResult');
+  assert.equal(pruningCalls.length, 1, 'pruning restored on pre-ack failure');
+  assert.equal(pruningCalls[0]?.mode, 'custom');
+  runner.dispose();
+});
+
+test('EffectRunner SendRpc does NOT touch pruning for a normal send (no priorPruningMode — Brief H)', async () => {
+  const timers = new FakeTimerSink();
+  const pruningCalls: { mode?: string }[] = [];
+  const { deps } = makeEffectRunnerDeps({
+    requestImpl: () => Promise.resolve({ requestId: 'req-norm' }),
+    sendTimerTimeoutMs: 50,
+    timer: timers,
+    serviceOverrides: { setPruningSettings: async (updates) => { pruningCalls.push(updates as { mode?: string }); } },
+  });
+  const runner = new EffectRunner(deps);
+
+  runner.run({ kind: 'SendRpc', corrId: 'c-norm', sessionPath: '/a', text: 'hi', inputs: [], localId: 'loc-norm' });
+  await settle();
+  runner.run({ kind: 'ClearSendTimer', corrId: 'c-norm' });
+  timers.runAll();
+  assert.equal(pruningCalls.length, 0, 'a normal send (no priorPruningMode) never restores pruning');
+  runner.dispose();
+});

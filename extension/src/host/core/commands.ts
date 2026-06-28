@@ -10,7 +10,7 @@
  * these types yet.
  */
 
-import type { ComposerInput, ComposerInputDraft, SessionSummary, UserContentPart, ExtensionUIResponsePayload } from '../../shared/protocol';
+import type { ComposerInput, ComposerInputDraft, SessionSummary, UserContentPart, ExtensionUIResponsePayload, PruningMode } from '../../shared/protocol';
 
 import type { ModelSettings, ChatPrefs } from '../../shared/protocol';
 
@@ -35,6 +35,12 @@ export interface SendCommand extends CommandBase {
   userParts?: UserContentPart[];
   /** Snapshot of the session summary before optimistic name change (null if no change). */
   previousSummary: SessionSummary | null;
+  /** Brief H: prior pruning mode to restore after a "retry without pruning" send
+   *  commits/fails. Set ONLY by `retrySend` with `disablePruning` (captured
+   *  before the host disables pruning); absent on a normal send. Restored by the
+   *  EffectRunner when the in-flight send resolves (commit / fire / pre-ack
+   *  failure) so pruning returns to the user's prior mode for the next turn. */
+  priorPruningMode?: PruningMode;
   /** Explicit timestamp for deterministic optimistic message ordering. */
   timestamp: number;
 }

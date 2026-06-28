@@ -14,6 +14,7 @@ import type {
 import type { ReducerResult } from './helpers.js';
 import type { Effect } from '../effects.js';
 import { removeMessage } from './helpers.js';
+import type { PruningMode } from '../../../shared/protocol.js';
 
 export function handleBackendReadyChanged(
   state: ArchState,
@@ -76,7 +77,24 @@ export function handleBackendReadyWatchdogFired(
     draft.settings.noticeKind = null;
   });
 
-  return { state: nextState, effects: [] };
+  // Brief H: restore pruning for any dropped "retry without pruning" sends. The
+  //  retry disabled pruning (mode:'off') before dispatching; if the backend
+  //  never became ready the send was dropped without ever reaching the in-flight
+  //  restore path (clearInFlightSend / onSendTimerFire), so pruning would be
+  //  left permanently off — the exact bug the restore fixes. Emit a
+  //  SetPruningSettings effect per unique captured prior mode (multiple queued
+  //  retries share the user's original mode). The service applies it + mirrors
+  //  the change back via PruningSettingsChanged.
+  const restoreModes = new Set<PruningMode>();
+  for (const entry of allEntries) {
+    if (entry.priorPruningMode) restoreModes.add(entry.priorPruningMode);
+  }
+  const effects: Effect[] = [];
+  for (const mode of restoreModes) {
+    effects.push({ kind: 'SetPruningSettings', corrId: 'restore:pruning:watchdog', settings: { mode } });
+  }
+
+  return { state: nextState, effects };
 }
 
 export function handlePruningSettingsChanged(

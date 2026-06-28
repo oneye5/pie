@@ -65,6 +65,10 @@ interface ComposerProps {
   focusTrigger?: string;
   postMessage: (msg: WebviewToHostMessage) => void;
   onSend: (text: string) => void;
+  /** Brief H: re-send the draft as a `retrySend` (the host disables pruning
+   *  atomically first when `disablePruning` is set — "retry without pruning").
+   *  Invoked by the NoticeBanner's Retry button via `sendRetryDraftRef`. */
+  onRetrySend: (text: string, disablePruning?: boolean) => void;
   onInterrupt: () => void;
   onOpenFilePicker: () => void;
   onAddInput: (input: ComposerInputDraft) => void;
@@ -73,6 +77,12 @@ interface ComposerProps {
   onSetPrefs: (prefs: Partial<ChatPrefs>) => void;
   onSetPruningSettings: (settings: Partial<PruningSettings>) => void;
   onMarkComplete?: () => void;
+  /** Brief H: AppBody registers the composer's `sendAsRetry` here so the
+   *  NoticeBanner's Retry button (rendered at the AppBody level, outside the
+   *  composer) can re-send the LIVE composer draft. A ref (not state) — no
+   *  re-render, just a stable callback bridge from the app-level notice to the
+   *  composer-level draft (which the NoticeBanner cannot otherwise reach). */
+  sendRetryDraftRef?: { current: ((disablePruning?: boolean) => void) | null };
 }
 
 function ComposerView({
@@ -100,6 +110,7 @@ function ComposerView({
   focusTrigger,
   postMessage,
   onSend,
+  onRetrySend,
   onInterrupt,
   onOpenFilePicker,
   onAddInput,
@@ -108,6 +119,7 @@ function ComposerView({
   onSetPrefs,
   onSetPruningSettings,
   onMarkComplete,
+  sendRetryDraftRef,
 }: ComposerProps) {
   const composerAreaRef = useRef<HTMLDivElement>(null);
 
@@ -141,6 +153,7 @@ function ComposerView({
     textareaRef,
     attachmentError,
     sendCurrentText,
+    sendAsRetry,
     handleKeyDown,
     handleInput,
     handlePaste,
@@ -150,6 +163,7 @@ function ComposerView({
   } = useComposerInput({
     busy,
     onSend,
+    onRetrySend,
     pendingComposerInputsLength: pendingComposerInputs.length,
     sessionPath,
     draftText,
@@ -167,6 +181,17 @@ function ComposerView({
     handleDragLeave,
     handleDrop,
   } = useComposerDragDrop({ applyComposerTransfer });
+
+  // Brief H: keep `sendRetryDraftRef` pointing at the LATEST `sendAsRetry`
+  //  (which closes over the live draft `text`). Writing the ref during render
+  //  (rather than in a `useEffect`) guarantees the AppBody-level NoticeBanner's
+  //  Retry click always re-sends the up-to-date draft — an effect would lag one
+  //  render behind a keystroke under some test harnesses, sending stale text.
+  //  This is the standard "latest-callback" ref escape hatch (the `useEvent`
+  //  pattern): a ref write is an idempotent side effect that cannot trigger a
+  //  re-render, so it is safe during render. The closure no-ops (empty-text
+  //  guard) once the composer unmounts, so a stale entry is harmless.
+  if (sendRetryDraftRef) sendRetryDraftRef.current = sendAsRetry;
 
   useComposerPaste({ applyComposerTransfer, textareaRef });
   useComposerHeightSync(composerAreaRef);

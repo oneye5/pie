@@ -2170,3 +2170,48 @@ test('reducer: pre-ack SendResult{ok:false} with no captured inputs restores not
   assert.ok(postImperative && postImperative.kind === 'PostImperative');
   assert.deepEqual(postImperative!.imperativeMessage.inputs, []);
 });
+
+// ─── Brief H: retry-without-pruning threads + restores the prior pruning mode ─
+test('reducer: Send command threads priorPruningMode to the SendRpc effect (Brief H retry-without-pruning)', () => {
+  const result = reducer(readyState, {
+    kind: 'Command',
+    cmd: { kind: 'Send', corrId: 'c-rp', sessionPath: '/s', text: 'hi', inputs: [], composedText: 'hi', localId: 'loc-rp', previousSummary: null, priorPruningMode: 'auto', timestamp: 1 },
+  });
+  const sendRpc = result.effects.find((e) => e.kind === 'SendRpc');
+  assert.ok(sendRpc, 'normal-path Send emits a SendRpc effect');
+  assert.equal((sendRpc as { priorPruningMode?: string }).priorPruningMode, 'auto', 'priorPruningMode threaded to SendRpc');
+
+  // A normal send (no priorPruningMode) threads undefined — the EffectRunner
+  // leaves pruning untouched.
+  const normal = reducer(readyState, {
+    kind: 'Command',
+    cmd: { kind: 'Send', corrId: 'c-norm', sessionPath: '/s', text: 'hi', inputs: [], composedText: 'hi', localId: 'loc-norm', previousSummary: null, timestamp: 1 },
+  });
+  const normalSendRpc = normal.effects.find((e) => e.kind === 'SendRpc');
+  assert.ok(normalSendRpc);
+  assert.equal((normalSendRpc as { priorPruningMode?: string }).priorPruningMode, undefined, 'no priorPruningMode on a normal send');
+});
+
+test('reducer: BackendReadyWatchdogFired restores pruning for dropped "retry without pruning" sends (Brief H)', () => {
+  // A retry-without-pruning queued while the backend was down carries the user's
+  // prior mode. If the backend never becomes ready (watchdog fires), the queued
+  // send is dropped WITHOUT ever reaching the in-flight restore path — so the
+  // reducer emits a SetPruningSettings effect to restore the prior mode, else
+  // pruning would be left permanently off.
+  const state: ArchState = {
+    ...initialArchState,
+    settings: { ...initialArchState.settings, backendReady: false, pruningSettings: { ...initialArchState.settings.pruningSettings, mode: 'off' } },
+    pending: {
+      ...initialArchState.pending,
+      backendReadyQueueBySession: {
+        '/s': [{ sessionPath: '/s', corrId: 'c-r1', text: 'hi', inputs: [], composedText: 'hi', localId: 'loc-r1', previousSummary: null, timestamp: 1, priorPruningMode: 'auto' }],
+      },
+    },
+  };
+  const result = reducer(state, { kind: 'BackendReadyWatchdogFired' } as any);
+  const restore = result.effects.find((e) => e.kind === 'SetPruningSettings');
+  assert.ok(restore, 'a SetPruningSettings restore effect emitted for the dropped retry');
+  assert.equal((restore as { settings: { mode?: string } }).settings.mode, 'auto', 'restored to the captured prior mode');
+  assert.match(result.state.settings.notice!, /did not become ready/);
+  assert.deepEqual(result.state.pending.backendReadyQueueBySession, {});
+});

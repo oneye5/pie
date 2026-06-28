@@ -14,6 +14,13 @@ import type { SessionTabRunAction } from './session-tabs/run-state';
 
 export interface AppHandlers {
   handleSend: (text: string) => void;
+  /** Brief H: re-send the (restored) composer draft as a `retrySend` — mirrors
+   *  `handleSend` (optimistic message + draft-restore clear) but posts
+   *  `retrySend` so the host can disable pruning atomically before re-sending
+   *  (`disablePruning: true` → "retry without pruning"). The host's `onRetrySend`
+   *  delegates to `onSend`, so the optimistic message, session-name derivation,
+   *  and input pickup are identical to a fresh send. */
+  handleRetrySend: (text: string, disablePruning?: boolean) => void;
   handleInterrupt: () => void;
   handleOpenFilePicker: () => void;
   handleOpenFile: (path: string) => void;
@@ -65,6 +72,23 @@ export function useAppHandlers(
     addOptimisticMessage({ localId, text, sessionPath });
 
     postMessage({ type: 'send', sessionPath, text, localId });
+  }, [postMessage, activeSessionPathRef, setDraftRestore, addOptimisticMessage]);
+
+  // Brief H: retry re-sends the restored draft. Mirrors `handleSend` (optimistic
+  // message + draft-restore clear) but posts `retrySend` so the host can disable
+  // pruning atomically before the re-send when `disablePruning` is set ("retry
+  // without pruning"). The text comes from the composer's live draft (registered
+  // into `sendRetryDraftRef` in AppBody) so an edit between rejection and retry
+  // is honored — `draftRestore.text` would be stale once the user types.
+  const handleRetrySend = useCallback((text: string, disablePruning?: boolean) => {
+    const sessionPath = activeSessionPathRef.current;
+    if (!sessionPath) return;
+    setDraftRestore(null);
+
+    const localId = createLocalMessageId();
+    addOptimisticMessage({ localId, text, sessionPath });
+
+    postMessage({ type: 'retrySend', sessionPath, text, localId, disablePruning });
   }, [postMessage, activeSessionPathRef, setDraftRestore, addOptimisticMessage]);
 
   const handleInterrupt = useCallback(() => {
@@ -216,6 +240,7 @@ export function useAppHandlers(
 
   return {
     handleSend,
+    handleRetrySend,
     handleInterrupt,
     handleOpenFilePicker,
     handleOpenFile,
