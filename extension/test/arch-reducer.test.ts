@@ -1961,6 +1961,90 @@ test('reducer: prepass phase tracks running→failed (Brief F host-side) + proje
   assert.equal(view.prepassStartedAt, null, 'no startedAt once the promoted op is dropped');
 });
 
+test('reducer: prepass phase running→succeeded on a pruning-result CustomMessage (Brief F host-side) + projects prepassPhase/latencyMs', () => {
+  // Brief F host-side: a pruning-result `message.custom` arrives when the prepass
+  // COMPLETES (the skill-pruner `before_agent_start` extension emits it). While
+  // the session's phase is 'running' (a promoted op exists, post-ack/pre-
+  // commit), this is the success signal → transition to 'succeeded' + capture
+  // the latency for the post-hoc summary. See `handleCustomMessage`.
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: { ...initialArchState.sessions, activeSessionPath: '/s', runningSessionPaths: ['/s'] },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-pp', role: 'user' as const, createdAt: '', markdown: 'hi', status: 'completed' as const }] },
+      windowBySession: { '/s': userWindow },
+    },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c-pp': { kind: 'send', sessionPath: '/s', localId: 'loc-pp', previousSummary: null, text: 'hi', inputs: [], startedAt: 1000 } },
+    },
+  };
+
+  // SendResult{ok:true} (early-ack): ops→promoted (carrying startedAt) + phase 'running'.
+  let result = reducer(state, { kind: 'SendResult', corrId: 'c-pp', sessionPath: '/s', ok: true, requestId: 'req-pp' });
+  assert.equal(result.state.pending.prepassBySession['/s']?.phase, 'running');
+
+  // A pruning-result CustomMessage while phase is 'running' → 'succeeded' +
+  // captured latencyMs. (message.custom fires on prepass COMPLETION, not start.)
+  result = reducer(result.state, {
+    kind: 'CustomMessage',
+    sessionPath: '/s',
+    message: { id: 'cm-prune', role: 'assistant' as const, createdAt: '', markdown: '', status: 'completed' as const, customType: 'pruning-result' as const, customDetails: { prepassLatencyMs: 250 } } as ChatMessage,
+  });
+  assert.equal(result.state.pending.prepassBySession['/s']?.phase, 'succeeded');
+  assert.equal(result.state.pending.prepassBySession['/s']?.latencyMs, 250);
+  let view = selectViewState(result.state);
+  assert.equal(view.prepassPhase, 'succeeded', 'projected prepassPhase succeeded (promoted op still exists)');
+  assert.equal(view.prepassStartedAt, 1000, 'startedAt still projected from the promoted op');
+  assert.equal(view.prepassLatencyMs, 250, 'latencyMs projected from the tracked entry');
+
+  // A pruning-result for a session with NO active 'running' prepass does NOT
+  // fabricate a 'succeeded' chip (the guard in handleCustomMessage).
+  const idleState: ArchState = { ...result.state, pending: { ...result.state.pending, prepassBySession: {} } };
+  const noOp = reducer(idleState, {
+    kind: 'CustomMessage',
+    sessionPath: '/s',
+    message: { id: 'cm-prune2', role: 'assistant' as const, createdAt: '', markdown: '', status: 'completed' as const, customType: 'pruning-result' as const, customDetails: { prepassLatencyMs: 999 } } as ChatMessage,
+  });
+  assert.equal(noOp.state.pending.prepassBySession['/s'], undefined, 'no fabricated chip for a background / already-committed pruning-result');
+});
+
+test('reducer: prepass phase running→idle at the commit point (first MessageStarted clears prepassBySession) (Brief F host-side)', () => {
+  // Brief F host-side: the commit point (first MessageStarted for the
+  // requestId) drops the promoted op AND clears prepassBySession → phase 'idle'.
+  // A later in-turn failure is surfaced by the error mapper, never a rollback.
+  // Mirror the commit-point test's transcript/window setup (MessageStarted
+  // upserts an assistant message). Start from a promoted (post-ack) state.
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: { ...initialArchState.sessions, activeSessionPath: '/s', runningSessionPaths: ['/s'] },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-pp', role: 'user' as const, createdAt: '', markdown: 'hi', status: 'completed' as const }] },
+      windowBySession: { '/s': userWindow },
+    },
+    pending: {
+      ...initialArchState.pending,
+      promoted: { 'c-pp': { kind: 'send', sessionPath: '/s', localId: 'loc-pp', previousSummary: null, text: 'hi', requestId: 'req-pp', startedAt: 1000 } },
+      requestIdToLocalId: { 'req-pp': { sessionPath: '/s', localId: 'loc-pp' } },
+      prepassBySession: { '/s': { phase: 'running', latencyMs: null } },
+    },
+  };
+  let view = selectViewState(state);
+  assert.equal(view.prepassPhase, 'running', 'starts running (promoted op exists)');
+  assert.equal(view.prepassStartedAt, 1000);
+
+  // Commit point: MessageStarted for the promoted requestId drops the promoted
+  // op AND clears prepassBySession → phase 'idle'.
+  const result = reducer(state, { kind: 'MessageStarted', sessionPath: '/s', messageId: 'asst-1', requestId: 'req-pp', timestamp: 1 });
+  assert.equal(result.state.pending.promoted['c-pp'], undefined, 'promoted op dropped at the commit point');
+  assert.equal(result.state.pending.prepassBySession['/s'], undefined, 'prepassBySession cleared → idle');
+  view = selectViewState(result.state);
+  assert.equal(view.prepassPhase, 'idle', 'projected prepassPhase idle after the commit point');
+  assert.equal(view.prepassStartedAt, null, 'no startedAt once the promoted op is dropped');
+});
+
 test('reducer: handleError strips internal req-NN ids from the notice (Brief H criterion 1 — no req-NN reaches the user)', () => {
   // A transcript-paging RPC timeout carries `req-NN`; the raw error must not
   // surface verbatim. handleError routes through stripReqIds (shared with
