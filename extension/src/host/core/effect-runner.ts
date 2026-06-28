@@ -683,8 +683,20 @@ export class EffectRunner {
     // handler suppresses the "run finished" notification the interrupt causes.
     // The runner is the side-effect executor — this host-local flag stays out
     // of the reducer (no read-vs-clear ordering hazard).
+    //
+    // Brief E — BEST-EFFORT pre-ack cancel of an in-flight message.send/edit.
+    // `abortInFlightSend` aborts the AbortController passed to `backend.request`
+    // synchronously and OUTSIDE the session queue, so it can unblock a send whose
+    // session-op is still awaiting the (slow-prepass) RPC: pre-ack, the RPC
+    // rejects → SendResult/EditResult{ok:false} (rollback via pending.ops) and
+    // the send-timer is cleared. Post-ack (RPC already resolved) the abort is a
+    // no-op on the RPC; the `message.interrupt` enqueued below handles the
+    // streaming phase. Calling both is safe in every phase and makes interrupt
+    // responsive whether the send is pre- or post-ack (STATE_CONTRACT §
+    // Optimistic Reconciliation "Timer ownership").
     if (effect.kind === 'InterruptRpc') {
       this.deps.service.suppressNextCompletionNotificationFor(effect.sessionPath);
+      this.abortInFlightSend(effect.sessionPath);
     }
     const { queues, backend, dispatch } = this.deps;
     void queues.enqueueLifecycle(async () => {

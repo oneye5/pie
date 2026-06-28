@@ -5,6 +5,11 @@ import { getComposerRunControls } from '../session-tabs/run-state';
 
 export interface ComposerActionsProps {
   busy: boolean;
+  /** Brief E: an interrupt was just clicked and the host hasn't yet cleared
+   *  `busy`. While true the Stop affordance renders as a disabled "Stopping…"
+   *  button so the click reflects within one frame (the host clears `busy`
+   *  only after the abort round-trip completes). */
+  interrupting?: boolean;
   hasUserMessages: boolean;
   completionAction: ReturnType<typeof getComposerRunControls>['action'];
   onMarkComplete?: () => void;
@@ -16,6 +21,7 @@ export interface ComposerActionsProps {
 
 export function ComposerActions({
   busy,
+  interrupting,
   hasUserMessages,
   completionAction,
   onMarkComplete,
@@ -53,15 +59,28 @@ export function ComposerActions({
       </div>
       <div class="composer-actions-right ml-auto flex flex-wrap items-center gap-2">
         {busy ? (
-          <button
-            class="action-btn danger"
-            type="button"
-            title="Interrupt"
-            onClick={onInterrupt}
-            aria-label="Interrupt response"
-          >
-            Stop
-          </button>
+          interrupting ? (
+            <button
+              class="action-btn danger"
+              type="button"
+              title="Stopping…"
+              disabled
+              aria-label="Stopping response"
+              aria-busy="true"
+            >
+              Stopping…
+            </button>
+          ) : (
+            <button
+              class="action-btn danger"
+              type="button"
+              title="Interrupt"
+              onClick={onInterrupt}
+              aria-label="Interrupt response"
+            >
+              Stop
+            </button>
+          )
         ) : (
           <button
             class="action-btn primary"

@@ -282,6 +282,9 @@ interface BottomSectionProps {
   isAskUserHandledInline: boolean;
   postMessage: (msg: WebviewToHostMessage) => void;
   busy: ViewState['busy'];
+  /** Brief E: optimistic in-flight interrupt flag (webview-local). Drives the
+   *  "Stopping…" affordance so the click reflects within one frame. */
+  interrupting: boolean;
   activeSession: ViewState['activeSession'];
   modelSettings: ViewState['modelSettings'];
   availableModels: ViewState['availableModels'];
@@ -310,6 +313,7 @@ const BottomSection = memo(function BottomSection({
   isAskUserHandledInline,
   postMessage,
   busy,
+  interrupting,
   activeSession,
   modelSettings,
   availableModels,
@@ -341,6 +345,7 @@ const BottomSection = memo(function BottomSection({
         draftText={draftText}
         postMessage={postMessage}
         busy={busy}
+        interrupting={interrupting}
         activeModelId={activeSession?.modelId}
         activeThinkingLevel={activeSession?.thinkingLevel}
         modelSettings={modelSettings}
@@ -383,12 +388,20 @@ export function AppBody({ adapter }: AppBodyProps) {
   const [contextMenu, setContextMenu] = useState<ContextMenuState | null>(null);
   const closeContextMenu = useCallback(() => setContextMenu(null), []);
 
+  // Brief E: optimistic one-frame "stopping…" flag for interrupt. Set
+  // synchronously in `handleInterrupt` (use-app-handlers) so the click reflects
+  // within one frame; cleared below when the host confirms the abort
+  // (`busy` flips false) or the active session changes. Allowlisted webview-
+  // local protocol-sync bookkeeping (in-flight UI gating).
+  const [interrupting, setInterrupting] = useState(false);
+
   const handlers = useAppHandlers(
     postMessage,
     activeSessionPathRef,
     setDraftRestore,
     addOptimisticMessage,
     setContextMenu,
+    setInterrupting,
   );
 
   // Warm the AudioContext on the first user click so the completion sound
@@ -403,6 +416,23 @@ export function AppBody({ adapter }: AppBodyProps) {
   }, []);
 
   const derived = useAppBodyDerivedState(viewState, postMessage);
+
+  // Brief E: clear the optimistic "stopping…" flag once the host confirms the
+  // abort (`busy` flips false — the abort round-trip completed) or the active
+  // session changes (transient UI clear per STATE_CONTRACT § Webview-Local
+  // State). `busy` is the host's authoritative running signal; the local flag
+  // only bridges the host round-trip so the click reflects within one frame.
+  useEffect(() => {
+    if (!viewState.busy) setInterrupting(false);
+  }, [viewState.busy]);
+  useEffect(() => {
+    setInterrupting(false);
+  }, [derived.activeSessionPath]);
+  // While an interrupt is in-flight, suppress the transcript's busy-driven
+  // typing indicator within one frame (the host clears `busy` only after the
+  // abort completes). The transcript components are unchanged — only the
+  // `busy` value they receive is gated.
+  const transcriptBusy = viewState.busy && !interrupting;
 
   useSessionRecovery(viewState.backendReady, derived.needsSessionRecovery, derived.recoverySessionPath, viewState.notice, postMessage);
 
@@ -611,7 +641,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         mergedTranscript={mergedTranscript}
         transcriptWindow={viewState.transcriptWindow}
         transcriptLoaded={viewState.transcriptLoaded}
-        busy={viewState.busy}
+        busy={transcriptBusy}
         prefs={viewState.prefs}
         pruningSettings={viewState.pruningSettings}
         systemPrompts={viewState.systemPrompts}
@@ -631,6 +661,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         isAskUserHandledInline={derived.isAskUserHandledInline}
         postMessage={postMessage}
         busy={viewState.busy}
+        interrupting={interrupting}
         activeSession={viewState.activeSession}
         modelSettings={viewState.modelSettings}
         availableModels={viewState.availableModels}

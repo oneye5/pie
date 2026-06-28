@@ -40,6 +40,9 @@ export { SessionTabs } from './session-tabs';
 
 interface ComposerProps {
   busy: boolean;
+  /** Brief E: optimistic one-frame "stopping…" mirror of an in-flight
+   *  interrupt (the host clears `busy` only after the abort round-trip). */
+  interrupting?: boolean;
   sessionPath: string | null;
   draftText: string;
   draftRestore?: { text: string; nonce: number } | null;
@@ -74,6 +77,7 @@ interface ComposerProps {
 
 function ComposerView({
   busy,
+  interrupting,
   sessionPath,
   draftText,
   draftRestore,
@@ -261,6 +265,7 @@ function ComposerView({
         />
         <ComposerActions
           busy={busy}
+          interrupting={interrupting}
           hasUserMessages={hasUserMessages}
           completionAction={completionAction}
           onMarkComplete={onMarkComplete}

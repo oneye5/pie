@@ -49,6 +49,12 @@ export function useAppHandlers(
   setDraftRestore: (value: null) => void,
   addOptimisticMessage: (msg: { localId: string; text: string; sessionPath: string }) => void,
   setContextMenu: (state: ContextMenuState | null) => void,
+  /** Brief E: set true synchronously on interrupt so the webview reflects
+   *  "stopping…" within one frame (before the host round-trip clears
+   *  `busy`). Cleared by `AppBody` when `busy` flips false (abort confirmed)
+   *  or the active session changes. Allowlisted webview-local protocol-sync
+   *  bookkeeping (in-flight UI gating). */
+  setInterrupting: (value: boolean) => void,
 ): AppHandlers {
   const handleSend = useCallback((text: string) => {
     const sessionPath = activeSessionPathRef.current;
@@ -64,8 +70,14 @@ export function useAppHandlers(
   const handleInterrupt = useCallback(() => {
     const sessionPath = activeSessionPathRef.current;
     if (!sessionPath) return;
+    // Optimistic one-frame "stopping…" feedback: the host clears `busy` only
+    // once the abort completes (a round-trip), so without this local flag the
+    // Stop button + typing indicator would keep animating until then. The host
+    // ALSO calls `abortInFlightSend` for a pre-ack send (Brief E) — this flag
+    // is the visual mirror of that. `AppBody` clears it when `busy` flips false.
+    setInterrupting(true);
     postMessage({ type: 'interrupt', sessionPath });
-  }, [postMessage, activeSessionPathRef]);
+  }, [postMessage, activeSessionPathRef, setInterrupting]);
 
   const handleOpenFilePicker = useCallback(() => postMessage({ type: 'openFilePicker' }), [postMessage]);
   const handleOpenFile = useCallback((path: string) => postMessage({ type: 'openFile', path }), [postMessage]);

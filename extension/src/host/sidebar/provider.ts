@@ -35,8 +35,12 @@ const SCHEDULE_DEBOUNCE_MS = 50;
  * longer pays the O(transcript) projection cost. Lower it ONLY from Brief D,
  * alongside that brief's webview revision/length-identity guard work which
  * owns this constant — Brief G deliberately leaves the number unchanged.
+ *
+ * Brief D update: lowered to 60 (see UX_RELIABILITY_PLAN §6). The webview
+ * revision guard (use-host-sync.ts) makes the higher post frequency safe
+ * against out-of-order/duplicate envelopes.
  */
-const STREAMING_SCHEDULE_DEBOUNCE_MS = 150;
+const STREAMING_SCHEDULE_DEBOUNCE_MS = 60;
 
 /**
  * Implements the VS Code WebviewView for the pie sidebar.
@@ -66,6 +70,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private scheduleTimer?: ReturnType<typeof setTimeout>;
   private messageDisposable?: vscode.Disposable;
   private webviewReady = false;
+  /** State-bearing imperatives (sendRejected) queued while the view was not
+   *  ready, re-delivered on ready (Brief D §4). See `postImperative` /
+   *  `flushPendingImperatives`. */
+  private pendingImperatives: HostToWebviewMessage[] = [];
   private readonly hotReloader: SidebarHotReloader;
   private readonly watchdog: StateAppliedWatchdog;
 
@@ -109,6 +117,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       this.scheduleTimer = undefined;
     }
     this.webviewReady = false;
+    this.pendingImperatives = [];
     this.visibilityDisposable?.dispose();
     this.messageDisposable?.dispose();
     this.hotReloader.dispose();
@@ -169,6 +178,11 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           type: msg.type,
           visible: this.view?.visible ?? false,
         });
+        // Deliver imperatives buffered during the (re)load BEFORE the inbound
+        // message routes to postState() — imperatives first, then the
+        // confirming snapshot. Covers the "sendRejected fired while the webview
+        // was reloading" case (draft/overlay restore would otherwise be lost).
+        this.flushPendingImperatives();
       }
 
       // Audit-only validation: log invalid envelopes but still pass through so
@@ -357,9 +371,18 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
    */
   postImperative(msg: HostToWebviewMessage): void {
     if (!this.view || !this.webviewReady) {
-      // State-bearing imperatives (sendRejected) trigger a snapshot re-post
-      // when the webview becomes ready. Fire-and-forget imperatives are dropped.
+      // State-bearing imperatives (sendRejected) carry effects the next full
+      // snapshot cannot reproduce on its own: the webview's optimistic-overlay
+      // removal and the draft-text restore (`sendRejected.text`). The reducer's
+      // rollback restores `pendingComposerInputsBySession` (so the snapshot
+      // carries inputs) but does NOT restore `draftTextBySession` (cleared at
+      // send time) — that restore rides solely on this imperative. If the view
+      // is not ready (webview reloading), buffer the imperative for re-delivery
+      // on ready (flushPendingImperatives) AND mark globalDirty so a
+      // confirming snapshot also flushes. Fire-and-forget imperatives
+      // (playCompletionSound) are dropped.
       if (msg.type === 'sendRejected') {
+        this.pendingImperatives.push(msg);
         this.syncState = { ...this.syncState, globalDirty: true };
       }
       return;
@@ -367,11 +390,37 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.postToWebview(msg);
   }
 
+  /** Re-deliver state-bearing imperatives queued while the view was not ready.
+   *  Idempotent: a no-op when the queue is empty or the view is still not
+   *  ready. Called on bridge-ready and at the start of `flushDirtyState` so
+   *  imperatives land before the confirming snapshot. */
+  private flushPendingImperatives(): void {
+    if (this.pendingImperatives.length === 0) {
+      return;
+    }
+    if (!this.view || !this.webviewReady) {
+      return;
+    }
+    const queued = this.pendingImperatives;
+    this.pendingImperatives = [];
+    for (const imperative of queued) {
+      this.postToWebview(imperative);
+    }
+  }
+
   private canPostSnapshotToView(): boolean {
     return canPostSnapshotToWebview(!!this.view, this.webviewReady);
   }
 
   private flushDirtyState(): void {
+    // Deliver any state-bearing imperatives buffered while the view was not
+    // ready BEFORE the confirming snapshot, so the webview's optimistic overlay
+    // is removed and the draft/inputs restore is staged before the
+    // authoritative snapshot confirms them. (No-op when the queue is empty or
+    // the view is still not ready — e.g. the cold-start flush in
+    // resolveWebviewView runs before the bridge is ready.)
+    this.flushPendingImperatives();
+
     const viewState = this.getViewState();
     const result = flushDirtySnapshot(this.syncState, viewState, this.canPostSnapshotToView());
     this.syncState = result.nextSyncState;

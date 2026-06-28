@@ -6,11 +6,20 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { EffectRunner, type EffectRunnerDeps } from '../src/host/core/effect-runner';
+import { EffectRunner, type EffectRunnerDeps, type TimerSink } from '../src/host/core/effect-runner';
 import { reducer, initialArchState, type ArchState } from '../src/host/core/reducer';
 import type { Effect } from '../src/host/core/effects';
 import type { Event, EffectResultEvent } from '../src/host/core/events';
 import { makeEffectRunnerDeps } from './helpers/effect-runner-deps';
+
+/** No-op timer sink: schedules nothing (no real wall-clock timer) so the
+ *  send-timer (Brief B, default 120s) never keeps the test process alive.
+ *  These integration tests assert serialization ordering, not send-timer
+ *  firing — so never firing is correct. */
+const noopTimerSink: TimerSink = {
+  schedule: () => ({}),
+  cancel: () => {},
+};
 
 /**
  * Build a harness that serializes lifecycle tasks the same way `SessionServiceState`
@@ -69,6 +78,7 @@ function makeSerializingDeps(): {
       },
     },
     dispatch: (e) => events.push(e),
+    timer: noopTimerSink,
   });
 
   return { deps, executionOrder, events, suppressCalls };

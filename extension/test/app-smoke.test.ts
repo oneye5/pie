@@ -528,3 +528,66 @@ test('sendRejected.inputs restores composer attachments immediately (inputsResto
 
   assert.ok(container.querySelector('.attachment-card'), 'attachment still shown from the host snapshot after override clears');
 });
+
+test('Brief D: stale/duplicate state envelope (revision <= lastApplied, same host) is discarded totally — no new stateApplied, no transcript regression', () => {
+  // Transport is snapshots-only; a delayed or re-posted envelope whose
+  // revision is not strictly newer than the last applied one (same host
+  // instance) is stale. Applying it would regress viewState.transcript to
+  // older content while a newer snapshot is already rendered — the "old + new
+  // message at once" symptom. The revision guard discards it TOTALLY (returns
+  // before setViewState), so no new stateApplied fires and the rendered
+  // transcript is untouched. (Asserting via stateApplied telemetry rather than
+  // DOM text because the transcript is virtualized — off-fold messages aren't
+  // in textContent.)
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState();
+
+  act(() => { render(h(App, { adapter }), container); });
+
+  const state2: HostToWebviewMessage = {
+    type: 'state', hostInstanceId: 'host-1', revision: 2, state: sessionViewState(),
+  } as any;
+  act(() => { window.dispatchEvent(new MessageEvent('message', { data: state2 })); });
+  let applied = adapter.messages.filter((m) => m.type === 'stateApplied');
+  assert.equal(applied.at(-1)?.payload.revision, 2, 'rev 2 applied');
+  const countAfter2 = applied.length;
+
+  // A stale (older revision) snapshot arrives out-of-order — must be
+  // DISCARDED: no new stateApplied, last applied still rev 2.
+  const state1: HostToWebviewMessage = {
+    type: 'state', hostInstanceId: 'host-1', revision: 1, state: sessionViewState(),
+  } as any;
+  act(() => { window.dispatchEvent(new MessageEvent('message', { data: state1 })); });
+  applied = adapter.messages.filter((m) => m.type === 'stateApplied');
+  assert.equal(applied.length, countAfter2, 'stale rev 1 discarded — no new stateApplied');
+  assert.equal(applied.at(-1)?.payload.revision, 2, 'last applied still rev 2 (no regression)');
+
+  // A duplicate (same revision) is also discarded.
+  act(() => { window.dispatchEvent(new MessageEvent('message', { data: state2 })); });
+  applied = adapter.messages.filter((m) => m.type === 'stateApplied');
+  assert.equal(applied.length, countAfter2, 'duplicate rev 2 discarded — no new stateApplied');
+  assert.equal(applied.at(-1)?.payload.revision, 2, 'last applied still rev 2');
+});
+
+test('Brief D: a host-instance change rebases the revision guard (a fresh host\'s rev 1 is accepted, not discarded as stale)', () => {
+  // On a host restart the revision counter resets to 1. The guard must ACCEPT
+  // the first envelope from the new host instance (rebasing lastRevisionRef),
+  // not discard it as stale — otherwise the webview would freeze after a host
+  // restart until the new host's revision climbed past the old one.
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState();
+  act(() => { render(h(App, { adapter }), container); });
+
+  const state5: HostToWebviewMessage = {
+    type: 'state', hostInstanceId: 'host-1', revision: 5, state: sessionViewState(),
+  } as any;
+  act(() => { window.dispatchEvent(new MessageEvent('message', { data: state5 })); });
+  assert.equal(adapter.messages.filter((m) => m.type === 'stateApplied').at(-1)?.payload.revision, 5);
+
+  // Host restart: new instance, revision resets to 1 — must be ACCEPTED.
+  const state1NewHost: HostToWebviewMessage = {
+    type: 'state', hostInstanceId: 'host-2', revision: 1, state: sessionViewState(),
+  } as any;
+  act(() => { window.dispatchEvent(new MessageEvent('message', { data: state1NewHost })); });
+  assert.equal(adapter.messages.filter((m) => m.type === 'stateApplied').at(-1)?.payload.revision, 1, 'fresh host rev 1 accepted after host-instance change');
+});

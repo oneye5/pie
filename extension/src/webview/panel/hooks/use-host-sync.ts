@@ -258,6 +258,9 @@ interface InputsRestoreOps {
 interface HostMessageContext {
   resetPerSessionState: () => void;
   hostInstanceIdRef: { current: string };
+  /** Last applied snapshot revision (Brief D). Allowlisted webview-local
+   *  protocol-sync bookkeeping (STATE_CONTRACT § Webview-Local State). */
+  lastRevisionRef: { current: number };
   activeSessionPathRef: { current: string | null };
   committedSessionPathRef: { current: string | null };
   clearTransientUi: () => void;
@@ -295,8 +298,31 @@ function warnOnProtocolMismatch(hostProtocolVersion: number): void {
 function handleStateMessage(msg: HostToWebviewMessage, ctx: HostMessageContext) {
   const m = msg as Extract<HostToWebviewMessage, { type: 'state' }>;
   warnOnProtocolMismatch(m.protocolVersion);
+
+  // ── Brief D: revision guard (total) ──────────────────────────────────
+  // Discard out-of-order / duplicate envelopes TOTALLY, before any state
+  // mutation. Transport is snapshots-only; a delayed or re-posted envelope
+  // whose revision is not strictly newer than the last applied one (for the
+  // SAME host instance) is stale. Applying it would regress
+  // viewState.transcript to older content while the optimistic overlay or
+  // streaming state is still in flight — the "old + new message at once"
+  // symptom (e.g. a delayed pre-send snapshot arriving after the confirm
+  // snapshot would drop the just-sent message from the rendered transcript
+  // while the overlay / React batch still held the optimistic copy).
+  //
+  // On a host-instance change the revision counter resets to 1, so rebase
+  // `lastRevisionRef` to the incoming revision and accept — the clear below
+  // wipes transient UI, so there is nothing stale to protect. (The first
+  // snapshot after webview load also passes: lastRevisionRef starts at 0 and
+  // host revisions are 1-based.)
+  const prevHostInstanceId = ctx.hostInstanceIdRef.current;
+  const hostChanged = !!prevHostInstanceId && m.hostInstanceId !== prevHostInstanceId;
+  if (!hostChanged && m.revision <= ctx.lastRevisionRef.current) {
+    return; // stale / duplicate — discard totally (no flicker, no overlay regression)
+  }
+  ctx.lastRevisionRef.current = m.revision;
+
   ctx.resetPerSessionState();
-  const hostChanged = ctx.hostInstanceIdRef.current && m.hostInstanceId !== ctx.hostInstanceIdRef.current;
   const nextActiveSessionPath = m.state.activeSession?.path ?? null;
   const sessionChanged = ctx.committedSessionPathRef.current !== null && ctx.committedSessionPathRef.current !== nextActiveSessionPath;
 
@@ -307,6 +333,16 @@ function handleStateMessage(msg: HostToWebviewMessage, ctx: HostMessageContext) 
   if (hostChanged || sessionChanged) {
     ctx.clearTransientUi();
   } else {
+    // Brief D length/identity guard: the optimistic overlay is reconciled
+    // ONLY by localId identity — a confirmed host message (id === localId)
+    // replaces its placeholder. The overlay is never shrunk by transcript
+    // length or dropped by a stale snapshot: the revision guard above already
+    // discarded the latter, and `reconcileWithHostIds` only removes entries
+    // the host actually confirmed. A legitimate backend truncate shrinks the
+    // transcript, but the host's `busy || hostRunning` preserve-decision
+    // (session-handlers.ts / attach.ts) keeps the optimistic message in the
+    // snapshot the webview receives, so this guard never blocks a shrink the
+    // host already reconciled.
     const hostIds = new Set(m.state.transcript.map((msgItem) => msgItem.id));
     ctx.optimisticOps.reconcileWithHostIds(hostIds);
   }
@@ -397,6 +433,10 @@ export function useHostSync(
   const [pendingStateApplied, setPendingStateApplied] = useState<PendingStateApplied | null>(null);
 
   const hostInstanceIdRef = useRef('');
+  // Brief D: last applied snapshot revision. Revisions are 1-based on the
+  // host (globalRevision starts at 0, buildStateEnvelope does +1), so 0 means
+  // "no snapshot applied yet" — the first envelope always passes the guard.
+  const lastRevisionRef = useRef(0);
   const activeSessionPathRef = useRef<string | null>(null);
   const committedSessionPathRef = useRef<string | null>(null);
   const pendingDraftRestoreRef = useRef(new Map<string, { text: string }>());
@@ -484,6 +524,7 @@ export function useHostSync(
       dispatchHostMessage(event.data as HostToWebviewMessage, {
         resetPerSessionState,
         hostInstanceIdRef,
+        lastRevisionRef,
         activeSessionPathRef,
         committedSessionPathRef,
         clearTransientUi,

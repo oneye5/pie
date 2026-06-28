@@ -460,7 +460,7 @@ Plan: `docs/UX_RELIABILITY_PLAN.md`. Wave-orchestrated briefs targeting the
 clunky edit/interrupt/multi-prompt UX, stale-state ("old + new message at
 once"), pasted-image stickiness, pruning-prepass slowness, and general
 fragility — judged against Nielsen's 10 usability heuristics. Status:
-in progress — Rounds 1-2 done (A, G, B, C ✅ reviewer-approved; A's edit-path rollback regression + B's send-timer-budget orphaned-reply risk both caught in review and fixed). Actual rounds (re-scheduled from the plan's §1 diagram to honor its 'parallel only when file-disjoint' rule — A & B share client.ts/effect-runner.ts and B is post-A, so sequential):
+in progress — Rounds 1-3 done (A, G, B, C, E, D ✅ reviewer-approved; A's edit-path rollback regression + B's send-timer-budget orphaned-reply risk both caught in review and fixed; D's aborted worker's implementation was adopted + deep-reviewed — watchdog-resnapshot-vs-revision-guard verified safe). Actual rounds (re-scheduled from the plan's §1 diagram to honor its 'parallel only when file-disjoint' rule — A & B share client.ts/effect-runner.ts and B is post-A, so sequential):
 
 | Brief | Issue | Wave | Bucket | Depends on |
 |---|---|---|---|---|
@@ -468,9 +468,9 @@ in progress — Rounds 1-2 done (A, G, B, C ✅ reviewer-approved; A's edit-path
 | B ✅(R2) | Request timeout strategy & correlation hardening (de-dupe the 30s/60s racing timers; dropped-line diagnostics; cancel hook) | 1 | frontier | — |
 | C ✅(R2) | Optimistic lifecycle for composer inputs (pasted-image stickiness) | 2 | medium | A |
 | F | Pruning prepass UX: live, cancelable status indicator + skip/bypass | 2 | medium | A, E |
-| E | Edit / interrupt UX clunkiness (instant interrupt, no truncate-flash; second send rejected with clear message, no queue) | 2 | medium | A, B |
+| E ✅(R3) | Edit / interrupt UX clunkiness (instant interrupt, no truncate-flash; second send rejected with clear message, no queue) | 2 | medium | A, B |
 | G ✅(R1) | Projection memoization & render-path perf (O(1) unchanged-delta projection) | 2 | medium | — |
-| D | Stale-state / "old + new message at once" (webview revision + length/identity guards made total; G-enabled debounce cut; watchdog **unchanged** — resnapshot already self-heals while streaming, force-reload suppression is a correct invariant) | 3 | frontier | G |
+| D ✅(R3) | Stale-state / "old + new message at once" (webview revision + length/identity guards made total; G-enabled debounce cut; watchdog **unchanged** — resnapshot already self-heals while streaming, force-reload suppression is a correct invariant) | 3 | frontier | G |
 | H | Error prevention, messaging & graceful degradation (no `req-NN` in UI; plain-language errors + recovery actions) | 3 | medium | A, B |
 
 Execution (actual): Round 1 = A (frontier) ∥ G (medium) — disjoint files; Round 2 = B (frontier) ∥ C (medium) — B builds on A's early-ack; Round 3 = E (medium) ∥ D (frontier) — D builds on G; Round 4 = F (medium) ∥ H (medium). Each round: parallel worker(s) → orchestrator serial typecheck+test+build → `reviewer` gate. (Re-scheduled from the plan's §1 diagram, which drew A/B parallel and F in wave 2: A & B share `client.ts`/`effect-runner.ts` and B's timer design is explicitly post-A, and F depends on E — so the disjoint-file rule governs.) Preserve all `STATE_CONTRACT.md` invariants (§11 of the plan); any relaxation updates the contract in the same change.
