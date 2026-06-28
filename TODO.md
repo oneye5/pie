@@ -517,30 +517,45 @@ terminology in `AGENTS.md`. Summary:
   PR to the other repo; not executable by in-repo `worker` subagents.
 
 ## In-repo deferred follow-ups (Brief F/H, non-blocking)
-- **Brief H — NoticeBanner recovery action buttons not wired.** The pure error
-  mapper (`shared/error-mapping.ts`), `ViewState.noticeKind` (projected), the
-  `NoticeBanner` component, and the 4 webview→host action handlers
-  (`showLogs`/`openSettings`/`restartBackend`/`retrySend` in `message-router.ts`)
-  are all implemented, but `app-body.tsx` renders `<NoticeBanner notice onDismiss>`
-  WITHOUT `kind`/`onAction`, so the action buttons never render. The notices
-  already name the recovery action in PROSE (e.g. "You can retry, or retry without
-  pruning"), satisfying Nielsen #9. Wiring the buttons is a one-line prop pass +
-  an `onAction` handler in `app-body`.
+- **Brief H — NoticeBanner recovery action buttons not wired.** **DONE.** The
+  buttons are now wired (`app-body.tsx` passes `kind={viewState.noticeKind}` +
+  `onAction`→`handleNoticeAction`; a `sendRetryDraftRef` bridges the AppBody-level
+  notice to the composer's live draft via `sendAsRetry`). Retry re-sends the LIVE
+  draft as a `retrySend`; Retry+Restart dismiss, Show-logs/Open-settings do not.
+  Covered by 5 app-smoke Brief H tests. (commit `2683402`)
 - **Brief H — `retrySend` with `disablePruning` leaves pruning permanently off.**
-  `message-router.ts:onRetrySend` sets `mode:'off'` and never restores the prior
-  mode. Dormant (button not wired). Fix: capture prior mode, restore after the
-  retry send commits. Flagged with a TODO comment in `onRetrySend`.
-- **Brief H — `PREPASS_TIMEOUT_PATTERN` won't match decimal-second budgets**
-  (e.g. `12.5s`) → misclassifies as `prepass-failed`. Budgets are typically round
-  seconds; low risk.
+  **DONE.** `onRetrySend` captures the prior mode (only when not already `off` —
+  a chained-retry guard) before disabling; it rides on the Send command →
+  SendRpcEffect → InFlightSend, and the EffectRunner restores it at commit/fire/
+  pre-ack-failure (exactly once). Threaded through both send queues + the
+  backend-ready-watchdog DROP path. Covered by 4 effect-runner + 2 reducer tests.
+  Narrow known limitation: a concurrent retry whose commit fires mid a 2nd retry's
+  prepass may re-enable pruning for that prepass (the original mode is restored
+  correctly). (commit `2683402`)
+- **Brief H — `PREPASS_TIMEOUT_PATTERN` won't match decimal-second budgets.**
+  **DONE.** `(\d+)` → `(\d+(?:\.\d+)?)`; covered by `error-mapping.test.ts`.
+  (commit `140fb5d`)
 - **Brief H — `onShowLogs` creates a fresh empty `pie` OutputChannel** (boot
-  logs go to `console.warn`, not the channel). Dormant (button not wired).
-- **Brief F — host-side prepass transition tests.** `running→failed` + projected
-  `prepassPhase` are tested; the `succeeded` (CustomMessage) and `idle`
-  (commit-point `MessageStarted`) transitions are reviewer-verified by manual
-  trace but not directly unit-tested (the chip's phase-driven rendering is tested
-  in `prepass-status-chip.test.ts`).
+  logs go to `console.warn`, not the channel). **Still open** (low priority,
+  dormant until exercised — the button now renders, but the channel is empty).
+  Either route boot logs to the channel or point `showLogs` at the existing log
+  surface.
+- **Brief F — host-side prepass transition tests.** **DONE.** `running→succeeded`
+  (pruning-result CustomMessage) + `running→idle` (commit-point MessageStarted)
+  transition tests added to `arch-reducer.test.ts`, asserting the projected
+  `prepassPhase`/`startedAt`/`latencyMs` each step. (commit `792cd9d`)
 - **Brief D — `resnapshot bumps revision` lock-in test + missed-ack-while-streaming
-  end-to-end test.** Both reviewer-noted coverage gaps (mechanism verified by code
-  reading + the revision-discard test; the streaming-wedge scenario is a §12
-  manual smoke-test item).
+  end-to-end test.** `resnapshot bumps revision` lock-in **DONE**
+  (`sidebar-sync.test.ts` — a resnapshot produces a strictly-higher revision +
+  buildStateEnvelope mints strictly-increasing revisions). The
+  missed-ack-while-streaming end-to-end is **documented as a §12 manual smoke-test
+  item** (`docs/UX_RELIABILITY_SMOKE_TEST.md` scenario 6) — a full
+  streaming-wedge harness is too heavy; the mechanism is code-read-verified +
+  covered by the revision-discard unit test. (commit `792cd9d`)
+
+## §12 manual smoke-test matrix
+- `docs/UX_RELIABILITY_SMOKE_TEST.md` is the human-executable checklist for the
+  scenarios that need a real backend / wedged transport (slow prepass, wedged
+  webview, forced stderr, + paste-image/edit/interrupt/second-send). The
+  automatable scenarios (interrupt one-frame feedback, NoticeBanner buttons,
+  revision-discard, paste-image clear/restore) are covered by `app-smoke.test.ts`.

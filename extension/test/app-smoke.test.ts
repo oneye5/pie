@@ -730,3 +730,42 @@ test('Brief H: plain Retry re-sends the live draft as a retrySend (no disablePru
   assert.equal(retry!.disablePruning, undefined, 'plain Retry does NOT disable pruning');
   assert.ok(after.some((m) => m.type === 'dismissNotice'), 'Retry dismisses the notice');
 });
+
+// ─── Brief E: interrupt one-frame "Stopping…" feedback (automatable §12 item) ─
+test('Brief E: interrupt reflects "Stopping…" within one frame (optimistic, before the host round-trip clears busy)', () => {
+  // The webview sets `interrupting` synchronously in handleInterrupt so the
+  // Stop button reflects "Stopping…" within one frame — BEFORE the host
+  // round-trip clears `busy` (the host clears busy only once the abort
+  // completes). Without this local flag the button would keep showing "Stop"
+  // until the round-trip lands.
+  const adapter = makeAdapter();
+  adapter.initialState = sessionViewState({ busy: true, runningSessionPaths: ['/session/a'] });
+  act(() => { render(h(App, { adapter }), container); });
+  // Seed activeSessionPathRef (handleInterrupt guards on it) via a state msg.
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'state', hostInstanceId: 'host-1', revision: 1, state: sessionViewState({ busy: true, runningSessionPaths: ['/session/a'] }) } as any,
+    }));
+  });
+
+  // While busy, the Stop button is shown (not the "Stopping…" state).
+  const stopBtn = container.querySelector<HTMLButtonElement>('button[aria-label="Interrupt response"]');
+  assert.ok(stopBtn, 'Stop button rendered while busy');
+  assert.ok((stopBtn!.textContent ?? '').includes('Stop'));
+
+  // Click → the optimistic interrupting flag flips synchronously (one frame),
+  // rendering "Stopping…" BEFORE the host round-trip clears `busy`.
+  const before = adapter.messages.length;
+  act(() => { stopBtn!.click(); });
+  assert.ok(container.querySelector('button[aria-label="Stopping response"]'), '"Stopping…" rendered within one frame');
+  assert.ok((container.textContent ?? '').includes('Stopping…'));
+  assert.ok(adapter.messages.slice(before).some((m) => m.type === 'interrupt'), 'interrupt posted to the host');
+
+  // The host round-trip clears busy → interrupting clears → "Stopping…" is gone.
+  act(() => {
+    window.dispatchEvent(new MessageEvent('message', {
+      data: { type: 'state', hostInstanceId: 'host-1', revision: 2, state: sessionViewState({ busy: false, runningSessionPaths: [] }) } as any,
+    }));
+  });
+  assert.equal(container.querySelector('button[aria-label="Stopping response"]'), null, 'Stopping… clears once the host confirms the abort (busy false)');
+});
