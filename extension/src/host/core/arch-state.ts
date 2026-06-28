@@ -34,6 +34,7 @@ import type {
   ActiveRunSummary,
   UserContentPart,
 } from '../../shared/protocol';
+import type { NoticeKind } from '../../shared/error-mapping.js';
 import {
   DEFAULT_CHAT_PREFS,
   DEFAULT_PRUNING_SETTINGS,
@@ -116,6 +117,13 @@ export interface SettingsState {
   backendReady: boolean;
   /** User-facing notice message, or null. */
   notice: string | null;
+  /** Failure category for the current notice (Brief H), or null when the
+   *  notice is a plain info/warning string (or absent). Set alongside a
+   *  plain-language `notice` at the send/edit/prepass failure sites; the
+   *  projection surfaces it as `ViewState.noticeKind` so the webview can
+   *  render recovery action buttons. Invariant: non-null only when `notice`
+   *  is an H-category error. */
+  noticeKind: NoticeKind | null;
   /** Chat display preferences. */
   prefs: ChatPrefs;
   /** Extensions that provide tool integrations. */
@@ -192,6 +200,31 @@ export interface PendingOp {
    *  the commit-point `MessageStarted` can resolve corrId without a reverse
    *  map. Absent pre-ack (the host learns requestId only on `SendResult`). */
   requestId?: string;
+  /** Wall-clock start time (ms epoch) captured from the `Send`/`Edit`
+   *  Command's `timestamp` at command time — PURE (not a reducer wall-clock
+   *  read: STATE_CONTRACT § Reducer Purity). Carried onto the promoted op (via the
+   *  `SendResult{ok:true}` spread) so the projection can read it while the
+   *  prepass runs. Brief F's `prepassStartedAt` ViewState field is the active
+   *  session's promoted op `startedAt` (null when no promoted op exists). */
+  startedAt: number;
+}
+
+/** The pruning prepass phase for a session, surfaced as the live/cancelable
+ *  prepass status chip (Brief F). Driven by the existing send lifecycle
+ *  signals — `pending.promoted` (running), the pruning-result `CustomMessage`
+ *  (succeeded), `PreflightFailed` (failed), and the commit-point
+ *  `MessageStarted` (idle) — NOT a redefined signal source.
+ *
+ *  `startedAt` lives on the `PendingOp` (captured from the command timestamp,
+ *  pure) and is read from the promoted op by the projection; this record only
+ *  disambiguates the terminal phases (`succeeded` within the promoted window,
+ *  `failed` after the promoted op is dropped) and carries the post-hoc latency
+ *  for the high-latency hint. An absent entry means `idle`. */
+export interface PrepassPhaseState {
+  phase: 'running' | 'succeeded' | 'failed';
+  /** Prepass LLM latency (ms) from the pruning-result `CustomMessage`'s
+   *  `PruningDetails.prepassLatencyMs`, surfaced for the post-hoc summary. */
+  latencyMs: number | null;
 }
 
 /** Snapshot of the state an optimistic `SetModel` changed, for rollback when
@@ -315,6 +348,9 @@ export interface PendingState {
   sendQueueBySession: Record<string, PendingSendQueueEntry[]>;
   /** Sends queued while the backend was not yet ready, keyed by session path. */
   backendReadyQueueBySession: Record<string, BackendReadyQueueEntry[]>;
+  /** Per-session pruning prepass phase for the live status chip (Brief F).
+   *  Absent entry = `idle`. See {@link PrepassPhaseState}. */
+  prepassBySession: Record<string, PrepassPhaseState>;
 }
 
 // ---------------------------------------------------------------------------
@@ -368,6 +404,7 @@ export function createInitialArchState(): ArchState {
       contextUsageBySession: {},
       backendReady: false,
       notice: null,
+      noticeKind: null,
       prefs: { ...DEFAULT_CHAT_PREFS },
       availableExtensions: [],
       showOutcomeDialogBySession: {},
@@ -392,6 +429,7 @@ export function createInitialArchState(): ArchState {
       requestIdToLocalId: {},
       sendQueueBySession: {},
       backendReadyQueueBySession: {},
+      prepassBySession: {},
     },
   };
 }

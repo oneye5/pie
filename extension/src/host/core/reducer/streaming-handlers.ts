@@ -60,6 +60,11 @@ export function handleMessageStarted(state: ArchState, event: Extract<Event, { k
       delete draft.pending.requestIdToLocalId[requestId];
       if (promotedCorrId) {
         delete draft.pending.promoted[promotedCorrId];
+        // Brief F: commit point — the turn started streaming, so the prepass
+        // window is over. Drop the live chip (→ idle). Aligned with the
+        // promoted-op drop above so phase + startedAt clear together; a later
+        // in-turn failure is surfaced by the error mapper, never a rollback.
+        delete draft.pending.prepassBySession[sessionPath];
       }
     }
 

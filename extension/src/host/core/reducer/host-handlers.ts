@@ -73,6 +73,7 @@ export function handleBackendReadyWatchdogFired(
     }
     draft.pending.backendReadyQueueBySession = {};
     draft.settings.notice = `Backend did not become ready within ${timeoutSec}s. ${allEntries.length} queued message${allEntries.length === 1 ? '' : 's'} dropped — please retry.`;
+    draft.settings.noticeKind = null;
   });
 
   return { state: nextState, effects: [] };

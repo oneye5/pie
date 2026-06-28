@@ -460,18 +460,18 @@ Plan: `docs/UX_RELIABILITY_PLAN.md`. Wave-orchestrated briefs targeting the
 clunky edit/interrupt/multi-prompt UX, stale-state ("old + new message at
 once"), pasted-image stickiness, pruning-prepass slowness, and general
 fragility — judged against Nielsen's 10 usability heuristics. Status:
-in progress — Rounds 1-3 done (A, G, B, C, E, D ✅ reviewer-approved; A's edit-path rollback regression + B's send-timer-budget orphaned-reply risk both caught in review and fixed; D's aborted worker's implementation was adopted + deep-reviewed — watchdog-resnapshot-vs-revision-guard verified safe). Actual rounds (re-scheduled from the plan's §1 diagram to honor its 'parallel only when file-disjoint' rule — A & B share client.ts/effect-runner.ts and B is post-A, so sequential):
+DONE — Rounds 1-4 complete (A, G, B, C, E, D, F, H ✅ reviewer-approved; A's edit-path rollback regression, B's send-timer-budget orphaned-reply risk, D's watchdog-resnapshot-vs-revision-guard, F's aborted-worker host-side, and H's req-NN leak in revertSetModel/handleError all caught in review and fixed). Actual rounds (re-scheduled from the plan's §1 diagram to honor its 'parallel only when file-disjoint' rule — A & B share client.ts/effect-runner.ts and B is post-A, so sequential):
 
 | Brief | Issue | Wave | Bucket | Depends on |
 |---|---|---|---|---|
 | A ✅(R1) | Decouple `message.send` RPC from pruning prepass (root cause of req-NN timeout + image stick + prepass perception) | 1 | frontier | — |
 | B ✅(R2) | Request timeout strategy & correlation hardening (de-dupe the 30s/60s racing timers; dropped-line diagnostics; cancel hook) | 1 | frontier | — |
 | C ✅(R2) | Optimistic lifecycle for composer inputs (pasted-image stickiness) | 2 | medium | A |
-| F | Pruning prepass UX: live, cancelable status indicator + skip/bypass | 2 | medium | A, E |
+| F ✅(R4) | Pruning prepass UX: live, cancelable status indicator + skip/bypass | 2 | medium | A, E |
 | E ✅(R3) | Edit / interrupt UX clunkiness (instant interrupt, no truncate-flash; second send rejected with clear message, no queue) | 2 | medium | A, B |
 | G ✅(R1) | Projection memoization & render-path perf (O(1) unchanged-delta projection) | 2 | medium | — |
 | D ✅(R3) | Stale-state / "old + new message at once" (webview revision + length/identity guards made total; G-enabled debounce cut; watchdog **unchanged** — resnapshot already self-heals while streaming, force-reload suppression is a correct invariant) | 3 | frontier | G |
-| H | Error prevention, messaging & graceful degradation (no `req-NN` in UI; plain-language errors + recovery actions) | 3 | medium | A, B |
+| H ✅(R4) | Error prevention, messaging & graceful degradation (no `req-NN` in UI; plain-language errors + recovery actions) | 3 | medium | A, B |
 
 Execution (actual): Round 1 = A (frontier) ∥ G (medium) — disjoint files; Round 2 = B (frontier) ∥ C (medium) — B builds on A's early-ack; Round 3 = E (medium) ∥ D (frontier) — D builds on G; Round 4 = F (medium) ∥ H (medium). Each round: parallel worker(s) → orchestrator serial typecheck+test+build → `reviewer` gate. (Re-scheduled from the plan's §1 diagram, which drew A/B parallel and F in wave 2: A & B share `client.ts`/`effect-runner.ts` and B's timer design is explicitly post-A, and F depends on E — so the disjoint-file rule governs.) Preserve all `STATE_CONTRACT.md` invariants (§11 of the plan); any relaxation updates the contract in the same change.
 
@@ -515,3 +515,32 @@ terminology in `AGENTS.md`. Summary:
   start with a precise signal for Brief F's chip. **Refinement, not a blocker** —
   the host-timer chip ships first; consume the SDK event when it lands. Coordinated
   PR to the other repo; not executable by in-repo `worker` subagents.
+
+## In-repo deferred follow-ups (Brief F/H, non-blocking)
+- **Brief H — NoticeBanner recovery action buttons not wired.** The pure error
+  mapper (`shared/error-mapping.ts`), `ViewState.noticeKind` (projected), the
+  `NoticeBanner` component, and the 4 webview→host action handlers
+  (`showLogs`/`openSettings`/`restartBackend`/`retrySend` in `message-router.ts`)
+  are all implemented, but `app-body.tsx` renders `<NoticeBanner notice onDismiss>`
+  WITHOUT `kind`/`onAction`, so the action buttons never render. The notices
+  already name the recovery action in PROSE (e.g. "You can retry, or retry without
+  pruning"), satisfying Nielsen #9. Wiring the buttons is a one-line prop pass +
+  an `onAction` handler in `app-body`.
+- **Brief H — `retrySend` with `disablePruning` leaves pruning permanently off.**
+  `message-router.ts:onRetrySend` sets `mode:'off'` and never restores the prior
+  mode. Dormant (button not wired). Fix: capture prior mode, restore after the
+  retry send commits. Flagged with a TODO comment in `onRetrySend`.
+- **Brief H — `PREPASS_TIMEOUT_PATTERN` won't match decimal-second budgets**
+  (e.g. `12.5s`) → misclassifies as `prepass-failed`. Budgets are typically round
+  seconds; low risk.
+- **Brief H — `onShowLogs` creates a fresh empty `pie` OutputChannel** (boot
+  logs go to `console.warn`, not the channel). Dormant (button not wired).
+- **Brief F — host-side prepass transition tests.** `running→failed` + projected
+  `prepassPhase` are tested; the `succeeded` (CustomMessage) and `idle`
+  (commit-point `MessageStarted`) transitions are reviewer-verified by manual
+  trace but not directly unit-tested (the chip's phase-driven rendering is tested
+  in `prepass-status-chip.test.ts`).
+- **Brief D — `resnapshot bumps revision` lock-in test + missed-ack-while-streaming
+  end-to-end test.** Both reviewer-noted coverage gaps (mechanism verified by code
+  reading + the revision-discard test; the streaming-wedge scenario is a §12
+  manual smoke-test item).

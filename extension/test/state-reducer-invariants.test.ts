@@ -43,7 +43,7 @@ function archStateWithPending(
       ...initialArchState.pending,
       ops: {
         ...initialArchState.pending.ops,
-        [corrId]: { ...op, previousSummary: op.previousSummary ?? null },
+        [corrId]: { ...op, previousSummary: op.previousSummary ?? null, startedAt: 0 },
       },
     },
   };
@@ -88,9 +88,9 @@ test('arch: SessionClosed removes pending operations belonging to the closed ses
     pending: {
       ...initialArchState.pending,
       ops: {
-        'c1': { kind: 'send', sessionPath: '/s/a', localId: 'loc-1', previousSummary: null },
-        'c2': { kind: 'edit', sessionPath: '/s/b', localId: 'loc-2', previousSummary: null },
-        'c3': { kind: 'send', sessionPath: '/s/a', localId: 'loc-3', previousSummary: null },
+        'c1': { kind: 'send', sessionPath: '/s/a', localId: 'loc-1', previousSummary: null, startedAt: 0 },
+        'c2': { kind: 'edit', sessionPath: '/s/b', localId: 'loc-2', previousSummary: null, startedAt: 0 },
+        'c3': { kind: 'send', sessionPath: '/s/a', localId: 'loc-3', previousSummary: null, startedAt: 0 },
       },
     },
   };
@@ -104,6 +104,7 @@ test('arch: SessionClosed removes pending operations belonging to the closed ses
     sessionPath: '/s/b',
     localId: 'loc-2',
     previousSummary: null,
+    startedAt: 0,
   });
 });
 
@@ -158,6 +159,7 @@ test('arch: concurrent sends across different sessions do not interfere', () => 
     previousSummary: null,
     text: 'text-a',
     inputs: [],
+    startedAt: 1,
   });
   assert.deepEqual(result.state.pending.ops['c-b'], {
     kind: 'send',
@@ -166,6 +168,7 @@ test('arch: concurrent sends across different sessions do not interfere', () => 
     previousSummary: null,
     text: 'text-b',
     inputs: [],
+    startedAt: 1,
   });
 });
 
@@ -639,7 +642,7 @@ test('arch reducer: pure — does not mutate input state', () => {
     sessions: { ...initialArchState.sessions, interruptInFlightBySession: { '/s': false } },
     pending: {
       ...initialArchState.pending,
-      ops: { 'c1': { kind: 'send', sessionPath: '/s', localId: 'loc', previousSummary: null } },
+      ops: { 'c1': { kind: 'send', sessionPath: '/s', localId: 'loc', previousSummary: null, startedAt: 0 } },
     },
   };
 

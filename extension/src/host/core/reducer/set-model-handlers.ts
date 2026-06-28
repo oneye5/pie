@@ -3,6 +3,7 @@ import { produce } from 'immer';
 import type { ArchState } from '../arch-state.js';
 import type { Event } from '../events.js';
 import type { ReducerResult } from './helpers.js';
+import { stripReqIds } from '../../../shared/error-mapping.js';
 import type {
   ComposerInput,
   ContextWindowUsage,
@@ -119,11 +120,15 @@ export function revertSetModel(state: ArchState, corrId: string, error: string |
   if (!pending) {
     return state;
   }
-  const notice = `Failed to set model: ${error ?? 'unknown error'}`;
+  // Strip any internal req-NN correlation id before the notice reaches the
+  // user (Brief H criterion 1: no req-NN leaks). `settings.set` RPC timeouts
+  // carry req-NN; the raw error is still logged host-side via the Log effect.
+  const notice = `Failed to set model: ${stripReqIds(error ?? 'unknown error')}`;
   if (!pending.snapshot) {
     return produce(state, (draft) => {
       delete draft.pending.setModelByCorrId[corrId];
       draft.settings.notice = notice;
+      draft.settings.noticeKind = null;
     });
   }
   const snap = pending.snapshot;
@@ -155,6 +160,7 @@ export function revertSetModel(state: ArchState, corrId: string, error: string |
 
     delete draft.pending.setModelByCorrId[corrId];
     draft.settings.notice = notice;
+    draft.settings.noticeKind = null;
   });
 }
 

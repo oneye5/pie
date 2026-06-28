@@ -52,6 +52,10 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
         },
       ];
       delete draft.composer.draftTextBySession[cmd.sessionPath];
+      // Retry clears a stale prepass 'failed' chip from a previous turn
+      // (Brief F): the queued send has not been dispatched yet, so the
+      // phase is idle until the queue drains and the send is promoted.
+      delete draft.pending.prepassBySession[cmd.sessionPath];
     });
     return { state: nextState, effects: [] };
   }
@@ -82,6 +86,9 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
         },
       ];
       delete draft.composer.draftTextBySession[cmd.sessionPath];
+      // Retry clears a stale prepass 'failed' chip (Brief F): see the pending
+      // tab path above for the same rationale.
+      delete draft.pending.prepassBySession[cmd.sessionPath];
     });
     return {
       state: nextState,
@@ -108,9 +115,16 @@ export function handleSend(state: ArchState, cmd: Extract<Command, { kind: 'Send
       previousSummary: cmd.previousSummary,
       text: cmd.text,
       inputs: [...inputsSnapshot],
+      // PURE: from the command timestamp, not a reducer wall-clock read.
+      // Carried onto the promoted op so the projection can read it while the
+      // prepass runs (Brief F prepassStartedAt).
+      startedAt: cmd.timestamp,
     };
     draft.sessions.runningSessionPaths = nextRunningPaths;
     delete draft.composer.draftTextBySession[cmd.sessionPath];
+    // Retry clears a stale prepass 'failed' chip from a previous turn
+    // (Brief F); the phase returns to 'running' on the early-ack promote.
+    delete draft.pending.prepassBySession[cmd.sessionPath];
     // Clear pending composer inputs at SEND time (not ack time): the inputs
     // have already been folded into the sent message by MessageRouter, so
     // keeping them as pending cards past send is pure visual debt (Heuristic
@@ -147,8 +161,14 @@ export function handleEdit(state: ArchState, cmd: Extract<Command, { kind: 'Edit
       sessionPath: cmd.sessionPath,
       localId: cmd.localId,
       previousSummary: null,
+      // PURE: from the command timestamp, not a reducer wall-clock read. An
+      // edit also runs the prepass (before_agent_start), so it gets a startedAt
+      // and a 'running' chip on promote, mirroring send (Brief F).
+      startedAt: cmd.timestamp,
     };
     draft.sessions.runningSessionPaths = nextRunningPaths;
+    // Retry clears a stale prepass 'failed' chip from a previous turn.
+    delete draft.pending.prepassBySession[cmd.sessionPath];
   });
 
   return {
@@ -191,6 +211,7 @@ export function handleDismissNotice(state: ArchState, _cmd: Extract<Command, { k
   return {
     state: produce(state, (draft) => {
       draft.settings.notice = null;
+      draft.settings.noticeKind = null;
     }),
     effects: [],
   };

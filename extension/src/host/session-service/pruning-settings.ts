@@ -99,7 +99,16 @@ export async function readPruningSettings(): Promise<PruningSettings> {
       ? pruning.prepassTimeoutSec
       : DEFAULT_PRUNING_SETTINGS.prepassTimeoutSec;
 
-    return { mode, skillCeiling, toolCeiling, skillAlwaysKeep, toolAlwaysKeep, model, provider, thinkingLevel, prepassTimeoutSec };
+    // Brief F #4: auto-skip threshold for small/trivial turns. Persisted so
+    // the SDK skill-pruner can consume it (cross-repo follow-up). A positive
+    // number enables it; anything else is treated as disabled (null).
+    const rawAutoSkip = pruning.autoSkipBelowTokens;
+    const autoSkipBelowTokens =
+      typeof rawAutoSkip === 'number' && Number.isFinite(rawAutoSkip) && rawAutoSkip > 0
+        ? rawAutoSkip
+        : null;
+
+    return { mode, skillCeiling, toolCeiling, skillAlwaysKeep, toolAlwaysKeep, model, provider, thinkingLevel, prepassTimeoutSec, autoSkipBelowTokens };
   } catch {
     return cloneDefaultPruningSettings();
   }
@@ -179,6 +188,10 @@ export async function writePruningSettings(
 
   if (updates.prepassTimeoutSec !== undefined) {
     pruning.prepassTimeoutSec = updates.prepassTimeoutSec;
+  }
+
+  if (updates.autoSkipBelowTokens !== undefined) {
+    pruning.autoSkipBelowTokens = updates.autoSkipBelowTokens;
   }
 
   existing.pruning = pruning;

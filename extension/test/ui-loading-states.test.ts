@@ -741,7 +741,7 @@ test('SendResult failure removes optimistic message from transcript', async () =
   assert.equal(result.state.transcript.bySession['/test']?.length ?? 0, 0, 'optimistic message should be removed');
   // A notice should be set.
   assert.ok(result.state.settings.notice, 'should have error notice');
-  assert.ok(result.state.settings.notice!.includes('Failed to send'), 'notice should mention send failure');
+  assert.ok(result.state.settings.notice!.includes("Couldn't send"), 'notice should mention send failure');
 });
 
 // ─── TurnActivityStrip inline rendering ──────────────────────────────────────

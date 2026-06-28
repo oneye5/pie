@@ -163,6 +163,8 @@ test('HostToWebviewMessage state envelope carries hostInstanceId and revision', 
       fileChangesExpanded: false,
       readFilePaths: [],
       pruningResult: null,
+      prepassPhase: 'idle',
+      prepassStartedAt: null,
       pruningSettings: {
         mode: 'auto' as const,
         skillCeiling: 8,

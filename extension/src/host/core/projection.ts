@@ -31,6 +31,8 @@ import type {
   ArchState,
   ComposerState,
   FileChangesState,
+  PendingOp,
+  PrepassPhaseState,
   SessionsState,
   SettingsState,
 } from './arch-state';
@@ -119,6 +121,56 @@ export function derivePruningResult(transcript: ChatMessage[]): PruningResult | 
   return null;
 }
 
+// ─── Prepass status derivation (Brief F) ──────────────────────────────────────
+
+/** Find the promoted (early-acked, pre-commit) op for a session, if any.
+ *  At most one can exist per session — session mutations are serialized per
+ *  `sessionPath` (STATE_CONTRACT § Execution Ordering). */
+function findPromotedForSession(
+  promoted: Record<string, PendingOp>,
+  sessionPath: string,
+): PendingOp | undefined {
+  for (const op of Object.values(promoted)) {
+    if (op.sessionPath === sessionPath) return op;
+  }
+  return undefined;
+}
+
+interface PrepassViewState {
+  phase: 'idle' | 'running' | 'succeeded' | 'failed';
+  startedAt: number | null;
+  latencyMs: number | null | undefined;
+}
+
+/** Derive the live prepass status for the active session. Host-side (the
+ *  webview stays passive per STATE_CONTRACT § Webview-Local State) and pure:
+ *  `startedAt` comes from the promoted op's `startedAt` (captured from the
+ *  Send command timestamp — not a reducer wall-clock read).
+ *
+ *  Phase logic:
+ *  - A promoted op exists (post-ack, pre-commit) → `running`, or `succeeded`
+ *    once the pruning-result `CustomMessage` landed (tracked.phase).
+ *  - No promoted op + tracked.phase === `failed` → `failed` (a post-ack
+ *    `PreflightFailed` dropped the promoted op but remembers the failure).
+ *  - Otherwise → `idle` (commit point `MessageStarted` cleared the entry). */
+function derivePrepassStatus(state: ArchState, activePath: string | null): PrepassViewState {
+  if (!activePath) return { phase: 'idle', startedAt: null, latencyMs: undefined };
+  const promotedOp = findPromotedForSession(state.pending.promoted, activePath);
+  const tracked = state.pending.prepassBySession[activePath];
+  if (promotedOp) {
+    return {
+      phase: tracked?.phase === 'succeeded' ? 'succeeded' : 'running',
+      startedAt: promotedOp.startedAt,
+      latencyMs: tracked?.latencyMs ?? undefined,
+    };
+  }
+  return {
+    phase: tracked?.phase === 'failed' ? 'failed' : 'idle',
+    startedAt: null,
+    latencyMs: tracked?.latencyMs ?? undefined,
+  };
+}
+
 // ─── Memoization ──────────────────────────────────────────────────────────────
 //
 // selectViewState is memoized with a single-entry cache keyed by a cheap
@@ -153,14 +205,15 @@ interface ProjectionSignature {
   activeTranscriptWindow: TranscriptWindow;
   activeSystemPrompts: SystemPromptEntry[];
   activeEditingMessageId: string | null;
-  // ── Brief F seam ─────────────────────────────────────────────────────────
-  // Brief F will add `prepassPhase` / `prepassStartedAt` to the ViewState,
-  // derived from a new ArchState input (a per-session prepass clock, likely
-  // under `composer` or `pending`). When F lands it MUST add that backing
-  // reference to this signature so the cache busts iff the prepass phase
-  // changes. It is deliberately absent now: the field's mere addition to the
-  // projection must not bust the cache on its own, and a missing signature
-  // entry would let a stale phase leak — so F wires its input in explicitly.
+  // ── Brief F ───────────────────────────────────────────────────────────────
+  // `prepassPhase` / `prepassStartedAt` / `prepassLatencyMs` are derived from
+  // the active session's promoted op (`pending.promoted`, startedAt) and its
+  // prepass phase entry (`pending.prepassBySession`, phase + latencyMs). The
+  // backing references below bust the memoized cache iff the phase changes —
+  // a missing entry would let a stale phase leak (G's seam comment warned of
+  // exactly this), so the inputs are wired in explicitly.
+  activePromotedOp: PendingOp | null;
+  activePrepassPhase: PrepassPhaseState | null;
 }
 
 function computeProjectionSignature(state: ArchState): ProjectionSignature {
@@ -187,6 +240,12 @@ function computeProjectionSignature(state: ArchState): ProjectionSignature {
     activeEditingMessageId: activePath
       ? state.transcript.editingMessageIdBySession[activePath] ?? null
       : null,
+    activePromotedOp: activePath
+      ? findPromotedForSession(state.pending.promoted, activePath) ?? null
+      : null,
+    activePrepassPhase: activePath
+      ? state.pending.prepassBySession[activePath] ?? null
+      : null,
   };
 }
 
@@ -201,7 +260,9 @@ function signaturesEqual(a: ProjectionSignature, b: ProjectionSignature): boolea
     a.activeTranscript === b.activeTranscript &&
     a.activeTranscriptWindow === b.activeTranscriptWindow &&
     a.activeSystemPrompts === b.activeSystemPrompts &&
-    a.activeEditingMessageId === b.activeEditingMessageId
+    a.activeEditingMessageId === b.activeEditingMessageId &&
+    a.activePromotedOp === b.activePromotedOp &&
+    a.activePrepassPhase === b.activePrepassPhase
   );
 }
 
@@ -305,6 +366,8 @@ function projectViewState(state: ArchState): ViewState {
   // ── Pruning projection ──
   const pruningResult = selectActivePruningResult(state);
   const pruningCatalog = selectActivePruningCatalog(activePath, sessions.analyticsFactorsBySession);
+  // ── Prepass status (Brief F) — live, cancelable chip ──
+  const prepass = derivePrepassStatus(state, activePath);
 
   return {
     sessions: sessions.sessions,
@@ -326,6 +389,7 @@ function projectViewState(state: ArchState): ViewState {
     draftText: activeDraftText,
     busy,
     notice: settings.notice,
+    noticeKind: settings.noticeKind,
     backendReady: settings.backendReady,
     workspaceCwd: sessions.workspaceCwd,
     systemPrompts: activeSystemPrompts,
@@ -340,6 +404,9 @@ function projectViewState(state: ArchState): ViewState {
     pruningResult,
     pruningSettings: settings.pruningSettings,
     pruningCatalog,
+    prepassPhase: prepass.phase,
+    prepassStartedAt: prepass.startedAt,
+    prepassLatencyMs: prepass.latencyMs,
     editingMessageId: activePath ? state.transcript.editingMessageIdBySession[activePath] ?? null : null,
     showOutcomeDialog: activePath ? state.settings.showOutcomeDialogBySession[activePath] ?? false : false,
     pendingExtensionUIRequestsBySession: settings.pendingExtensionUIRequestsBySession,

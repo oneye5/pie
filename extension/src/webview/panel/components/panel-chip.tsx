@@ -71,7 +71,7 @@ function wrapTooltip(node: JSX.Element, tooltip: string | undefined, freezeWhile
   return <Tooltip content={tooltip} freezeWhileVisible={freezeWhileVisible}>{node}</Tooltip>;
 }
 
-function PanelChip(props: PanelChipProps) {
+export function PanelChip(props: PanelChipProps) {
   const className = chipClassName(props);
   const content = chipContent(props);
   const title = props.tooltip ? undefined : props.title;

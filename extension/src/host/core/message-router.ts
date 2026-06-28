@@ -7,6 +7,7 @@ import type { Event } from './events';
 import type { ArchState } from './reducer';
 import { bootLog } from '../util/audit';
 import { buildOptimisticUserParts, buildPromptText } from './composer';
+import { resolveSettingsPath } from '../session-service/pruning-settings';
 
 /** Minimal sidebar provider surface the router needs. */
 export interface SidebarProviderLike {
@@ -186,6 +187,20 @@ export class MessageRouter {
 
       case 'setFileChangesExpanded':
         return this.onSetFileChangesExpanded(msg as Extract<WebviewToHostMessage, { type: 'setFileChangesExpanded' }>);
+
+      // ── Brief H: recovery actions surfaced from an error notice. These are
+      //    side-effect-only (no reducer event), mirroring openFilePicker/openFile.
+      case 'showLogs':
+        return this.onShowLogs();
+
+      case 'openSettings':
+        return this.onOpenSettings();
+
+      case 'restartBackend':
+        return this.onRestartBackend();
+
+      case 'retrySend':
+        return await this.onRetrySend(msg as Extract<WebviewToHostMessage, { type: 'retrySend' }>);
 
       default:
         return;
@@ -650,6 +665,66 @@ export class MessageRouter {
     });
   }
 
+  // ── Brief H: recovery action handlers (side-effect only) ────────────────
+
+  /** `showLogs` — reveal the pie OutputChannel so the user can inspect
+   *  diagnostics after a malformed-response / backend-exit error. The channel
+   *  is created lazily on first request and reused. Pure side effect: no
+   *  reducer event, no notice change. */
+  private onShowLogs(): void {
+    getPieLogChannel().show(true);
+  }
+
+  /** `openSettings` — open the pruning settings file (`settings.json` in
+   *  `PI_CODING_AGENT_DIR`) so the user can adjust `prepassTimeoutSec` / mode
+   *  after a timeout. Falls back to the VS Code Settings UI filtered to "pie"
+   *  when the settings file path cannot be resolved. */
+  private async onOpenSettings(): Promise<void> {
+    const settingsPath = resolveSettingsPath();
+    if (settingsPath) {
+      try {
+        const doc = await vscode.workspace.openTextDocument(vscode.Uri.file(settingsPath));
+        await vscode.window.showTextDocument(doc);
+        return;
+      } catch (err) {
+        bootLog('webview', 'openSettings.openFileFailed', { settingsPath, error: String(err) });
+      }
+    }
+    await vscode.commands.executeCommand('workbench.action.openSettings', 'pie');
+  }
+
+  /** `restartBackend` — re-run the registered `pie.restartBackend` command
+   *  after a backend-exit error. The command owns the full restart lifecycle. */
+  private async onRestartBackend(): Promise<void> {
+    await vscode.commands.executeCommand('pie.restartBackend');
+  }
+
+  /** `retrySend` — re-send the draft text (composer draft + inputs were
+   *  restored on rollback). When `disablePruning` is set, disable pruning
+   *  (`mode: 'off'`) BEFORE re-sending so the slow prepass is skipped —
+   *  atomically, on the host, to avoid a race where the send's prepass reads
+   *  stale settings. Delegates to {@link onSend} so the optimistic message,
+   *  session-name derivation, and input pickup are identical to a fresh send. */
+  private async onRetrySend(msg: Extract<WebviewToHostMessage, { type: 'retrySend' }>): Promise<void> {
+    if (msg.disablePruning) {
+      // TODO(Brief H follow-up): capture the prior pruning mode + restore it
+      // after the retry send completes, so "retry without pruning" doesn't
+      // leave pruning permanently off. Dormant today (the recovery action
+      // button isn't wired in app-body yet).
+      try {
+        await this.service.setPruningSettings({ mode: 'off' });
+      } catch (err) {
+        bootLog('webview', 'retrySend.disablePruningFailed', { error: String(err) });
+      }
+    }
+    await this.onSend({
+      type: 'send',
+      sessionPath: msg.sessionPath,
+      text: msg.text,
+      localId: msg.localId,
+    });
+  }
+
   // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
@@ -661,4 +736,16 @@ export class MessageRouter {
     if (!path) return null;
     return this.getArchState().sessions.sessions.find(s => s.path === path) ?? null;
   }
+}
+
+// ── Brief H: lazy singleton OutputChannel for the "Show logs" action ─────────
+// Created on first `showLogs` request; revealed (not recreated) after. Module-
+// scoped so it persists across webview messages for the extension lifetime.
+let pieLogChannel: vscode.OutputChannel | undefined;
+
+function getPieLogChannel(): vscode.OutputChannel {
+  if (!pieLogChannel) {
+    pieLogChannel = vscode.window.createOutputChannel('pie');
+  }
+  return pieLogChannel;
 }

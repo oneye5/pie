@@ -6,6 +6,7 @@ import type { ReducerResult } from './helpers.js';
 import { removeFromArray, removeMessage } from './helpers.js';
 import type { Event, EffectResultEvent } from '../events.js';
 import { applySetModelOptimistic, dropSetModelPending, revertSetModel } from './set-model-handlers.js';
+import { mapSendOrEditError, mapPreflightError } from '../../../shared/error-mapping.js';
 
 export function handleInterruptResult(state: ArchState, event: Extract<Event, { kind: 'InterruptResult' }>): ReducerResult {
   let nextState = state;
@@ -53,6 +54,11 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
         ...pending,
         ...(event.requestId ? { requestId: event.requestId } : {}),
       };
+      // Brief F: the prompt was queued (post-ack, pre-commit) — the pruning
+      // prepass now runs. Surface a live, cancelable status chip. `startedAt`
+      // is read from the promoted op by the projection (pure, from the Send
+      // command timestamp).
+      draft.pending.prepassBySession[pending.sessionPath] = { phase: 'running', latencyMs: null };
       // Composer inputs were cleared at SEND time (handleSend captures the
       // snapshot onto the PendingOp and clears `pendingComposerInputsBySession`
       // so the composer is immediately clean). Nothing to clear here at ack
@@ -93,8 +99,17 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
       draft.sessions.runningSessionPaths,
       pending.sessionPath,
     );
-    // Set notice
-    draft.settings.notice = `Failed to send message: ${event.error ?? 'unknown error'}`;
+    // Brief H: map the raw RPC error (which may carry a `req-NN` id) to a
+    // plain-language notice + a failure kind that the webview renders recovery
+    // buttons for. A user-initiated cancel (Brief E abort) returns null →
+    // SUPPRESS the notice (the user initiated it; the rollback above still
+    // removes the optimistic message + restores inputs). Leaving the prior
+    // notice untouched on cancel avoids clobbering an unrelated banner.
+    const mapped = mapSendOrEditError(event.error, 'send');
+    if (mapped) {
+      draft.settings.notice = mapped.message;
+      draft.settings.noticeKind = mapped.kind;
+    }
     // Restore composer inputs from the send-time snapshot so a retry can
     // re-send them (no data loss). Inputs were cleared at send time (handleSend);
     // the pre-ack failure must hand them back. Mirrors the post-ack
@@ -102,6 +117,9 @@ export function handleSendResult(state: ArchState, event: Extract<Event, { kind:
     if (pending.inputs && pending.inputs.length > 0) {
       draft.composer.pendingComposerInputsBySession[pending.sessionPath] = [...pending.inputs];
     }
+    // Brief F: the send was rejected before the prepass ran — clear any
+    // prepass chip (idle).
+    delete draft.pending.prepassBySession[pending.sessionPath];
     // Restore session summary if we had one
     if (pending.previousSummary) {
       const idx = draft.sessions.sessions.findIndex((s) => s.path === pending.previousSummary!.path);
@@ -194,12 +212,19 @@ export function handlePreflightFailed(state: ArchState, event: Extract<Event, { 
     if (snapshot.inputs && snapshot.inputs.length > 0) {
       draft.composer.pendingComposerInputsBySession[snapshot.sessionPath] = [...snapshot.inputs];
     }
-    // Surface a plain-language error (Brief H refines the copy). Kind-aware so
-    // an edit failure reads as an edit failure (matches the legacy wording).
-    draft.settings.notice =
-      snapshot.kind === 'edit'
-        ? `Failed to edit message: ${event.error ?? 'the prompt was rejected before it began.'}`
-        : `Failed to start this turn: ${event.error ?? 'the prompt was rejected before it began.'}`;
+    // Brief F: the prepass failed post-ack. Surface a 'failed' status chip
+    // (Brief H refines the message copy); the notice below carries the
+    // plain-language error. The promoted op is dropped above so startedAt is
+    // null (no elapsed timer for a failed chip).
+    draft.pending.prepassBySession[snapshot.sessionPath] = { phase: 'failed', latencyMs: null };
+    // Brief H: map the prepass failure to a plain-language notice + kind (no
+    // `req-NN`). The send-timer fire error carries the budget; a backend-
+    // reported failure carries a sanitized detail. Kind-aware so an edit
+    // failure reads as an edit failure (prose action, no retry button —
+    // re-editing is a separate affordance Brief E owns).
+    const preflightMapped = mapPreflightError(event.error, snapshot.kind);
+    draft.settings.notice = preflightMapped.message;
+    draft.settings.noticeKind = preflightMapped.kind;
     // Restore session summary if the optimistic send had renamed it
     if (snapshot.previousSummary) {
       const idx = draft.sessions.sessions.findIndex((s) => s.path === snapshot.previousSummary!.path);
@@ -233,6 +258,9 @@ export function handleEditResult(state: ArchState, event: Extract<Event, { kind:
         ...pending,
         ...(event.requestId ? { requestId: event.requestId } : {}),
       };
+      // Brief F: an edit also runs the prepass (before_agent_start), so
+      // surface a live chip on promote, mirroring send.
+      draft.pending.prepassBySession[pending.sessionPath] = { phase: 'running', latencyMs: null };
     });
     return { state: nextState, effects: [] };
   }
@@ -248,7 +276,16 @@ export function handleEditResult(state: ArchState, event: Extract<Event, { kind:
       draft.sessions.runningSessionPaths,
       pending.sessionPath,
     );
-    draft.settings.notice = `Failed to edit message: ${event.error ?? 'unknown error'}`;
+    // Brief H: map the raw RPC error to a plain-language notice + kind. Edits
+    // map to `edit-failed` (prose action — re-editing is a separate affordance
+    // Brief E owns; no retry button). A cancel returns null → suppress.
+    const editMapped = mapSendOrEditError(event.error, 'edit');
+    if (editMapped) {
+      draft.settings.notice = editMapped.message;
+      draft.settings.noticeKind = editMapped.kind;
+    }
+    // Brief F: edit rejected pre-ack — clear any prepass chip (idle).
+    delete draft.pending.prepassBySession[pending.sessionPath];
   });
 
   return { state: nextState, effects };

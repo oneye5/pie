@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { reducer, initialArchState, type ArchState } from '../src/host/core/reducer';
+import { selectViewState } from '../src/host/core/projection';
 import type { Event } from '../src/host/core/events';
 import type { ChatMessage, SessionSummary } from '../src/shared/protocol';
 
@@ -190,6 +191,7 @@ test('reducer: Send command inserts optimistic message and produces SendRpc', ()
     previousSummary: null,
     text: 'raw',
     inputs: [],
+    startedAt: 1,
   });
 
   // Optimistic user message inserted in transcript.
@@ -221,7 +223,7 @@ test('reducer: SendResult{ok:true} moves the rollback snapshot ops→promoted (c
     },
     pending: {
       ...initialArchState.pending,
-      ops: { 'c-ok': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null } },
+      ops: { 'c-ok': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null, startedAt: 0 } },
     },
   };
 
@@ -234,6 +236,7 @@ test('reducer: SendResult{ok:true} moves the rollback snapshot ops→promoted (c
     sessionPath: '/s',
     localId: 'loc-1',
     previousSummary: null,
+    startedAt: 0,
   });
   // Composer inputs are NOT cleared at ack time (send time owns the clear).
   // In the real flow handleSend already cleared them; this artificial state
@@ -348,7 +351,7 @@ test('reducer: SendResult{ok:false} clears pending, removes optimistic, restores
     },
     pending: {
       ...initialArchState.pending,
-      ops: { 'c-fail': { kind: 'send', sessionPath: '/s', localId: 'loc-2', previousSummary: prevSummary } },
+      ops: { 'c-fail': { kind: 'send', sessionPath: '/s', localId: 'loc-2', previousSummary: prevSummary, startedAt: 0 } },
     },
   };
 
@@ -358,7 +361,7 @@ test('reducer: SendResult{ok:false} clears pending, removes optimistic, restores
   // Optimistic message removed from transcript.
   assert.ok(!result.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-2'), 'optimistic message should be removed');
   // Notice set directly in state.
-  assert.match(result.state.settings.notice!, /Failed to send/);
+  assert.match(result.state.settings.notice!, /Couldn't send/);
   // Session summary restored.
   const restored = result.state.sessions.sessions.find(s => s.path === '/s');
   assert.equal(restored?.name, 'Old');
@@ -377,7 +380,7 @@ test('reducer: SendResult{ok:false} without previousSummary does not restore ses
     },
     pending: {
       ...initialArchState.pending,
-      ops: { 'c-fail2': { kind: 'send', sessionPath: '/s', localId: 'loc-3', previousSummary: null } },
+      ops: { 'c-fail2': { kind: 'send', sessionPath: '/s', localId: 'loc-3', previousSummary: null, startedAt: 0 } },
     },
   };
 
@@ -411,6 +414,7 @@ test('reducer: Edit command records pending, inserts optimistic message, produce
     sessionPath: '/s',
     localId: 'loc-e1',
     previousSummary: null,
+    startedAt: 1,
   });
 
   // Optimistic user message in transcript.
@@ -436,7 +440,7 @@ test('reducer: EditResult{ok:true} (early-ack) moves the rollback snapshot ops�
     ...initialArchState,
     pending: {
       ...initialArchState.pending,
-      ops: { 'c-edit-ok': { kind: 'edit', sessionPath: '/s', localId: 'loc-e2', previousSummary: null } },
+      ops: { 'c-edit-ok': { kind: 'edit', sessionPath: '/s', localId: 'loc-e2', previousSummary: null, startedAt: 0 } },
     },
   };
 
@@ -449,6 +453,7 @@ test('reducer: EditResult{ok:true} (early-ack) moves the rollback snapshot ops�
     localId: 'loc-e2',
     previousSummary: null,
     requestId: 'req-e2',
+    startedAt: 0,
   });
   assert.deepEqual(result.effects, []);
 });
@@ -463,7 +468,7 @@ test('reducer: EditResult{ok:false} clears pending, removes optimistic, sets not
     },
     pending: {
       ...initialArchState.pending,
-      ops: { 'c-edit-fail': { kind: 'edit', sessionPath: '/s', localId: 'loc-e3', previousSummary: null } },
+      ops: { 'c-edit-fail': { kind: 'edit', sessionPath: '/s', localId: 'loc-e3', previousSummary: null, startedAt: 0 } },
     },
   };
 
@@ -471,7 +476,7 @@ test('reducer: EditResult{ok:false} clears pending, removes optimistic, sets not
 
   assert.equal(result.state.pending.ops['c-edit-fail'], undefined);
   // Notice set directly in state.
-  assert.match(result.state.settings.notice!, /Failed to edit/);
+  assert.match(result.state.settings.notice!, /Couldn't edit/);
   // Optimistic message removed from transcript.
   assert.ok(!result.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-e3'), 'optimistic edit message should be removed');
   // No SyncEffects — all state mutations are direct.
@@ -1425,7 +1430,7 @@ test('reducer: SendResult{ok:true} with requestId stores requestIdToLocalId mapp
     pending: {
       ...initialArchState.pending,
       ops: {
-        'c-send': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null },
+        'c-send': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null, startedAt: 0 },
       },
     },
   };
@@ -1695,7 +1700,7 @@ test('reducer: late SendResult after a timeout-induced SendResult{ok:false} is a
     },
     pending: {
       ...initialArchState.pending,
-      ops: { 'c-late': { kind: 'send', sessionPath: '/s', localId: 'loc-late', previousSummary: null } },
+      ops: { 'c-late': { kind: 'send', sessionPath: '/s', localId: 'loc-late', previousSummary: null, startedAt: 0 } },
     },
   };
 
@@ -1703,7 +1708,7 @@ test('reducer: late SendResult after a timeout-induced SendResult{ok:false} is a
   const afterTimeout = reducer(state, { kind: 'SendResult', corrId: 'c-late', sessionPath: '/s', ok: false, error: 'Timed out waiting for backend response (60s)' });
   assert.equal(afterTimeout.state.pending.ops['c-late'], undefined);
   assert.ok(!afterTimeout.state.transcript.bySession['/s']?.some((m: ChatMessage) => m.id === 'loc-late'), 'optimistic message removed after timeout');
-  assert.match(afterTimeout.state.settings.notice!, /Failed to send/);
+  assert.match(afterTimeout.state.settings.notice!, /Couldn't send/);
 
   // 2. Late real result arrives: reducer no-ops (pending already removed).
   const afterLate = reducer(afterTimeout.state, { kind: 'SendResult', corrId: 'c-late', sessionPath: '/s', ok: true, requestId: 'req-late' });
@@ -1733,7 +1738,7 @@ test('reducer: SendResult{ok:true} (early-ack) moves the rollback snapshot ops�
     ...initialArchState,
     pending: {
       ...initialArchState.pending,
-      ops: { 'c-promote': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null, text: 'hi', inputs: [imgInput] } },
+      ops: { 'c-promote': { kind: 'send', sessionPath: '/s', localId: 'loc-1', previousSummary: null, text: 'hi', inputs: [imgInput], startedAt: 0 } },
     },
   };
 
@@ -1752,6 +1757,7 @@ test('reducer: SendResult{ok:true} (early-ack) moves the rollback snapshot ops�
     text: 'hi',
     inputs: [imgInput],
     requestId: 'req-7',
+    startedAt: 0,
   });
   // Composer inputs were cleared at SEND time (handleSend), not at ack time.
   // SendResult{ok:true} does not touch `pendingComposerInputsBySession`.
@@ -1774,7 +1780,7 @@ test('reducer: post-ack PreflightFailed rolls back via promoted, restores inputs
     },
     pending: {
       ...initialArchState.pending,
-      promoted: { 'c-fl': { kind: 'send', sessionPath: '/s', localId: 'loc-2', previousSummary: null, text: 'hey', inputs: [imgInput], requestId: 'req-9' } },
+      promoted: { 'c-fl': { kind: 'send', sessionPath: '/s', localId: 'loc-2', previousSummary: null, text: 'hey', inputs: [imgInput], requestId: 'req-9', startedAt: 0 } },
       requestIdToLocalId: { 'req-9': { sessionPath: '/s', localId: 'loc-2' } },
     },
   };
@@ -1795,7 +1801,7 @@ test('reducer: post-ack PreflightFailed rolls back via promoted, restores inputs
   // Composer inputs RESTORED from the promoted snapshot (no data loss).
   assert.deepEqual(result.state.composer.pendingComposerInputsBySession['/s'], [imgInput]);
   // Plain-language error surfaced (Brief H refines the copy).
-  assert.match(result.state.settings.notice!, /Failed to start this turn/);
+  assert.match(result.state.settings.notice!, /pruning step failed/);
   assert.match(result.state.settings.notice!, /prepass blew up/);
   // Fires a sendRejected imperative so the webview drops its overlay + restores draft.
   // Brief C: the imperative carries `inputs` so the webview can restore the
@@ -1827,7 +1833,7 @@ test('reducer: PreflightFailed with explicit corrId (Brief B send-timer) rolls b
     },
     pending: {
       ...initialArchState.pending,
-      promoted: { 'c-b': { kind: 'send', sessionPath: '/s', localId: 'loc-b', previousSummary: null, text: 'go', inputs: [], requestId: 'req-b' } },
+      promoted: { 'c-b': { kind: 'send', sessionPath: '/s', localId: 'loc-b', previousSummary: null, text: 'go', inputs: [], requestId: 'req-b', startedAt: 0 } },
     },
   };
 
@@ -1847,7 +1853,7 @@ test('reducer: commit-point first MessageStarted drops the promoted snapshot (la
     },
     pending: {
       ...initialArchState.pending,
-      promoted: { 'c-commit': { kind: 'send', sessionPath: '/s', localId: 'loc-3', previousSummary: null, text: 'go', requestId: 'req-11' } },
+      promoted: { 'c-commit': { kind: 'send', sessionPath: '/s', localId: 'loc-3', previousSummary: null, text: 'go', requestId: 'req-11', startedAt: 0 } },
       requestIdToLocalId: { 'req-11': { sessionPath: '/s', localId: 'loc-3' } },
     },
   };
@@ -1896,7 +1902,7 @@ test('reducer: post-ack PreflightFailed rolls back an EDIT via promoted (no send
     },
     pending: {
       ...initialArchState.pending,
-      promoted: { 'c-edit-fl': { kind: 'edit', sessionPath: '/s', localId: 'loc-ee', previousSummary: null, requestId: 'req-ee' } },
+      promoted: { 'c-edit-fl': { kind: 'edit', sessionPath: '/s', localId: 'loc-ee', previousSummary: null, requestId: 'req-ee', startedAt: 0 } },
     },
   };
 
@@ -1911,10 +1917,58 @@ test('reducer: post-ack PreflightFailed rolls back an EDIT via promoted (no send
   // requestId→localId clear (edit never records it, but the delete is a safe no-op).
   assert.equal(result.state.pending.requestIdToLocalId['req-ee'], undefined);
   // Kind-aware notice (Brief H refines the copy).
-  assert.match(result.state.settings.notice!, /Failed to edit message/);
+  assert.match(result.state.settings.notice!, /Couldn't edit/);
   assert.match(result.state.settings.notice!, /prepass blew up/);
   // Edits do NOT fire sendRejected (matches legacy EditResult{ok:false}).
   assert.deepEqual(result.effects, []);
+});
+
+test('reducer: prepass phase tracks running→failed (Brief F host-side) + projects prepassPhase/startedAt for the active session', () => {
+  // Brief F host-side: pending.prepassBySession tracks the prepass phase, driven
+  // by the send lifecycle (promoted op + PreflightFailed). The projection
+  // derives prepassPhase/startedAt for the active session (host ViewState; the
+  // webview stays passive). startedAt is captured from the Send command
+  // timestamp (PURE — no reducer Date.now()).
+  const state: ArchState = {
+    ...initialArchState,
+    sessions: { ...initialArchState.sessions, activeSessionPath: '/s', runningSessionPaths: ['/s'] },
+    transcript: {
+      ...initialArchState.transcript,
+      bySession: { '/s': [{ id: 'loc-pp', role: 'user' as const, createdAt: '', markdown: 'hi', status: 'completed' as const }] },
+      windowBySession: { '/s': userWindow },
+    },
+    pending: {
+      ...initialArchState.pending,
+      ops: { 'c-pp': { kind: 'send', sessionPath: '/s', localId: 'loc-pp', previousSummary: null, text: 'hi', inputs: [], startedAt: 1000 } },
+    },
+  };
+
+  // SendResult{ok:true} (early-ack): ops→promoted (carrying startedAt) + prepass phase 'running'.
+  let result = reducer(state, { kind: 'SendResult', corrId: 'c-pp', sessionPath: '/s', ok: true, requestId: 'req-pp' });
+  assert.equal(result.state.pending.promoted['c-pp']?.requestId, 'req-pp');
+  assert.equal(result.state.pending.promoted['c-pp']?.startedAt, 1000);
+  assert.equal(result.state.pending.prepassBySession['/s']?.phase, 'running');
+  let view = selectViewState(result.state);
+  assert.equal(view.prepassPhase, 'running', 'projected prepassPhase running for active session');
+  assert.equal(view.prepassStartedAt, 1000, 'projected prepassStartedAt from the promoted op');
+
+  // PreflightFailed (post-ack prepass failure): promoted dropped + phase 'failed'.
+  result = reducer(result.state, { kind: 'PreflightFailed', corrId: 'c-pp', sessionPath: '/s', requestId: 'req-pp', error: 'prepass blew up' });
+  assert.equal(result.state.pending.promoted['c-pp'], undefined);
+  assert.equal(result.state.pending.prepassBySession['/s']?.phase, 'failed');
+  view = selectViewState(result.state);
+  assert.equal(view.prepassPhase, 'failed', 'projected prepassPhase failed');
+  assert.equal(view.prepassStartedAt, null, 'no startedAt once the promoted op is dropped');
+});
+
+test('reducer: handleError strips internal req-NN ids from the notice (Brief H criterion 1 — no req-NN reaches the user)', () => {
+  // A transcript-paging RPC timeout carries `req-NN`; the raw error must not
+  // surface verbatim. handleError routes through stripReqIds (shared with
+  // revertSetModel's `Failed to set model: …` notice).
+  const result = reducer(initialArchState, { kind: 'Error', error: 'Failed to load transcript page: Timed out waiting for response to req-99', sessionPath: '/s' } as any);
+  assert.ok(result.state.settings.notice, 'an error notice is set');
+  assert.ok(!result.state.settings.notice!.includes('req-99'), 'no internal req-NN id reaches the user');
+  assert.match(result.state.settings.notice!, /load transcript/, 'the plain-language problem is still named');
 });
 
 // ─── Brief C: optimistic lifecycle for composer inputs (pasted-image stickiness) ─

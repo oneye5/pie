@@ -142,6 +142,7 @@ export function evictSession(
   const { [sp]: _rfr, ...remainingReadFilePaths } = state.fileChanges.readFilePathsBySession;
   const { [sp]: _psq, ...remainingPendingSendQueue } = state.pending.sendQueueBySession;
   const { [sp]: _brq, ...remainingBackendReadyQueue } = state.pending.backendReadyQueueBySession;
+  const { [sp]: _pp, ...remainingPrepass } = state.pending.prepassBySession;
 
   // ── corrId / requestId / messageId-keyed pending collections (filtered) ──
   // Drop in-flight send/edit ops for the evicted session. Without this, a
@@ -264,6 +265,7 @@ export function evictSession(
         setModelByCorrId: remainingSetModel,
         sendQueueBySession: remainingPendingSendQueue,
         backendReadyQueueBySession: remainingBackendReadyQueue,
+        prepassBySession: remainingPrepass,
       },
     },
     effects,

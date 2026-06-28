@@ -3,6 +3,7 @@ import type { ComposerInput, ComposerInputDraft, ChatMessage } from './messages.
 import type { SessionSummary, TranscriptWindow, SystemPromptEntry, FileChangeEntry } from './sessions.js';
 import type { ExtensionInfo, PruningResult, PruningSettings, PruningCatalog, ChatPrefs, ActiveRunSummary, RunOutcome } from './settings.js';
 import type { TokenRateIndicatorState } from '../token-rate.js';
+import type { NoticeKind } from '../error-mapping.js';
 
 /** Base fields shared by all extension UI request variants. */
 export interface ExtensionUIRequestBase {
@@ -70,6 +71,14 @@ export interface ViewState {
   draftText: string;
   busy: boolean;
   notice: string | null;
+  /** Failure category for the current notice, or null when the notice is a
+   *  plain info/warning string (or there is no notice). Set ONLY at the Brief H
+   *  error sites (send/edit/prepass failures) alongside a plain-language
+   *  `notice`; the webview renders recovery action buttons for known kinds
+   *  (see `noticeActionsFor`). `null` everywhere else so non-error notices keep
+   *  their existing string-only rendering. Invariant: `noticeKind` is non-null
+   *  only when `notice` is an H-category error message. */
+  noticeKind?: NoticeKind | null;
   /** True once the backend process has started and emitted `backend.ready`. */
   backendReady: boolean;
   workspaceCwd: string | null;
@@ -99,6 +108,21 @@ export interface ViewState {
   pruningSettings: PruningSettings;
   /** Active pruning choices surfaced to the composer/settings UI. */
   pruningCatalog: PruningCatalog;
+  /** Pruning prepass phase for the active session (Brief F). Driven host-side
+   *  from the send lifecycle (`pending.promoted` = running, pruning-result
+   *  `CustomMessage` = succeeded, `PreflightFailed` = failed, commit-point
+   *  `MessageStarted` = idle) — the webview stays passive (host ViewState).
+   *  `idle` when no prepass is in flight for the active session. */
+  prepassPhase: 'idle' | 'running' | 'succeeded' | 'failed';
+  /** Wall-clock start time (ms epoch) of the active session's in-flight
+   *  prepass, read from the promoted op's `startedAt` (captured from the Send
+   *  command timestamp — pure, no reducer Date.now()). `null` when no prepass
+   *  is running (idle/failed). The webview ticks the elapsed display locally
+   *  from this (allowlisted animation/telemetry state). */
+  prepassStartedAt: number | null;
+  /** Prepass LLM latency (ms) for the post-hoc summary hint. `undefined`
+   *  when not yet known (the pruning-result `CustomMessage` carries it). */
+  prepassLatencyMs?: number | null;
   /** Message ID currently being edited, or null. */
   editingMessageId: string | null;
   /** Whether the run-outcome dialog is open. */
@@ -216,5 +240,27 @@ export type WebviewToHostMessage =
   | { type: 'setFileRead'; sessionPath: string; filePath: string; read: boolean }
   | { type: 'stateApplied'; payload: StateAppliedPayload }
   | { type: 'extensionUiResponse'; sessionPath: string; response: ExtensionUIResponsePayload }
-  | { type: 'setFileChangesExpanded'; sessionPath: string; expanded: boolean };
+  | { type: 'setFileChangesExpanded'; sessionPath: string; expanded: boolean }
+  // ── Brief H: recovery actions surfaced from an error notice. The host owns
+  //    the side effects (open settings/logs, restart backend, retry the send
+  //    — optionally disabling pruning first so the slow prepass is skipped).
+  //    These carry no reducer event (pure side effects), mirroring
+  //    `openFilePicker` / `openFile`. ──
+  | { type: 'showLogs' }
+  | { type: 'openSettings' }
+  | { type: 'restartBackend' }
+  | {
+      /** Re-send the draft text (the composer draft was restored on rollback
+       *  via `sendRejected`, and host-side `pendingComposerInputsBySession`
+       *  was restored too — the host's `onSend` picks the inputs up). When
+       *  `disablePruning` is set, the host disables pruning (`mode: 'off'`)
+       *  BEFORE re-sending so the slow prepass is skipped — atomically, on
+       *  the host, to avoid a race where the send's prepass reads stale
+       *  settings. */
+      type: 'retrySend';
+      sessionPath: string;
+      text: string;
+      localId: string;
+      disablePruning?: boolean;
+    };
 

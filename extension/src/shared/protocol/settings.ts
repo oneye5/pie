@@ -80,6 +80,13 @@ export interface PruningSettings {
   thinkingLevel: ThinkingLevel;
   /** Optional timeout override for the pruning prepass, in seconds. */
   prepassTimeoutSec?: number | null;
+  /** Optional auto-skip threshold (estimated input tokens) below which the
+   *  skill-pruner prepass is skipped for small/trivial turns (Brief F #4).
+   *  `null`/absent = disabled (always run the prepass). Persisted to
+   *  settings.json so the SDK skill-pruner can consume it; the actual skip
+   *  behavior is a cross-repo follow-up in @earendil-works/pi-coding-agent
+   *  (see TODO.md). */
+  autoSkipBelowTokens?: number | null;
 }
 
 export interface PruningCatalog {
@@ -235,6 +242,7 @@ export const DEFAULT_PRUNING_SETTINGS: PruningSettings = {
   provider: 'github-copilot',
   thinkingLevel: 'minimal',
   prepassTimeoutSec: null,
+  autoSkipBelowTokens: null,
 };
 
 /**
@@ -266,6 +274,8 @@ export function mergePruningSettings(
       updates.thinkingLevel !== undefined ? updates.thinkingLevel : current.thinkingLevel,
     prepassTimeoutSec:
       updates.prepassTimeoutSec !== undefined ? updates.prepassTimeoutSec : current.prepassTimeoutSec,
+    autoSkipBelowTokens:
+      updates.autoSkipBelowTokens !== undefined ? updates.autoSkipBelowTokens : current.autoSkipBelowTokens,
   };
 }
 
