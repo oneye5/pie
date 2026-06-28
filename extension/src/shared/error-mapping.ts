@@ -80,8 +80,13 @@ const DROPPED_LINE_PATTERN = /^Backend sent an unparseable response for req-\d+:
  *  `"Backend stopped."`, `"Backend is not running"`, `"Backend client disposed."`. */
 const BACKEND_EXIT_PATTERN = /^Backend (exited unexpectedly|stopped|is not running|client disposed)/;
 
-/** `EffectRunner` send-timer fire (`PreflightFailed`): `"Timed out waiting for the turn to start streaming (Ns)"`. */
-const PREPASS_TIMEOUT_PATTERN = /^Timed out waiting for the turn to start streaming \((\d+)s\)$/;
+/** `EffectRunner` send-timer fire (`PreflightFailed`): `"Timed out waiting for the turn to start streaming (Ns)"`.
+ *  The budget is a whole-or-decimal second count (e.g. `120s` or `12.5s`) — the
+ *  send-timer budget derives from `prepassTimeoutSec` + first-token headroom and
+ *  may be fractional, so the capture group accepts an optional decimal. Without
+ *  it a decimal budget (e.g. `12.5s`) would fail to match and the error would
+ *  misclassify as a generic `prepass-failed` (Brief H follow-up). */
+const PREPASS_TIMEOUT_PATTERN = /^Timed out waiting for the turn to start streaming \((\d+(?:\.\d+)?)s\)$/;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
