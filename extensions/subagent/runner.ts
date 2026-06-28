@@ -16,6 +16,7 @@ import { resolveExecutionModel } from "./model-resolution.js";
 import type { OnUpdateCallback, SingleResult, SubagentDetails } from "./types.js";
 import { createInvalidAgentResult } from "./validation.js";
 import { toErrorMessage } from "../../shared/error-message.js";
+import { subagentContext } from "../../shared/subagent-context.js";
 import {
 	ParentExtensionUIBridgeProxy,
 	type ParentBridge,
@@ -326,10 +327,11 @@ function subscribeToSession(
 	result: SingleResult,
 	emitUpdate: () => void,
 	streamingTextRef: { value: string },
+	stageRef: { value: string },
 ): () => void {
 	return session.subscribe((event) => {
 		if (event.type === "message_update") {
-			handleMessageUpdate(event, result, emitUpdate, streamingTextRef);
+			handleMessageUpdate(event, result, emitUpdate, streamingTextRef, stageRef);
 			return;
 		}
 		if (event.type === "tool_execution_start" && event.toolName) {
@@ -354,12 +356,17 @@ function handleMessageUpdate(
 	result: SingleResult,
 	emitUpdate: () => void,
 	streamingTextRef: { value: string },
+	stageRef: { value: string },
 ): void {
 	// Accumulate streaming text deltas so the user sees output as it arrives.
 	// The SDK delivers events in order per message: message_start → message_update* → message_end.
 	// A single `streamingText` buffer is sufficient because only one assistant
 	// message streams at a time in the subagent's single-prompt session.
 	if (event.assistantMessageEvent?.type === "text_delta" && event.assistantMessageEvent.delta) {
+		// First delta ⇒ the model has started streaming; tracked so abort/timeout
+		// diagnostics can distinguish prefill ("waiting for model response") from
+		// a mid-stream interrupt ("streaming").
+		stageRef.value = "streaming";
 		streamingTextRef.value += event.assistantMessageEvent.delta;
 		result.streamingText = streamingTextRef.value;
 		emitUpdate();
@@ -414,10 +421,11 @@ function buildCombinedAbortSignal(parentSignal: AbortSignal | undefined, timeout
 }
 
 /** Apply a timeout-failure to a result. */
-function applyTimeoutFailure(result: SingleResult, timeoutMs: number): void {
+function applyTimeoutFailure(result: SingleResult, timeoutMs: number, stage?: string): void {
 	result.exitCode = 1;
 	result.stopReason = "timeout";
-	result.errorMessage = `Subagent timed out after ${timeoutMs / 1000}s waiting for model response.`;
+	const suffix = stage ? ` (while ${stage})` : "";
+	result.errorMessage = `Subagent timed out after ${timeoutMs / 1000}s waiting for model response${suffix}.`;
 	result.streamingText = undefined;
 }
 
@@ -437,10 +445,11 @@ function applyStopReason(result: SingleResult, parentAborted: boolean): void {
 }
 
 /** Apply a thrown error to a result, preserving any previously-recorded message. */
-function applyThrownError(result: SingleResult, err: unknown): void {
+function applyThrownError(result: SingleResult, err: unknown, stage?: string): void {
 	result.exitCode = 1;
 	const message = toErrorMessage(err);
-	result.errorMessage = result.errorMessage || message;
+	const suffix = stage ? ` (while ${stage})` : "";
+	result.errorMessage = (result.errorMessage || message) + suffix;
 	result.stderr = result.stderr || message;
 	result.streamingText = undefined;
 }
@@ -549,8 +558,33 @@ export async function runSingleAgent(
 		session.extensionRunner.setUIContext(proxy);
 	}
 
+	// Track the current run stage for abort/timeout diagnostics (D). The first
+	// streamed text_delta flips this to "streaming" (see handleMessageUpdate);
+	// "waiting for model response" covers prefill (the common abort window, and
+	// the one that produced the bare "Request was aborted" symptom).
+	const stageRef = { value: "preparing" };
+
 	// 5. Subscribe to session events.
-	const unsubscribe = subscribeToSession(session, currentResult, emitUpdate, streamingTextRef);
+	const unsubscribe = subscribeToSession(session, currentResult, emitUpdate, streamingTextRef, stageRef);
+
+	// Wrap the prompt in the shared subagent context (A) so extensions whose
+	// before_agent_start hooks fire during session.prompt() — notably the
+	// skill-pruner prepass — can detect they are inside a scoped subagent
+	// session and skip. AsyncLocalStorage is per-async-context, so this is safe
+	// under parallel subagent runs (unlike a process.env flag, which would race).
+	const subagentDepth = readRuntimeContext().depth;
+	const runPrompt = (): Promise<void> =>
+		subagentContext.run({ depth: subagentDepth }, () => session.prompt(`Task: ${task}`));
+
+	// Emit an early progress signal (B) so the UI doesn't look hung during
+	// resource load + model prefill, before the first streamed delta. The
+	// skill-pruner prepass is skipped inside subagent sessions (see
+	// shouldSkipPruning), so this window is just prefill — but it can still be
+	// long for large prompts, and previously showed nothing at all.
+	onUpdate?.({
+		content: [{ type: "text", text: `Starting ${agentName}…` }],
+		details: makeDetails([currentResult]),
+	});
 
 	// 6. Run the prompt with timeout / parent-signal handling, then shape the final result.
 	try {
@@ -561,9 +595,9 @@ export async function runSingleAgent(
 			void session.abort();
 			// Settle any in-flight parent-bridge ask_user prompt so it can't hang.
 			proxy?.cancelAll();
-			await session.prompt(`Task: ${task}`);
+			await runPrompt();
 			currentResult.exitCode = 1;
-			if (!currentResult.errorMessage) currentResult.errorMessage = "Subagent was aborted";
+			if (!currentResult.errorMessage) currentResult.errorMessage = `Subagent was aborted (while ${stageRef.value})`;
 			return currentResult;
 		}
 
@@ -579,24 +613,25 @@ export async function runSingleAgent(
 			proxy?.cancelAll();
 		});
 
+		stageRef.value = "waiting for model response";
 		try {
 			// Race the prompt against a timeout to prevent indefinite hangs.
 			// The parent's abort signal takes priority; the timeout is a safety net
 			// for cases where the provider never responds.
-			await session.prompt(`Task: ${task}`);
+			await runPrompt();
 		} finally {
 			removeAbortListener();
 		}
 
 		if (timedOut) {
-			applyTimeoutFailure(currentResult, promptTimeoutMs);
+			applyTimeoutFailure(currentResult, promptTimeoutMs, stageRef.value);
 			return currentResult;
 		}
 
 		applyStopReason(currentResult, signal?.aborted === true);
 		return currentResult;
 	} catch (err) {
-		applyThrownError(currentResult, err);
+		applyThrownError(currentResult, err, stageRef.value);
 		return currentResult;
 	} finally {
 		teardownSession(unsubscribe, session);

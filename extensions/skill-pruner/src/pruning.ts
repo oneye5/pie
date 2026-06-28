@@ -9,6 +9,7 @@ import {
 	PROCESS_SESSION_ID,
 } from "./state.js";
 import { parseJsonOrThrow } from "../../../shared/error-message.js";
+import { isInSubagentContext } from "../../../shared/subagent-context.js";
 
 export {
 	buildPruningPayload,
@@ -34,6 +35,10 @@ export {
 	LLM_TIMEOUT_MS_BY_THINKING_LEVEL,
 } from "./prepass.js";
 
+/** Re-exported so tests can drive the shared AsyncLocalStorage signal that
+ * `shouldSkipPruning` reads (same module instance the subagent runner sets). */
+export { subagentContext } from "../../../shared/subagent-context.js";
+
 export const SKILLS_BLOCK_RE = /\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
 export const MIN_PROMPT_LENGTH = 8;
 
@@ -45,9 +50,16 @@ export function getPiToolSeams(): { getAllTools: () => ToolInfo[]; getActiveTool
 export function shouldSkipPruning(
 	event: BeforeAgentStartEvent,
 	activeConfig: PruningConfig,
-): { skip: boolean; reason?: "disabled-by-toggle" | "off" | "too-short" } {
+): { skip: boolean; reason?: "disabled-by-toggle" | "off" | "too-short" | "subagent" } {
 	if (isExtensionDisabledByToggle("skill-pruner")) {
 		return { skip: true, reason: "disabled-by-toggle" };
+	}
+	// Subagent sessions are scoped, isolated tasks. The prepass is designed to
+	// prune skills/tools for the main agent's broad context; running it inside
+	// every subagent turn adds a 20–35s LLM call (plus a fail-open failure mode)
+	// before the first streamed token, which makes subagents look hung. Skip it.
+	if (isInSubagentContext()) {
+		return { skip: true, reason: "subagent" };
 	}
 	if (activeConfig.mode === "off") {
 		return { skip: true, reason: "off" };

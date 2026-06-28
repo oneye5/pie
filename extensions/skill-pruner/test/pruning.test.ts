@@ -30,6 +30,7 @@ const {
 	applyToolSelection,
 	runPruningPrepass,
 	getRecentConversation,
+	subagentContext,
 } = require("../src/pruning.ts") as typeof import("../src/pruning.js");
 
 function installSdkResolverForTests(): void {
@@ -149,6 +150,32 @@ test("shouldSkipPruning: malformed toggle JSON is treated as not disabled", () =
 	} finally {
 		delete process.env.PIE_EXTENSION_TOGGLES_JSON;
 	}
+});
+
+test("shouldSkipPruning: subagent context -> skip with reason 'subagent'", () => {
+	// Inside a scoped subagent session the prepass is skipped: it is
+	// main-agent-oriented and would add a 20–35s LLM call (plus a fail-open
+	// failure mode) before the first streamed token, making subagents look hung.
+	const r = subagentContext.run({ depth: 1 }, () =>
+		shouldSkipPruning({ prompt: "refactor this code for clarity" } as any, config({ mode: "auto" })),
+	);
+	assert.deepEqual(r, { skip: true, reason: "subagent" });
+});
+
+test("shouldSkipPruning: nested subagent (depth > 1) still skips", () => {
+	const r = subagentContext.run({ depth: 2 }, () =>
+		shouldSkipPruning({ prompt: "refactor this code for clarity" } as any, config({ mode: "auto" })),
+	);
+	assert.deepEqual(r, { skip: true, reason: "subagent" });
+});
+
+test("shouldSkipPruning: subagent skip takes precedence over a too-short prompt", () => {
+	// The subagent check runs before the too-short check, so even a tiny prompt
+	// inside a subagent is skipped as 'subagent' (no prepass either way).
+	const r = subagentContext.run({ depth: 1 }, () =>
+		shouldSkipPruning({ prompt: "hi" } as any, config({ mode: "auto" })),
+	);
+	assert.deepEqual(r, { skip: true, reason: "subagent" });
 });
 
 // ---------------------------------------------------------------------------

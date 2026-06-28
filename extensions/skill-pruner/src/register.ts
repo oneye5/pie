@@ -50,7 +50,10 @@ export default function register(pi: ExtensionAPI) {
 	pi.on("before_agent_start", async (event: BeforeAgentStartEvent, ctx: unknown) => {
 		const activeConfig = getConfig();
 		const skipInfo = shouldSkipPruning(event, activeConfig);
-		if (skipInfo.skip && skipInfo.reason === "disabled-by-toggle") {
+		if (skipInfo.skip && (skipInfo.reason === "disabled-by-toggle" || skipInfo.reason === "subagent")) {
+			// disabled-by-toggle: user turned the extension off via PIE_EXTENSION_TOGGLES_JSON.
+			// subagent: running inside a scoped subagent session — the prepass is
+			// main-agent-oriented and would add 20–35s (+ a failure mode) per turn.
 			return undefined;
 		}
 

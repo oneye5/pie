@@ -4,8 +4,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { mkdtemp, rm } from "node:fs/promises";
 import type { AgentConfig } from "../agents.js";
-import { runSingleAgent } from "../runner.js";
+import { runSingleAgent, subagentRuntime } from "../runner.js";
 import { execute, validateSubagentParams } from "../src/execute.js";
+import { isInSubagentContext } from "../../../shared/subagent-context.js";
 
 function makeAgent(overrides: Partial<AgentConfig> = {}): AgentConfig {
 	return {
@@ -181,7 +182,7 @@ test("runSingleAgent handles already-aborted parent signal and settles pending U
 	);
 
 	assert.equal(result.exitCode, 1);
-	assert.equal(result.errorMessage, "Subagent was aborted");
+	assert.equal(result.errorMessage, "Subagent was aborted (while preparing)");
 	assert.equal(calls.cancelAll, 1);
 	assert.equal(state.abortCalls, 1);
 	assert.equal(state.setUIContextCalls, 1);
@@ -447,4 +448,76 @@ test("execute returns mode-count error for invalid mode selection", async () => 
 		}
 		await rm(tempDir, { recursive: true, force: true });
 	}
+});
+
+test("runSingleAgent runs the prompt inside the shared subagent context (A)", async () => {
+	// The runner wraps session.prompt() in subagentContext.run({ depth }) so that
+	// before_agent_start extensions (skill-pruner) can detect a scoped subagent
+	// session and skip the prepass. Verify the signal is live during the prompt
+	// by observing it from inside the fake SDK's onPrompt.
+	let observed: boolean | undefined;
+	const { sdk } = createFakeSdk({
+		onPrompt: async () => {
+			observed = isInSubagentContext();
+		},
+	});
+
+	const result = await subagentRuntime.run({ depth: 1, trail: ["worker"] }, async () => {
+		return runSingleAgent(
+			process.cwd(),
+			[makeAgent()],
+			"worker",
+			"do work",
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			(results) => ({ mode: "single", agentScope: "user", projectAgentsDir: null, results }),
+			makeModelRegistry(),
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			undefined,
+			{ sdk: sdk as any, timeoutMs: 0 },
+		);
+	});
+
+	assert.equal(observed, true);
+	assert.equal(result.exitCode, 0);
+});
+
+test("runSingleAgent: error thrown during prefill is annotated with the run stage (D)", async () => {
+	// A provider error during prefill (e.g. an aborted fetch surfacing as
+	// "Request was aborted") must carry the stage so the user knows where it died
+	// — previously the bare message gave no hint whether it was prefill or a
+	// mid-stream interrupt.
+	const { sdk } = createFakeSdk({
+		onPrompt: async () => {
+			throw new Error("Request was aborted");
+		},
+	});
+
+	const result = await runSingleAgent(
+		process.cwd(),
+		[makeAgent()],
+		"worker",
+		"do work",
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		(results) => ({ mode: "single", agentScope: "user", projectAgentsDir: null, results }),
+		makeModelRegistry(),
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		{ sdk: sdk as any, timeoutMs: 0 },
+	);
+
+	assert.equal(result.exitCode, 1);
+	assert.match(result.errorMessage ?? "", /Request was aborted/);
+	assert.match(result.errorMessage ?? "", /while waiting for model response/);
 });
