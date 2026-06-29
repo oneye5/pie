@@ -180,6 +180,14 @@ const dynamicImport = new Function('specifier', 'return import(specifier)') as (
  * Permitted parent directories for the SDK. The configured `sdkPath` must
  * resolve to a child of one of these locations to be loaded — defence in depth
  * against an attacker-controlled `--sdkPath` pointing at arbitrary code.
+ *
+ * Beyond the user profile and system program directories, the npm global
+ * prefix (`NPM_CONFIG_PREFIX`, set by npm in every process it spawns) and the
+ * host-supplied `PIE_TRUSTED_SDK_ROOT` are allowed so an SDK installed globally
+ * under a non-standard prefix (e.g. `C:\nvm4w\nodejs` for nvm-windows, or a
+ * proto-managed prefix) is loadable. The host derives `PIE_TRUSTED_SDK_ROOT`
+ * from the sdkPath it resolved via `npm root -g`, so that root is
+ * trusted-by-construction.
  */
 function isPathAllowed(sdkPath: string): boolean {
   const normalized = path.resolve(sdkPath);
@@ -190,6 +198,8 @@ function isPathAllowed(sdkPath: string): boolean {
     process.env['APPDATA'],
     process.env['HOME'],
     process.env['USERPROFILE'],
+    process.env['NPM_CONFIG_PREFIX'],
+    process.env['PIE_TRUSTED_SDK_ROOT'],
     '/usr/local',
     '/usr/lib',
     '/opt',
@@ -205,7 +215,7 @@ function assertAllowedSdkPath(sdkPath: string): void {
   if (!isPathAllowed(sdkPath)) {
     throw new Error(
       `Refusing to load SDK from disallowed path: ${sdkPath}. ` +
-        `Set pie.sdkPath to a directory under your user profile or system program directories.`,
+        `Set pie.sdkPath in VS Code settings (or the PI_SDK_PATH env var) to a directory under your user profile, system program directories, or the npm global prefix.`,
     );
   }
 }

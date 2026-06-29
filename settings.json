@@ -3,7 +3,7 @@
   "defaultThinkingLevel": "xhigh",
   "defaultProvider": "umans",
   "extensions": [
-    "C:/Users/ocjla/AppData/Roaming/npm/node_modules/pi-web-access"
+    "C:\\nvm4w\\nodejs\\node_modules\\pi-web-access"
   ],
   "pruning": {
     "model": "umans-flash",
@@ -31,5 +31,6 @@
   "lastChangelogVersion": "0.78.0",
   "subagent": {
     "confirmProjectAgents": false
-  }
+  },
+  "sessionDir": "data/outcomes/sessions"
 }

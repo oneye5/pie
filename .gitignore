@@ -93,4 +93,5 @@ nul
 
 # Installer-generated backups
 /settings.json.session-dir.*.bak
+/settings.json.extensions.*.bak
 .skylos/cache/grep_results.json

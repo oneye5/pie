@@ -10,8 +10,8 @@
   3. Migrates or merges legacy session history from the old default location
      (~/.pi/agent/sessions/) into this checkout's local git-ignored data/outcomes/sessions store,
      preserving conflicting copies in backup files when the source and destination differ.
-  4. Validates Node.js and npm, then restores PI packages when the `pi` CLI is available.
-  5. Runs `pi update` to reinstall any packages listed in settings.json.
+  4. Validates Node.js and npm, then installs `pi` (@earendil-works/pi-coding-agent)
+     globally if it is not already on PATH, and restores PI packages via `pi update`.
   6. Builds and installs the pie VSCode extension from extension/.
 
 .NOTES
@@ -22,6 +22,38 @@
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+# When launched via double-click / Run dialog / "Open With PowerShell", the
+# console window closes the instant the script ends, so any error flashes by
+# unreadable. Detect that non-interactive launch and pause before exiting so
+# the message is visible. (Running inside an existing terminal is unaffected.)
+$interactiveLaunch = $false
+try {
+  $host.UI.RawUI.WindowTitle | Out-Null
+  # The Export-ModuleMember-less $Host.UI check works on Windows PowerShell 5.1
+  # and pwsh 7+. A real terminal session has $host.UI.RawUI.KeyAvailable or a
+  # non-default title; the ephemeral launcher console has neither, but the
+  # most reliable signal is: the process has no parent console pipe (i.e. it
+  # was spawned fresh by Explorer/the shell host).
+} catch {}
+# Heuristic: if stdin is NOT redirected and there is no $CI / -NonInteractive
+# flag, we were likely launched interactively. The simplest robust test on
+# Windows: check whether the console was created for this process (_launcher)
+# vs inherited. We approximate by checking the window title we just set.
+if (-not [System.Console]::IsInputRedirected -and -not $env:CI) {
+  $interactiveLaunch = $true
+}
+
+trap {
+  Write-Host ""
+  Write-Host "==> INSTALL FAILED: $_" -ForegroundColor Red
+  if ($interactiveLaunch) {
+    Write-Host ""
+    Write-Host "Press Enter to close..." -ForegroundColor Yellow
+    Read-Host
+  }
+  exit 1
+}
 
 $repoRoot = $PSScriptRoot
 
@@ -48,6 +80,88 @@ function Write-Utf8NoBomFile($path, $content) {
   [System.IO.File]::WriteAllText($path, $content, $utf8NoBom)
 }
 
+function Resolve-CodeCli {
+  # Resolve the VS Code CLI (code / code-insiders) for --install-extension.
+  # Prefer `code` on PATH, then probe the common per-machine install dirs so a
+  # fresh shell whose PATH hasn't picked up the VS Code bin dir still finds it.
+  $onPath = Get-Command code -ErrorAction SilentlyContinue
+  if ($onPath) { return $onPath.Source }
+
+  $candidates = @(
+    (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin\code.cmd'),
+    (Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code Insiders\bin\code-insiders.cmd'),
+    'C:\Program Files\Microsoft VS Code\bin\code.cmd',
+    'C:\Program Files\Microsoft VS Code Insiders\bin\code-insiders.cmd'
+  )
+  foreach ($candidate in $candidates) {
+    if (Test-Path $candidate) { return $candidate }
+  }
+  return $null
+}
+
+function Repair-SettingsExtensionPaths($settingsPath) {
+  # The committed settings.json may reference extension packages via absolute
+  # paths into another machine's npm global node_modules tree (e.g.
+  # C:/Users/<other-user>/AppData/Roaming/npm/node_modules/<pkg>). Rewrite each
+  # such entry to THIS machine's `npm config get prefix` so pi can load them.
+  if (-not (Test-Path $settingsPath)) { return }
+
+  try {
+    $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json -ErrorAction Stop
+  } catch {
+    Write-Warning "Could not parse settings.json for extension path repair: $_"
+    return
+  }
+
+  $extensionsProperty = $settings.PSObject.Properties['extensions']
+  if (-not $extensionsProperty) { return }
+  $entries = @($extensionsProperty.Value)
+  if ($entries.Count -eq 0) { return }
+
+  $npmPrefix = $null
+  try {
+    $npmPrefix = (npm config get prefix 2>$null).Trim()
+  } catch {}
+  if (-not $npmPrefix) {
+    Write-Warning "Could not resolve 'npm config get prefix'; skipping extension path repair in settings.json."
+    return
+  }
+
+  $changed = $false
+  $normalized = @()
+  foreach ($entry in $entries) {
+    $entryStr = [string]$entry
+    if ([System.IO.Path]::IsPathRooted($entryStr) -and $entryStr -match 'node_modules[\\/]+([^\\/]+)$') {
+      $pkgName = $matches[1]
+      $candidate = Join-Path $npmPrefix "node_modules\$pkgName"
+      # Normalize slash direction for the comparison so we don't rewrite just
+      # to flip forward/back slashes (idempotent on the author's machine).
+      $oldNorm = $entryStr -replace '/', '\'
+      if ($oldNorm -ne $candidate) {
+        Write-Host "==> Rewriting extension path '$entryStr' -> '$candidate'"
+        $normalized += $candidate
+        $changed = $true
+        if (-not (Test-Path $candidate)) {
+          Write-Warning "Extension package '$pkgName' is not installed under the npm global prefix. Install it with: npm i -g $pkgName"
+        }
+      } else {
+        $normalized += $entryStr
+      }
+    } else {
+      $normalized += $entryStr
+    }
+  }
+
+  if ($changed) {
+    $settingsBackupPath = "$settingsPath.extensions.$([guid]::NewGuid().ToString('N')).bak"
+    Copy-Item -LiteralPath $settingsPath -Destination $settingsBackupPath
+    $settings.extensions = $normalized
+    Write-Utf8NoBomFile $settingsPath ($settings | ConvertTo-Json -Depth 100)
+    Write-Host "==> Normalized extension paths in settings.json"
+    Write-Host "==> Backed up the previous settings.json to '$settingsBackupPath'"
+  }
+}
+
 function Test-DirectoryHasJsonlFiles($path, $recurse = $true) {
   if (-not (Test-Path $path -PathType Container)) {
     return $false
@@ -71,7 +185,9 @@ function Resolve-ConfiguredSessionDir($value) {
     return [Environment]::GetFolderPath('UserProfile')
   }
 
-  if ($value.StartsWith('~/') -or $value.StartsWith('~\\')) {
+  # A single backslash in a single-quoted PowerShell string; '~\' matches a
+  # normal Windows home-relative override like ~\foo (NOT the literal '~\\').
+  if ($value.StartsWith('~/') -or $value.StartsWith('~\')) {
     return Join-Path ([Environment]::GetFolderPath('UserProfile')) $value.Substring(2)
   }
 
@@ -321,7 +437,40 @@ if ($normalizedLegacyImports.Count -gt 0) {
 Write-Host "==> Validating prerequisites"
 Assert-Command 'node' 'Install a standalone Node.js runtime first: https://nodejs.org/' | Out-Null
 Assert-Command 'npm' 'Install npm together with Node.js: https://nodejs.org/' | Out-Null
-$piCmd = Get-Command 'pi' -ErrorAction SilentlyContinue
+
+function Resolve-PiBinary {
+  # Find the `pi` executable: prefer PATH, then probe the npm global prefix
+  # (a freshly `npm i -g` installed pi isn't on PATH until a new shell opens).
+  $onPath = Get-Command pi -ErrorAction SilentlyContinue
+  if ($onPath) { return $onPath.Source }
+  try { $prefix = (npm config get prefix 2>$null).Trim() } catch {}
+  if ($prefix) {
+    foreach ($name in 'pi.cmd','pi.ps1','pi') {
+      $candidate = Join-Path $prefix $name
+      if (Test-Path $candidate) { return $candidate }
+    }
+  }
+  return $null
+}
+
+$piCmd = Resolve-PiBinary
+if (-not $piCmd) {
+  Write-Host "==> 'pi' CLI not found; installing @earendil-works/pi-coding-agent globally"
+  npm install -g "@earendil-works/pi-coding-agent"
+  if ($LASTEXITCODE -ne 0) {
+    throw "Failed to install @earendil-works/pi-coding-agent globally. Install manually: npm install -g @earendil-works/pi-coding-agent"
+  }
+  $piCmd = Resolve-PiBinary
+  if (-not $piCmd) {
+    throw "@earendil-works/pi-coding-agent installed but 'pi' could not be resolved on PATH or under the npm prefix. Open a new terminal and re-run, or install manually."
+  }
+  Write-Host "==> Installed pi to '$piCmd'"
+}
+
+# Rewrite any absolute extension paths in settings.json that point at another
+# machine's npm global node_modules tree (settings.json is git-tracked, so a
+# committed C:/Users/<other-user>/... entry breaks pi update on a fresh box).
+Repair-SettingsExtensionPaths $settingsPath
 
 # ── Relocate auth.json out of the working tree ─────────────────────────────────
 # See docs/internal/SECRET_AND_STORAGE_RELOCATION_PLAN.md Phase 2.
@@ -333,6 +482,17 @@ if (-not $authDirEnv) {
 $inTreeAuth = Join-Path $repoRoot 'auth.json'
 $targetAuthDir = Join-Path $env:LOCALAPPDATA 'pie'
 $targetAuth = Join-Path $targetAuthDir 'auth.json'
+
+# Helper: safely parse auth.json into a hashtable (empty on error/missing).
+function Read-AuthJson($p) {
+  if (-not (Test-Path $p)) { return @{} }
+  try { return Get-Content $p -Raw | ConvertFrom-Json -AsHashtable } catch { return @{} }
+}
+
+function Write-AuthJson($p, $data) {
+  $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+  [System.IO.File]::WriteAllText($p, ($data | ConvertTo-Json -Depth 20), $utf8NoBom)
+}
 
 if ((Test-Path $inTreeAuth) -and -not $authDirEnv) {
   Write-Host ""
@@ -379,15 +539,49 @@ if ((Test-Path $inTreeAuth) -and -not $authDirEnv) {
     Write-Warning "auth.json remains in the working tree. See SECURITY.md for recommended hardening."
   }
 } elseif ((Test-Path $inTreeAuth) -and $authDirEnv) {
-  Write-Warning "auth.json exists in the working tree AND PI_CODING_AGENT_AUTH_DIR is set to '$authDirEnv'. Consider removing the in-tree copy."
+  # ── Merge split-brain auth.json ──────────────────────────────────────────────
+  # This is the "401" painpoint: PI_CODING_AGENT_AUTH_DIR is already set to a
+  # secure location, but a *new* in-tree auth.json appeared (typically because
+  # `pi` was run in a shell that didn't inherit PI_CODING_AGENT_AUTH_DIR, so it
+  # wrote fresh creds back to the repo root). The backend reads from the secure
+  # location, which is often empty {} → 401 "invalid api key".
+  # Fix: merge the in-tree creds into the secure location (in-tree wins on
+  # conflict), then remove the in-tree copy.
+  $secureAuthPath = Join-Path $authDirEnv 'auth.json'
+  if (-not (Test-Path $secureAuthPath) -or ((Get-Item $secureAuthPath).Length -le 2)) {
+    # Secure location missing or empty {} — just copy the in-tree file.
+    New-Item -ItemType Directory -Path $authDirEnv -Force | Out-Null
+    Copy-Item -LiteralPath $inTreeAuth -Destination $secureAuthPath -Force
+    Write-Host "==> auth.json copied from working tree to secure location '$secureAuthPath' (was empty/missing)"
+    Remove-Item -LiteralPath $inTreeAuth -Force
+  } else {
+    # Both have content — deep-merge.
+    $inTreeData = Read-AuthJson $inTreeAuth
+    $secureData = Read-AuthJson $secureAuthPath
+    $mergedCount = 0
+    foreach ($provider in $inTreeData.Keys) {
+      if (-not $secureData.ContainsKey($provider) -or (Compare-Object $inTreeData[$provider] $secureData[$provider] -SyncWindow 0)) {
+        $secureData[$provider] = $inTreeData[$provider]
+        $mergedCount++
+      }
+    }
+    if ($mergedCount -gt 0) {
+      Write-AuthJson $secureAuthPath $secureData
+      Write-Host "==> Merged $mergedCount provider(s) from working-tree auth.json into secure location '$secureAuthPath'"
+      Remove-Item -LiteralPath $inTreeAuth -Force
+    } else {
+      Write-Host "==> Working-tree auth.json is a subset of secure auth.json; removing redundant in-tree copy"
+      Remove-Item -LiteralPath $inTreeAuth -Force
+    }
+  }
+  Write-Host "    (in-tree auth.json removed to prevent future split-brain; backend reads from PI_CODING_AGENT_AUTH_DIR)"
 }
 
-# Reinstall any packages listed in settings.json
-if ($piCmd) {
-  Write-Host "==> Running 'pi update' to restore packages from settings.json"
-  pi update
-} else {
-  Write-Warning "'pi' command not found on PATH - install @mariozechner/pi-coding-agent globally first: npm install -g @mariozechner/pi-coding-agent"
+# Reinstall any packages listed in settings.json (pi was installed above if missing)
+Write-Host "==> Running 'pi update' to restore packages from settings.json"
+& $piCmd update
+if ($LASTEXITCODE -ne 0) {
+  Write-Warning "'pi update' exited non-zero; continue manually if needed"
 }
 
 Write-Host ""
@@ -427,16 +621,27 @@ try {
   $vsixPattern = "$($packageManifest.name)-*.vsix"
   $vsix = Get-ChildItem -Filter $vsixPattern | Sort-Object LastWriteTime -Descending | Select-Object -First 1
   if ($vsix) {
-    # Use code.cmd (the CLI wrapper) rather than Code.exe (the GUI) for --install-extension
-    $codeCli = Join-Path $env:LOCALAPPDATA 'Programs\Microsoft VS Code\bin\code.cmd'
-    if (-not (Test-Path $codeCli)) { $codeCli = 'code' }
-    $legacyExtensionId = 'pi-config.pi-assistant'
-    & $codeCli --uninstall-extension $legacyExtensionId *> $null
-    Write-Host "==> Installing $($vsix.Name) into VSCode"
-    & $codeCli --install-extension $vsix.FullName
-    if ($LASTEXITCODE -ne 0) {
-      Write-Warning "code CLI failed - install manually: code --install-extension $($vsix.FullName)"
+    # Resolve the VS Code CLI (code / code-insiders), probing common install
+    # locations so a fresh machine without `code` on PATH still works.
+    $codeCli = Resolve-CodeCli
+    if (-not $codeCli) {
+      Write-Warning "VS Code CLI not found on PATH or in standard install locations. Install manually: code --install-extension $($vsix.FullName)"
       $extensionBuildFailed = $true
+    } else {
+      $legacyExtensionId = 'pi-config.pi-assistant'
+      # Best-effort cleanup of the legacy extension ID; on a fresh machine it was
+      # never installed, so `code --uninstall-extension` exits 1 and writes to
+      # stderr. Under $ErrorActionPreference='Stop' that would abort the whole
+      # install, so swallow it explicitly (stderr suppressed; exit code ignored).
+      try {
+        & $codeCli --uninstall-extension $legacyExtensionId 2>$null | Out-Null
+      } catch {}
+      Write-Host "==> Installing $($vsix.Name) into VSCode"
+      & $codeCli --install-extension $vsix.FullName
+      if ($LASTEXITCODE -ne 0) {
+        Write-Warning "code CLI failed - install manually: code --install-extension $($vsix.FullName)"
+        $extensionBuildFailed = $true
+      }
     }
   } else {
     Write-Warning "No .vsix found after packaging - check vsce output above"
@@ -452,8 +657,129 @@ try {
 if ($extensionBuildFailed) {
   Write-Host ""
   Write-Host "==> Extension step failed or incomplete (see warnings above). If a .vsix was built, install it manually: code --install-extension <path-to-vsix>"
+  if ($interactiveLaunch) {
+    Write-Host ""
+    Write-Host "Press Enter to close..." -ForegroundColor Yellow
+    Read-Host
+  }
   exit 1
+}
+
+# ── Write pie.agentDir to VS Code User settings ───────────────────────────────
+# The extension host reads pie.agentDir and forwards it to the backend as
+# PI_CODING_AGENT_DIR. This is necessary because VS Code only picks up new
+# User-scope env vars on a full restart (not on window reload), so relying
+# on the OS env var alone means the backend falls back to ~/.pi/agent (where
+# no models.json exists) until VS Code is fully restarted. Setting
+# pie.agentDir in VS Code's own settings.json makes the backend use the
+# correct agent dir on the very first reload after install.
+$userSettingsDir = Join-Path $env:APPDATA 'Code\User'
+$userSettingsPath = Join-Path $userSettingsDir 'settings.json'
+if (-not (Test-Path $userSettingsDir)) {
+  New-Item -ItemType Directory -Path $userSettingsDir -Force | Out-Null
+}
+$vsUserSettings = @{}
+if (Test-Path $userSettingsPath) {
+  try {
+    $vsUserSettings = Get-Content $userSettingsPath -Raw | ConvertFrom-Json -AsHashtable
+  } catch {
+    Write-Warning "Could not parse VS Code User settings.json ($userSettingsPath); will back up and recreate."
+    Copy-Item $userSettingsPath "$userSettingsPath.bak.$(Get-Date -Format 'yyyyMMddHHmmss')" -Force -ErrorAction SilentlyContinue
+    $vsUserSettings = @{}
+  }
+}
+if ($vsUserSettings.'pie.agentDir' -ne $repoRoot) {
+  $vsUserSettings.'pie.agentDir' = $repoRoot
+  Write-Utf8NoBomFile $userSettingsPath ($vsUserSettings | ConvertTo-Json -Depth 20)
+  Write-Host "==> Set pie.agentDir to '$repoRoot' in VS Code User settings ($userSettingsPath)"
+} else {
+  Write-Host "==> pie.agentDir already set to '$repoRoot' in VS Code User settings"
 }
 
 Write-Host ""
 Write-Host "All done. Reload VSCode to activate the pie panel."
+
+# ── Post-install readiness check ──────────────────────────────────────
+# The app will start but cannot talk to any model without auth/provider keys.
+# Detect the gap and tell the user exactly what to do next, so a fresh machine
+# isn't left in a "starts but does nothing" state.
+Write-Host ""
+Write-Host "==> Post-install verification:"
+
+# Check 1: pie.agentDir was written to VS Code User settings
+$agentDirOk = $false
+if ($vsUserSettings -and $vsUserSettings.'pie.agentDir' -eq $repoRoot) {
+  $agentDirOk = $true
+}
+if ($agentDirOk) {
+  Write-Host "  [✓] pie.agentDir set → backend will read models.json from repo root"
+} else {
+  Write-Host "  [!] pie.agentDir not set → models may not appear. Run the installer again or set it manually in VS Code settings."
+}
+
+# Check 2: PI_CODING_AGENT_DIR is set at User scope
+$agentDirEnv = [System.Environment]::GetEnvironmentVariable('PI_CODING_AGENT_DIR', [System.EnvironmentVariableTarget]::User)
+if ($agentDirEnv -eq $repoRoot) {
+  Write-Host "  [✓] PI_CODING_AGENT_DIR set at User scope → \`pi\` CLI reads repo config"
+} else {
+  Write-Host "  [!] PI_CODING_AGENT_DIR not set at User scope. Open a new terminal after install."
+}
+
+# Check 3: Auth — check the file the BACKEND actually reads (PI_CODING_AGENT_AUTH_DIR first)
+$authDirResolved = if ($env:PI_CODING_AGENT_AUTH_DIR) { $env:PI_CODING_AGENT_AUTH_DIR } else { $repoRoot }
+$backendAuthPath = Join-Path $authDirResolved 'auth.json'
+$authHasContent = $false
+$authProviders = @()
+if (Test-Path $backendAuthPath) {
+  try {
+    $authJson = Get-Content $backendAuthPath -Raw | ConvertFrom-Json -AsHashtable
+    if ($authJson -and $authJson.Count -gt 0) {
+      $authHasContent = $true
+      $authProviders = $authJson.Keys
+    }
+  } catch {}
+}
+$providerEnvVars = @('ANTHROPIC_API_KEY','OPENAI_API_KEY','GOOGLE_API_KEY','UMANS_API_KEY')
+$providerEnvPresent = $false
+foreach ($var in $providerEnvVars) {
+  if ([System.Environment]::GetEnvironmentVariable($var, [System.EnvironmentVariableTarget]::User)) { $providerEnvPresent = $true; break }
+}
+if ($authHasContent) {
+  Write-Host "  [✓] Auth credentials found ($($authProviders -join ', ')) at $backendAuthPath"
+} elseif ($providerEnvPresent) {
+  Write-Host "  [✓] Provider API key env var detected — pi will use it automatically."
+} else {
+  Write-Host "  [!] No auth.json content and no provider API key env vars found."
+  Write-Host "      The pie panel will start but will get 401 / 'invalid api key' until you authenticate."
+  Write-Host "      Pick ONE:"
+  Write-Host "        • Set a provider API key as a User env var, e.g.:"
+  Write-Host "            setx ANTHROPIC_API_KEY ``\"sk-ant-...``\"   (then open a new terminal)"
+  Write-Host "        • Or run pi once interactively (then re-run this installer to merge creds):"
+  Write-Host "            pi --provider umans --model umans-glm-5.2 ``\"hello``\""
+  Write-Host "          (pi will prompt for an API key on first use and cache it in auth.json.)"
+  Write-Host "      See README.md → Authentication for the full list of supported providers."
+}
+
+# Check 4: Split-brain warning — in-tree auth.json with real creds but backend reads elsewhere
+$inTreeAuthCheck = Join-Path $repoRoot 'auth.json'
+if ((Test-Path $inTreeAuthCheck) -and $authDirResolved -ne $repoRoot) {
+  try {
+    $inTreeJson = Get-Content $inTreeAuthCheck -Raw | ConvertFrom-Json -AsHashtable
+    if ($inTreeJson -and $inTreeJson.Count -gt 0) {
+      Write-Host "  [!] Split-brain: auth.json with real creds found in repo root, but backend reads from $authDirResolved"
+      Write-Host "      Re-run this installer to auto-merge, or copy manually:"
+      Write-Host "        Copy-Item '$inTreeAuthCheck' '$backendAuthPath' -Force"
+    }
+  } catch {}
+}
+
+Write-Host ""
+Write-Host "==> Next steps:"
+Write-Host "  1. Reload VS Code (Developer: Reload Window) to activate the pie panel."
+Write-Host "  2. Open a new terminal so PI_CODING_AGENT_DIR / PI_CODING_AGENT_AUTH_DIR take effect before running \`pi\`."
+Write-Host "  3. If models don't appear or you get 401, see README.md → Troubleshooting."
+if ($interactiveLaunch) {
+  Write-Host ""
+  Write-Host "Press Enter to close..." -ForegroundColor Yellow
+  Read-Host
+}

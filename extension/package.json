@@ -86,6 +86,11 @@
           "default": "",
           "description": "Absolute path to the installed PI SDK package directory, such as @earendil-works/pi-coding-agent."
         },
+        "pie.agentDir": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to the pi agent directory that contains settings.json and models.json. Forwarded to the backend as PI_CODING_AGENT_DIR. If empty, the environment variable PI_CODING_AGENT_DIR is used as a fallback."
+        },
         "pie.experimentAssignment": {
           "type": "string",
           "default": "",
@@ -108,7 +113,7 @@
     "typecheck:skill-pruner": "tsc --noEmit -p ../extensions/skill-pruner/tsconfig.json",
     "test": "tsx --test ./test/**/*.test.ts",
     "perf": "tsx ./test/perf/streaming-pipeline.perf.ts",
-    "package": "vsce package --no-dependencies --allow-missing-repository"
+    "package": "vsce package --no-dependencies --allow-missing-repository --skip-license"
   },
   "devDependencies": {
     "@eslint/js": "^9.27.0",

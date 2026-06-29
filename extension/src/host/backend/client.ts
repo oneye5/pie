@@ -1,4 +1,5 @@
 import * as cp from 'node:child_process';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { attachJsonlLineReader, serializeJsonLine } from '../../shared/jsonl';
@@ -79,12 +80,23 @@ export class BackendClient implements vscode.Disposable {
     }
 
     this.stderrBuffer = '';
+    // The backend's assertAllowedSdkPath only loads SDKs under trusted roots
+    // (user profile / program files / npm prefix). VS Code's extension host
+    // doesn't always set NPM_CONFIG_PREFIX, so derive the trusted root from
+    // the sdkPath we already resolved via `npm root -g` and pass it through.
+    // path.dirname('.../node_modules/@scope/pkg') -> '.../node_modules/@scope';
+    // we want '.../node_modules' so the whole global tree is trusted.
+    const trustedRoot = path.dirname(path.dirname(options.sdkPath));
     const proc = cp.spawn(
       options.nodePath,
       [options.backendPath, '--sdkPath', options.sdkPath, '--cwd', options.cwd],
       {
         cwd: options.cwd,
-        env: { ...process.env, PIE_EDITOR_VERSION: vscode.version },
+        env: {
+          ...process.env,
+          PIE_EDITOR_VERSION: vscode.version,
+          PIE_TRUSTED_SDK_ROOT: trustedRoot,
+        },
         stdio: ['pipe', 'pipe', 'pipe'],
         shell: false,
       },

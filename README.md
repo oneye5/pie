@@ -1,6 +1,6 @@
 # pi-config
 
-A personal stack built around the [`pi` coding agent](https://www.npmjs.com/package/@mariozechner/pi-coding-agent): a VS Code sidebar extension (*pie*), reusable pi plugins, local run-analytics tooling, and the maintainer's own agents/skills/config.
+A personal stack built around the [`pi` coding agent](https://www.npmjs.com/package/@earendil-works/pi-coding-agent): a VS Code sidebar extension (*pie*), reusable pi plugins, local run-analytics tooling, and the maintainer's own agents/skills/config.
 
 ## What's in this repo
 
@@ -25,7 +25,7 @@ These are the *original* design drivers. The architecture is being adjusted so e
 
 - Node.js 20+ (Node 24+ for the `analysis/` workspace)
 - npm 10+
-- [`pi`](https://www.npmjs.com/package/@mariozechner/pi-coding-agent) installed globally if you want the runtime flow end-to-end
+- [`pi`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent) installed globally if you want the runtime flow end-to-end
 - VS Code, for interactive extension work
 
 ## Install
@@ -44,9 +44,112 @@ chmod +x install.sh
 ./install.sh
 ```
 
-The macOS/Linux script currently does the essentials (env var, auth migration, `pi update`). Full feature parity with `install.ps1` (session migration, sessionDir repair, settings patching) is planned for a future phase.
+### What the installer does
 
-Both installers are idempotent: re-running updates/repairs rather than duplicating state.
+Both installers are idempotent and safe to re-run. On each run they:
+
+1. **Set `PI_CODING_AGENT_DIR`** to the repo root (User env var on Windows; shell rc on macOS/Linux) so the `pi` CLI reads `settings.json` and `models.json` from here.
+2. **Install `pi`** ([`@earendil-works/pi-coding-agent`](https://www.npmjs.com/package/@earendil-works/pi-coding-agent)) globally if the `pi` command is not on PATH.
+3. **Relocate `auth.json`** out of the working tree into a secure OS user-data directory (`%LOCALAPPDATA%\pie\` on Windows; `~/.config/pie/` or `~/Library/Application Support/pie/` on macOS/Linux) and set `PI_CODING_AGENT_AUTH_DIR`.
+4. **Merge split-brain auth** — if a *new* in-tree `auth.json` appears after relocation (from running `pi` in a shell without `PI_CODING_AGENT_AUTH_DIR`), the installer merges its credentials into the secure location and removes the in-tree copy.
+5. **Write `pie.agentDir`** to VS Code User settings so the extension host forwards the correct config dir to the backend, even before VS Code picks up the new User env vars (which only happens on a full restart, not a window reload).
+6. **Repair extension paths** in `settings.json` (committed paths may reference another machine's npm global tree).
+7. **Migrate session history** from legacy `~/.pi/agent/sessions/` into `data/outcomes/sessions/` (Windows only; planned for macOS/Linux).
+8. **Build and install the pie VS Code extension** from `extension/` via `vsce package` + `code --install-extension`.
+9. **Run a post-install verification** that checks auth content, `pie.agentDir`, and env vars, and warns about split-brain or missing credentials.
+
+The macOS/Linux script (`install.sh`) is intentionally lighter: it covers steps 1–5 and 9. Full feature parity (session migration, sessionDir repair, VSIX packaging) is planned — see [TODO.md](TODO.md).
+
+## Authentication
+
+The pie panel needs provider credentials to send messages. There are two ways to authenticate:
+
+### Option A: Provider API key (env var)
+
+Set a provider API key as a persistent environment variable. The backend reads it automatically.
+
+**Windows:**
+```powershell
+setx UMANS_API_KEY "sk-..."
+# then open a NEW terminal for it to take effect
+```
+
+**macOS / Linux:**
+```bash
+echo 'export UMANS_API_KEY="sk-..."' >> ~/.zshrc   # or ~/.bashrc
+source ~/.zshrc
+```
+
+Supported env vars (checked in this order): `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `GOOGLE_API_KEY`, `UMANS_API_KEY`.
+
+### Option B: Interactive `pi` login (writes auth.json)
+
+Run `pi` once interactively — it will prompt for an API key and cache it in `auth.json`:
+
+```bash
+pi --provider umans --model umans-glm-5.2 "hello"
+```
+
+> **Important:** Run this in a terminal that has `PI_CODING_AGENT_AUTH_DIR` set (open a new terminal after install). Otherwise `pi` writes `auth.json` back to the repo root, creating a split-brain where the backend reads the secure (empty) location and returns 401. If this happens, **re-run the installer** — it will auto-merge the in-tree creds into the secure location.
+
+### Where auth.json lives
+
+| OS | Default secure location | Env var override |
+|---|---|---|
+| Windows | `%LOCALAPPDATA%\pie\auth.json` | `PI_CODING_AGENT_AUTH_DIR` |
+| Linux | `~/.config/pie/auth.json` | `PI_CODING_AGENT_AUTH_DIR` |
+| macOS | `~/Library/Application Support/pie/auth.json` | `PI_CODING_AGENT_AUTH_DIR` |
+
+`auth.json` is git-ignored and should never be committed. The installer restricts file permissions to the current user only.
+
+## Troubleshooting
+
+### No models appear in the pie panel
+
+**Cause:** The backend's `agentDir` resolved to the default `~/.pi/agent` instead of the repo root, so `models.json` was not loaded.
+
+**Fix:** The installer writes `pie.agentDir` to VS Code User settings to prevent this. If models still don't appear:
+
+1. Open VS Code Settings (JSON) and verify `"pie.agentDir": "C:\path\to\pie"` is present.
+2. Reload the VS Code window (Developer: Reload Window) — not just the panel.
+3. If running the extension from source, rebuild: `cd extension && npm run build`.
+
+### 401 / "invalid api key" error
+
+**Cause:** The backend reads `auth.json` from `PI_CODING_AGENT_AUTH_DIR` (the secure location), but it's empty `{}` while real credentials are stranded in the repo-root `auth.json`.
+
+This happens when `pi` was run in a shell that didn't inherit `PI_CODING_AGENT_AUTH_DIR`.
+
+**Fix:** Re-run the installer — it auto-merges the in-tree creds into the secure location:
+```powershell
+.\install.ps1   # or: ./install.sh
+```
+
+Or merge manually (Windows):
+```powershell
+Copy-Item "$env:USERPROFILE\Documents\GitHub\pie\auth.json" "$env:LOCALAPPDATA\pie\auth.json" -Force
+```
+
+### Backend fails to start: "SDK path not allowed"
+
+**Cause:** The SDK is installed under a path not in the `isPathAllowed` allowlist.
+
+**Fix:** The extension host derives `PIE_TRUSTED_SDK_ROOT` from the resolved `sdkPath` and passes it to the backend. If using a custom SDK location, set `pie.sdkPath` in VS Code settings to the SDK package directory.
+
+### `pi` command not found after install
+
+**Cause:** `npm install -g` added `pi` to the npm prefix bin dir, but the current shell's PATH hasn't refreshed.
+
+**Fix:** Open a new terminal. Or verify manually:
+```bash
+npm config get prefix   # shows where pi was installed
+```
+
+### VS Code env vars not taking effect
+
+**Cause:** VS Code only picks up new User-scope environment variables on a **full restart**, not on window reload. The installer sets `PI_CODING_AGENT_DIR` and `PI_CODING_AGENT_AUTH_DIR` at User scope.
+
+**Fix:** The installer also writes `pie.agentDir` to VS Code User settings (which works immediately on reload) as a belt-and-suspenders fix. But for the `pi` CLI in integrated terminals, you still need to either restart VS Code fully or open a new integrated terminal.
 
 ## Quick start
 

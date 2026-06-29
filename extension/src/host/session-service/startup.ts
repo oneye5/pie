@@ -191,6 +191,33 @@ function setupInTreeAuthEnv(): void {
   }
 }
 
+/**
+ * Ensure PI_CODING_AGENT_DIR is set in process.env before the backend is
+ * spawned. The backend inherits process.env and the pi SDK uses
+ * PI_CODING_AGENT_DIR to resolve getAgentDir()` — which controls where
+ * settings.json, models.json, and auth.json are read from.
+ *
+ * VS Code only picks up newly set User-scope env vars on a full restart,
+ * not on window reload. To make pie work immediately after install (where
+ * the installer sets PI_CODING_AGENT_DIR at User scope but the running VS
+ * Code instance predates it), the pie.agentDir VS Code setting is checked
+ * first and forwarded into process.env. The OS env var is still used as a
+ * fallback so existing deployments keep working.
+ */
+function setupAgentDirEnv(): void {
+  const configuredAgentDir = vscode.workspace.getConfiguration('pie').get<string>('agentDir', '').trim();
+  if (configuredAgentDir) {
+    process.env.PI_CODING_AGENT_DIR = configuredAgentDir;
+  }
+  // If pie.agentDir is not set and PI_CODING_AGENT_DIR is not in the
+  // environment, getAgentDir() falls back to ~/.pi/agent (the legacy
+  // default), which typically doesn't contain models.json. We log this
+  // so the user can diagnose "no models appear" issues.
+  if (!process.env.PI_CODING_AGENT_DIR) {
+    console.warn('[pie] PI_CODING_AGENT_DIR is not set. The backend will fall back to ~/.pi/agent. Set pie.agentDir in settings to the directory containing settings.json and models.json.');
+  }
+}
+
 async function startBackendWithLogging(
   options: StartSessionBackendOptions,
   nodePath: string,
@@ -317,6 +344,7 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
   const { nodePath, sdkPath } = paths;
 
   const backendPath = path.join(options.context.extensionPath, 'out', 'backend.js');
+  setupAgentDirEnv();
   setupInTreeAuthEnv();
 
   options.events.attach(options.backend);
