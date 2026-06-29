@@ -1,5 +1,5 @@
 import type { ChartEntry, ChartContext } from '../lib.ts';
-import { CHART_COLORS, categoricalHeight, selectedRunIds } from '../lib.ts';
+import { CHART_COLORS, categoricalHeight, selectedRunIds, sum } from '../lib.ts';
 
 interface ToolDurationRow {
   tool: string;

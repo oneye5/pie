@@ -10,4 +10,4 @@
 
 - Commit your changes after task completion (scoped to just your changes, there may be unrelated local changes, dont commit these)
 
-- Maintain a TODO.md doc containing any deferred work, check this when completing work making sure the current task is removed when a respective entry is completed
+- If you run into inefficiencies of any kind, be it bugs, quality, inaccuracies or other issues with agent infrastructure (tools, prompts, extensions, skills etc), then take action to fix it, as to make this tool / setup self improving.

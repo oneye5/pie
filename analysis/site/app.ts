@@ -209,7 +209,7 @@ function applyFilters(runs: PreparedRunRow[], filters: FilterState): PreparedRun
     if (filters.endDate && run.startedDay > filters.endDate) {
       return false;
     }
-    if (filters.modelId && (run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)') !== filters.modelId) {
+    if (filters.modelId && (run.modelId ?? '').trim() !== filters.modelId) {
       return false;
     }
     const runThinkingLevel = normalizeThinkingLevel(run.thinkingLevel);
@@ -727,8 +727,8 @@ function dailyOutcomeRows(runs: PreparedRunRow[]): DailyOutcomeRow[] {
       const toolCalls = completed.reduce((sum, run) => sum + run.toolCallCount, 0);
       const toolFailures = completed.reduce((sum, run) => sum + run.toolFailureCount, 0);
       const modelMix = [...groupedRuns.reduce((counts, run) => {
-        const mid = run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)';
-        counts.set(mid, (counts.get(mid) ?? 0) + 1);
+        const modelId = run.modelId ?? '(unknown)';
+        counts.set(modelId, (counts.get(modelId) ?? 0) + 1);
         return counts;
       }, new Map<string, number>()).entries()]
         .sort(([left], [right]) => left.localeCompare(right))
@@ -781,7 +781,7 @@ function dailyOutcomeRows(runs: PreparedRunRow[]): DailyOutcomeRow[] {
 
 function modelThinkingRows(runs: PreparedRunRow[]): OutcomeEstimateRow[] {
   const groups = groupRunsBy(selectedCompletedRuns(runs), (run) => JSON.stringify([
-    run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)',
+    run.modelId ?? '(unknown)',
     formatThinkingLevelLabel(normalizeThinkingLevel(run.thinkingLevel) ?? '(unspecified)'),
   ]));
 
@@ -804,7 +804,7 @@ function modelThinkingRows(runs: PreparedRunRow[]): OutcomeEstimateRow[] {
 }
 
 function compositionByModelRows(runs: PreparedRunRow[]): CompositionRow[] {
-  const groups = groupRunsBy(selectedScoredCompletedRuns(runs), (run) => run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)');
+  const groups = groupRunsBy(selectedScoredCompletedRuns(runs), (run) => run.modelId ?? '(unknown)');
   const ranked = [...groups.entries()]
     .sort(([, leftRuns], [, rightRuns]) => rightRuns.length - leftRuns.length)
     .slice(0, 12);
@@ -1118,7 +1118,7 @@ function mutationRows(runs: PreparedRunRow[]): MutationRunRow[] {
     lineMutationTotal: run.lineMutationTotal,
     satisfaction: run.satisfaction ?? 0,
     resolution: run.resolution ?? 'unknown',
-    modelId: run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)',
+    modelId: run.modelId ?? '(unknown)',
     touchedFileCount: run.touchedFileCount,
     toolFailureCount: run.toolFailureCount,
     subagentCallCount: run.subagentCallCount,
@@ -1406,7 +1406,7 @@ function outcomeTimeSummary(label: string, detail: string, runs: PreparedRunRow[
 
 function modelEfficiencyRows(runs: PreparedRunRow[]): ModelEfficiencyRow[] {
   const groups = groupRunsBy(selectedCompletedRuns(runs), (run) => JSON.stringify([
-    run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)',
+    run.modelId ?? '(unknown)',
     formatThinkingLevelLabel(normalizeThinkingLevel(run.thinkingLevel) ?? '(unspecified)'),
   ]));
 
@@ -1437,7 +1437,7 @@ function modelEfficiencyRows(runs: PreparedRunRow[]): ModelEfficiencyRow[] {
 
 function modelFrontierRows(runs: PreparedRunRow[]): ModelFrontierRow[] {
   const groups = groupRunsBy(selectedCompletedRuns(runs), (run) => JSON.stringify([
-    run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)',
+    run.modelId ?? '(unknown)',
     formatThinkingLevelLabel(normalizeThinkingLevel(run.thinkingLevel) ?? '(unspecified)'),
   ]));
 
@@ -1523,7 +1523,7 @@ function timeQualityRows(runs: PreparedRunRow[]): TimeQualityRow[] {
     busyMinutes: busyMinutesForChart(run.busyDurationMs),
     satisfaction: run.satisfaction ?? 0,
     resolution: run.resolution ?? 'unknown',
-    modelId: run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)',
+    modelId: run.modelId ?? '(unknown)',
     toolFailureCount: run.toolFailureCount,
     lineMutationTotal: run.lineMutationTotal,
   }));
@@ -1532,7 +1532,7 @@ function timeQualityRows(runs: PreparedRunRow[]): TimeQualityRow[] {
 function timeProductivityRows(runs: PreparedRunRow[]): TimeProductivityRow[] {
   const eligible = selectedCompletedRuns(runs).filter((run) => run.assistantTurnCount > 0);
   const groups = groupRunsBy(eligible, (run) => JSON.stringify([
-    run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)',
+    run.modelId ?? '(unknown)',
     formatThinkingLevelLabel(normalizeThinkingLevel(run.thinkingLevel) ?? '(unspecified)'),
   ]));
 
@@ -1575,7 +1575,7 @@ function timeParetoRows(runs: PreparedRunRow[], limit = 30): TimeParetoRow[] {
   const rows: TimeParetoRow[] = topN.map((run, index) => {
     cumulativeMs += run.busyDurationMs;
     const startedShort = run.startedAt ? run.startedAt.slice(0, 10) : '—';
-    const modelId = run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)';
+    const modelId = run.modelId ?? '(unknown)';
     return {
       rank: index + 1,
       label: `#${index + 1} · ${modelId} · ${startedShort}`,
@@ -1602,7 +1602,7 @@ function contextSaturationPoints(runs: PreparedRunRow[]): ContextSaturationPoint
         fillShare,
         satisfaction: run.satisfaction ?? 0,
         resolution: run.resolution ?? 'unknown',
-        modelId: run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)',
+        modelId: run.modelId ?? '(unknown)',
         busyMinutes: run.busyDurationMs / 60000,
         contextTokens: run.contextTokens ?? 0,
         contextLimit: run.contextLimit ?? 0,
@@ -1657,7 +1657,7 @@ function complexitySubagentScatterRows(runs: PreparedRunRow[]): ComplexitySubage
     subagentCallCount: run.subagentCallCount,
     satisfaction: run.satisfaction ?? 0,
     resolution: run.resolution ?? 'unknown',
-    modelId: run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)',
+    modelId: run.modelId ?? '(unknown)',
     touchedFileCount: run.touchedFileCount,
     toolFailureCount: run.toolFailureCount,
     busyMinutes: busyMinutesForChart(run.busyDurationMs),
@@ -3992,6 +3992,13 @@ async function renderCharts(
     thoroughness: 'subagentMeanThoroughness',
   })[d];
 
+  const dimMaxKey = (d: DimName) => ({
+    precision: 'subagentMaxPrecision',
+    creativity: 'subagentMaxCreativity',
+    reasoning: 'subagentMaxReasoning',
+    thoroughness: 'subagentMaxThoroughness',
+  })[d];
+
   const scoredWithScores = scored.filter((r: PreparedRunRow) => r.subagentScoredTaskCount > 0);
 
   // ── (A) Subagent requirement profile ──────────────────────────────────────
@@ -4323,20 +4330,12 @@ function emptyPruningImpactData(schemaVersion: number): PruningImpactData {
   return {
     schemaVersion,
     rows: [],
-    signalRows: [],
     summary: {
       totalEvents: 0,
       totalSkillTokensSaved: 0,
       totalToolTokensSaved: 0,
       medianLlmLatencyMs: null,
       modeCounts: {},
-      skillReadCount: 0,
-      skillMissCount: 0,
-      shadowMissCandidateCount: 0,
-      toolRecoveredCount: 0,
-      decisionsThatPrunedTools: 0,
-      pruneRecoveredRate: null,
-      skillMissRate: null,
     },
   };
 }
@@ -4407,7 +4406,7 @@ async function main(): Promise<void> {
   setText('data-mode', data.manifest.dataMode);
 
   const allRuns = data.runSummary.rows;
-  populateSelect('filter-model', sortNatural(uniqueNonEmpty(allRuns.map((run) => run.modelFamily?.trim() || run.modelId?.trim() || '(unknown)'))), 'All models');
+  populateSelect('filter-model', sortNatural(uniqueNonEmpty(allRuns.map((run) => run.modelId))), 'All models');
   populateSelect(
     'filter-thinking',
     sortThinkingLevels(uniqueNonEmpty(allRuns.map((run) => normalizeThinkingLevel(run.thinkingLevel)))),
@@ -4465,4 +4464,4 @@ if (typeof document !== 'undefined') {
   });
 }
 
-export { leaderboardRows, modelThinkingRows, compositionByModelRows, applyFilters };
+export { leaderboardRows };
