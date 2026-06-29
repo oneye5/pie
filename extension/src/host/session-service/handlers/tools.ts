@@ -1,4 +1,5 @@
 import type { RunObserver } from '../../stats-service';
+import * as crypto from 'node:crypto';
 import type { ArchState } from '../../core/arch-state';
 import type { SessionServiceState } from '../state';
 import type { Event } from '../../core/events';
@@ -48,12 +49,31 @@ export function onToolStarted(payload: ToolStartedPayload, deps: HandlerDeps): v
     return;
   }
 
+  // Assign a parallel batch id. When this call starts while a sibling tool call
+  // on the same assistant message is still running, it joins that sibling's
+  // batch; otherwise it starts a fresh batch. Every call is stamped forward
+  // (no retroactive updates needed): a batch of size 1 is a solo/sequential
+  // call and renders without the parallel indentation strip, while a batch of
+  // size > 1 renders with the strip. See `parallelGroupId` on `ToolCall`.
+  const archState = deps.getArchState();
+  const transcript = archState.transcript.bySession[sessionPath];
+  const cachedIdx = archState.pending.currentTurnBySession[sessionPath]?.firstMessageIndex;
+  const ownerMessage =
+    cachedIdx !== undefined && transcript?.[cachedIdx]?.id === payload.messageId
+      ? transcript?.[cachedIdx]
+      : transcript?.find((message) => message.id === payload.messageId);
+  const runningSibling = ownerMessage?.toolCalls?.find(
+    (toolCall) => toolCall.status === 'running' && toolCall.id !== payload.toolCallId,
+  );
+  const parallelGroupId = runningSibling?.parallelGroupId ?? crypto.randomUUID();
+
   const toolCall = {
     id: payload.toolCallId,
     name: payload.name,
     input: payload.input,
     status: 'running' as const,
     startedAt: payload.startedAt,
+    parallelGroupId,
   };
 
   deps.dispatchArch({
@@ -111,6 +131,7 @@ export function onToolFinished(payload: ToolFinishedPayload, deps: HandlerDeps):
     status: payload.status,
     startedAt: existing?.startedAt,
     durationMs: payload.durationMs,
+    parallelGroupId: existing?.parallelGroupId,
   };
 
   deps.dispatchArch({
@@ -170,6 +191,7 @@ export function onToolProgress(payload: ToolProgressPayload, deps: HandlerDeps):
     result: payload.partialResult,
     status: 'running' as const,
     startedAt: existing?.startedAt,
+    parallelGroupId: existing?.parallelGroupId,
   };
 
   deps.dispatchArch({

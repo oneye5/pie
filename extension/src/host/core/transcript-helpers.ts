@@ -166,6 +166,10 @@ export function upsertAssistantToolCall(message: ChatMessage, toolCall: ToolCall
       mergedToolCall.durationMs = nextToolCall.durationMs;
     }
 
+    if (nextToolCall.parallelGroupId !== undefined) {
+      mergedToolCall.parallelGroupId = nextToolCall.parallelGroupId;
+    }
+
     message.toolCalls = existingToolCalls.map((item) =>
       item.id === nextToolCall.id ? mergedToolCall : item,
     );
@@ -249,6 +253,14 @@ export function mergeAssistantToolCallsPreservingResolvedState(
     const mergedDurationMs = currentToolCall.durationMs ?? previousToolCall.durationMs;
     if (mergedDurationMs !== undefined) {
       mergedToolCall.durationMs = mergedDurationMs;
+    }
+    // The backend-built replacement (currentToolCall) doesn't carry the
+    // host-assigned parallelGroupId, so carry it forward from the previous
+    // (host-stamped) tool call — otherwise the parallel strip would vanish
+    // when a streaming message is replaced at message_end.
+    const mergedParallelGroupId = currentToolCall.parallelGroupId ?? previousToolCall.parallelGroupId;
+    if (mergedParallelGroupId !== undefined) {
+      mergedToolCall.parallelGroupId = mergedParallelGroupId;
     }
 
     upsertAssistantToolCall(target, mergedToolCall);

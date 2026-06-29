@@ -177,6 +177,79 @@ test('rendered MessageItem covers assistant, editable user, and image-user branc
   assert.match(reasoningHtml, /Collapsed summary text/);
 });
 
+test('parallel tool calls share a parallel-group strip while sequential calls do not', async () => {
+  const { MessageItem } = await loadWebviewModules();
+
+  const parallelHtml = renderToString(h(MessageItem, {
+    message: assistantMessage([
+      { kind: 'toolCall', toolCall: toolCall({ id: 'p-a', name: 'bash', parallelGroupId: 'batch-1' }) },
+      { kind: 'toolCall', toolCall: toolCall({ id: 'p-b', name: 'bash', parallelGroupId: 'batch-1' }) },
+    ]),
+    isStreaming: false,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: true,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: (toolCall: ToolCall) => h('span', { class: 'rendered-tool' }, toolCall.id),
+    isLastAssistantMessage: false,
+  }));
+
+  // A parallel batch renders a single connecting strip wrapping both cards.
+  assert.match(parallelHtml, /class="tool-call-parallel-group"/);
+  assert.match(parallelHtml, /rendered-tool">p-a[\s\S]*rendered-tool">p-b/);
+  // Exactly one strip for a 2-member batch.
+  assert.equal((parallelHtml.match(/tool-call-parallel-group/g) ?? []).length, 1);
+
+  const sequentialHtml = renderToString(h(MessageItem, {
+    message: assistantMessage([
+      { kind: 'toolCall', toolCall: toolCall({ id: 's-a', name: 'bash', parallelGroupId: 'batch-2' }) },
+      { kind: 'toolCall', toolCall: toolCall({ id: 's-b', name: 'bash', parallelGroupId: 'batch-3' }) },
+    ]),
+    isStreaming: false,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: true,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: (toolCall: ToolCall) => h('span', { class: 'rendered-tool' }, toolCall.id),
+    isLastAssistantMessage: false,
+  }));
+
+  // Distinct batch ids → no parallel strip; each call renders independently.
+  assert.doesNotMatch(sequentialHtml, /tool-call-parallel-group/);
+
+  const legacyHtml = renderToString(h(MessageItem, {
+    message: assistantMessage([
+      { kind: 'toolCall', toolCall: toolCall({ id: 'l-a', name: 'bash' }) },
+      { kind: 'toolCall', toolCall: toolCall({ id: 'l-b', name: 'bash' }) },
+    ]),
+    isStreaming: false,
+    prefs: DEFAULT_CHAT_PREFS,
+    readonly: true,
+    workingDirectory: '/repo',
+    editingId: null,
+    onEditRequest: noop,
+    onEditConfirm: noop,
+    onEditCancel: noop,
+    onOpenFile: noop,
+    onContextMenu: noopContextMenu,
+    renderToolCall: (toolCall: ToolCall) => h('span', { class: 'rendered-tool' }, toolCall.id),
+    isLastAssistantMessage: false,
+  }));
+
+  // Calls without a parallelGroupId (legacy sessions) never group.
+  assert.doesNotMatch(legacyHtml, /tool-call-parallel-group/);
+});
+
 test('rendered tool-call components cover collapsed summaries, expanded bodies, and subagent metadata', async () => {
   const { ToolCallHeader, ToolCallItem } = await loadWebviewModules();
 

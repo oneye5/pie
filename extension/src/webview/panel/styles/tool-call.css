@@ -239,6 +239,20 @@
   border-left: 2px solid color-mix(in srgb, var(--panel-accent) 16%, var(--panel-border));
 }
 
+/* ── Parallel tool-call group ────────────────────────────────────────────── */
+/* Left accent border visually connects sibling tool calls that the agent
+   fired in parallel (e.g. two bash calls in one batch). Mirrors the
+   subagent parallel-group treatment so parallel items read as one related
+   group instead of two unrelated sequential cards. */
+
+.tool-call-parallel-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 8px;
+  border-left: 2px solid color-mix(in srgb, var(--panel-accent) 16%, var(--panel-border));
+}
+
 /* ── Nested (depth ≥ 2) subagent header ─────────────────────────────────── */
 /* A nested subagent renders inside a parent subagent's bounded scroll region.
    A `sticky` header there pins to the parent's scroll port and collides with

@@ -96,6 +96,10 @@ export function upsertAssistantToolPart(parts: ChatMessagePart[], toolCall: Tool
     merged.durationMs = nextToolCall.durationMs;
   }
 
+  if (nextToolCall.parallelGroupId !== undefined) {
+    merged.parallelGroupId = nextToolCall.parallelGroupId;
+  }
+
   parts[index] = { kind: 'toolCall', toolCall: merged };
 }
 

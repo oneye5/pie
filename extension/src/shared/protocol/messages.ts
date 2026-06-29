@@ -11,6 +11,19 @@ export interface ToolCall {
   startedAt?: number;
   /** Wall-clock execution time in milliseconds, set when the call resolves. */
   durationMs?: number;
+  /**
+   * Identifier of the parallel batch this tool call belongs to. Every tool
+   * call is stamped with a batch id when it starts: it either joins the batch
+   * of an already-running sibling on the same assistant message, or starts a
+   * new batch. A batch with more than one member renders with the parallel
+   * indentation strip in the transcript; a solo/sequential call (a batch of
+   * size one) renders as before. Forward-assigned at `tool.started` and
+   * carried through message-end replacement, so the grouping is stable for the
+   * life of the in-memory session. It is NOT reconstructed when a session is
+   * reloaded from disk (the persisted SDK session has no batch metadata), so
+   * historical sessions render without the strip.
+   */
+  parallelGroupId?: string;
 }
 
 export interface FilesystemPathComposerInput {

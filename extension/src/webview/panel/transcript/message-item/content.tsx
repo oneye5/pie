@@ -5,7 +5,7 @@ import type { RefObject } from 'preact';
 import { memo } from 'preact/compat';
 import { useMemo } from 'preact/hooks';
 
-import type { ChatMessage, ChatPrefs } from '../../../../shared/protocol';
+import type { ChatMessage, ChatMessagePart, ChatPrefs } from '../../../../shared/protocol';
 import { renderMarkdown } from '../../markdown';
 import { BufferedTextPart } from '../buffered-text-part';
 import {
@@ -35,9 +35,70 @@ function AssistantParts({
   onContextMenu,
   getMessageRaw,
 }: AssistantPartsProps) {
+  // Group consecutive tool-call parts that share a `parallelGroupId` so a
+  // parallel batch (e.g. two bash calls fired together) renders with the
+  // parallel indentation strip instead of reading as two unrelated sequential
+  // cards. Only defined group ids merge; calls without one (legacy sessions)
+  // and batches of size 1 render as ordinary single tool-call entries.
+  type ToolCallPart = Extract<ChatMessagePart, { kind: 'toolCall' }>;
+  type RenderItem =
+    | { type: 'single'; part: ChatMessagePart; index: number }
+    | { type: 'parallel'; groupId: string; items: Array<{ part: ToolCallPart; index: number }> };
+
+  const items: RenderItem[] = [];
+  let i = 0;
+  while (i < parts.length) {
+    const part = parts[i];
+    if (
+      part.kind === 'toolCall' &&
+      typeof part.toolCall.parallelGroupId === 'string' &&
+      part.toolCall.parallelGroupId.length > 0
+    ) {
+      const groupId = part.toolCall.parallelGroupId;
+      const batch: Array<{ part: ToolCallPart; index: number }> = [
+        { part, index: i },
+      ];
+      let j = i + 1;
+      while (j < parts.length) {
+        const nextPart = parts[j];
+        if (
+          nextPart.kind !== 'toolCall' ||
+          nextPart.toolCall.parallelGroupId !== groupId
+        ) {
+          break;
+        }
+        batch.push({ part: nextPart, index: j });
+        j += 1;
+      }
+      if (batch.length > 1) {
+        items.push({ type: 'parallel', groupId, items: batch });
+      } else {
+        items.push({ type: 'single', part, index: i });
+      }
+      i = j;
+      continue;
+    }
+
+    items.push({ type: 'single', part, index: i });
+    i += 1;
+  }
+
   return (
     <>
-      {parts.map((part, index) => {
+      {items.map((item) => {
+        if (item.type === 'parallel') {
+          return (
+            <div class="tool-call-parallel-group" key={`pg-${messageId}-${item.groupId}`}>
+              {item.items.map(({ part, index }) => (
+                <div class="tool-call-list" key={`tool-${part.toolCall.id}-${index}`}>
+                  {renderToolCall(part.toolCall, onContextMenu)}
+                </div>
+              ))}
+            </div>
+          );
+        }
+
+        const { part, index } = item;
         if (part.kind === 'reasoning') {
           return (
             <ReasoningBlock

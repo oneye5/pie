@@ -259,6 +259,30 @@ test('upsertAssistantToolCall preserves an existing result when the incoming res
   assert.equal(msg.toolCalls?.[0].status, 'completed');
 });
 
+test('upsertAssistantToolCall carries an incoming parallelGroupId onto an existing tool call', () => {
+  // Existing call has no group id (e.g. a tool.started that arrived before its
+  // parallel sibling). A later update carrying the group id must stamp it so
+  // the batch stays connected through message-end replacement.
+  const msg = assistant('m', { toolCalls: [tc('t1', { status: 'running' })] });
+  assert.equal(msg.toolCalls?.[0].parallelGroupId, undefined);
+  upsertAssistantToolCall(msg, tc('t1', { parallelGroupId: 'batch-1' }));
+  assert.equal(msg.toolCalls?.[0].parallelGroupId, 'batch-1');
+  assert.equal(
+    msg.parts?.find((p) => p.kind === 'toolCall')?.kind === 'toolCall' &&
+      msg.parts?.find((p) => p.kind === 'toolCall')?.toolCall.parallelGroupId,
+    'batch-1',
+  );
+});
+
+test('upsertAssistantToolCall preserves an existing parallelGroupId when the incoming update omits it', () => {
+  // A tool.finished/tool.progress update (no parallelGroupId in payload) must
+  // not wipe a group id stamped at tool.started.
+  const msg = assistant('m', { toolCalls: [tc('t1', { parallelGroupId: 'batch-1', status: 'running' })] });
+  upsertAssistantToolCall(msg, tc('t1', { status: 'completed', result: 'ok' }));
+  assert.equal(msg.toolCalls?.[0].parallelGroupId, 'batch-1');
+  assert.equal(msg.toolCalls?.[0].status, 'completed');
+});
+
 // ─── mergeContinuationToolCalls ──────────────────────────────────────────────
 
 test('mergeContinuationToolCalls upserts every tool call carried by incoming parts', () => {
@@ -405,4 +429,35 @@ test('mergePreservingResolvedState keeps target startedAt/durationMs when presen
   mergeAssistantToolCallsPreservingResolvedState(target, previous);
   assert.equal(target.toolCalls?.[0].startedAt, 5);
   assert.equal(target.toolCalls?.[0].durationMs, 9);
+});
+
+test('mergePreservingResolvedState carries parallelGroupId from previous when target (backend replacement) lacks it', () => {
+  // The message_end replacement is built by the backend without
+  // parallelGroupId, so the host must carry it forward from the previous
+  // (host-stamped) message — otherwise the parallel strip vanishes on
+  // completion. This is the regression guard for that path.
+  const target = assistant('t', {
+    toolCalls: [tc('t1', { status: 'completed' }), tc('t2', { status: 'completed' })],
+  });
+  const previous = assistant('p', {
+    toolCalls: [
+      tc('t1', { status: 'completed', parallelGroupId: 'batch-1' }),
+      tc('t2', { status: 'completed', parallelGroupId: 'batch-1' }),
+    ],
+  });
+  mergeAssistantToolCallsPreservingResolvedState(target, previous);
+  assert.equal(target.toolCalls?.[0].parallelGroupId, 'batch-1');
+  assert.equal(target.toolCalls?.[1].parallelGroupId, 'batch-1');
+  // Parts mirror toolCalls.
+  const partIds = target.parts
+    ?.filter((p) => p.kind === 'toolCall')
+    .map((p) => (p.kind === 'toolCall' ? p.toolCall.parallelGroupId : undefined));
+  assert.deepEqual(partIds, ['batch-1', 'batch-1']);
+});
+
+test('mergePreservingResolvedState keeps a target parallelGroupId over the previous one', () => {
+  const target = assistant('t', { toolCalls: [tc('t1', { parallelGroupId: 'target-batch' })] });
+  const previous = assistant('p', { toolCalls: [tc('t1', { parallelGroupId: 'prev-batch' })] });
+  mergeAssistantToolCallsPreservingResolvedState(target, previous);
+  assert.equal(target.toolCalls?.[0].parallelGroupId, 'target-batch');
 });
