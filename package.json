@@ -18,8 +18,8 @@
     "extension:build": "npm --prefix extension run build --",
     "extension:test": "node ./scripts/run-tests.mjs --package extension",
     "extension:typecheck": "npm --prefix extension run typecheck --",
-    "extensions:test": "node ./scripts/run-tests.mjs --package cwd-skills --package safeguard --package skill-pruner --package subagent",
-    "extensions:typecheck": "npm --prefix extension run typecheck:skill-pruner --"
+    "extensions:test": "node ./scripts/run-tests.mjs --package cwd-skills --package safeguard --package skill-pruner --package subagent --package web-access-compat",
+    "extensions:typecheck": "npm --prefix extension run typecheck:skill-pruner -- && npm --prefix extension run typecheck:web-access-compat --"
   },
   "devDependencies": {
     "@types/node": "^25.9.3",

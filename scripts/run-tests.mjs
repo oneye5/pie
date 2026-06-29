@@ -62,6 +62,15 @@ const PACKAGE_CONFIGS = [
     coverageIncludes: ['extensions/ask-user/**/*.ts'],
     thresholds: { lines: 100, branches: 100 },
   },
+  {
+    id: 'web-access-compat',
+    cwd: repoRoot,
+    testGlobs: ['extensions/web-access-compat/test/**/*.test.ts'],
+    coverageIncludes: ['extensions/web-access-compat/**/*.ts'],
+    // env-glue (resolvePackageRoot / the factory wrapper) is not unit-testable
+    // portably; the rewrite/patch/repair logic it delegates to is fully covered.
+    thresholds: { lines: 82, branches: 78 },
+  },
 ];
 
 const PACKAGE_LOOKUP = new Map();
