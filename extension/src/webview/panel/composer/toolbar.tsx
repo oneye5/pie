@@ -90,6 +90,7 @@ export function ComposerToolbar({
         {supportsReasoning && (
           <ToolbarSelectChip
             value={selectedLevel}
+            label={THINKING_LEVEL_LABELS[selectedLevel]}
             width="reasoning"
             onChange={(e) => {
               const target = e.target as HTMLSelectElement;

@@ -3,6 +3,8 @@
 
 import type { ComponentChildren, JSX } from 'preact';
 
+import { CollapsibleChevron } from './chevron';
+
 import { Tooltip } from './tooltip';
 
 type PanelChipVariant = 'toolbar' | 'pruning';
@@ -217,6 +219,7 @@ export function ToolbarRunStatusChip({ label, title, tooltip, tone }: ToolbarRun
 
 interface ToolbarSelectChipProps {
   value: string;
+  label: string;
   title: string;
   ariaLabel: string;
   width: 'reasoning';
@@ -224,17 +227,20 @@ interface ToolbarSelectChipProps {
   children: ComponentChildren;
 }
 
-export function ToolbarSelectChip({ value, title, ariaLabel, width, onChange, children }: ToolbarSelectChipProps) {
+export function ToolbarSelectChip({ value, label, title, ariaLabel, width, onChange, children }: ToolbarSelectChipProps) {
   return (
-    <select
-      class={`panel-chip panel-chip-toolbar panel-chip-select panel-chip-${width}-select`}
-      value={value}
-      onChange={onChange}
-      aria-label={ariaLabel}
-      title={title}
-    >
-      {children}
-    </select>
+    <div class={`panel-chip panel-chip-toolbar panel-chip-select panel-chip-${width}-select`}>
+      <span class="panel-chip-select-label" aria-hidden="true">{label}</span>
+      <CollapsibleChevron open={false} size={10} class="panel-chip-select-caret" />
+      <select
+        value={value}
+        onChange={onChange}
+        aria-label={ariaLabel}
+        title={title}
+      >
+        {children}
+      </select>
+    </div>
   );
 }
 
