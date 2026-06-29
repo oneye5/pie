@@ -104,6 +104,7 @@ interface MessageItemInnerProps {
   onEditRequest: (messageId: string) => void;
   onEditConfirm: (messageId: string, text: string) => void;
   onEditCancel: () => void;
+  onCancelPrepass?: () => void;
 }
 
 export function MessageItemInner({
@@ -134,6 +135,7 @@ export function MessageItemInner({
   onEditRequest,
   onEditConfirm,
   onEditCancel,
+  onCancelPrepass,
 }: MessageItemInnerProps) {
   const showHeaderActions = pruningHeaderState || statusLabel;
   const headerActions = showHeaderActions ? (
@@ -143,6 +145,7 @@ export function MessageItemInner({
       onTogglePruning={() => setPruningExpanded((v) => !v)}
       statusLabel={statusLabel}
       statusTone={statusTone}
+      onCancelPrepass={onCancelPrepass}
     />
   ) : null;
 

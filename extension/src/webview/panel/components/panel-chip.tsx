@@ -248,6 +248,7 @@ interface PruningHeaderChipControlProps {
   leading?: ComponentChildren;
   trailing?: ComponentChildren;
   onClick?: JSX.MouseEventHandler<HTMLButtonElement>;
+  onCancel?: () => void;
 }
 
 function pruningTone({ failed, expanded }: Pick<PruningHeaderChipControlProps, 'failed' | 'expanded'>): PanelChipTone {
@@ -259,17 +260,31 @@ function pruningTone({ failed, expanded }: Pick<PruningHeaderChipControlProps, '
 export function PruningHeaderChipControl(props: PruningHeaderChipControlProps) {
   if (props.pending) {
     return (
-      <PanelChip
-        as="div"
-        variant="pruning"
-        tone="muted"
-        className="panel-chip-pruning-pending"
-        role="status"
-        ariaLive="polite"
-        ariaLabel={props.ariaLabel}
-        title={props.title}
-        label={props.label}
-      />
+      <div class="pruning-header-pending-row flex items-center gap-1.5">
+        <PanelChip
+          as="div"
+          variant="pruning"
+          tone="muted"
+          className="panel-chip-pruning-pending"
+          role="status"
+          ariaLive="polite"
+          ariaLabel={props.ariaLabel}
+          title={props.title}
+          label={props.label}
+        />
+        {props.onCancel && (
+          <PanelChip
+            as="button"
+            variant="pruning"
+            tone="warning"
+            className="panel-chip-interactive"
+            ariaLabel="Cancel pruning prepass"
+            title="Cancel the pruning prepass (interrupts this turn)"
+            onClick={props.onCancel}
+            label="Cancel"
+          />
+        )}
+      </div>
     );
   }
 

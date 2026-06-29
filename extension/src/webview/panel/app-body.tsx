@@ -16,7 +16,6 @@ import { FileChangesPanel } from './file-changes-panel';
 import { ExtensionUIPrompt } from './extension-ui-prompt';
 import { resolvePanelSurface, resolveLoadingStatus, type PanelSurface } from './panel-state';
 import { TranscriptHost } from './transcript/transcript-host';
-import { PrepassStatusChip } from './transcript/prepass-status-chip';
 import { isTranscriptHydrating } from './transcript/state';
 import { ACTIVITY_TAIL_ROW_HEIGHT_PX } from './transcript/activity-tail';
 import { ContextMenu, type ContextMenuState } from './components/context-menu';
@@ -183,6 +182,8 @@ interface PanelMainProps {
   editingMessageId: ViewState['editingMessageId'];
   workspaceCwd: ViewState['workspaceCwd'];
   openTabPaths: ViewState['openTabPaths'];
+  /** Wired to the agent-reply pruning chip's Cancel button (Brief F). */
+  onCancelPrepass: () => void;
 }
 
 const PanelMain = memo(function PanelMain({
@@ -211,6 +212,7 @@ const PanelMain = memo(function PanelMain({
   editingMessageId,
   workspaceCwd,
   openTabPaths,
+  onCancelPrepass,
 }: PanelMainProps) {
   return (
     <div class="panel-main">
@@ -267,6 +269,7 @@ const PanelMain = memo(function PanelMain({
           onOpenFile={handlers.handleOpenFile}
           onContextMenu={handlers.handleOpenContextMenu}
           postMessage={postMessage}
+          onCancelPrepass={onCancelPrepass}
         />
       )}
       </div>
@@ -296,10 +299,6 @@ interface BottomSectionProps {
   pruningSettings: ViewState['pruningSettings'];
   pruningCatalog: ViewState['pruningCatalog'];
   pruningResult: ViewState['pruningResult'];
-  /** Brief F: live, cancelable prepass status chip (host-projected phase). */
-  prepassPhase: ViewState['prepassPhase'];
-  prepassStartedAt: ViewState['prepassStartedAt'];
-  prepassLatencyMs?: ViewState['prepassLatencyMs'];
   systemPrompts: ViewState['systemPrompts'];
   transcript: ChatMessage[];
   transcriptWindow: ViewState['transcriptWindow'];
@@ -332,9 +331,6 @@ const BottomSection = memo(function BottomSection({
   pruningSettings,
   pruningCatalog,
   pruningResult,
-  prepassPhase,
-  prepassStartedAt,
-  prepassLatencyMs,
   systemPrompts,
   transcript,
   transcriptWindow,
@@ -353,12 +349,6 @@ const BottomSection = memo(function BottomSection({
       {pendingExtensionUIRequest && activeSessionPath && !isAskUserHandledInline && (
         <ExtensionUIPrompt sessionPath={activeSessionPath} request={pendingExtensionUIRequest} postMessage={postMessage} />
       )}
-      <PrepassStatusChip
-        phase={prepassPhase}
-        startedAt={prepassStartedAt}
-        latencyMs={prepassLatencyMs}
-        onCancel={handlers.handleInterrupt}
-      />
       <Composer
         sessionPath={activeSessionPath}
         draftText={draftText}
@@ -713,6 +703,7 @@ export function AppBody({ adapter }: AppBodyProps) {
         editingMessageId={viewState.editingMessageId}
         workspaceCwd={viewState.workspaceCwd}
         openTabPaths={viewState.openTabPaths}
+        onCancelPrepass={handlers.handleInterrupt}
       />
 
       <BottomSection
@@ -733,9 +724,6 @@ export function AppBody({ adapter }: AppBodyProps) {
         pruningSettings={viewState.pruningSettings}
         pruningCatalog={viewState.pruningCatalog}
         pruningResult={viewState.pruningResult}
-        prepassPhase={viewState.prepassPhase}
-        prepassStartedAt={viewState.prepassStartedAt}
-        prepassLatencyMs={viewState.prepassLatencyMs}
         systemPrompts={viewState.systemPrompts}
         transcript={viewState.transcript}
         transcriptWindow={viewState.transcriptWindow}

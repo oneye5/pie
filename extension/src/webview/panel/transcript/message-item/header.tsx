@@ -20,6 +20,7 @@ interface MessageHeaderActionsProps {
   onTogglePruning: () => void;
   statusLabel: string | null;
   statusTone: StatusTone;
+  onCancelPrepass?: () => void;
 }
 
 export function MessageHeaderActions({
@@ -28,6 +29,7 @@ export function MessageHeaderActions({
   onTogglePruning,
   statusLabel,
   statusTone,
+  onCancelPrepass,
 }: MessageHeaderActionsProps) {
   if (!pruningHeaderState && !statusLabel) return null;
   return (
@@ -37,6 +39,7 @@ export function MessageHeaderActions({
           state={pruningHeaderState}
           expanded={pruningExpanded}
           onToggle={onTogglePruning}
+          onCancel={onCancelPrepass}
         />
       )}
       {statusLabel && <StatusChip tone={statusTone} label={statusLabel} />}

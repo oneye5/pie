@@ -50,4 +50,6 @@ export interface TranscriptCommonProps {
   onLoadOlder: () => void;
   onLoadNewer: () => void;
   onJumpToLatest: () => void;
+  /** Cancel the in-flight pruning prepass from within the agent reply. */
+  onCancelPrepass?: () => void;
 }

@@ -42,6 +42,8 @@ export interface MessageItemProps {
   /** Stable per-session key used to scope the message entrance tracker so old
    *  sessions' ids are released when the session changes. */
   sessionKey?: string | null;
+  /** Cancel the in-flight pruning prepass from within the agent reply. */
+  onCancelPrepass?: () => void;
 }
 
 export function MessageItemView({
@@ -62,6 +64,7 @@ export function MessageItemView({
   activityState,
   recovery,
   sessionKey,
+  onCancelPrepass,
 }: MessageItemProps) {
 
   const {
@@ -136,6 +139,7 @@ export function MessageItemView({
         onEditRequest={onEditRequest}
         onEditConfirm={onEditConfirm}
         onEditCancel={onEditCancel}
+        onCancelPrepass={onCancelPrepass}
       />
     </MessageItemShell>
   );
@@ -185,6 +189,7 @@ export function areMessageItemPropsEqual(prev: MessageItemProps, next: MessageIt
     prev.renderToolCall === next.renderToolCall &&
     prev.pruningHeaderState === next.pruningHeaderState &&
     prev.activityState === next.activityState &&
-    prev.recovery === next.recovery
+    prev.recovery === next.recovery &&
+    prev.onCancelPrepass === next.onCancelPrepass
   );
 }

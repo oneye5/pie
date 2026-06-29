@@ -37,6 +37,7 @@ interface TranscriptVirtualListProps {
   onLoadOlder: () => void;
   onLoadNewer: () => void;
   onJumpToLatest: () => void;
+  onCancelPrepass?: () => void;
 }
 
 function fallbackTranscriptRow(rows: readonly TranscriptRow[]): TranscriptRow {
@@ -216,6 +217,7 @@ interface VirtualRowProps {
   transcriptWindow: TranscriptWindow;
   sessionKey: string | null;
   measureRowElement: (element: HTMLDivElement | null) => void;
+  onCancelPrepass?: () => void;
 }
 
 const VirtualRow = memo(function VirtualRow({
@@ -242,6 +244,7 @@ const VirtualRow = memo(function VirtualRow({
   transcriptWindow,
   sessionKey,
   measureRowElement,
+  onCancelPrepass,
 }: VirtualRowProps) {
   const row = rows[virtualRow.index];
   if (!row) {
@@ -285,6 +288,7 @@ const VirtualRow = memo(function VirtualRow({
         transcriptIndex={row.kind === 'message' ? row.transcriptIndex : undefined}
         hasOlder={transcriptWindow.hasOlder}
         sessionKey={sessionKey}
+        onCancelPrepass={onCancelPrepass}
       />
     </div>
   );
@@ -311,6 +315,7 @@ export function TranscriptVirtualList({
   onLoadOlder,
   onLoadNewer,
   onJumpToLatest,
+  onCancelPrepass,
 }: TranscriptVirtualListProps) {
   const rows = useTranscriptRows({
     transcript,
@@ -426,6 +431,7 @@ export function TranscriptVirtualList({
             transcriptWindow={transcriptWindow}
             measureRowElement={measureRowElement}
             sessionKey={sessionKey}
+            onCancelPrepass={onCancelPrepass}
           />
         ))}
       </div>

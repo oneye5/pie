@@ -22,6 +22,7 @@ function renderMessage({
   transcriptIndex,
   hasOlder,
   sessionKey,
+  onCancelPrepass,
 }: RowRendererProps) {
   if (row.kind !== 'message') return null;
 
@@ -54,6 +55,7 @@ function renderMessage({
       activityState={row.activityState}
       recovery={recovery}
       sessionKey={sessionKey}
+      onCancelPrepass={onCancelPrepass}
     />
   );
 }

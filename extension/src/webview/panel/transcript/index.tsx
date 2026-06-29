@@ -59,6 +59,7 @@ export function TranscriptView({
   onLoadOlder,
   onLoadNewer,
   onJumpToLatest,
+  onCancelPrepass,
 }: TranscriptViewProps) {
   const transcriptHydrating = isTranscriptHydrating({ transcript, systemPrompts, transcriptLoaded });
 
@@ -94,6 +95,7 @@ export function TranscriptView({
       onLoadOlder={onLoadOlder}
       onLoadNewer={onLoadNewer}
       onJumpToLatest={onJumpToLatest}
+      onCancelPrepass={onCancelPrepass}
     />
   );
 }

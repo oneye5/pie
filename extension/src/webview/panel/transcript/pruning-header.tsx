@@ -15,6 +15,7 @@ interface PruningHeaderChipProps {
   state: PruningHeaderState;
   expanded: boolean;
   onToggle: (event: JSX.TargetedMouseEvent<HTMLButtonElement>) => void;
+  onCancel?: () => void;
 }
 
 interface PruningHeaderButtonProps {
@@ -41,7 +42,7 @@ function formatPruningChipLabel(details: PruningDetails, fallbackText?: string):
   return parts.length > 0 ? parts.join(' · ') : fallbackText || 'Pruning complete';
 }
 
-export function PruningHeaderChip({ state, expanded, onToggle }: PruningHeaderChipProps) {
+export function PruningHeaderChip({ state, expanded, onToggle, onCancel }: PruningHeaderChipProps) {
   if (state.kind === 'pending') {
     const label = state.label.trim().length > 0 ? state.label : AGENT_ACTIVITY_LABELS.pruning;
 
@@ -51,6 +52,7 @@ export function PruningHeaderChip({ state, expanded, onToggle }: PruningHeaderCh
         ariaLabel={label}
         title={label}
         label={<AgentActivityLabel label={label} />}
+        onCancel={onCancel}
       />
     );
   }

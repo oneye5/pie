@@ -36,6 +36,8 @@ export interface RowRendererProps {
   /** Stable per-session key used to scope per-message entrance tracking so
    *  old sessions' ids are released when the session changes. */
   sessionKey?: string | null;
+  /** Cancel the in-flight pruning prepass from within the agent reply. */
+  onCancelPrepass?: () => void;
 }
 
 export type RowRenderer = (props: RowRendererProps) => ComponentChildren;

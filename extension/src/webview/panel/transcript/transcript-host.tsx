@@ -49,6 +49,7 @@ function TranscriptSurface({
   onLoadOlder,
   onLoadNewer,
   onJumpToLatest,
+  onCancelPrepass,
 }: TranscriptSurfaceProps) {
   const style = isActive
     ? 'position:relative;flex:1;min-height:0;display:flex;flex-direction:column;visibility:visible;z-index:0;pointer-events:auto'
@@ -84,6 +85,7 @@ function TranscriptSurface({
         onLoadOlder={onLoadOlder}
         onLoadNewer={onLoadNewer}
         onJumpToLatest={onJumpToLatest}
+        onCancelPrepass={onCancelPrepass}
       />
     </div>
   );
@@ -113,6 +115,8 @@ export interface TranscriptHostProps {
   onOpenFile: (path: string) => void;
   onContextMenu: TranscriptContextMenuHandler;
   postMessage: (msg: any) => void;
+  /** Cancel the in-flight pruning prepass from within the agent reply. */
+  onCancelPrepass?: () => void;
 }
 
 export function TranscriptHost({
@@ -137,6 +141,7 @@ export function TranscriptHost({
   onOpenFile,
   onContextMenu,
   postMessage,
+  onCancelPrepass,
 }: TranscriptHostProps) {
   return (
     <div class="transcript-host" style="position:relative;flex:1;min-height:0;display:flex;flex-direction:column">
@@ -174,6 +179,7 @@ export function TranscriptHost({
             type: 'jumpToLatestTranscript',
             sessionPath: activeSessionPath,
           })}
+          onCancelPrepass={onCancelPrepass}
         />
       )}
     </div>

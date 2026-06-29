@@ -1,5 +1,5 @@
 import type { ChatMessage } from '../../../shared/protocol';
-import { type TurnActivityState } from './activity';
+import { AGENT_ACTIVITY_LABELS, type TurnActivityState } from './activity';
 import { estimateActivityTailHeight } from './activity-tail';
 import { isPruningResultMessage, pruningDetailsFromMessage, type PruningHeaderState } from './pruning';
 
@@ -138,8 +138,12 @@ function maybeAddPlaceholderAssistant(
   busy: boolean,
   pendingAssistantModelId: string | undefined,
   pendingAssistantThinkingLevel: ChatMessage['thinkingLevel'] | undefined,
+  activityState: TurnActivityState | null,
 ): void {
-  const placeholderPruningHeaderState: PruningHeaderState | null = pendingPruning?.state ?? null;
+  const pendingPruningHeaderState: PruningHeaderState | null = pendingPruning?.state
+    ?? (activityState?.phase === 'pruning'
+      ? { kind: 'pending', label: AGENT_ACTIVITY_LABELS.pruning }
+      : null);
   const placeholderAssistantId = latestUserMessage
     ? `assistant-placeholder:${latestUserMessage.id}`
     : pendingPruning
@@ -149,7 +153,7 @@ function maybeAddPlaceholderAssistant(
 
   const shouldRenderPlaceholderAssistant = !!placeholderAssistantId
     && lastAssistantRowIndexSinceUser === null
-    && (busy || placeholderPruningHeaderState?.kind === 'result');
+    && (busy || pendingPruningHeaderState?.kind === 'result' || pendingPruningHeaderState?.kind === 'pending');
   if (!shouldRenderPlaceholderAssistant || !placeholderAssistantId) {
     return;
   }
@@ -166,12 +170,12 @@ function maybeAddPlaceholderAssistant(
     toolCalls: [],
   };
 
-  if (placeholderPruningHeaderState) {
+  if (pendingPruningHeaderState) {
     rows.push({
       kind: 'message',
       key: `message:${placeholderAssistantId}`,
       message: baseMessage,
-      pruningHeaderState: placeholderPruningHeaderState,
+      pruningHeaderState: pendingPruningHeaderState,
     });
   } else {
     rows.push({
@@ -221,6 +225,7 @@ export function buildTranscriptRows({
     busy,
     pendingAssistantModelId,
     pendingAssistantThinkingLevel,
+    activityState,
   );
 
   if (busy && activityState) {

@@ -320,7 +320,10 @@ test('buildTranscriptRows shows a pending pruning header in a stable assistant p
   assert.equal(assistantRow?.kind === 'message' ? assistantRow.message.createdAt : null, '2026-05-16T00:00:00.000Z');
   assert.equal(assistantRow?.kind === 'message' ? assistantRow.message.modelId : null, 'gpt-5.4');
   assert.equal(assistantRow?.kind === 'message' ? assistantRow.message.thinkingLevel : null, 'xhigh');
-  assert.equal(assistantRow?.kind === 'message' ? assistantRow.pruningHeaderState : null, undefined);
+  assert.deepEqual(
+    assistantRow?.kind === 'message' ? assistantRow.pruningHeaderState : null,
+    { kind: 'pending', label: 'pruning skills/tools' },
+  );
   assert.equal(assistantRow?.kind === 'message' && assistantRow.activityState ? assistantRow.activityState.phase : null, 'pruning');
   assert.equal(assistantRow?.kind === 'message' && assistantRow.activityState ? assistantRow.activityState.label : null, 'pruning skills/tools');
 });
