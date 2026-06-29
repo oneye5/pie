@@ -91,18 +91,6 @@
   font-style: italic;
 }
 
-/* The toolbar model select uses transparent text so the overlay span can
-   render the chip label; this keeps the actual <option> text visible when
-   the native dropdown opens. */
-.toolbar-model-select option {
-  color: var(--panel-foreground);
-}
-
-.toolbar-model-select option.model-option-ineligible {
-  color: var(--panel-muted);
-  font-style: italic;
-}
-
 /* ── Context window & token indicators ───────────────────────────────────── */
 
 .context-window-indicator {

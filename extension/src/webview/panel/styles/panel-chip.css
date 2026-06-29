@@ -101,12 +101,15 @@
   padding: 0;
   border: none;
   border-radius: inherit;
-  background: transparent;
-  color: transparent;
+  /* The select itself is hidden so the wrapper can render the styled label
+     and chevron, but the native dropdown still needs readable option text.
+     Opacity hides the trigger without forcing transparent color onto the
+     popup; the color property gives options a visible foreground. */
+  background: var(--panel-control-surface);
+  color: var(--panel-foreground);
+  opacity: 0;
   font-size: 11px;
   line-height: 1;
-  appearance: none;
-  -webkit-appearance: none;
   cursor: pointer;
   outline: none;
 }
@@ -192,63 +195,6 @@
 
 .panel-chip-run-status {
   flex: 0 0 auto;
-}
-
-.panel-chip-model-wrap {
-  position: relative;
-  display: inline-flex;
-  min-width: 80px;
-  max-width: 180px;
-  min-height: 22px;
-}
-
-.panel-chip-model-measure {
-  min-width: 0;
-  max-width: 100%;
-  overflow: hidden;
-  padding: 2px 24px 2px 8px;
-  border: 1px solid transparent;
-  border-radius: var(--status-chip-radius);
-  font-size: 11px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  visibility: hidden;
-}
-
-.panel-chip-model-select {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  max-width: 100%;
-  appearance: none;
-  padding-right: 24px;
-  color: transparent;
-}
-
-.panel-chip-model-label {
-  pointer-events: none;
-  position: absolute;
-  inset: 0;
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-  overflow: hidden;
-  padding: 2px 24px 2px 8px;
-  border-radius: var(--status-chip-radius);
-  color: var(--panel-foreground);
-  font-size: 11px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.panel-chip-caret {
-  pointer-events: none;
-  position: absolute;
-  right: 8px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: color-mix(in srgb, var(--panel-foreground) 70%, transparent);
-  font-size: 10px;
 }
 
 .panel-chip-pruning {
