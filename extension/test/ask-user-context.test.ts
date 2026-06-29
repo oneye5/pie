@@ -5,7 +5,7 @@ import type { ExtensionUIRequestPayload } from '../src/shared/protocol';
 
 /** Helper to build a 'select' request. */
 function selectReq(
-  overrides: Partial<Pick<ExtensionUIRequestPayload, 'id' | 'subagentCallId'>> & {
+  overrides: Partial<Pick<ExtensionUIRequestPayload, 'id' | 'subagentCallId' | 'toolCallId'>> & {
     id?: string;
   } = {},
 ): ExtensionUIRequestPayload {
@@ -111,7 +111,39 @@ describe('findMatchingRequest', () => {
     assert.equal(result, null);
   });
 
-  it('returns the first matching request when multiple candidates exist', () => {
+  it('matches main-agent request by toolCallId', () => {
+    const pending: Record<string, ExtensionUIRequestPayload> = {
+      'req-1': selectReq({ id: 'req-1', toolCallId: 'call_abc' }),
+      'req-2': selectReq({ id: 'req-2', toolCallId: 'call_def' }),
+    };
+    const result = findMatchingRequest(pending, 'call_def');
+    assert.ok(result);
+    assert.equal(result.id, 'req-2');
+    assert.equal(result.toolCallId, 'call_def');
+    assert.equal(result.subagentCallId, undefined);
+  });
+
+  it('matches subagent request by toolCallId when subagentCallId is also present', () => {
+    const pending: Record<string, ExtensionUIRequestPayload> = {
+      'req-1': selectReq({ id: 'req-1', toolCallId: 'call_abc', subagentCallId: 'call_xyz' }),
+    };
+    const resultByToolCallId = findMatchingRequest(pending, 'call_abc');
+    assert.equal(resultByToolCallId?.id, 'req-1');
+    const resultBySubagentCallId = findMatchingRequest(pending, 'call_xyz');
+    assert.equal(resultBySubagentCallId?.id, 'req-1');
+  });
+
+  it('does not return a toolCallId-owned request when callerId is undefined (legacy main agent)', () => {
+    const pending: Record<string, ExtensionUIRequestPayload> = {
+      'req-1': selectReq({ id: 'req-1', toolCallId: 'call_abc' }),
+      'req-2': selectReq({ id: 'req-2' }),
+    };
+    const result = findMatchingRequest(pending, undefined);
+    assert.ok(result);
+    assert.equal(result.id, 'req-2');
+  });
+
+  it('returns the first matching request when multiple legacy main-agent candidates exist', () => {
     // Object.values order: insertion order for string keys in modern JS engines
     const pending: Record<string, ExtensionUIRequestPayload> = {
       'req-a': selectReq({ id: 'req-a' }),

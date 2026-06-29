@@ -14,7 +14,7 @@ import { reducer, initialArchState, type ArchState } from '../src/host/core/redu
 import { createInitialArchState } from '../src/host/core/arch-state';
 import { selectViewState } from '../src/host/core/projection';
 import type { Event } from '../src/host/core/events';
-import type { ModelInfo } from '../src/shared/protocol';
+import type { ExtensionUIRequestPayload, ModelInfo } from '../src/shared/protocol';
 import { CHAT_PREF_MENU_SECTIONS } from '../src/webview/panel/chat-prefs';
 
 // A state with backendReady=true — needed because the Send Command handler
@@ -394,6 +394,29 @@ test('selectViewState: editingMessageId, showOutcomeDialog, pendingExtensionUIRe
   assert.equal(vs.showOutcomeDialog, false);
   assert.equal(vs.pendingExtensionUIRequest, null);
   assert.deepEqual(vs.pendingExtensionUIRequestsBySession, {});
+});
+
+test('selectViewState: pendingExtensionUIRequest excludes inline-owned requests (subagentCallId and toolCallId)', () => {
+  const makeReq = (id: string, overrides: Partial<ExtensionUIRequestPayload>): ExtensionUIRequestPayload => ({
+    id,
+    sessionPath: '/s',
+    method: 'select',
+    title: 'Q',
+    options: ['a'],
+    ...overrides,
+  } as ExtensionUIRequestPayload);
+
+  const state = produce(initialArchState, draft => {
+    draft.sessions.activeSessionPath = '/s';
+    draft.settings.pendingExtensionUIRequestsBySession['/s'] = {
+      'req-sub': makeReq('req-sub', { subagentCallId: 'sub-1' }),
+      'req-tool': makeReq('req-tool', { toolCallId: 'tc-1' }),
+      'req-bar': makeReq('req-bar', {}),
+    };
+  });
+
+  const vs = selectViewState(state);
+  assert.equal(vs.pendingExtensionUIRequest?.id, 'req-bar');
 });
 
 test('selectViewState: availableExtensions propagates from state', () => {

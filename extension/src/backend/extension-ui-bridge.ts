@@ -25,25 +25,25 @@ export class ExtensionUIBridge {
     this.emit = emit;
   }
 
-  async confirm(title: string, message: string, _opts?: { subagentCallId?: string }): Promise<boolean> {
+  async confirm(title: string, message: string, _opts?: { subagentCallId?: string; toolCallId?: string }): Promise<boolean> {
     const id = crypto.randomUUID();
-    const payload: ExtensionUIRequestPayload = { id, method: 'confirm', title, message, sessionPath: this.sessionPath, subagentCallId: _opts?.subagentCallId };
+    const payload: ExtensionUIRequestPayload = { id, method: 'confirm', title, message, sessionPath: this.sessionPath, subagentCallId: _opts?.subagentCallId, toolCallId: _opts?.toolCallId };
     const response = await this.emitAndAwait(id, payload);
     if (response.cancelled) return false;
     return response.confirmed ?? false;
   }
 
-  async select(title: string, options: string[], _opts?: { subagentCallId?: string }): Promise<string | undefined> {
+  async select(title: string, options: string[], _opts?: { subagentCallId?: string; toolCallId?: string }): Promise<string | undefined> {
     const id = crypto.randomUUID();
-    const payload: ExtensionUIRequestPayload = { id, method: 'select', title, options, sessionPath: this.sessionPath, subagentCallId: _opts?.subagentCallId };
+    const payload: ExtensionUIRequestPayload = { id, method: 'select', title, options, sessionPath: this.sessionPath, subagentCallId: _opts?.subagentCallId, toolCallId: _opts?.toolCallId };
     const response = await this.emitAndAwait(id, payload);
     if (response.cancelled) return undefined;
     return response.value;
   }
 
-  async input(title: string, placeholder?: string, _opts?: { subagentCallId?: string }): Promise<string | undefined> {
+  async input(title: string, placeholder?: string, _opts?: { subagentCallId?: string; toolCallId?: string }): Promise<string | undefined> {
     const id = crypto.randomUUID();
-    const payload: ExtensionUIRequestPayload = { id, method: 'input', title, placeholder, sessionPath: this.sessionPath, subagentCallId: _opts?.subagentCallId };
+    const payload: ExtensionUIRequestPayload = { id, method: 'input', title, placeholder, sessionPath: this.sessionPath, subagentCallId: _opts?.subagentCallId, toolCallId: _opts?.toolCallId };
     const response = await this.emitAndAwait(id, payload);
     if (response.cancelled) return undefined;
     return response.value;

@@ -62,15 +62,16 @@ describe("ParentExtensionUIBridgeProxy", () => {
       const { args } = mock.calls.select[0];
       assert.equal(args[0], "Pick one");
       assert.deepEqual(args[1], ["a", "b"]);
-      assert.deepEqual(args[2], { signal: ac.signal, subagentCallId: CALL_ID });
+      assert.deepEqual(args[2], { signal: ac.signal, subagentCallId: CALL_ID, toolCallId: CALL_ID });
     });
 
     it("passes undefined signal when opts omitted", async () => {
       await proxy.select("Title", ["x"]);
 
-      const opts = mock.calls.select[0].args[2] as { signal?: AbortSignal; subagentCallId?: string };
+      const opts = mock.calls.select[0].args[2] as { signal?: AbortSignal; subagentCallId?: string; toolCallId?: string };
       assert.equal(opts.signal, undefined);
       assert.equal(opts.subagentCallId, CALL_ID);
+      assert.equal(opts.toolCallId, CALL_ID);
     });
   });
 
@@ -84,15 +85,16 @@ describe("ParentExtensionUIBridgeProxy", () => {
       const { args } = mock.calls.confirm[0];
       assert.equal(args[0], "Really?");
       assert.equal(args[1], "Are you sure?");
-      assert.deepEqual(args[2], { signal: ac.signal, subagentCallId: CALL_ID });
+      assert.deepEqual(args[2], { signal: ac.signal, subagentCallId: CALL_ID, toolCallId: CALL_ID });
     });
 
     it("passes undefined signal when opts omitted", async () => {
       await proxy.confirm("Title", "Msg");
 
-      const opts = mock.calls.confirm[0].args[2] as { signal?: AbortSignal; subagentCallId?: string };
+      const opts = mock.calls.confirm[0].args[2] as { signal?: AbortSignal; subagentCallId?: string; toolCallId?: string };
       assert.equal(opts.signal, undefined);
       assert.equal(opts.subagentCallId, CALL_ID);
+      assert.equal(opts.toolCallId, CALL_ID);
     });
   });
 
@@ -106,15 +108,16 @@ describe("ParentExtensionUIBridgeProxy", () => {
       const { args } = mock.calls.input[0];
       assert.equal(args[0], "Enter value");
       assert.equal(args[1], "placeholder");
-      assert.deepEqual(args[2], { signal: ac.signal, subagentCallId: CALL_ID });
+      assert.deepEqual(args[2], { signal: ac.signal, subagentCallId: CALL_ID, toolCallId: CALL_ID });
     });
 
     it("passes undefined signal when opts omitted", async () => {
       await proxy.input("Title");
 
-      const opts = mock.calls.input[0].args[2] as { signal?: AbortSignal; subagentCallId?: string };
+      const opts = mock.calls.input[0].args[2] as { signal?: AbortSignal; subagentCallId?: string; toolCallId?: string };
       assert.equal(opts.signal, undefined);
       assert.equal(opts.subagentCallId, CALL_ID);
+      assert.equal(opts.toolCallId, CALL_ID);
     });
   });
 

@@ -18,8 +18,8 @@ export default function (pi: ExtensionAPI) {
       'Never use ask_user for status updates or to ask permission for already-described actions — just do them.',
     ],
     parameters: askUserSchema,
-    async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      return runAsk(params, { ui: ctx.ui, signal });
+    async execute(toolCallId, params, signal, _onUpdate, ctx) {
+      return runAsk(params, { ui: ctx.ui as import('./src/ask.js').AskPort['ui'], signal, toolCallId });
     },
   });
 }

@@ -3,10 +3,11 @@ import { CUSTOM_SENTINEL } from './types.js';
 
 export interface AskPort {
   ui: {
-    select(title: string, options: string[], opts?: { timeout?: number; signal?: AbortSignal }): Promise<string | undefined>;
-    input(title: string, placeholder?: string, opts?: { timeout?: number; signal?: AbortSignal }): Promise<string | undefined>;
+    select(title: string, options: string[], opts?: { timeout?: number; signal?: AbortSignal; toolCallId?: string }): Promise<string | undefined>;
+    input(title: string, placeholder?: string, opts?: { timeout?: number; signal?: AbortSignal; toolCallId?: string }): Promise<string | undefined>;
   };
   signal?: AbortSignal;
+  toolCallId?: string;
 }
 
 type AskResult = ReturnType<typeof answered> | ReturnType<typeof cancelled>;
@@ -23,7 +24,7 @@ export async function runAsk(input: AskUserInput, port: AskPort): Promise<AskRes
     selectOptions.push(CUSTOM_SENTINEL);
   }
 
-  const picked = await port.ui.select(input.question, selectOptions, { signal: port.signal });
+  const picked = await port.ui.select(input.question, selectOptions, { signal: port.signal, ...(port.toolCallId ? { toolCallId: port.toolCallId } : {}) });
   if (picked === undefined) {
     return cancelled();
   }
@@ -33,7 +34,7 @@ export async function runAsk(input: AskUserInput, port: AskPort): Promise<AskRes
     return answered(picked, source);
   }
 
-  const custom = await port.ui.input('Your answer', undefined, { signal: port.signal });
+  const custom = await port.ui.input('Your answer', undefined, { signal: port.signal, ...(port.toolCallId ? { toolCallId: port.toolCallId } : {}) });
   if (!custom?.trim()) {
     return cancelled();
   }

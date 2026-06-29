@@ -77,6 +77,15 @@ test('confirm: forwards subagentCallId when provided', async () => {
   assert.equal(await pending, true);
 });
 
+test('confirm: forwards toolCallId when provided', async () => {
+  const { bridge, captured } = makeBridge();
+  const pending = bridge.confirm('t', 'm', { toolCallId: 'call-8' });
+  assert.equal(captured[0].payload.toolCallId, 'call-8');
+  assert.equal(captured[0].payload.subagentCallId, undefined);
+  resolveLast(bridge, captured, { confirmed: true });
+  assert.equal(await pending, true);
+});
+
 // ─── select ──────────────────────────────────────────────────────────────────
 
 test('select: emits options and returns the chosen value', async () => {
@@ -86,6 +95,15 @@ test('select: emits options and returns the chosen value', async () => {
   assert.deepEqual(captured[0].payload.options, ['a', 'b', 'c']);
   resolveLast(bridge, captured, { value: 'b' });
   assert.equal(await pending, 'b');
+});
+
+test('select: forwards subagentCallId and toolCallId when provided', async () => {
+  const { bridge, captured } = makeBridge();
+  const pending = bridge.select('Pick one', ['a'], { subagentCallId: 'sub-1', toolCallId: 'tc-1' });
+  assert.equal(captured[0].payload.subagentCallId, 'sub-1');
+  assert.equal(captured[0].payload.toolCallId, 'tc-1');
+  resolveLast(bridge, captured, { value: 'a' });
+  assert.equal(await pending, 'a');
 });
 
 test('select: cancelled → undefined', async () => {
@@ -111,6 +129,14 @@ test('input: emits placeholder and returns the entered value', async () => {
   assert.equal(captured[0].payload.placeholder, 'type a name…');
   resolveLast(bridge, captured, { value: 'my-session' });
   assert.equal(await pending, 'my-session');
+});
+
+test('input: forwards toolCallId when provided', async () => {
+  const { bridge, captured } = makeBridge();
+  const pending = bridge.input('Name it', undefined, { toolCallId: 'call-9' });
+  assert.equal(captured[0].payload.toolCallId, 'call-9');
+  resolveLast(bridge, captured, { value: 'typed' });
+  assert.equal(await pending, 'typed');
 });
 
 test('input: cancelled → undefined', async () => {

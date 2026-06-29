@@ -28,20 +28,26 @@ export const AskUserContext = createContext<AskUserContextValue>({
 });
 
 /**
- * Find the pending ask_user request that matches a given subagentCallId.
+ * Find the pending ask_user request that matches a given caller id.
  *
- * - When `subagentCallId` is undefined (main agent), returns the first
- *   request (`select`, `confirm`, or `input`) that also has no `subagentCallId`.
- * - When `subagentCallId` is provided (subagent), returns the matching
- *   request whose `subagentCallId` matches exactly.
+ * - When `callerId` is undefined (legacy main agent), returns the first
+ *   request (`select`, `confirm`, or `input`) that also has no `subagentCallId`
+ *   or `toolCallId`.
+ * - When `callerId` is provided, returns the request whose `toolCallId` or
+ *   `subagentCallId` matches it. This lets a running `ask_user` tool card
+ *   bind to its own prompt even when several are running in parallel.
  */
 export function findMatchingRequest(
   pendingRequests: Record<string, ExtensionUIRequestPayload>,
-  subagentCallId?: string,
+  callerId?: string,
 ): ExtensionUIRequestPayload | null {
   for (const request of Object.values(pendingRequests)) {
     if (request.method !== 'select' && request.method !== 'confirm' && request.method !== 'input') continue;
-    if (request.subagentCallId === subagentCallId) return request;
+    if (callerId === undefined) {
+      if (request.toolCallId === undefined && request.subagentCallId === undefined) return request;
+    } else {
+      if (request.toolCallId === callerId || request.subagentCallId === callerId) return request;
+    }
   }
   return null;
 }

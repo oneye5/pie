@@ -12,6 +12,8 @@ export interface ExtensionUIRequestBase {
   extensionId?: string;
   /** When set, links this request to a subagent tool call in the parent session. */
   subagentCallId?: string;
+  /** When set, links this request to the running tool call that issued it (main-agent ask_user, etc.). */
+  toolCallId?: string;
 }
 
 /** A pending extension UI request (backend → host → webview). */

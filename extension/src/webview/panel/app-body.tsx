@@ -103,9 +103,9 @@ function useAppBodyDerivedState(
   }), [activeModelId, activeThinkingLevel, settingsDefaultModel, settingsDefaultThinkingLevel, modelCount]);
 
   // Only suppress the bottom-bar prompt when the request that would be shown
-  // there is itself a `select` that is rendered inline in the transcript. The
-  // previous check ("any select exists") hid confirm/input prompts too, leaving
-  // them shown nowhere and blocking the extension.
+  // there is itself a `select` that is rendered inline in the transcript. With
+  // toolCallId linking, only ask_user requests owned by a running tool call are
+  // handled inline; legacy or non-tool select prompts stay in the bottom bar.
   //
   // Memoized: the host posts a fresh `transcript` array reference on every
   // snapshot (~7/sec while streaming), so an un-memoized `transcript.some()`
@@ -115,6 +115,7 @@ function useAppBodyDerivedState(
     () =>
       !!activeSessionPath &&
       pendingExtensionUIRequest?.method === 'select' &&
+      !!pendingExtensionUIRequest?.toolCallId &&
       transcript.some((msg) =>
         msg.parts?.some((p): p is ChatMessageToolCallPart =>
           p.kind === 'toolCall' && p.toolCall.name === 'ask_user' && p.toolCall.status === 'running'

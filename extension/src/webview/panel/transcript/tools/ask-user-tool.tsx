@@ -127,7 +127,7 @@ function renderAskUserTool({
   const parsedInput = parseAskUserInput(toolCall.input);
   const askUserCtx = useContext(AskUserContext);
   const subagentCtx = useContext(SubagentCallContext);
-  const matchingRequest = findMatchingRequest(askUserCtx.pendingRequests, subagentCtx?.id);
+  const matchingRequest = findMatchingRequest(askUserCtx.pendingRequests, subagentCtx?.id ?? toolCall.id);
   const sessionPath = askUserCtx.sessionPath;
   const postMessage = askUserCtx.postMessage;
 

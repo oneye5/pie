@@ -29,11 +29,12 @@ async function loadAsk(): Promise<AskModule & TypesModule> {
   return { ...ask, ...types };
 }
 
-function makePort(opts: { selectResult?: string; inputResult?: string } = {}) {
+function makePort(opts: { selectResult?: string; inputResult?: string; toolCallId?: string } = {}) {
   const calls: Array<{ method: 'select' | 'input'; args: unknown[] }> = [];
   const signal = new AbortController().signal;
   const port = {
     signal,
+    toolCallId: opts.toolCallId,
     ui: {
       select: async (...args: unknown[]) => {
         calls.push({ method: 'select', args });
@@ -144,7 +145,7 @@ describe('runAsk', () => {
     assert.deepEqual(calls[0].args[1], [CUSTOM_SENTINEL]);
   });
 
-  test('omits the custom sentinel when allowCustom is false and includes context in the select title', async () => {
+  test('passes the question as the select title and renders context separately', async () => {
     const { runAsk, CUSTOM_SENTINEL } = await loadAsk();
     const { port, calls } = makePort({ selectResult: 'snake_case' });
 
@@ -157,8 +158,19 @@ describe('runAsk', () => {
 
     assert.equal(result.content[0].text, 'snake_case');
     assert.equal(calls.length, 1);
-    assert.deepEqual(calls[0].args[0], 'Which style?\n\nThis affects generated file names.');
+    assert.deepEqual(calls[0].args[0], 'Which style?');
     assert.deepEqual(calls[0].args[1], ['camelCase', 'snake_case']);
     assert.equal((calls[0].args[1] as string[]).includes(CUSTOM_SENTINEL), false);
+  });
+
+  test('forwards toolCallId to select and input prompts', async () => {
+    const { runAsk, CUSTOM_SENTINEL } = await loadAsk();
+    const { port, calls, signal } = makePort({ selectResult: CUSTOM_SENTINEL, inputResult: 'custom', toolCallId: 'tc-123' });
+
+    await runAsk({ question: 'Which style?', options: ['camelCase'] }, port);
+
+    assert.equal(calls.length, 2);
+    assert.deepEqual(calls[0].args, ['Which style?', ['camelCase', CUSTOM_SENTINEL], { signal, toolCallId: 'tc-123' }]);
+    assert.deepEqual(calls[1].args, ['Your answer', undefined, { signal, toolCallId: 'tc-123' }]);
   });
 });

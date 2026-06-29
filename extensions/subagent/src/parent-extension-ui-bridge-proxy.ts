@@ -18,9 +18,9 @@ import type { ExtensionUIContext, ExtensionUIDialogOptions } from "@mariozechner
  * that the ask_user extension (and safeguard) actually call.
  */
 export interface ParentBridge {
-  select(title: string, options: string[], opts?: { signal?: AbortSignal; subagentCallId?: string }): Promise<string | undefined>;
-  confirm(title: string, message: string, opts?: { signal?: AbortSignal; subagentCallId?: string }): Promise<boolean>;
-  input(title: string, placeholder?: string, opts?: { signal?: AbortSignal; subagentCallId?: string }): Promise<string | undefined>;
+  select(title: string, options: string[], opts?: { signal?: AbortSignal; subagentCallId?: string; toolCallId?: string }): Promise<string | undefined>;
+  confirm(title: string, message: string, opts?: { signal?: AbortSignal; subagentCallId?: string; toolCallId?: string }): Promise<boolean>;
+  input(title: string, placeholder?: string, opts?: { signal?: AbortSignal; subagentCallId?: string; toolCallId?: string }): Promise<string | undefined>;
   notify(message: string, type?: "info" | "warning" | "error", subagentCallId?: string): void;
   cancelAll(): void;
 }
@@ -37,15 +37,15 @@ export class ParentExtensionUIBridgeProxy implements ExtensionUIContext {
   // ── Dialog methods (delegated to parent bridge) ──────────────────────────
 
   async select(title: string, options: string[], opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
-    return this.parentBridge.select(title, options, { signal: opts?.signal, subagentCallId: this.subagentCallId });
+    return this.parentBridge.select(title, options, { signal: opts?.signal, subagentCallId: this.subagentCallId, toolCallId: this.subagentCallId });
   }
 
   async confirm(title: string, message: string, opts?: ExtensionUIDialogOptions): Promise<boolean> {
-    return this.parentBridge.confirm(title, message, { signal: opts?.signal, subagentCallId: this.subagentCallId });
+    return this.parentBridge.confirm(title, message, { signal: opts?.signal, subagentCallId: this.subagentCallId, toolCallId: this.subagentCallId });
   }
 
   async input(title: string, placeholder?: string, opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
-    return this.parentBridge.input(title, placeholder, { signal: opts?.signal, subagentCallId: this.subagentCallId });
+    return this.parentBridge.input(title, placeholder, { signal: opts?.signal, subagentCallId: this.subagentCallId, toolCallId: this.subagentCallId });
   }
 
   notify(message: string, type?: "info" | "warning" | "error"): void {

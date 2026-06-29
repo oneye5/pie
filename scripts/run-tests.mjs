@@ -55,6 +55,13 @@ const PACKAGE_CONFIGS = [
     coverageIncludes: ['extensions/subagent/**/*.ts'],
     thresholds: { lines: 90, branches: 80 },
   },
+  {
+    id: 'ask-user',
+    cwd: repoRoot,
+    testGlobs: ['extensions/ask-user/test/**/*.test.ts'],
+    coverageIncludes: ['extensions/ask-user/**/*.ts'],
+    thresholds: { lines: 100, branches: 100 },
+  },
 ];
 
 const PACKAGE_LOOKUP = new Map();

@@ -414,11 +414,12 @@ function projectViewState(state: ArchState): ViewState {
       ? (() => {
           const sessionMap = settings.pendingExtensionUIRequestsBySession[activePath];
           if (!sessionMap) return null;
-          // Return the first pending request WITHOUT a subagentCallId for the
-          // bottom-bar prompt. Subagent-scoped requests render inline inside
-          // their subagent cards.
+          // Return the first pending request WITHOUT an inline owner for the
+          // bottom-bar prompt. Subagent-scoped requests (subagentCallId) render
+          // inline inside their subagent cards; ask_user requests linked to a
+          // running tool call (toolCallId) render inline in the transcript.
           for (const req of Object.values(sessionMap)) {
-            if (!req.subagentCallId) return req;
+            if (!req.subagentCallId && !req.toolCallId) return req;
           }
           return null;
         })()
