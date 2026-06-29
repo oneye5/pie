@@ -434,23 +434,6 @@
             "cacheWrite": 6.25
           }
         },
-        "claude-opus-4.8": {
-          "name": "Copilot: Claude Opus 4.8",
-          "reasoning": true,
-          "thinkingLevelMap": {
-            "minimal": "medium",
-            "low": "medium",
-            "medium": "medium",
-            "high": "medium",
-            "xhigh": "medium"
-          },
-          "cost": {
-            "input": 5,
-            "output": 25,
-            "cacheRead": 0.5,
-            "cacheWrite": 6.25
-          }
-        },
         "claude-sonnet-4": {
           "name": "Copilot: Claude Sonnet 4",
           "reasoning": true,
@@ -672,7 +655,34 @@
             "cacheWrite": 0
           }
         }
-      }
+      },
+      "models": [
+        {
+          "id": "claude-opus-4.8",
+          "name": "Copilot: Claude Opus 4.8",
+          "api": "anthropic-messages",
+          "reasoning": true,
+          "input": [
+            "text",
+            "image"
+          ],
+          "contextWindow": 144000,
+          "maxTokens": 64000,
+          "thinkingLevelMap": {
+            "minimal": "medium",
+            "low": "medium",
+            "medium": "medium",
+            "high": "medium",
+            "xhigh": "medium"
+          },
+          "cost": {
+            "input": 5,
+            "output": 25,
+            "cacheRead": 0.5,
+            "cacheWrite": 6.25
+          }
+        }
+      ]
     },
     "umans": {
       "baseUrl": "https://api.code.umans.ai/v1",
