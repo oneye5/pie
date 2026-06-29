@@ -15,6 +15,12 @@ import {
 export interface ContextMenuState {
   type: TranscriptContextMenuType;
   rawData: string;
+  /** The live text selection captured at the moment the menu was opened, so
+   * the "Copy" item can copy just the user's selection instead of the whole
+   * block. Captured in handleOpenContextMenu (use-app-handlers.ts) rather than
+   * at click time because the menu's focus-management moves focus to the
+   * first item on open, which can clear the document's live selection. */
+  selectionText: string;
   x: number;
   y: number;
   /** The trigger element that opened the menu (the onContextMenu target),
@@ -161,9 +167,29 @@ export function ContextMenu({
     </button>
   ) : null;
 
+  // Copy the user's current text selection. Only shown when a non-empty
+  // selection was captured at open time, so right-clicking selected text gives
+  // the familiar "copy what I highlighted" action instead of forcing the
+  // whole-block "Copy raw".
+  const copySelection = menu.selectionText ? (
+    <button
+      class="context-menu-item"
+      role="menuitem"
+      type="button"
+      onClick={() => {
+        navigator.clipboard.writeText(menu.selectionText);
+        onClose();
+      }}
+    >
+      <svg class="context-menu-check" width="13" height="13" viewBox="0 0 13 13" aria-hidden="true" style="opacity:0" />
+      Copy
+    </button>
+  ) : null;
+
   return (
     <div ref={ref} class="block-context-menu" role="menu" style={style} onMouseDown={(e) => e.stopPropagation()}>
       {expandToggle}
+      {copySelection}
       <button
         class="context-menu-item"
         role="menuitem"

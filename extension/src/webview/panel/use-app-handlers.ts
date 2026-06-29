@@ -229,9 +229,18 @@ export function useAppHandlers(
     // aria-expanded (see components/context-menu.tsx). e.currentTarget is the
     // element the handler is bound to; read synchronously here, before the
     // event finishes dispatching.
+    //
+    // Also capture the live text selection *now*: a right-click (contextmenu)
+    // does not clear the selection, so this is the user's highlighted text.
+    // Reading it later (e.g. when the "Copy" item is clicked) would be too
+    // late — the menu's open effect moves focus to the first item, which can
+    // collapse the document selection. Stored on the menu state so the
+    // "Copy" item can copy just the selection instead of the whole block.
+    const selectionText = window.getSelection()?.toString() ?? '';
     setContextMenu({
       type,
       rawData,
+      selectionText,
       x: e.clientX,
       y: e.clientY,
       triggerEl: e.currentTarget as HTMLElement | null,
