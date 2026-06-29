@@ -2,8 +2,8 @@
   "defaultModel": "umans-glm-5.2",
   "defaultThinkingLevel": "xhigh",
   "defaultProvider": "umans",
-  "extensions": [
-    "C:\\nvm4w\\nodejs\\node_modules\\pi-web-access"
+  "packages": [
+    "npm:pi-web-access@0.13.0"
   ],
   "pruning": {
     "model": "umans-flash",
@@ -13,7 +13,6 @@
       "alwaysKeep": [
         "ask_user",
         "bash",
-        "code_search",
         "edit",
         "fetch_content",
         "find",
