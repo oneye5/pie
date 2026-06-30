@@ -19,10 +19,12 @@ import {
   getDisabledProviders,
   getAllowedModelIdsForProviders,
   nearestSupportedThinking,
+  parseBucketConfig,
+  readBucketAssignments,
   PROVIDER_TOGGLES_ENV,
+  SUBAGENT_BUCKETS_ENV,
 } from "../bucket-selector.js";
-import type { ThinkingLevel, ModelProviderRef } from "../bucket-selector.js";
-import type { BucketAssignments, SimpleModelConfig } from "../bridge.js";
+import type { ThinkingLevel, ModelProviderRef, BucketAssignments, SimpleModelConfig } from "../bucket-selector.js";
 
 // ============================================================
 // nearestSupportedThinking
@@ -540,5 +542,109 @@ describe("getAllowedModelIdsForProviders", () => {
 describe("PROVIDER_TOGGLES_ENV", () => {
   it("has expected value", () => {
     assert.equal(PROVIDER_TOGGLES_ENV, "PIE_PROVIDER_TOGGLES_JSON");
+  });
+});
+
+// ============================================================
+// parseBucketConfig / readBucketAssignments (user-configured buckets)
+// ============================================================
+
+describe("parseBucketConfig", () => {
+  it("parses a valid bucket config", () => {
+    const result = parseBucketConfig(
+      JSON.stringify({ small: ["haiku"], medium: ["sonnet"], frontier: ["opus"] }),
+    );
+    assert.deepEqual(result, { small: ["haiku"], medium: ["sonnet"], frontier: ["opus"] });
+  });
+
+  it("returns empty buckets for undefined input", () => {
+    assert.deepEqual(parseBucketConfig(undefined), { small: [], medium: [], frontier: [] });
+  });
+
+  it("returns empty buckets for empty string", () => {
+    assert.deepEqual(parseBucketConfig(""), { small: [], medium: [], frontier: [] });
+  });
+
+  it("returns empty buckets for malformed JSON", () => {
+    assert.deepEqual(parseBucketConfig("{ not json"), { small: [], medium: [], frontier: [] });
+  });
+
+  it("returns empty buckets for non-object JSON", () => {
+    assert.deepEqual(parseBucketConfig(JSON.stringify(["a", "b"])), { small: [], medium: [], frontier: [] });
+    assert.deepEqual(parseBucketConfig(JSON.stringify(null)), { small: [], medium: [], frontier: [] });
+    assert.deepEqual(parseBucketConfig(JSON.stringify("nope")), { small: [], medium: [], frontier: [] });
+  });
+
+  it("defaults missing bucket keys to empty arrays", () => {
+    assert.deepEqual(parseBucketConfig(JSON.stringify({ medium: ["sonnet"] })), {
+      small: [],
+      medium: ["sonnet"],
+      frontier: [],
+    });
+  });
+
+  it("ignores unknown bucket keys", () => {
+    const result = parseBucketConfig(
+      JSON.stringify({ small: ["haiku"], extra: ["x"], medium: [], frontier: [] }),
+    );
+    assert.deepEqual(result, { small: ["haiku"], medium: [], frontier: [] });
+  });
+
+  it("drops non-array bucket values", () => {
+    const result = parseBucketConfig(
+      JSON.stringify({ small: "haiku", medium: 5, frontier: ["opus"] }),
+    );
+    assert.deepEqual(result, { small: [], medium: [], frontier: ["opus"] });
+  });
+
+  it("drops non-string and empty-string entries, keeping order", () => {
+    const result = parseBucketConfig(
+      JSON.stringify({ small: ["haiku", 5, "", null, "mini", "haiku"] }),
+    );
+    // duplicate "haiku" is de-duplicated; non-string/empty entries dropped
+    assert.deepEqual(result.small, ["haiku", "mini"]);
+  });
+
+  it("allows the same model id in more than one bucket", () => {
+    const result = parseBucketConfig(
+      JSON.stringify({ small: ["shared"], medium: ["shared"], frontier: ["shared"] }),
+    );
+    assert.deepEqual(result, { small: ["shared"], medium: ["shared"], frontier: ["shared"] });
+  });
+});
+
+describe("readBucketAssignments", () => {
+  const previous = process.env[SUBAGENT_BUCKETS_ENV];
+  it("reads + parses the env var", () => {
+    process.env[SUBAGENT_BUCKETS_ENV] = JSON.stringify({
+      small: ["haiku"],
+      medium: ["sonnet"],
+      frontier: ["opus"],
+    });
+    try {
+      assert.deepEqual(readBucketAssignments(), {
+        small: ["haiku"],
+        medium: ["sonnet"],
+        frontier: ["opus"],
+      });
+    } finally {
+      if (previous === undefined) delete process.env[SUBAGENT_BUCKETS_ENV];
+      else process.env[SUBAGENT_BUCKETS_ENV] = previous;
+    }
+  });
+
+  it("returns empty buckets when the env var is unset", () => {
+    delete process.env[SUBAGENT_BUCKETS_ENV];
+    try {
+      assert.deepEqual(readBucketAssignments(), { small: [], medium: [], frontier: [] });
+    } finally {
+      if (previous !== undefined) process.env[SUBAGENT_BUCKETS_ENV] = previous;
+    }
+  });
+});
+
+describe("SUBAGENT_BUCKETS_ENV", () => {
+  it("has expected value", () => {
+    assert.equal(SUBAGENT_BUCKETS_ENV, "PIE_SUBAGENT_BUCKETS_JSON");
   });
 });

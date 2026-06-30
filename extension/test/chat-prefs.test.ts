@@ -7,6 +7,7 @@ import {
   getChatPrefContextLabel,
   getChatPrefContextValue,
   getToolCallContextType,
+  setBucketModels,
   toggleChatPref,
   toggleChatPrefForContext,
 } from '../src/webview/panel/chat-prefs';
@@ -21,6 +22,7 @@ const prefs: ChatPrefs = {
   subagentAlwaysParentModel: false,
   subagentMaxDepth: 3,
   subagentMaxTreeSessions: 50,
+  subagentBuckets: { small: [], medium: [], frontier: [] },
   completionSoundVolume: 50,
   uiBaseFontSize: 13,
   uiComposerFontSize: 13,
@@ -86,6 +88,7 @@ test('toggle helpers return partial pref patches without mutating source prefs',
     subagentAlwaysParentModel: false,
     subagentMaxDepth: 3,
     subagentMaxTreeSessions: 50,
+    subagentBuckets: { small: [], medium: [], frontier: [] },
     completionSoundVolume: 50,
     uiBaseFontSize: 13,
     uiComposerFontSize: 13,
@@ -106,4 +109,35 @@ test('toggle helpers return partial pref patches without mutating source prefs',
     providerToggles: {},
     activityTailLines: 2,
   });
+});
+
+test('setBucketModels replaces one bucket without mutating source prefs', () => {
+  const before = prefs.subagentBuckets;
+  const patch = setBucketModels(prefs, 'medium', ['sonnet', 'opus']);
+  assert.deepEqual(patch, {
+    subagentBuckets: {
+      small: [],
+      medium: ['sonnet', 'opus'],
+      frontier: [],
+    },
+  });
+  // source prefs untouched (and the original bucket array reference unchanged)
+  assert.deepEqual(prefs.subagentBuckets, { small: [], medium: [], frontier: [] });
+  assert.equal(prefs.subagentBuckets, before);
+});
+
+test('setBucketModels preserves the other two buckets', () => {
+  const populated: ChatPrefs = {
+    ...prefs,
+    subagentBuckets: { small: ['haiku'], medium: ['sonnet'], frontier: ['opus'] },
+  };
+  const patch = setBucketModels(populated, 'frontier', ['opus', 'gpt-5']);
+  assert.deepEqual(patch, {
+    subagentBuckets: {
+      small: ['haiku'],
+      medium: ['sonnet'],
+      frontier: ['opus', 'gpt-5'],
+    },
+  });
+  assert.deepEqual(populated.subagentBuckets, { small: ['haiku'], medium: ['sonnet'], frontier: ['opus'] });
 });

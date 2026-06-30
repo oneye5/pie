@@ -1,7 +1,7 @@
 import { produce } from 'immer';
 
 import type { ArchState } from '../arch-state.js';
-import { mergePruningSettings, type ChatPrefs } from '../../../shared/protocol.js';
+import { mergePruningSettings, normalizeSubagentBuckets, type ChatPrefs } from '../../../shared/protocol.js';
 import type { Command } from '../commands.js';
 import type { ReducerResult } from './helpers.js';
 import { addToArray, appendLocalUserMessage } from './helpers.js';
@@ -247,6 +247,14 @@ export function handleSetPrefs(state: ArchState, cmd: Extract<Command, { kind: '
     }),
     ...(cmd.prefs.providerToggles && {
       providerToggles: { ...current.providerToggles, ...cmd.prefs.providerToggles },
+    }),
+    // Normalize subagentBuckets so ArchState always holds a complete
+    // {small,medium,frontier} object even if a caller dispatches a partial
+    // patch (validateChatPrefsPatch permits missing bucket keys). Without
+    // this, a partial patch would leave e.g. `subagentBuckets.small`
+    // undefined and crash the webview BucketModelsEditor.
+    ...(cmd.prefs.subagentBuckets !== undefined && {
+      subagentBuckets: normalizeSubagentBuckets(cmd.prefs.subagentBuckets),
     }),
   };
   // Phase 2 cutover: the unread-finished-sessions clear moved here from

@@ -22,7 +22,6 @@ function makeSelectionCtx(overrides: Partial<SelectionContext> = {}): SelectionC
 		modelConfig: [],
 		disabledProviders: new Set(),
 		allowedModelIds: undefined,
-		analyticsDir: "",
 		bucketAssignments: { small: ["haiku"], medium: ["sonnet"], frontier: ["opus"] },
 		alwaysParentModel: false,
 		...overrides,

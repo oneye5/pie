@@ -1,10 +1,11 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
+import { useEffect, useMemo, useState } from 'preact/hooks';
 import { playCompletionSound, warmupCompletionSoundContext } from '../completion-sound';
 
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningSettings, PruningMode, ThinkingLevel } from '../../../shared/protocol';
-import { CHAT_PREF_MENU_SECTIONS, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
+import { CHAT_PREF_MENU_SECTIONS, setBucketModels, setExtensionEnabled, setProviderEnabled, toggleChatPref } from '../chat-prefs';
 import { orderModelsForPicker } from './model-list';
 import { ModelPicker } from '../components/model-picker';
 import { CollapsibleChevron } from '../components/chevron';
@@ -221,7 +222,128 @@ function SkillPrunerSettings({ prefs, pruningSettings, modelEntries, availableMo
   );
 }
 
-function SubagentSettings({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs: OnSetPrefs }) {
+type BucketKey = 'small' | 'medium' | 'frontier';
+
+interface BucketDef {
+  key: BucketKey;
+  label: string;
+  hint: string;
+}
+
+/** The three model buckets, in display order. Hints mirror the schema guidance
+ *  the LLM sees for the `bucket` parameter. */
+const BUCKET_DEFS: readonly BucketDef[] = [
+  { key: 'small', label: 'Small', hint: 'Haiku-class busywork' },
+  { key: 'medium', label: 'Medium', hint: 'Sonnet-class main development' },
+  { key: 'frontier', label: 'Frontier', hint: 'Opus-class hardest problems' },
+];
+
+interface BucketModelsEditorProps {
+  bucket: BucketKey;
+  label: string;
+  hint: string;
+  selected: string[];
+  availableModels: ModelInfo[];
+  modelEntries: ReturnType<typeof orderModelsForPicker>;
+  onChange: (models: string[]) => void;
+}
+
+/**
+ * Editor for a single bucket's model list. Selected models render as removable
+ * chips (labelled with the model's display name); an "Add model…" select lists
+ * every available model not already in the bucket. Reuses the AlwaysKeepPicker
+ * styling (chips + select) for visual consistency, and its optimistic-pending
+ * gate so a slow host round-trip can't double-add an item.
+ *
+ * A model id that is no longer in the registry (e.g. its provider was toggled
+ * off) still renders as a chip labelled with the raw id, so the user can see and
+ * remove stale entries — selection-time filtering in the subagent extension
+ * drops unavailable models from the pool anyway.
+ */
+function BucketModelsEditor({ bucket, label, hint, selected, availableModels, modelEntries, onChange }: BucketModelsEditorProps) {
+  const labelFor = (id: string): string => availableModels.find((m) => m.id === id)?.name ?? id;
+
+  const availableOptions = useMemo(
+    () => modelEntries.filter((entry) => !selected.includes(entry.model.id)),
+    [modelEntries, selected],
+  );
+
+  // Optimistic names just added but not yet reflected in the host-persisted
+  // `selected` prop (mirrors AlwaysKeepPicker). Without this gate the user can
+  // re-select an item before the host state arrives, firing a duplicate update.
+  const [pending, setPending] = useState<string[]>([]);
+  useEffect(() => {
+    if (pending.length === 0) return;
+    const remaining = pending.filter((id) => !selected.includes(id));
+    if (remaining.length !== pending.length) setPending(remaining);
+  }, [selected, pending]);
+
+  const addModel = (id: string) => {
+    if (!id || selected.includes(id) || pending.includes(id)) return;
+    setPending((cur) => [...cur, id]);
+    onChange([...selected, id]);
+    window.setTimeout(() => setPending((cur) => cur.filter((x) => x !== id)), 2000);
+  };
+  const removeModel = (id: string) => onChange(selected.filter((x) => x !== id));
+
+  return (
+    <div class="toolbar-settings-keep-picker">
+      <div class="toolbar-settings-keep-picker-label">{label}</div>
+      <div class="toolbar-settings-item-hint">{hint}</div>
+      {selected.length > 0 && (
+        <div class="toolbar-settings-keep-chips">
+          {selected.map((id) => (
+            <span key={id} class="toolbar-settings-keep-chip">
+              <span>{labelFor(id)}</span>
+              <button
+                type="button"
+                class="toolbar-settings-keep-chip-remove"
+                aria-label={`Remove ${labelFor(id)} from ${label}`}
+                onClick={() => removeModel(id)}
+              >
+                <svg width="12" height="12" viewBox="0 0 13 13" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                  <line x1="3" y1="3" x2="10" y2="10" />
+                  <line x1="10" y1="3" x2="3" y2="10" />
+                </svg>
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div class="toolbar-settings-keep-picker-wrap">
+        <select
+          class="toolbar-settings-select toolbar-settings-keep-select"
+          value=""
+          aria-label={`Add model to ${label} bucket`}
+          disabled={availableOptions.length === 0}
+          onChange={(e) => {
+            const id = (e.target as HTMLSelectElement).value;
+            if (id) {
+              addModel(id);
+              (e.target as HTMLSelectElement).value = '';
+            }
+          }}
+        >
+          <option value="">
+            {availableOptions.length === 0 ? 'No models available' : 'Add model…'}
+          </option>
+          {availableOptions.map((entry) => (
+            <option key={entry.model.id} value={entry.model.id}>{entry.label}</option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+}
+
+interface SubagentSettingsProps {
+  prefs: ChatPrefs;
+  onSetPrefs: OnSetPrefs;
+  availableModels: ModelInfo[];
+  modelEntries: ReturnType<typeof orderModelsForPicker>;
+}
+
+function SubagentSettings({ prefs, onSetPrefs, availableModels, modelEntries }: SubagentSettingsProps) {
   return (
     <div class="toolbar-settings-ext-settings">
       <button
@@ -238,6 +360,23 @@ function SubagentSettings({ prefs, onSetPrefs }: { prefs: ChatPrefs; onSetPrefs:
         </span>
         <span class="toolbar-settings-item-label">Always use parent model</span>
       </button>
+
+      <UiGroupLabel label="Model buckets" />
+      <div class="toolbar-settings-item-hint">
+        Each bucket holds model ids you want eligible for that tier. When a subagent requests a bucket, one model is picked at random from its list. Empty buckets fall back to the parent's active model.
+      </div>
+      {BUCKET_DEFS.map((def) => (
+        <BucketModelsEditor
+          key={def.key}
+          bucket={def.key}
+          label={def.label}
+          hint={def.hint}
+          selected={prefs.subagentBuckets[def.key] ?? []}
+          availableModels={availableModels}
+          modelEntries={modelEntries}
+          onChange={(models) => onSetPrefs(setBucketModels(prefs, def.key, models))}
+        />
+      ))}
 
       <UiGroupLabel label="Nesting" />
       <div class="toolbar-settings-ui-control">
@@ -338,7 +477,12 @@ function ExtensionItem({ ext, prefs, onSetPrefs, isExpanded, setExpandedExt, pru
         />
       )}
       {hasSettings && isExpanded && ext.id === 'subagent' && (
-        <SubagentSettings prefs={prefs} onSetPrefs={onSetPrefs} />
+        <SubagentSettings
+          prefs={prefs}
+          onSetPrefs={onSetPrefs}
+          availableModels={availableModels}
+          modelEntries={modelEntries}
+        />
       )}
     </div>
   );

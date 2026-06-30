@@ -1,4 +1,4 @@
-import type { ComposerInput, ExtensionUIResponsePayload, FilesystemPathComposerInput, ImageBlobComposerInput, ModelSettings, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
+import type { ComposerInput, ExtensionUIResponsePayload, FilesystemPathComposerInput, ImageBlobComposerInput, ModelSettings, SubagentBuckets, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../shared/image-constraints';
 import { THINKING_LEVELS } from '../shared/thinking-level.js';
 import { BackendError } from './server-io';
@@ -329,6 +329,7 @@ export interface RuntimePrefsSetParams {
   subagentAlwaysParentModel?: boolean;
   subagentMaxDepth?: number;
   subagentMaxTreeSessions?: number;
+  subagentBuckets?: SubagentBuckets;
 }
 
 export interface SettingsSetParams extends Partial<ModelSettings> {
@@ -347,6 +348,36 @@ function validateOptionalInt(
     fail(method, `${fieldName} must be an integer between ${min} and ${max} when provided`);
   }
   return raw;
+}
+
+const BUCKET_FIELD_KEYS = ['small', 'medium', 'frontier'] as const;
+
+/**
+ * Validate an optional `subagentBuckets` payload. Accepts `undefined` (omitted)
+ * or an object whose `small`/`medium`/`frontier` fields are each a string
+ * array. Missing bucket keys are allowed (treated as empty by the reducer).
+ * Returns a normalized {@link SubagentBuckets} with copies of the arrays, or
+ * `undefined` when omitted so the host can skip the env update.
+ */
+function validateOptionalSubagentBuckets(
+  method: string,
+  raw: unknown,
+): SubagentBuckets | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObj(raw) || Array.isArray(raw)) {
+    fail(method, 'subagentBuckets must be an object when provided');
+  }
+  const src = raw as Record<string, unknown>;
+  const out: SubagentBuckets = { small: [], medium: [], frontier: [] };
+  for (const key of BUCKET_FIELD_KEYS) {
+    const v = src[key];
+    if (v === undefined) continue;
+    if (!Array.isArray(v) || !v.every((entry) => typeof entry === 'string')) {
+      fail(method, `subagentBuckets.${key} must be an array of strings when provided`);
+    }
+    out[key] = [...(v as string[])];
+  }
+  return out;
 }
 
 function validateBooleanMap(
@@ -389,7 +420,8 @@ export function validateRuntimePrefsSet(params: unknown): RuntimePrefsSetParams 
     rawAlwaysParent === undefined ? undefined : typeof rawAlwaysParent === 'boolean' ? rawAlwaysParent : fail('runtimePrefs.set', 'subagentAlwaysParentModel must be a boolean when provided');
   const subagentMaxDepth = validateOptionalInt('runtimePrefs.set', 'subagentMaxDepth', (params as Record<string, unknown>)['subagentMaxDepth'], 1, 8);
   const subagentMaxTreeSessions = validateOptionalInt('runtimePrefs.set', 'subagentMaxTreeSessions', (params as Record<string, unknown>)['subagentMaxTreeSessions'], 5, 200);
-  return { providerToggles, extensionToggles, subagentAlwaysParentModel, subagentMaxDepth, subagentMaxTreeSessions };
+  const subagentBuckets = validateOptionalSubagentBuckets('runtimePrefs.set', (params as Record<string, unknown>)['subagentBuckets']);
+  return { providerToggles, extensionToggles, subagentAlwaysParentModel, subagentMaxDepth, subagentMaxTreeSessions, subagentBuckets };
 }
 
 export function validateSettingsSet(params: unknown): SettingsSetParams {

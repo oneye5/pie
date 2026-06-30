@@ -1,7 +1,7 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
 
-import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, type ErrorPayload, type ModelInfo, type ModelSettings, type PreflightFailedPayload, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
+import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, SUBAGENT_BUCKETS_ENV, type ErrorPayload, type ModelInfo, type ModelSettings, type PreflightFailedPayload, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
 import { toErrorMessage } from '../shared/error-message';
 import {
   validateLoadTranscriptPage,
@@ -85,6 +85,9 @@ async function handleRuntimePrefsSet(
   }
   if (params.subagentMaxTreeSessions !== undefined) {
     process.env['PIE_SUBAGENT_MAX_TREE_SESSIONS'] = String(params.subagentMaxTreeSessions);
+  }
+  if (params.subagentBuckets !== undefined) {
+    process.env[SUBAGENT_BUCKETS_ENV] = JSON.stringify(params.subagentBuckets);
   }
   return params;
 }

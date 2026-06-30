@@ -23,15 +23,16 @@ import { createInvalidAgentResult, summarizeInvalidAgentResults } from "../valid
 import {
 	type BucketSelection,
 	type ThinkingLevel,
+	type BucketAssignments,
+	type SimpleModelConfig,
 	PROVIDER_TOGGLES_ENV,
 	getAllowedModelIdsForProviders,
 	getDisabledProviders,
 	loadModelConfig,
 	parseProviderToggles,
+	readBucketAssignments,
 	selectModel,
 } from "../bucket-selector.js";
-import type { BucketAssignments, SimpleModelConfig } from "../bridge.js";
-import { getBucketAssignments } from "../bridge.js";
 import { MAX_SESSIONS_PER_CALL, makeDetails } from "./helpers.js";
 import type { ParentBridge } from "./parent-extension-ui-bridge-proxy.js";
 
@@ -80,8 +81,7 @@ export interface SelectionContext {
 	modelConfig: SimpleModelConfig[];
 	disabledProviders: Set<string>;
 	allowedModelIds: Set<string> | undefined;
-	analyticsDir: string;
-	/** Cached bucket assignments for this tool call (computed once). */
+	/** User-configured bucket assignments (read once from the env mirror). */
 	bucketAssignments: BucketAssignments | undefined;
 	/** When true, skip bucket selection and always use the parent's active model. */
 	alwaysParentModel: boolean;
@@ -175,18 +175,16 @@ export async function resolveModel(
 		};
 	}
 
-	// Load bucket assignments on first call (cached for subsequent calls)
-	if (!selectionCtx.bucketAssignments) {
-		selectionCtx.bucketAssignments = await getBucketAssignments(
-			selectionCtx.analyticsDir,
-			selectionCtx.modelConfig,
-		);
-	}
+	// User-configured bucket assignments are read once from the env mirror
+	// (PIE_SUBAGENT_BUCKETS_JSON) in setupModelSelection. When absent (e.g.
+	// running under stock pi without the pie host), fall back to empty
+	// assignments so selectModel falls through to the active model.
+	const assignments = selectionCtx.bucketAssignments ?? { small: [], medium: [], frontier: [] };
 
 	const selection = selectModel(
 		bucket,
 		thinkingLevel,
-		selectionCtx.bucketAssignments,
+		assignments,
 		selectionCtx.modelConfig,
 		selectionCtx.allowedModelIds,
 		excludeModels,
@@ -389,7 +387,7 @@ export async function maybeApproveProjectAgents(
 	};
 }
 
-/** Loads simple model config, resolves analytics directory, and builds provider/model allowlists. */
+/** Loads simple model config, reads user-configured buckets, and builds provider/model allowlists. */
 function setupModelSelection(ctx: ToolContext): SelectionContext {
 	const modelConfigPath = path.join(CONFIG_ROOT, "model-profiles.json");
 	let modelConfig: SimpleModelConfig[] = [];
@@ -399,12 +397,11 @@ function setupModelSelection(ctx: ToolContext): SelectionContext {
 		/* ignore */
 	}
 
-	// Analytics directory: prefer an explicit env override (set by the pi host),
-	// falling back to the in-repo analysis/data directory.
-	const configuredAnalyticsDir = process.env.PI_ANALYTICS_DIR?.trim();
-	const analyticsDir = configuredAnalyticsDir
-		? path.resolve(configuredAnalyticsDir)
-		: path.join(CONFIG_ROOT, "analysis", "data");
+	// User-configured bucket assignments, mirrored by the pie host into the
+	// process environment (PIE_SUBAGENT_BUCKETS_JSON) via the runtimePrefs.set
+	// RPC. Empty when unset (stock pi / unconfigured) → falls back to the
+	// caller's active model.
+	const bucketAssignments = readBucketAssignments();
 
 	const disabledProviders = getDisabledProviders(parseProviderToggles(process.env[PROVIDER_TOGGLES_ENV]));
 	const availableModels = ctx.modelRegistry.getAvailable();
@@ -414,7 +411,7 @@ function setupModelSelection(ctx: ToolContext): SelectionContext {
 			.map((m) => m.id),
 	);
 
-	return { modelConfig, disabledProviders, allowedModelIds, analyticsDir, bucketAssignments: undefined, alwaysParentModel: readAlwaysParentModel() };
+	return { modelConfig, disabledProviders, allowedModelIds, bucketAssignments, alwaysParentModel: readAlwaysParentModel() };
 }
 
 /** Routes the validated request to the mode-specific execution function. */

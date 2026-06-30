@@ -116,6 +116,22 @@ function isStringBooleanRecord(value: unknown): value is Record<string, boolean>
   return true;
 }
 
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((entry) => typeof entry === 'string');
+}
+
+/** A valid `SubagentBuckets` patch: object with optional `small`/`medium`/
+ *  `frontier` string-array fields. Extra keys are tolerated (the reducer
+ *  normalizes via `resolveChatPrefs`). */
+function isSubagentBucketsPatch(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  for (const key of ['small', 'medium', 'frontier'] as const) {
+    const v = value[key];
+    if (v !== undefined && !isStringArray(v)) return false;
+  }
+  return true;
+}
+
 function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
   if (!isObject(value)) return false;
   const booleanKeys: Array<keyof ChatPrefs> = [
@@ -157,6 +173,10 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     const v = (value as Record<string, unknown>)[key];
     if (key === 'uiDensity') {
       if (v !== undefined && !validDensities.has(v as string)) return false;
+      continue;
+    }
+    if (key === 'subagentBuckets') {
+      if (v !== undefined && !isSubagentBucketsPatch(v)) return false;
       continue;
     }
     if ((booleanKeys as string[]).includes(key)) {

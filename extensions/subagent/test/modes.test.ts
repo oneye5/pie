@@ -307,7 +307,7 @@ function makeAgents(): any[] {
 	return [{ name: "worker", description: "d", systemPrompt: "", source: "user", filePath: "w.md" }];
 }
 function selCtx(over: Record<string, unknown> = {}): any {
-	return { modelConfig: [], disabledProviders: new Set(), allowedModelIds: undefined, analyticsDir: "", bucketAssignments: undefined, alwaysParentModel: true, ...over };
+	return { modelConfig: [], disabledProviders: new Set(), allowedModelIds: undefined, bucketAssignments: undefined, alwaysParentModel: true, ...over };
 }
 function setMockBehavior(b: any): void {
 	(globalThis as any).__MOCK_SDK_BEHAVIOR__ = b;

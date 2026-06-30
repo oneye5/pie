@@ -96,6 +96,21 @@ export interface PruningCatalog {
 
 export type UiDensity = 'compact' | 'comfortable' | 'spacious';
 
+/**
+ * User-configured model buckets for subagent model selection. Each bucket is a
+ * list of model ids; `selectModel` picks uniformly at random from the requested
+ * bucket. Empty buckets fall back to the parent's active model. Mirrored to the
+ * in-process subagent extension via {@link SUBAGENT_BUCKETS_ENV}.
+ */
+export interface SubagentBuckets {
+  small: string[];
+  medium: string[];
+  frontier: string[];
+}
+
+/** Empty buckets — the default before the user configures any models. */
+export const EMPTY_SUBAGENT_BUCKETS: SubagentBuckets = { small: [], medium: [], frontier: [] };
+
 export interface ChatPrefs {
   autoExpandReasoning: boolean;
   autoExpandToolCalls: boolean;
@@ -111,6 +126,11 @@ export interface ChatPrefs {
    *  (independent of the per-reply cap). Default 50. Mirrored to the in-process
    *  subagent extension via PIE_SUBAGENT_MAX_TREE_SESSIONS. */
   subagentMaxTreeSessions: number;
+  /** User-configured model ids per bucket for subagent model selection. The
+   *  subagent tool picks uniformly at random from the requested bucket; an empty
+   *  bucket falls back to the parent's active model. Mirrored to the in-process
+   *  subagent extension via PIE_SUBAGENT_BUCKETS_JSON. Default: all empty. */
+  subagentBuckets: SubagentBuckets;
   completionSoundVolume: number;
   /** Base font size (px) for body text and message prose — the primary
    *  readable content (assistant/user messages and the inline editor). Drives
@@ -184,6 +204,10 @@ export const PROVIDER_TOGGLES_ENV = 'PIE_PROVIDER_TOGGLES_JSON';
 /** Environment key used to expose pie extension toggles to in-process pi extensions. */
 export const EXTENSION_TOGGLES_ENV = 'PIE_EXTENSION_TOGGLES_JSON';
 
+/** Environment key used to mirror the user-configured subagent model buckets to
+ *  the in-process subagent extension. Value is JSON `SubagentBuckets`. */
+export const SUBAGENT_BUCKETS_ENV = 'PIE_SUBAGENT_BUCKETS_JSON';
+
 export type ActiveRunStatus = 'open' | 'scored' | 'closed_unscored';
 
 export interface ActiveRunSummary {
@@ -211,6 +235,7 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   subagentAlwaysParentModel: false,
   subagentMaxDepth: 3,
   subagentMaxTreeSessions: 50,
+  subagentBuckets: { ...EMPTY_SUBAGENT_BUCKETS },
   completionSoundVolume: 50,
   uiBaseFontSize: 13,
   uiComposerFontSize: 13,
@@ -289,6 +314,26 @@ export const EMPTY_TRANSCRIPT_WINDOW: TranscriptWindow = {
   hasUserMessages: false,
 };
 
+/**
+ * Coerce an unknown stored value into a valid {@link SubagentBuckets}, dropping
+ * non-array / non-string entries. Used by {@link resolveChatPrefs} so a
+ * malformed or partially-stored value (e.g. from an older version) can never
+ * produce an ill-typed `subagentBuckets` at runtime.
+ */
+export function normalizeSubagentBuckets(value: unknown): SubagentBuckets {
+  const coerce = (v: unknown): string[] =>
+    Array.isArray(v) ? v.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0) : [];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...EMPTY_SUBAGENT_BUCKETS };
+  }
+  const v = value as Record<string, unknown>;
+  return {
+    small: coerce(v.small),
+    medium: coerce(v.medium),
+    frontier: coerce(v.frontier),
+  };
+}
+
 export function resolveChatPrefs(prefs?: Partial<ChatPrefs> | null): ChatPrefs {
   return {
     ...DEFAULT_CHAT_PREFS,
@@ -301,6 +346,7 @@ export function resolveChatPrefs(prefs?: Partial<ChatPrefs> | null): ChatPrefs {
       ...DEFAULT_CHAT_PREFS.providerToggles,
       ...(prefs?.providerToggles ?? {}),
     },
+    subagentBuckets: normalizeSubagentBuckets(prefs?.subagentBuckets),
     autoExpandSubagentCalls:
       prefs?.autoExpandSubagentCalls
       ?? prefs?.autoExpandToolCalls

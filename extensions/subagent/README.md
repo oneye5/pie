@@ -42,6 +42,31 @@ Sequential execution with `{previous}` placeholder for prior output:
 
 Project agents require confirmation before running (security measure for untrusted repos).
 
+## Model Buckets
+
+Each subagent call carries a `bucket` hint — `small` (Haiku-class busywork),
+`medium` (Sonnet-class main development), or `frontier` (Opus-class hardest
+problems), defaulting to `medium`. The subagent tool picks **one model uniformly
+at random** from the matching bucket's model list.
+
+The bucket contents are **user-configured** in the pie settings UI
+(Extensions → subagent → "Model buckets"), where you add any number of model
+ids to each bucket. The config is persisted in `ChatPrefs.subagentBuckets` and
+mirrored to the in-process subagent extension via the `PIE_SUBAGENT_BUCKETS_JSON`
+env var (set by the pie host on startup and on every change).
+
+- An **empty bucket** falls back to the caller's active model (safe default —
+  fresh installs start with all buckets empty).
+- Models whose provider is toggled off in pie are filtered out of the pool at
+  selection time; a model that can't be resolved falls back to the active model.
+- A model id may appear in more than one bucket.
+- "Always use parent model" (same settings section) skips bucket selection
+  entirely and runs every subagent on the caller's active model.
+
+Model selection still reads `<pi-config>/model-profiles.yaml` (`.json`
+fallback) for thinking-level support lookups — the shared registry, also
+consumed by pie's model picker.
+
 ## Task Scores
 
 Optional hints for model selection:

@@ -151,12 +151,57 @@ test('validateRuntimePrefsSet accepts provider and extension toggles', () => {
       subagentAlwaysParentModel: undefined,
       subagentMaxDepth: undefined,
       subagentMaxTreeSessions: undefined,
+      subagentBuckets: undefined,
     },
   );
 });
 
 test('validateRuntimePrefsSet defaults missing toggle maps to empty', () => {
-  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: undefined, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined });
+  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: undefined, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined, subagentBuckets: undefined });
+});
+
+test('validateRuntimePrefsSet accepts a subagentBuckets patch', () => {
+  assert.deepEqual(
+    validateRuntimePrefsSet({
+      subagentBuckets: { small: ['haiku'], medium: ['sonnet'], frontier: ['opus'] },
+    }),
+    {
+      providerToggles: {},
+      extensionToggles: {},
+      subagentAlwaysParentModel: undefined,
+      subagentMaxDepth: undefined,
+      subagentMaxTreeSessions: undefined,
+      subagentBuckets: { small: ['haiku'], medium: ['sonnet'], frontier: ['opus'] },
+    },
+  );
+});
+
+test('validateRuntimePrefsSet allows partial subagentBuckets and drops missing keys to empty', () => {
+  assert.deepEqual(
+    validateRuntimePrefsSet({ subagentBuckets: { medium: ['sonnet'] } }),
+    {
+      providerToggles: {},
+      extensionToggles: {},
+      subagentAlwaysParentModel: undefined,
+      subagentMaxDepth: undefined,
+      subagentMaxTreeSessions: undefined,
+      subagentBuckets: { small: [], medium: ['sonnet'], frontier: [] },
+    },
+  );
+});
+
+test('validateRuntimePrefsSet rejects non-string entries in subagentBuckets', () => {
+  assert.throws(
+    () => validateRuntimePrefsSet({ subagentBuckets: { small: ['ok', 5] } }),
+    /subagentBuckets\.small must be an array of strings/,
+  );
+});
+
+test('validateRuntimePrefsSet rejects non-object subagentBuckets', () => {
+  assert.throws(
+    () => validateRuntimePrefsSet({ subagentBuckets: 'nope' }),
+    /subagentBuckets must be an object/,
+  );
 });
 
 test('validateRuntimePrefsSet rejects non-boolean provider toggle values', () => {

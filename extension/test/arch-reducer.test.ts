@@ -1648,6 +1648,28 @@ test('reducer: SetPrefs not touching suppressCompletionNotifications leaves unre
   assert.equal(result.effects[0]?.kind, 'SetPrefsRpc');
 });
 
+test('reducer: SetPrefs normalizes a partial subagentBuckets patch into a complete object', () => {
+  const event: Event = {
+    kind: 'Command',
+    cmd: {
+      kind: 'SetPrefs',
+      corrId: 'c-prefs-buckets',
+      // Partial patch: only `medium` provided, and with a bad entry.
+      // @ts-expect-error intentionally partial/malformed for the normalization test
+      prefs: { subagentBuckets: { medium: ['sonnet', 5, ''] } },
+    },
+  };
+
+  const result = reducer(initialArchState, event);
+
+  // Missing keys filled to empty arrays; non-string/empty entries dropped.
+  assert.deepEqual(result.state.settings.prefs.subagentBuckets, {
+    small: [],
+    medium: ['sonnet'],
+    frontier: [],
+  });
+});
+
 // ─── Phase 2: SetPruningSettings (Option B — reducer owns the optimistic apply) ──
 
 test('reducer: SetPruningSettings applies optimistically and emits the SetPruningSettings effect', () => {

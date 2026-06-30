@@ -1,28 +1,43 @@
 /**
  * Bucket-based model selector (v2).
  *
- * Replaces the old fitness-based model-selection.ts. The main agent provides
- * a bucket hint ("small" / "medium" / "frontier") per task and an optional
- * thinkingLevel hint. The selector picks uniformly at random from the
- * stratified leaderboard's bucket assignments, filtered by thinking support,
- * provider allowlist, and exclusions.
+ * The main agent provides a bucket hint ("small" / "medium" / "frontier") per
+ * task and an optional thinkingLevel hint. The selector picks uniformly at
+ * random from the *user-configured* bucket model lists (mirrored into the
+ * process environment by the pie host as `PIE_SUBAGENT_BUCKETS_JSON`), filtered
+ * by thinking support, provider allowlist, and exclusions.
  *
- * Provider toggle logic is preserved from the old model-selection.ts.
+ * Bucket contents are user-configured in the pie settings UI (see
+ * `subagentBuckets` in `ChatPrefs`) and persisted via `globalState` /
+ * mirrored via the `runtimePrefs.set` RPC → `PIE_SUBAGENT_BUCKETS_JSON` env
+ * var. When a bucket is empty, the selector falls back to the caller's active
+ * model. Provider toggle logic is preserved from the old model-selection.ts.
  */
 
 import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import type {
-  BucketAssignments,
-  SimpleModelConfig,
-  ThinkingLevel,
-} from "./bridge.js";
 import { parseJsonOrThrow } from "../../shared/error-message.js";
 
-// Re-export ThinkingLevel for consumers (agent frontmatter parsing, etc.).
-export type { ThinkingLevel };
-
 // --- Types ---
+
+/** Thinking effort levels, lightest → heaviest. */
+export type ThinkingLevel = "minimal" | "low" | "medium" | "high" | "xhigh";
+
+/** Simplified model config entry (from model-profiles.yaml). */
+export interface SimpleModelConfig {
+  id: string;
+  eligible: boolean;
+  thinking: ThinkingLevel[];
+  disabled_reason: string | null;
+  cost: number;
+}
+
+/** Per-bucket lists of model ids, user-configured via the settings UI. */
+export interface BucketAssignments {
+  small: string[];
+  medium: string[];
+  frontier: string[];
+}
 
 export interface BucketSelection {
   modelId: string;
@@ -40,6 +55,13 @@ export interface ModelProviderRef {
 // --- Constants ---
 
 export const PROVIDER_TOGGLES_ENV = "PIE_PROVIDER_TOGGLES_JSON";
+
+/** Environment key used by the pie host to mirror the user-configured subagent buckets. */
+export const SUBAGENT_BUCKETS_ENV = "PIE_SUBAGENT_BUCKETS_JSON";
+
+/** The three valid bucket keys, in display order. */
+const BUCKET_KEYS = ["small", "medium", "frontier"] as const;
+type BucketKey = (typeof BUCKET_KEYS)[number];
 
 /** Thinking levels ordered from lightest to heaviest. */
 const THINKING_ORDER: ThinkingLevel[] = [
@@ -116,6 +138,66 @@ export function loadModelConfig(configPath: string): SimpleModelConfig[] {
   return parsed.profiles ?? [];
 }
 
+// --- User-configured buckets (mirrored via PIE_SUBAGENT_BUCKETS_JSON) ---
+
+/** Fresh empty buckets (new array references each call — `parseBucketConfig`
+ *  mutates the arrays it returns, so never share a module-level constant). */
+function emptyBuckets(): BucketAssignments {
+  return { small: [], medium: [], frontier: [] };
+}
+
+/**
+ * Parse the user-configured bucket JSON (from {@link SUBAGENT_BUCKETS_ENV}).
+ *
+ * Accepts `{ small: string[], medium: string[], frontier: string[] }` — extra
+ * keys are ignored and missing keys default to empty. Non-array values and
+ * non-string / empty entries are dropped; duplicate model ids within a bucket
+ * are de-duplicated (a model may legitimately appear in more than one bucket).
+ *
+ * Returns empty assignments for undefined / malformed input so the caller
+ * falls back to the active model. Never throws.
+ */
+export function parseBucketConfig(raw: string | undefined): BucketAssignments {
+  if (!raw) return emptyBuckets();
+  let parsed: unknown;
+  try {
+    parsed = parseJsonOrThrow<unknown>(raw, "subagent buckets");
+  } catch {
+    return emptyBuckets();
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return emptyBuckets();
+  }
+
+  const obj = parsed as Record<string, unknown>;
+  const out: BucketAssignments = emptyBuckets();
+  for (const key of BUCKET_KEYS) {
+    const value = obj[key];
+    if (!Array.isArray(value)) continue;
+    const seen = new Set<string>();
+    for (const entry of value) {
+      if (typeof entry === "string" && entry.length > 0 && !seen.has(entry)) {
+        seen.add(entry);
+        out[key].push(entry);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Read + parse the user-configured buckets from the process environment.
+ *
+ * The pie host mirrors `ChatPrefs.subagentBuckets` into
+ * `PIE_SUBAGENT_BUCKETS_JSON` via the `runtimePrefs.set` RPC on startup and on
+ * every change. Returns empty assignments when the env var is unset (e.g. when
+ * running under stock pi without the pie host), causing `selectModel` to fall
+ * back to the caller's active model.
+ */
+export function readBucketAssignments(): BucketAssignments {
+  return parseBucketConfig(process.env[SUBAGENT_BUCKETS_ENV]);
+}
+
 // --- Provider toggles (preserved from old model-selection.ts) ---
 
 export function parseProviderToggles(
@@ -190,9 +272,10 @@ export function nearestSupportedThinking(
 // --- Selection ---
 
 /**
- * Select a model from the stratified leaderboard's bucket assignments.
+ * Select a model from the user-configured bucket assignments.
  *
- * 1. Get bucket assignments from the bridge (stratified ranker)
+ * 1. Get bucket assignments (user-configured via the settings UI, mirrored
+ *    through `PIE_SUBAGENT_BUCKETS_JSON`)
  * 2. Filter by thinkingLevel support (if provided)
  * 3. Filter by provider allowlist + excludeModels
  * 4. Pick uniformly at random from remaining entries
@@ -200,7 +283,7 @@ export function nearestSupportedThinking(
  *
  * @param bucket - Bucket hint: "small", "medium", or "frontier"
  * @param thinkingLevel - Optional thinking level hint
- * @param assignments - Pre-computed bucket assignments (from bridge)
+ * @param assignments - User-configured bucket assignments (from env)
  * @param modelConfig - Simple model config for thinking support lookup
  * @param allowedModelIds - Models allowed by provider toggles
  * @param excludeModels - Models to exclude (e.g., previously failed)

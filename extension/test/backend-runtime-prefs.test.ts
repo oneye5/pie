@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { handleBackendRequest } from '../src/backend/request-handler';
-import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV } from '../src/shared/protocol';
+import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, SUBAGENT_BUCKETS_ENV } from '../src/shared/protocol';
 import { validateRuntimePrefsSet } from '../src/backend/rpc';
 
 const SUBAGENT_ALWAYS_PARENT_MODEL_ENV = 'PIE_SUBAGENT_ALWAYS_PARENT_MODEL';
@@ -13,6 +13,7 @@ test('runtimePrefs.set mirrors provider and extension toggles into backend envir
   const previousProvider = process.env[PROVIDER_TOGGLES_ENV];
   const previousExtension = process.env[EXTENSION_TOGGLES_ENV];
   const previousAlwaysParent = process.env[SUBAGENT_ALWAYS_PARENT_MODEL_ENV];
+  const previousBuckets = process.env[SUBAGENT_BUCKETS_ENV];
   t.after(() => {
     if (previousProvider === undefined) {
       delete process.env[PROVIDER_TOGGLES_ENV];
@@ -29,6 +30,11 @@ test('runtimePrefs.set mirrors provider and extension toggles into backend envir
     } else {
       process.env[SUBAGENT_ALWAYS_PARENT_MODEL_ENV] = previousAlwaysParent;
     }
+    if (previousBuckets === undefined) {
+      delete process.env[SUBAGENT_BUCKETS_ENV];
+    } else {
+      process.env[SUBAGENT_BUCKETS_ENV] = previousBuckets;
+    }
   });
 
   const providerToggles = { ollama: false, 'github-copilot': true };
@@ -39,11 +45,12 @@ test('runtimePrefs.set mirrors provider and extension toggles into backend envir
     params: { providerToggles, extensionToggles },
   });
 
-  assert.deepEqual(result, { providerToggles, extensionToggles, subagentAlwaysParentModel: undefined, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined });
+  assert.deepEqual(result, { providerToggles, extensionToggles, subagentAlwaysParentModel: undefined, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined, subagentBuckets: undefined });
   assert.equal(process.env[PROVIDER_TOGGLES_ENV], JSON.stringify(providerToggles));
   assert.equal(process.env[EXTENSION_TOGGLES_ENV], JSON.stringify(extensionToggles));
   // When the field is omitted, the env var must not be touched.
   assert.equal(process.env[SUBAGENT_ALWAYS_PARENT_MODEL_ENV], previousAlwaysParent);
+  assert.equal(process.env[SUBAGENT_BUCKETS_ENV], previousBuckets);
 });
 
 test('runtimePrefs.set writes the subagent always-parent-model env var when provided', async (t) => {
@@ -63,7 +70,7 @@ test('runtimePrefs.set writes the subagent always-parent-model env var when prov
     params: { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: true },
   });
 
-  assert.deepEqual(result, { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: true, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined });
+  assert.deepEqual(result, { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: true, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined, subagentBuckets: undefined });
   assert.equal(process.env[SUBAGENT_ALWAYS_PARENT_MODEL_ENV], '1');
 });
 
@@ -141,4 +148,46 @@ test('runtimePrefs.set rejects out-of-range nesting values', () => {
   assert.throws(() =>
     validateRuntimePrefsSet({ providerToggles: {}, extensionToggles: {}, subagentMaxDepth: 4.5 }),
   );
+});
+
+test('runtimePrefs.set mirrors subagentBuckets into the backend environment', async (t) => {
+  const previousBuckets = process.env[SUBAGENT_BUCKETS_ENV];
+  t.after(() => {
+    if (previousBuckets === undefined) {
+      delete process.env[SUBAGENT_BUCKETS_ENV];
+    } else {
+      process.env[SUBAGENT_BUCKETS_ENV] = previousBuckets;
+    }
+  });
+
+  delete process.env[SUBAGENT_BUCKETS_ENV];
+  const buckets = { small: ['haiku'], medium: ['sonnet'], frontier: ['opus'] };
+  const result = (await handleBackendRequest({} as any, {
+    id: 'test-runtime-prefs-buckets',
+    method: 'runtimePrefs.set',
+    params: { providerToggles: {}, extensionToggles: {}, subagentBuckets: buckets },
+  })) as { subagentBuckets?: typeof buckets };
+
+  assert.deepEqual(result.subagentBuckets, buckets);
+  assert.equal(process.env[SUBAGENT_BUCKETS_ENV], JSON.stringify(buckets));
+});
+
+test('runtimePrefs.set leaves the buckets env var untouched when omitted', async (t) => {
+  const previousBuckets = process.env[SUBAGENT_BUCKETS_ENV];
+  t.after(() => {
+    if (previousBuckets === undefined) {
+      delete process.env[SUBAGENT_BUCKETS_ENV];
+    } else {
+      process.env[SUBAGENT_BUCKETS_ENV] = previousBuckets;
+    }
+  });
+
+  process.env[SUBAGENT_BUCKETS_ENV] = 'pre-existing';
+  await handleBackendRequest({} as any, {
+    id: 'test-runtime-prefs-buckets-omitted',
+    method: 'runtimePrefs.set',
+    params: { providerToggles: {}, extensionToggles: {} },
+  });
+
+  assert.equal(process.env[SUBAGENT_BUCKETS_ENV], 'pre-existing');
 });

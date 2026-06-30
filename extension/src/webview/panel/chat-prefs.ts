@@ -108,3 +108,17 @@ export function setProviderEnabled(prefs: ChatPrefs, provider: string, enabled: 
     },
   };
 }
+
+/** Replace one bucket's model list, preserving the other two buckets. */
+export function setBucketModels(
+  prefs: ChatPrefs,
+  bucket: 'small' | 'medium' | 'frontier',
+  models: string[],
+): Partial<ChatPrefs> {
+  return {
+    subagentBuckets: {
+      ...prefs.subagentBuckets,
+      [bucket]: [...models],
+    },
+  };
+}
