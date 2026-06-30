@@ -34,7 +34,7 @@ function throughputOverTimeSpec(rows: PreparedTurnThroughputRow[], models: strin
     width: 'container',
     height: 260,
     data: { values: rows },
-    mark: { type: 'circle' as const, filled: true, opacity: 0.6, size: 45 },
+    mark: { type: 'circle' as const, filled: true, opacity: 0.5, size: 40 },
     encoding: {
       x: { field: 'endedAt', type: 'temporal' as const, timeUnit: 'yearmonthdatehoursminutes', title: 'Turn ended' },
       y: { field: 'tokensPerSecond', type: 'quantitative' as const, title: 'Throughput (tokens / sec)', scale: { zero: true, nice: true } },
@@ -149,7 +149,7 @@ function throughputVsConcurrencySpec(rows: PreparedTurnThroughputRow[], models: 
         transform: [
           { loess: 'tokensPerSecond', on: 'concurrentBusySessions', groupby: ['modelId'] },
         ],
-        mark: { type: 'line' as const, strokeWidth: 2, opacity: 0.6, point: false },
+        mark: { type: 'line' as const, strokeWidth: 2, opacity: 0.4, point: false },
         encoding: {
           x: { field: 'concurrentBusySessions', type: 'quantitative' as const },
           y: { field: 'tokensPerSecond', type: 'quantitative' as const },

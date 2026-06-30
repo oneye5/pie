@@ -180,15 +180,9 @@ export const costCharts: ChartEntry[] = [
             },
           },
           {
-            mark: { type: 'line' as const, strokeWidth: 2 },
-            encoding: {
-              x: { field: 'day', type: 'temporal' as const, timeUnit: 'yearmonthdate' },
-              y: { field: 'totalCostUsd', type: 'quantitative' as const },
-              color: { value: CHART_COLORS.gold },
-            },
-          },
-          {
-            mark: { type: 'point' as const, filled: true, size: 40, opacity: 0.6 },
+            // Line carries its own point markers (tooltip lives here) — avoids a
+            // redundant third point layer stacked over the area + line.
+            mark: { type: 'line' as const, strokeWidth: 2, point: { filled: true, size: 40, opacity: 0.6 } },
             encoding: {
               x: { field: 'day', type: 'temporal' as const, timeUnit: 'yearmonthdate' },
               y: { field: 'totalCostUsd', type: 'quantitative' as const },
@@ -261,6 +255,8 @@ export const costCharts: ChartEntry[] = [
           color: {
             field: 'resolution', type: 'nominal' as const, title: 'Resolution',
             scale: { domain: ['resolved', 'partially_resolved', 'unresolved'], range: [CHART_COLORS.success, CHART_COLORS.gold, CHART_COLORS.coral] },
+            // x-axis already encodes resolution; a legend would duplicate it.
+            legend: null,
           },
           tooltip: [
             { field: 'resolution', type: 'nominal' as const, title: 'Resolution' },

@@ -180,7 +180,9 @@ export const questionCharts: ChartEntry[] = [
         data: { values: rows },
         layer: [
           {
-            mark: { type: 'point' as const, filled: true, opacity: 0.6, stroke: '#07140b', strokeWidth: 0.5 },
+            // Drop the dark per-point hairline and shrink the size range — with
+            // jittered overlapping points the outlines formed a noisy mesh.
+            mark: { type: 'point' as const, filled: true, opacity: 0.5 },
             encoding: {
               x: {
                 field: 'questionsJitter',
@@ -203,7 +205,7 @@ export const questionCharts: ChartEntry[] = [
                 field: 'lineMutationTotal',
                 type: 'quantitative' as const,
                 title: 'Line changes',
-                scale: { range: [40, 400] },
+                scale: { range: [40, 180] },
                 legend: { orient: 'bottom' as const, gradientLength: 120 },
               },
               tooltip: [

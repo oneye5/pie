@@ -48,12 +48,16 @@ function satisfactionBarSpec(rows: SettingImpactRow[]) {
         field: 'avgSatisfaction',
         type: 'quantitative' as const,
         title: 'Avg satisfaction',
-        scale: { domain: [0, 5] },
+        // Satisfaction is a 1–5 Likert scale: floor the axis at 1 so the
+        // On/Off/mode differences (typically 3.5–4.5) are visible, not flattened.
+        scale: { domain: [1, 5] },
       },
       color: {
         field: 'group',
         type: 'nominal' as const,
         scale: { range: [CHART_COLORS.accent, CHART_COLORS.gold, CHART_COLORS.muted] },
+        // x-axis already encodes group; suppress the duplicate legend.
+        legend: null,
       },
       tooltip: [
         { field: 'group', type: 'nominal' as const, title: 'Setting' },
@@ -163,7 +167,7 @@ export const settingsCharts: ChartEntry[] = [
         mark: { type: 'bar' as const, cornerRadiusEnd: 3, opacity: 0.85 },
         encoding: {
           x: { field: 'extension', type: 'nominal' as const, title: null, axis: { labelAngle: 0, labelLimit: 120 } },
-          y: { field: 'avgSatisfaction', type: 'quantitative' as const, title: 'Avg satisfaction', scale: { domain: [0, 5] } },
+          y: { field: 'avgSatisfaction', type: 'quantitative' as const, title: 'Avg satisfaction', scale: { domain: [1, 5] } },
           color: {
             field: 'state',
             type: 'nominal' as const,

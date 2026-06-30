@@ -2675,7 +2675,7 @@ async function renderCharts(
     data: { values: timeQuality },
     layer: [
       {
-        mark: { type: 'point', filled: true, opacity: 0.7 },
+        mark: { type: 'point', filled: true, opacity: 0.55 },
         encoding: {
           x: {
             field: 'busyMinutes',
@@ -2699,7 +2699,7 @@ async function renderCharts(
             field: 'lineMutationTotal',
             type: 'quantitative',
             title: 'Line changes',
-            scale: { range: [45, 320] },
+            scale: { range: [45, 200] },
             legend: { orient: 'bottom', values: [0, 500, 1000, 2000, 4000, 6000], format: ',' },
           },
           tooltip: [
@@ -3671,7 +3671,7 @@ async function renderCharts(
           data: { values: complexityScatter },
           layer: [
             {
-              mark: { type: 'point', filled: true, opacity: 0.7, strokeWidth: 0.6 },
+              mark: { type: 'point', filled: true, opacity: 0.55, strokeWidth: 0.6 },
               encoding: {
                 x: { field: 'lineMutationTotal', type: 'quantitative', title: 'Line mutation total (sqrt scale)', scale: { type: 'sqrt', nice: true } },
                 y: { field: 'subagentCallCount', type: 'quantitative', title: 'Subagent calls', scale: { type: 'sqrt', nice: true } },
@@ -3685,7 +3685,7 @@ async function renderCharts(
                     range: [CHART_COLORS.success, CHART_COLORS.gold, CHART_COLORS.coral, CHART_COLORS.muted],
                   },
                 },
-                size: { field: 'satisfaction', type: 'quantitative', title: 'Satisfaction', scale: { range: [40, 320] }, legend: { orient: 'bottom', gradientLength: 120 } },
+                size: { field: 'satisfaction', type: 'quantitative', title: 'Satisfaction', scale: { range: [40, 180] }, legend: { orient: 'bottom', gradientLength: 120 } },
                 tooltip: [
                   { field: 'modelId', type: 'nominal', title: 'Model' },
                   { field: 'resolution', type: 'nominal', title: 'Resolution' },
@@ -3709,7 +3709,7 @@ async function renderCharts(
       data: { values: complexityScatter },
       layer: [
         {
-          mark: { type: 'point', filled: true, opacity: 0.7, strokeWidth: 0.6 },
+          mark: { type: 'point', filled: true, opacity: 0.55, strokeWidth: 0.6 },
           encoding: {
             x: { field: 'lineMutationTotal', type: 'quantitative', title: 'Line mutation total (sqrt scale)', scale: { type: 'sqrt', nice: true } },
             y: { field: 'subagentCallCount', type: 'quantitative', title: 'Subagent calls', scale: { type: 'sqrt', nice: true } },
@@ -3723,7 +3723,7 @@ async function renderCharts(
                 range: [CHART_COLORS.success, CHART_COLORS.gold, CHART_COLORS.coral, CHART_COLORS.muted],
               },
             },
-            size: { field: 'satisfaction', type: 'quantitative', title: 'Satisfaction', scale: { range: [40, 320] }, legend: { orient: 'bottom', gradientLength: 120 } },
+            size: { field: 'satisfaction', type: 'quantitative', title: 'Satisfaction', scale: { range: [40, 180] }, legend: { orient: 'bottom', gradientLength: 120 } },
             tooltip: [
               { field: 'modelId', type: 'nominal', title: 'Model' },
               { field: 'resolution', type: 'nominal', title: 'Resolution' },
