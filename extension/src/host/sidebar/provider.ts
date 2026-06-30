@@ -16,6 +16,7 @@ import {
 import { getWebviewAssetVersion, renderWebviewHtml, getWebviewRoots } from '../webview/assets';
 import { SidebarHotReloader } from './hot-reloader';
 import { StateAppliedWatchdog } from './state-applied-watchdog';
+import { WebviewReadinessProbe } from './readiness-probe';
 import type {
   HostToWebviewMessage,
   ViewState,
@@ -76,6 +77,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
   private pendingImperatives: HostToWebviewMessage[] = [];
   private readonly hotReloader: SidebarHotReloader;
   private readonly watchdog: StateAppliedWatchdog;
+  private readonly readinessProbe: WebviewReadinessProbe;
 
   constructor(
     private readonly context: vscode.ExtensionContext,
@@ -96,7 +98,10 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       setSyncState: (state) => {
         this.syncState = state;
       },
-      onReloadWebviewReadyReset: () => this.watchdog.clear(),
+      onReloadWebviewReadyReset: () => {
+        this.watchdog.clear();
+        this.readinessProbe.clear();
+      },
     });
     this.watchdog = new StateAppliedWatchdog({
       getWebviewReady: () => this.webviewReady,
@@ -108,6 +113,13 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         this.flushDirtyState();
       },
       onForceReload: (revision) => this.hotReloader.reloadForStateAppliedTimeout(revision),
+    });
+    this.readinessProbe = new WebviewReadinessProbe({
+      getViewExists: () => !!this.view,
+      getWebviewReady: () => this.webviewReady,
+      getGlobalDirty: () => this.syncState.globalDirty,
+      isReloading: () => this.hotReloader.isReloading(),
+      onProbe: () => this.probePost(),
     });
   }
 
@@ -122,6 +134,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.messageDisposable?.dispose();
     this.hotReloader.dispose();
     this.watchdog.dispose();
+    this.readinessProbe.dispose();
   }
 
   async resolveWebviewView(
@@ -133,6 +146,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
     this.webviewReady = false;
     this.hotReloader.resetReloadFlags();
     this.watchdog.clear();
+    this.readinessProbe.clear();
 
     webviewView.webview.options = {
       enableScripts: true,
@@ -173,6 +187,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
       if (!this.webviewReady) {
         this.webviewReady = true;
         this.watchdog.resetResnapshotFlag();
+        this.readinessProbe.clear();
+        this.hotReloader.clearReloading();
         bootLog('sidebar-provider', 'message.bridgeReady', {
           hostInstanceId: this.hostInstanceId,
           type: msg.type,
@@ -342,6 +358,7 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
           visible: this.view?.visible ?? false,
         });
       }
+      this.armReadinessProbeIfStuck();
       return;
     }
 
@@ -448,6 +465,8 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
 
     if (result.message && this.view) {
       this.postToWebview(result.message);
+    } else {
+      this.armReadinessProbeIfStuck();
     }
   }
 
@@ -478,5 +497,79 @@ export class SidebarViewProvider implements vscode.WebviewViewProvider, vscode.D
         this.syncState = reconcilePostedMessageDelivery(this.syncState, message, false);
         console.warn(`[pie] Failed to post ${message.type} message to webview: ${toErrorMessage(error)}`);
       });
+  }
+
+  /**
+   * Arm the readiness probe when posting is blocked purely by a stale
+   * `webviewReady=false` belief (view exists, dirty, believed not ready).
+   * No-op otherwise. See {@link WebviewReadinessProbe}.
+   */
+  private armReadinessProbeIfStuck(): void {
+    if (this.view && !this.webviewReady && this.syncState.globalDirty) {
+      this.readinessProbe.arm();
+    }
+  }
+
+  /**
+   * Push the pending snapshot to the webview despite a stale `webviewReady=false`
+   * belief (the readiness probe's `onProbe` callback). Adopts `postMessage`'s
+   * `delivered=true` as the readiness signal — the webview was ready after all
+   * — restoring the normal post loop without waiting for a user refocus.
+   */
+  private async probePost(): Promise<boolean> {
+    const view = this.view;
+    if (!view) {
+      return false;
+    }
+    // Force canPost=true: the probe exists to test the stale belief, so it
+    // must mint + post an envelope the `canPost` gate would otherwise suppress.
+    const result = buildStateEnvelope(this.syncState, this.getViewState(), true);
+    this.syncState = result.nextSyncState;
+    const message = result.message;
+    if (!message || message.type !== 'state') {
+      return false;
+    }
+
+    try {
+      const delivered = await view.webview.postMessage(message);
+      // A reload may have started during the await — the posted message may be
+      // bound for a renderer being replaced. Do not adopt readiness or arm the
+      // watchdog; treat as undelivered so the probe retries after the reload
+      // settles, and let the reload's `ready` handshake own readiness.
+      if (this.hotReloader.isReloading()) {
+        this.syncState = reconcilePostedMessageDelivery(this.syncState, message, false);
+        bootLog('sidebar-provider', 'readinessProbe.skippedReload', {
+          hostInstanceId: this.hostInstanceId,
+          revision: message.revision,
+        });
+        return false;
+      }
+      this.syncState = reconcilePostedMessageDelivery(this.syncState, message, delivered);
+      if (delivered) {
+        if (!this.webviewReady) {
+          this.webviewReady = true;
+          this.watchdog.resetResnapshotFlag();
+          this.flushPendingImperatives();
+          bootLog('sidebar-provider', 'readinessProbe.adopted', {
+            hostInstanceId: this.hostInstanceId,
+            revision: message.revision,
+            visible: this.view?.visible ?? false,
+          });
+        }
+        recordSnapshotPost();
+        this.watchdog.armStateAppliedWatchdog(message.revision);
+      } else {
+        bootLog('sidebar-provider', 'readinessProbe.notDelivered', {
+          hostInstanceId: this.hostInstanceId,
+          revision: message.revision,
+          visible: this.view?.visible ?? false,
+        });
+      }
+      return delivered;
+    } catch (error: unknown) {
+      this.syncState = reconcilePostedMessageDelivery(this.syncState, message, false);
+      console.warn(`[pie] Readiness probe post failed: ${toErrorMessage(error)}`);
+      return false;
+    }
   }
 }

@@ -41,6 +41,15 @@ export class SidebarHotReloader {
   private currentAssetVersion: string | null = null;
   private reloadingForAssetMismatch = false;
   private reloadingForStateAppliedTimeout = false;
+  /**
+   * Unified reload-in-progress flag spanning every reload path (asset watcher,
+   * asset-version mismatch, watchdog timeout) from reload start until the new
+   * renderer's `ready` handshake — the window in which the webview's renderer
+   * is being replaced. The readiness probe consults this to avoid posting to /
+   * adopting readiness from a renderer that is about to be torn down or is
+   * still loading. Cleared by the provider on bridge-ready.
+   */
+  private reloading = false;
 
   constructor(private readonly deps: SidebarHotReloaderDeps) {}
 
@@ -89,6 +98,7 @@ export class SidebarHotReloader {
       return;
     }
 
+    this.reloading = true;
     try {
       const nextAssetVersion = await getWebviewAssetVersion(this.deps.getContext());
       const nextHtml = await renderWebviewHtml(this.deps.getContext(), view.webview, nextAssetVersion);
@@ -165,6 +175,16 @@ export class SidebarHotReloader {
     this.currentAssetVersion = version;
   }
 
+  /** Whether a webview reload is in progress (reload start → next bridge-ready). */
+  isReloading(): boolean {
+    return this.reloading;
+  }
+
+  /** Clear the reload-in-progress flag (called by the provider on bridge-ready). */
+  clearReloading(): void {
+    this.reloading = false;
+  }
+
   getCurrentAssetVersion(): string | null {
     return this.currentAssetVersion;
   }
@@ -172,6 +192,7 @@ export class SidebarHotReloader {
   resetReloadFlags(): void {
     this.reloadingForAssetMismatch = false;
     this.reloadingForStateAppliedTimeout = false;
+    this.reloading = false;
   }
 
   dispose(): void {
@@ -183,5 +204,6 @@ export class SidebarHotReloader {
     this.currentAssetVersion = null;
     this.reloadingForAssetMismatch = false;
     this.reloadingForStateAppliedTimeout = false;
+    this.reloading = false;
   }
 }
