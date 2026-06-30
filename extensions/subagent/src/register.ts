@@ -20,11 +20,12 @@
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { discoverAgents } from "../agents.js";
-import { SubagentParams } from "../schema.js";
+import { SubagentParams, BUCKET_GUIDANCE as BUCKET_GUIDANCE_BASE } from "../schema.js";
 import { renderSubagentCall, renderSubagentResult } from "../render.js";
 import { execute } from "./execute.js";
 
-const BUCKET_GUIDANCE = "Bucket hint for model selection: 'small' (Haiku-class, busywork), 'medium' (Sonnet-class, main development), or 'frontier' (Opus-class, hardest problems). Defaults to 'medium' when omitted. Optional thinkingLevel: 'minimal', 'low', 'medium', 'high', 'xhigh'.";
+const THINKING_LEVEL_HINT = "Optional thinkingLevel: 'minimal', 'low', 'medium', 'high', 'xhigh'.";
+const BUCKET_GUIDANCE = `${BUCKET_GUIDANCE_BASE} ${THINKING_LEVEL_HINT}`;
 
 function buildDescription(disabled = false): string {
 	if (disabled) {
