@@ -310,6 +310,16 @@ function BucketModelsEditor({ bucket, label, hint, selected, availableModels, mo
           ))}
         </div>
       )}
+      {selected.length === 0 && (
+        <div class="toolbar-settings-bucket-warning" role="note">
+          <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M6 1.6 L10.7 10.1 H1.3 Z" />
+            <line x1="6" y1="4.9" x2="6" y2="7.1" />
+            <circle cx="6" cy="8.6" r="0.55" fill="currentColor" stroke="none" />
+          </svg>
+          <span>No models — falls back to the parent model</span>
+        </div>
+      )}
       <div class="toolbar-settings-keep-picker-wrap">
         <select
           class="toolbar-settings-select toolbar-settings-keep-select"

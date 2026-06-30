@@ -61,6 +61,8 @@ test('SubagentFlyout renders selected bucket models as chips labelled with model
   assert.match(html, /toolbar-settings-keep-chip[^>]*>[\s\S]*?Haiku</);
   assert.match(html, /toolbar-settings-keep-chip[^>]*>[\s\S]*?Sonnet</);
   assert.match(html, /toolbar-settings-keep-chip[^>]*>[\s\S]*?Opus</);
+  // All buckets populated → no empty-bucket warnings.
+  assert.doesNotMatch(html, /falls back to the parent model/);
 });
 
 test('SubagentFlyout add-model selects list only models not already in their bucket', () => {
@@ -80,9 +82,13 @@ test('SubagentFlyout add-model selects list only models not already in their buc
   assert.match(html, /Add model…</);
   // GPT-5 is never selected, so it must appear as an addable option.
   assert.match(html, /<option[^>]*value="gpt-5"[^>]*>GPT-5</);
+  // The two empty buckets (medium, frontier) each show an empty-bucket warning;
+  // the populated small bucket does not.
+  const warnCount = (html.match(/falls back to the parent model/g) ?? []).length;
+  assert.equal(warnCount, 2);
 });
 
-test('SubagentFlyout renders empty buckets without chips and keeps the add-model control', () => {
+test('SubagentFlyout renders an empty-bucket warning per empty bucket', () => {
   const html = renderToString(
     h(SubagentFlyout, {
       prefs: prefsWith({ subagentBuckets: { small: [], medium: [], frontier: [] } }),
@@ -96,4 +102,23 @@ test('SubagentFlyout renders empty buckets without chips and keeps the add-model
   const addCount = (html.match(/Add model…/g) ?? []).length;
   assert.equal(addCount, 3);
   assert.doesNotMatch(html, /toolbar-settings-keep-chips/);
+  // Each of the three empty buckets renders a warning row.
+  const warnCount = (html.match(/toolbar-settings-bucket-warning/g) ?? []).length;
+  assert.equal(warnCount, 3);
+  assert.match(html, /No models — falls back to the parent model/);
+});
+
+test('SubagentFlyout does not warn for a bucket that has models', () => {
+  const html = renderToString(
+    h(SubagentFlyout, {
+      prefs: prefsWith({ subagentBuckets: { small: ['haiku'], medium: ['sonnet'], frontier: [] } }),
+      onSetPrefs: () => undefined,
+      availableModels: AVAILABLE_MODELS,
+      modelEntries: orderModelsForPicker(AVAILABLE_MODELS),
+    }),
+  );
+
+  // Only the empty frontier bucket warns.
+  const warnCount = (html.match(/falls back to the parent model/g) ?? []).length;
+  assert.equal(warnCount, 1);
 });

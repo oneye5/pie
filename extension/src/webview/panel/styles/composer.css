@@ -484,6 +484,16 @@
   color: var(--panel-muted);
 }
 
+.toolbar-settings-bucket-warning {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 4px;
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--panel-warning);
+}
+
 .toolbar-settings-test-btn {
   background: none;
   border: 1px solid var(--panel-border-subtle);
