@@ -1,5 +1,22 @@
 import type { ModelInfo } from '../../../shared/protocol';
 
+/**
+ * Filter out models whose provider is toggled off. A provider is disabled when
+ * `providerToggles[provider] === false` (absent or `true` → enabled).
+ *
+ * Used by the settings-menu model pickers (subagent buckets, pruning prepass)
+ * so disabled-provider models aren't offered for selection — they're removed
+ * from the runtime selection pools anyway, so offering them is misleading. The
+ * main toolbar model selector applies its own filter (with a "keep the active
+ * model" exception) and does not use this helper.
+ */
+export function filterEnabledProviders(
+  models: ModelInfo[],
+  providerToggles: Record<string, boolean>,
+): ModelInfo[] {
+  return models.filter((m) => providerToggles[m.provider] !== false);
+}
+
 export interface ModelPickerEntry {
   model: ModelInfo;
   /** Display label for the dropdown row — prefixed with ⚠ when ineligible as subagent. */

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { orderModelsForPicker } from '../src/webview/panel/composer/model-list';
+import { filterEnabledProviders, orderModelsForPicker } from '../src/webview/panel/composer/model-list';
 import type { ModelInfo } from '../src/shared/protocol';
 
 function model(id: string, overrides: Partial<ModelInfo> = {}): ModelInfo {
@@ -96,4 +96,25 @@ test('orderModelsForPicker includes pricing and image support in entries', () =>
   assert.equal(free!.tokenInPrice, '');
   assert.equal(free!.tokenOutPrice, '');
   assert.equal(free!.supportsImages, false);
+});
+
+test('filterEnabledProviders drops models whose provider is toggled off', () => {
+  const models: ModelInfo[] = [
+    model('a', { provider: 'openai' }),
+    model('b', { provider: 'anthropic' }),
+    model('c', { provider: 'google' }),
+  ];
+
+  assert.deepEqual(
+    filterEnabledProviders(models, { anthropic: false }).map((m) => m.id),
+    ['a', 'c'],
+  );
+  // Absent or true → enabled (nothing dropped).
+  assert.deepEqual(filterEnabledProviders(models, {}).map((m) => m.id), ['a', 'b', 'c']);
+  assert.deepEqual(
+    filterEnabledProviders(models, { openai: true, anthropic: true, google: true }).map((m) => m.id),
+    ['a', 'b', 'c'],
+  );
+  // All disabled → empty.
+  assert.deepEqual(filterEnabledProviders(models, { openai: false, anthropic: false, google: false }), []);
 });

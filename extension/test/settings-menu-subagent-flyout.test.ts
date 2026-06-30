@@ -5,7 +5,7 @@ import { h } from 'preact';
 import renderToString from 'preact-render-to-string';
 
 import { SubagentFlyout } from '../src/webview/panel/composer/settings-menu-subcomponents';
-import { orderModelsForPicker } from '../src/webview/panel/composer/model-list';
+import { filterEnabledProviders, orderModelsForPicker } from '../src/webview/panel/composer/model-list';
 import { DEFAULT_CHAT_PREFS } from '../src/shared/protocol';
 import type { ChatPrefs, ModelInfo } from '../src/shared/protocol';
 
@@ -121,4 +121,50 @@ test('SubagentFlyout does not warn for a bucket that has models', () => {
   // Only the empty frontier bucket warns.
   const warnCount = (html.match(/falls back to the parent model/g) ?? []).length;
   assert.equal(warnCount, 1);
+});
+
+test('SubagentFlyout add-model options exclude disabled-provider models (ComposerSettingsMenu composition)', () => {
+  // Mirror what ComposerSettingsMenu does: filter availableModels by enabled
+  // providers, then order for the picker. The full availableModels list is still
+  // passed for chip label resolution.
+  const prefs = prefsWith({ providerToggles: { anthropic: false } });
+  const enabledEntries = orderModelsForPicker(filterEnabledProviders(AVAILABLE_MODELS, prefs.providerToggles));
+  const html = renderToString(
+    h(SubagentFlyout, {
+      prefs,
+      onSetPrefs: () => undefined,
+      availableModels: AVAILABLE_MODELS,
+      modelEntries: enabledEntries,
+    }),
+  );
+
+  // anthropic models (haiku, sonnet, opus) must not be offered as addable options.
+  assert.doesNotMatch(html, /<option[^>]*value="haiku"/);
+  assert.doesNotMatch(html, /<option[^>]*value="sonnet"/);
+  assert.doesNotMatch(html, /<option[^>]*value="opus"/);
+  // The openai model (gpt-5) is still addable.
+  assert.match(html, /<option[^>]*value="gpt-5"/);
+});
+
+test('SubagentFlyout still labels a selected bucket chip whose provider is disabled (via full availableModels)', () => {
+  // haiku's provider (anthropic) is disabled, but it's already in the bucket.
+  // The chip should still render its display name (resolved from the full
+  // availableModels list), so the user can see and remove it.
+  const prefs = prefsWith({
+    providerToggles: { anthropic: false },
+    subagentBuckets: { small: ['haiku'], medium: [], frontier: [] },
+  });
+  const enabledEntries = orderModelsForPicker(filterEnabledProviders(AVAILABLE_MODELS, prefs.providerToggles));
+  const html = renderToString(
+    h(SubagentFlyout, {
+      prefs,
+      onSetPrefs: () => undefined,
+      availableModels: AVAILABLE_MODELS,
+      modelEntries: enabledEntries,
+    }),
+  );
+
+  assert.match(html, /toolbar-settings-keep-chip[^>]*>[\s\S]*?Haiku</);
+  // And it is no longer offered as an addable option.
+  assert.doesNotMatch(html, /<option[^>]*value="haiku"/);
 });

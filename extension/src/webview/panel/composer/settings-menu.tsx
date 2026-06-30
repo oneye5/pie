@@ -4,7 +4,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
 
 import type { ChatPrefs, ExtensionInfo, ModelInfo, PruningCatalog, PruningResult, PruningSettings } from '../../../shared/protocol';
-import { orderModelsForPicker } from './model-list';
+import { filterEnabledProviders, orderModelsForPicker } from './model-list';
 
 import {
   computeKeepCatalog,
@@ -61,7 +61,15 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
     [pruningCatalog.tools, pruningResult, pruningSettings.toolAlwaysKeep],
   );
   const [open, setOpen] = useState(false);
-  const modelEntries = useMemo(() => orderModelsForPicker(availableModels), [availableModels]);
+  const modelEntries = useMemo(
+    // Exclude models whose provider is toggled off in the Providers section —
+    // they're filtered out of the subagent/pruning selection pools at runtime,
+    // so offering them in the picker is misleading. The full `availableModels`
+    // list is still passed through for label/selected-model resolution (e.g. a
+    // bucket chip whose provider was just disabled).
+    () => orderModelsForPicker(filterEnabledProviders(availableModels, prefs.providerToggles)),
+    [availableModels, prefs.providerToggles],
+  );
   const [expandedExt, setExpandedExt] = useState<string | null>(null);
   const [uiOpen, setUiOpen] = useState(false);
   const [subagentOpen, setSubagentOpen] = useState(false);
