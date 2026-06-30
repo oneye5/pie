@@ -11,7 +11,7 @@ import { ModelPicker } from '../components/model-picker';
 import { CollapsibleChevron } from '../components/chevron';
 import { EXTENSIONS_WITH_SETTINGS, PRUNING_MODE_OPTIONS, THINKING_LEVEL_OPTIONS } from './settings-menu-helpers';
 import { AlwaysKeepPicker } from '../components/always-keep-picker';
-import { UiSubmenuTrigger, UiFlyout, UiGroupLabel } from './ui-appearance-settings';
+import { FlyoutPanel, UiSubmenuTrigger, UiFlyout, UiGroupLabel } from './ui-appearance-settings';
 
 export type OnSetPrefs = (prefs: Partial<ChatPrefs>) => void;
 type OnSetPruningSettings = (settings: Partial<PruningSettings>) => void;
@@ -343,9 +343,15 @@ interface SubagentSettingsProps {
   modelEntries: ReturnType<typeof orderModelsForPicker>;
 }
 
-function SubagentSettings({ prefs, onSetPrefs, availableModels, modelEntries }: SubagentSettingsProps) {
+/**
+ * Side-panel flyout for subagent settings (mirrors the UI flyout). Holds the
+ * always-parent-model toggle, the user-configurable model buckets, and the
+ * nesting limits — surfaced as a flyout rather than an inline expansion so the
+ * bucket editors don't crowd the main settings menu.
+ */
+export function SubagentFlyout({ prefs, onSetPrefs, availableModels, modelEntries }: SubagentSettingsProps) {
   return (
-    <div class="toolbar-settings-ext-settings">
+    <FlyoutPanel title="Subagent" ariaLabel="Subagent settings">
       <button
         class={`toolbar-settings-item${prefs.subagentAlwaysParentModel ? ' checked' : ''}`}
         type="button"
@@ -413,7 +419,7 @@ function SubagentSettings({ prefs, onSetPrefs, availableModels, modelEntries }: 
         />
         <div class="toolbar-settings-item-hint">Cap on total subagent sessions spawned across an entire nested tree, so increased nesting can't run away on cost.</div>
       </div>
-    </div>
+    </FlyoutPanel>
   );
 }
 
@@ -423,6 +429,10 @@ interface ExtensionItemProps {
   onSetPrefs: OnSetPrefs;
   isExpanded: boolean;
   setExpandedExt: (next: string | null) => void;
+  /** Subagent settings open as a side flyout (not inline); this reflects and
+   *  toggles that flyout's open state for the subagent extension row. */
+  subagentOpen: boolean;
+  onToggleSubagent: () => void;
   pruningSettings: PruningSettings;
   modelEntries: ReturnType<typeof orderModelsForPicker>;
   availableModels: ModelInfo[];
@@ -431,9 +441,12 @@ interface ExtensionItemProps {
   onSetPruningSettings: OnSetPruningSettings;
 }
 
-function ExtensionItem({ ext, prefs, onSetPrefs, isExpanded, setExpandedExt, pruningSettings, modelEntries, availableModels, skillCatalog, toolCatalog, onSetPruningSettings }: ExtensionItemProps) {
+function ExtensionItem({ ext, prefs, onSetPrefs, isExpanded, setExpandedExt, subagentOpen, onToggleSubagent, pruningSettings, modelEntries, availableModels, skillCatalog, toolCatalog, onSetPruningSettings }: ExtensionItemProps) {
   const checked = prefs.extensionToggles[ext.id] !== false;
   const hasSettings = EXTENSIONS_WITH_SETTINGS.has(ext.id);
+  // The subagent settings live in a side flyout; other extensions expand inline.
+  const expanded = ext.id === 'subagent' ? subagentOpen : isExpanded;
+  const onChevronClick = ext.id === 'subagent' ? onToggleSubagent : () => setExpandedExt(isExpanded ? null : ext.id);
   return (
     <div class="toolbar-settings-ext-group">
       <div class="toolbar-settings-ext-row">
@@ -454,17 +467,17 @@ function ExtensionItem({ ext, prefs, onSetPrefs, isExpanded, setExpandedExt, pru
         </button>
         {hasSettings && (
           <button
-            class={`toolbar-settings-ext-chevron${isExpanded ? ' expanded' : ''}`}
+            class={`toolbar-settings-ext-chevron${expanded ? ' expanded' : ''}`}
             type="button"
-            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${ext.label} settings`}
-            aria-expanded={isExpanded}
-            onClick={() => setExpandedExt(isExpanded ? null : ext.id)}
+            aria-label={`${expanded ? 'Collapse' : 'Expand'} ${ext.label} settings`}
+            aria-expanded={expanded}
+            onClick={onChevronClick}
           >
-            <CollapsibleChevron open={isExpanded} size={12} />
+            <CollapsibleChevron open={expanded} size={12} />
           </button>
         )}
       </div>
-      {hasSettings && isExpanded && ext.id === 'skill-pruner' && (
+      {hasSettings && expanded && ext.id === 'skill-pruner' && (
         <SkillPrunerSettings
           prefs={prefs}
           pruningSettings={pruningSettings}
@@ -474,14 +487,6 @@ function ExtensionItem({ ext, prefs, onSetPrefs, isExpanded, setExpandedExt, pru
           toolCatalog={toolCatalog}
           onSetPrefs={onSetPrefs}
           onSetPruningSettings={onSetPruningSettings}
-        />
-      )}
-      {hasSettings && isExpanded && ext.id === 'subagent' && (
-        <SubagentSettings
-          prefs={prefs}
-          onSetPrefs={onSetPrefs}
-          availableModels={availableModels}
-          modelEntries={modelEntries}
         />
       )}
     </div>
@@ -494,6 +499,8 @@ interface ExtensionsSectionProps {
   onSetPrefs: OnSetPrefs;
   expandedExt: string | null;
   setExpandedExt: (next: string | null) => void;
+  subagentOpen: boolean;
+  onToggleSubagent: () => void;
   pruningSettings: PruningSettings;
   modelEntries: ReturnType<typeof orderModelsForPicker>;
   availableModels: ModelInfo[];
@@ -502,7 +509,7 @@ interface ExtensionsSectionProps {
   onSetPruningSettings: OnSetPruningSettings;
 }
 
-function ExtensionsSection({ availableExtensions, prefs, onSetPrefs, expandedExt, setExpandedExt, pruningSettings, modelEntries, availableModels, skillCatalog, toolCatalog, onSetPruningSettings }: ExtensionsSectionProps) {
+function ExtensionsSection({ availableExtensions, prefs, onSetPrefs, expandedExt, setExpandedExt, subagentOpen, onToggleSubagent, pruningSettings, modelEntries, availableModels, skillCatalog, toolCatalog, onSetPruningSettings }: ExtensionsSectionProps) {
   return (
     <div key="extensions" class="toolbar-settings-section">
       <div class="toolbar-settings-section-label">Extensions</div>
@@ -515,6 +522,8 @@ function ExtensionsSection({ availableExtensions, prefs, onSetPrefs, expandedExt
             onSetPrefs={onSetPrefs}
             isExpanded={expandedExt === ext.id}
             setExpandedExt={setExpandedExt}
+            subagentOpen={subagentOpen}
+            onToggleSubagent={onToggleSubagent}
             pruningSettings={pruningSettings}
             modelEntries={modelEntries}
             availableModels={availableModels}

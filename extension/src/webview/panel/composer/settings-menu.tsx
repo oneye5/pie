@@ -16,6 +16,7 @@ import {
   ExtensionsSection,
   ProvidersSection,
   SoundSection,
+  SubagentFlyout,
   UiFlyout,
   UiSubmenuTrigger,
 } from './settings-menu-subcomponents';
@@ -63,6 +64,19 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
   const modelEntries = useMemo(() => orderModelsForPicker(availableModels), [availableModels]);
   const [expandedExt, setExpandedExt] = useState<string | null>(null);
   const [uiOpen, setUiOpen] = useState(false);
+  const [subagentOpen, setSubagentOpen] = useState(false);
+  // Only one side flyout can be open at a time — they share the space to the
+  // right of the settings menu, so opening one closes the other.
+  const toggleUi = () => setUiOpen((v) => {
+    const next = !v;
+    if (next) setSubagentOpen(false);
+    return next;
+  });
+  const toggleSubagent = () => setSubagentOpen((v) => {
+    const next = !v;
+    if (next) setUiOpen(false);
+    return next;
+  });
   const menuRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
@@ -162,7 +176,7 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
         <div ref={settingsMenuRef} class="toolbar-settings-menu" role="menu" aria-label="Chat settings menu">
           <div class="toolbar-settings-menu-body">
             <ChatPrefSections prefs={prefs} onSetPrefs={onSetPrefs} />
-            <UiSubmenuTrigger open={uiOpen} onToggle={() => setUiOpen((v) => !v)} />
+            <UiSubmenuTrigger open={uiOpen} onToggle={toggleUi} />
             <SoundSection prefs={prefs} onSetPrefs={onSetPrefs} />
             {availableExtensions.length > 0 && (
               <ExtensionsSection
@@ -171,6 +185,8 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
                 onSetPrefs={onSetPrefs}
                 expandedExt={expandedExt}
                 setExpandedExt={setExpandedExt}
+                subagentOpen={subagentOpen}
+                onToggleSubagent={toggleSubagent}
                 pruningSettings={pruningSettings}
                 modelEntries={modelEntries}
                 availableModels={availableModels}
@@ -184,6 +200,14 @@ export function ComposerSettingsMenu({ prefs, pruningSettings, pruningCatalog, p
             )}
           </div>
           {uiOpen && <UiFlyout prefs={prefs} onSetPrefs={onSetPrefs} />}
+          {subagentOpen && (
+            <SubagentFlyout
+              prefs={prefs}
+              onSetPrefs={onSetPrefs}
+              availableModels={availableModels}
+              modelEntries={modelEntries}
+            />
+          )}
         </div>
       )}
     </div>
