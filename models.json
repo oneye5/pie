@@ -661,6 +661,9 @@
           "id": "claude-opus-4.8",
           "name": "Copilot: Claude Opus 4.8",
           "api": "anthropic-messages",
+          "compat": {
+            "forceAdaptiveThinking": true
+          },
           "reasoning": true,
           "input": [
             "text",
