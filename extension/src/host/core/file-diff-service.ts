@@ -67,7 +67,16 @@ export class FileDiffService {
     const uri = vscode.Uri.file(resolvedPath);
     const kind = this.getFileChangeKind(sessionPath, filePath, resolvedPath);
     const emptyUri = this.toEmptyDiffUri(uri);
-    const originalUri = kind === 'created' ? emptyUri : this.toGitUri(uri, 'HEAD');
+    // Diff baseline: NOT a bare `HEAD`. The changed-files panel is derived
+    // from transcript tool calls, and pi agents commit their work after each
+    // task — so for any committed file `HEAD` already contains the agent's
+    // changes and a `HEAD`-vs-working-tree diff is empty (the "same file on
+    // both sides" bug). `resolveBaselineRef` walks the file's git history to
+    // the most recent commit whose content DIFFERS from the working tree —
+    // the pre-change baseline — falling back to `HEAD` when none is found.
+    const baselineRef =
+      kind === 'created' ? 'HEAD' : await this.resolveBaselineRef(resolvedPath);
+    const originalUri = kind === 'created' ? emptyUri : this.toGitUri(uri, baselineRef);
     const modifiedUri = kind === 'deleted' ? emptyUri : uri;
 
     try {
@@ -81,6 +90,93 @@ export class FileDiffService {
     } catch {
       await vscode.commands.executeCommand('git.openChange', uri);
     }
+  }
+
+  /**
+   * Resolve the git ref to diff a changed file against — the pre-change
+   * baseline rather than a bare `HEAD`.
+   *
+   * Walks the file's git history (commits that touched it, newest first) and
+   * returns the most recent commit whose content DIFFERS from the working
+   * tree. For an uncommitted (dirty) change that is `HEAD` itself (current
+   * behaviour preserved); for a change the agent has since committed it is the
+   * commit just before the change — without this, `HEAD` already holds the
+   * agent's edits and the diff is empty.
+   *
+   * Known limitation: if the agent made several commits to the same file
+   * during a session and the working tree matches the latest of them, the
+   * baseline is the commit before the LAST change, so the diff shows only
+   * that final delta rather than the whole session's churn. Returns `'HEAD'`
+   * (no regression) when the file is untracked, git is unavailable, or the
+   * walk finds no differing commit.
+   */
+  async resolveBaselineRef(resolvedPath: string): Promise<string> {
+    const dir = path.dirname(resolvedPath);
+    try {
+      const { stdout, code } = await this.execGit(dir, [
+        'log',
+        '--format=%H',
+        '-n',
+        '50',
+        '--',
+        resolvedPath,
+      ]);
+      if (code !== 0) return 'HEAD';
+      const shas = stdout
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean);
+      for (const sha of shas) {
+        if (await this.differsFromCommit(dir, sha, resolvedPath)) return sha;
+      }
+      return 'HEAD';
+    } catch {
+      return 'HEAD';
+    }
+  }
+
+  /** Whether the working-tree version of `absPath` differs from its content
+   * at `sha`. `git diff --quiet` exits 0 when identical, 1 when different, and
+   *  — unlike `--exit-code` — emits no patch to stdout, so it can't overflow
+   *  the exec buffer on large changes. */
+  private async differsFromCommit(
+    dir: string,
+    sha: string,
+    absPath: string,
+  ): Promise<boolean> {
+    const { code } = await this.execGit(dir, ['diff', '--quiet', sha, '--', absPath]);
+    if (code === 0) return false;
+    if (code === 1) return true;
+    throw new Error(`git diff --quiet ${sha} exited ${code}`);
+  }
+
+  /** Run `git` in `dir`; resolve `{ stdout, code }`. Non-zero exit codes (e.g.
+   *  `git diff --exit-code` → 1 on differences, 128 for a bad ref) resolve with
+   *  their code for callers to inspect; only non-numeric failures (git not
+   *  installed) reject. */
+  private execGit(
+    dir: string,
+    args: string[],
+  ): Promise<{ stdout: string; code: number }> {
+    return new Promise((resolve, reject) => {
+      cp.execFile(
+        'git',
+        args,
+        { cwd: dir, maxBuffer: 1024 * 1024 },
+        (err, stdout) => {
+          if (err) {
+            const code = (err as { code?: number }).code;
+            if (typeof code === 'number') {
+              resolve({ stdout: typeof stdout === 'string' ? stdout : '', code });
+              return;
+            }
+            reject(err);
+            return;
+          }
+          resolve({ stdout: typeof stdout === 'string' ? stdout : '', code: 0 });
+        },
+      );
+    });
   }
 
   async openFileInEditor(sessionPath: string, filePath: string): Promise<void> {

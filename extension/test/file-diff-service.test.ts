@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import fs from 'node:fs/promises';
+import os from 'node:os';
 import { Module } from 'node:module';
 
 import { createInitialArchState } from '../src/host/core/arch-state';
@@ -13,12 +17,38 @@ import type { FileChangeEntry } from '../src/shared/protocol';
 // 'vscode' specifier at the CJS loader and return an inline mock. The mock's
 // `workspace.workspaceFolders` is mutable so per-test cases can exercise both
 // the "fallback present" and "fallback absent" branches of resolveFileChangePath.
+// `commands.executeCommand` records every call so diff/open wiring tests can
+// inspect the URIs handed to `vscode.diff` (e.g. the baseline git ref).
+const capturedCommands: Array<{ cmd: string; args: unknown[] }> = [];
+
+// A minimal Uri mock whose `with()` returns a fresh object carrying the
+// `scheme`/`query` patch — enough for FileDiffService.toGitUri / toEmptyDiffUri
+// to build `git://` diff URIs whose `query` the tests can parse.
+function mockUri(p: string): Record<string, unknown> {
+  const base: Record<string, unknown> = {
+    fsPath: p,
+    scheme: 'file',
+    path: p,
+    query: '',
+    fragment: '',
+  };
+  return {
+    ...base,
+    with: (patch: Record<string, unknown>): Record<string, unknown> => ({ ...base, ...patch }),
+  };
+}
+
 const vscodeMock = {
   workspace: {
     workspaceFolders: undefined as Array<{ uri: { fsPath: string } }> | undefined,
   },
-  Uri: { file: (p: string) => ({ fsPath: p }) },
-  commands: { executeCommand: async () => undefined },
+  Uri: { file: (p: string) => mockUri(p) },
+  commands: {
+    executeCommand: async (...args: unknown[]): Promise<undefined> => {
+      capturedCommands.push({ cmd: args[0] as string, args: args.slice(1) });
+      return undefined;
+    },
+  },
   window: { showWarningMessage: async () => undefined },
 };
 // `Module._load` is an internal/undocumented hook (absent from @types/node),
@@ -39,6 +69,7 @@ let origLoad: ((request: string, ...rest: unknown[]) => unknown) | undefined;
 // resolves `vscode` at load time. arch-state is pure (no vscode) so it is
 // imported statically above.
 let FileDiffService: typeof import('../src/host/core/file-diff-service').FileDiffService;
+let EMPTY_DIFF_SCHEME: typeof import('../src/host/core/file-diff-service').EMPTY_DIFF_SCHEME;
 
 test.before(async () => {
   origLoad = NodeModule._load.bind(NodeModule);
@@ -47,7 +78,7 @@ test.before(async () => {
     return origLoad!(request, ...rest);
   };
   try {
-    ({ FileDiffService } = await import('../src/host/core/file-diff-service'));
+    ({ FileDiffService, EMPTY_DIFF_SCHEME } = await import('../src/host/core/file-diff-service'));
   } finally {
     NodeModule._load = origLoad;
     origLoad = undefined;
@@ -85,6 +116,12 @@ function archStateWith(over: {
 function entry(pathStr: string, kind: FileChangeEntry['kind']): FileChangeEntry {
   return { path: pathStr, kind, toolCallId: 't', messageId: 'm', description: '', timestamp: '' };
 }
+
+// Clear captured vscode command calls between tests so wiring assertions
+// only see their own `vscode.diff` invocation.
+test.beforeEach(() => {
+  capturedCommands.length = 0;
+});
 
 // ─── resolveFileChangePath ───────────────────────────────────────────────────
 
@@ -177,4 +214,185 @@ test('getFileChangeKind picks the matching entry out of several', () => {
 test('getFileChangeKind treats an empty entry list for the session as "modified"', () => {
   const svc = new FileDiffService(() => archStateWith({ fileChanges: { s: [] } }));
   assert.equal(svc.getFileChangeKind('s', 'x.txt', '/abs/x.txt'), 'modified');
+});
+
+// ─── resolveBaselineRef / openFileDiff baseline ───────────────────────────────
+//
+// The changed-files panel is derived from transcript tool calls, and pi
+// agents commit their work after each task — so a bare `HEAD` baseline
+// already holds the agent's edits and the diff is empty (the "same file on
+// both sides" bug). These integration tests spin up a real throwaway git
+// repo to verify `resolveBaselineRef` finds the pre-change baseline and that
+// `openFileDiff` actually diffs against it.
+
+const execFileP = promisify(execFile);
+
+/** Run git in `dir`; returns `{stdout, code}`. `git diff --exit-code` exits 1
+ *  on differences (not an error), so a non-zero numeric `code` is surfaced for
+ *  the caller to inspect rather than rejected. */
+async function git(
+  dir: string,
+  args: string[],
+): Promise<{ stdout: string; code: number }> {
+  try {
+    const { stdout } = await execFileP('git', args, { cwd: dir, maxBuffer: 1024 * 1024 });
+    return { stdout, code: 0 };
+  } catch (e) {
+    const err = e as { code?: number | string; stdout?: string };
+    if (typeof err.code === 'number') return { stdout: err.stdout ?? '', code: err.code };
+    throw e;
+  }
+}
+
+async function initRepo(dir: string): Promise<void> {
+  await git(dir, ['init', '-q']);
+  await git(dir, ['config', 'user.email', 'test@example.com']);
+  await git(dir, ['config', 'user.name', 'Test']);
+  await git(dir, ['config', 'commit.gpgsign', 'false']);
+}
+
+/** Stage everything in `dir` and commit; returns the new HEAD SHA. */
+async function commit(dir: string, message: string): Promise<string> {
+  await git(dir, ['add', '-A']);
+  await git(dir, ['commit', '-q', '-m', message]);
+  const { stdout } = await git(dir, ['rev-parse', 'HEAD']);
+  return stdout.trim();
+}
+
+async function withTempRepo(run: (dir: string) => Promise<void>): Promise<void> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'pie-diff-test-'));
+  try {
+    await initRepo(dir);
+    await run(dir);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+}
+
+test('resolveBaselineRef returns the pre-change commit when the agent change has been committed', async () => {
+  await withTempRepo(async (dir) => {
+    const file = path.join(dir, 'f.txt');
+    await fs.writeFile(file, 'v1\n');
+    const initial = await commit(dir, 'initial');
+    await fs.writeFile(file, 'v2\n'); // agent edits …
+    await commit(dir, 'agent change'); // … and commits → working tree clean (== HEAD)
+
+    const svc = new FileDiffService(() => createInitialArchState());
+    const ref = await svc.resolveBaselineRef(file);
+
+    // Baseline is the pre-change commit (v1), NOT HEAD (v2) — the fix.
+    assert.equal(ref, initial);
+    const { stdout: baselineContent } = await git(dir, ['show', `${ref}:f.txt`]);
+    assert.equal(baselineContent, 'v1\n');
+  });
+});
+
+test('resolveBaselineRef returns HEAD when the change is uncommitted (dirty working tree)', async () => {
+  await withTempRepo(async (dir) => {
+    const file = path.join(dir, 'f.txt');
+    await fs.writeFile(file, 'v1\n');
+    const head = await commit(dir, 'initial');
+    await fs.writeFile(file, 'v2\n'); // uncommitted agent edit
+
+    const svc = new FileDiffService(() => createInitialArchState());
+    // Working tree differs from HEAD → HEAD itself is the baseline (returned
+    // as its SHA, which resolves identically to the literal "HEAD" ref).
+    const ref = await svc.resolveBaselineRef(file);
+    assert.equal(ref, head);
+    const { stdout: baselineContent } = await git(dir, ['show', `${ref}:f.txt`]);
+    assert.equal(baselineContent, 'v1\n');
+  });
+});
+
+test('resolveBaselineRef falls back to HEAD for an untracked file', async () => {
+  await withTempRepo(async (dir) => {
+    const file = path.join(dir, 'new.txt');
+    await fs.writeFile(file, 'hi\n'); // never committed
+
+    const svc = new FileDiffService(() => createInitialArchState());
+    assert.equal(await svc.resolveBaselineRef(file), 'HEAD');
+  });
+});
+
+test('resolveBaselineRef is robust to unrelated later commits that do not touch the file', async () => {
+  // The agent committed the file, then the user committed an UNRELATED file —
+  // HEAD no longer touches f.txt, but the baseline must still be the pre-change
+  // commit (found via `git log -- <path>`), not the unrelated HEAD.
+  await withTempRepo(async (dir) => {
+    const file = path.join(dir, 'f.txt');
+    await fs.writeFile(file, 'v1\n');
+    const initial = await commit(dir, 'initial');
+    await fs.writeFile(file, 'v2\n');
+    await commit(dir, 'agent change');
+    await fs.writeFile(path.join(dir, 'other.txt'), 'x\n');
+    await commit(dir, 'unrelated user commit');
+
+    const svc = new FileDiffService(() => createInitialArchState());
+    assert.equal(await svc.resolveBaselineRef(file), initial);
+  });
+});
+
+test('resolveBaselineRef finds the pre-deletion commit for a file the agent deleted and committed', async () => {
+  // kind=deleted → modifiedUri is the empty diff; the LEFT side must be the
+  // file's content just before deletion. The walk skips the delete commit
+  // (file absent on both sides → no diff) and lands on the last content commit.
+  await withTempRepo(async (dir) => {
+    const file = path.join(dir, 'f.txt');
+    await fs.writeFile(file, 'v1\n');
+    const content = await commit(dir, 'initial');
+    await fs.rm(file);
+    await commit(dir, 'agent deletes file'); // working tree clean, file absent
+
+    const svc = new FileDiffService(() => createInitialArchState());
+    const ref = await svc.resolveBaselineRef(file);
+    assert.equal(ref, content);
+    const { stdout: baselineContent } = await git(dir, ['show', `${ref}:f.txt`]);
+    assert.equal(baselineContent, 'v1\n');
+  });
+});
+
+test('openFileDiff diffs a committed agent change against the pre-change baseline, not HEAD', async () => {
+  await withTempRepo(async (dir) => {
+    const file = path.join(dir, 'f.txt');
+    await fs.writeFile(file, 'v1\n');
+    const initial = await commit(dir, 'initial');
+    await fs.writeFile(file, 'v2\n');
+    await commit(dir, 'agent change');
+
+    const svc = new FileDiffService(() =>
+      archStateWith({
+        sessions: [{ path: 's', cwd: dir }],
+        fileChanges: { s: [entry('f.txt', 'modified')] },
+      }),
+    );
+    await svc.openFileDiff('s', 'f.txt');
+
+    const diffCall = capturedCommands.find((c) => c.cmd === 'vscode.diff');
+    assert.ok(diffCall, 'vscode.diff was not invoked');
+    const originalUri = diffCall!.args[0] as { scheme: string; query: string };
+    assert.equal(originalUri.scheme, 'git');
+    const { ref } = JSON.parse(originalUri.query) as { path: string; ref: string };
+    assert.equal(ref, initial, 'diff left side should be the pre-change commit, not HEAD');
+  });
+});
+
+test('openFileDiff uses the empty diff for a created file regardless of git state', async () => {
+  await withTempRepo(async (dir) => {
+    const file = path.join(dir, 'created.txt');
+    await fs.writeFile(file, 'new\n');
+    await commit(dir, 'create'); // already committed, but kind=created → empty left side
+
+    const svc = new FileDiffService(() =>
+      archStateWith({
+        sessions: [{ path: 's', cwd: dir }],
+        fileChanges: { s: [entry('created.txt', 'created')] },
+      }),
+    );
+    await svc.openFileDiff('s', 'created.txt');
+
+    const diffCall = capturedCommands.find((c) => c.cmd === 'vscode.diff');
+    assert.ok(diffCall, 'vscode.diff was not invoked');
+    const originalUri = diffCall!.args[0] as { scheme: string };
+    assert.equal(originalUri.scheme, EMPTY_DIFF_SCHEME);
+  });
 });
