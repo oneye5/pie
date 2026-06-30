@@ -14,19 +14,14 @@ import {
   writeSiteData,
 } from './site-data.ts';
 import {
+  DEFAULT_OUTCOMES_ROOT,
   DEFAULT_SITE_DATA_DIR,
   loadSourceAnalytics,
 } from './source.ts';
-import {
-  detectPreferredStorageDir,
-  listStorageDirCandidates,
-} from './source-auto.ts';
+import { listStorageDirCandidates } from './source-auto.ts';
 import { toErrorMessage } from '../../shared/error-message.js';
 
 const SITE_ROOT = fileURLToPath(new URL('../site', import.meta.url));
-const ANALYSIS_ROOT = path.resolve(SITE_ROOT, '..');
-const WORKSPACE_ROOT = path.resolve(ANALYSIS_ROOT, '..');
-const DEFAULT_OUTCOMES_ROOT = path.join(WORKSPACE_ROOT, 'data', 'outcomes');
 const DEFAULT_PORT = 4173;
 
 const MIME_TYPES: Record<string, string> = {
@@ -58,7 +53,7 @@ async function isUsableStorageDir(storageDir: string): Promise<boolean> {
 }
 
 interface ResolvedSourceSelection {
-  selection: { exportPath: string } | { storageDir: string };
+  selection: { exportPath?: string; storageDir?: string; outcomesRoot?: string };
   message?: string;
 }
 
@@ -74,29 +69,18 @@ async function resolveServeSourceSelection(options: ReturnType<typeof parseCliOp
     return { selection: { storageDir: options.storageDir } };
   }
 
-  const preferredStorageDir = await detectPreferredStorageDir(DEFAULT_OUTCOMES_ROOT, WORKSPACE_ROOT);
-  if (preferredStorageDir) {
-    return {
-      selection: { storageDir: preferredStorageDir },
-      message: `[pie-analysis] Auto-selected workspace-matching run store: ${preferredStorageDir}`,
-    };
-  }
-
+  // Default: aggregate every run store under the outcomes root so the dashboard
+  // reports across all workspaces (including migrated data from old repo
+  // paths). Use --storage-dir / --export to narrow to a single source.
   const candidates = await listStorageDirCandidates(DEFAULT_OUTCOMES_ROOT);
   if (candidates.length === 0) {
     return null;
   }
 
-  if (candidates.length === 1) {
-    return {
-      selection: { storageDir: candidates[0]!.storageDir },
-      message: `[pie-analysis] No workspace-hash match found; using only available run store: ${candidates[0]!.storageDir}`,
-    };
-  }
-
-  throw new Error(
-    `Multiple run stores found under ${DEFAULT_OUTCOMES_ROOT} but none matches this workspace hash. Pass --storage-dir explicitly. Candidates: ${candidates.map((candidate) => candidate.storageDir).join(', ')}`,
-  );
+  return {
+    selection: {},
+    message: `[pie-analysis] Aggregating ${candidates.length} run store(s) under ${DEFAULT_OUTCOMES_ROOT}`,
+  };
 }
 
 async function refreshSiteDataForServe(options: ReturnType<typeof parseCliOptions>): Promise<void> {
@@ -131,6 +115,7 @@ async function refreshSiteDataForServe(options: ReturnType<typeof parseCliOption
 
   console.log(`Site data refreshed from ${loaded.sourceKind} source: ${loaded.sourcePath}`);
   console.log(`Workspace key: ${loaded.source.workspaceKey} · exported: ${loaded.source.exportedAt}`);
+  console.log(`Runs loaded: ${prepared.runs.length}`);
 }
 
 async function main(): Promise<void> {

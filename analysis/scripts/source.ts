@@ -14,6 +14,7 @@ import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseJsonOrThrow } from '../../shared/error-message.js';
+import { listStorageDirCandidates } from './source-auto.ts';
 
 import {
   RUN_ANALYTICS_SCHEMA_VERSION,
@@ -45,11 +46,13 @@ import {
 } from './contracts.ts';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
+const CONFIG_ROOT = path.resolve(SCRIPT_DIR, '..', '..');
 
 export const DEFAULT_FIXTURE_PATH = fileURLToPath(new URL('../fixtures/small-run-analytics.json', import.meta.url));
 export const DEFAULT_SITE_DATA_DIR = fileURLToPath(new URL('../site/data', import.meta.url));
 export const DEFAULT_DUCKDB_PATH = fileURLToPath(new URL('../data/usage.duckdb', import.meta.url));
 export const DEFAULT_STAGING_EXPORTS_DIR = fileURLToPath(new URL('../data/exports', import.meta.url));
+export const DEFAULT_OUTCOMES_ROOT = path.join(CONFIG_ROOT, 'data', 'outcomes');
 
 const INPUT_KINDS = new Set<InputKind>(['filesystemPathRef', 'imageBlob', 'fileBlob']);
 const THINKING_LEVELS = new Set<ThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
@@ -98,6 +101,11 @@ const LEGACY_RESULT_ISSUE_KIND_MAP: Record<string, ToolResultIssueKind> = {
 export interface SourceSelection {
   exportPath?: string;
   storageDir?: string;
+  /**
+   * Aggregate every run store found under this directory. When omitted (and no
+   * exportPath/storageDir is given), defaults to {@link DEFAULT_OUTCOMES_ROOT}.
+   */
+  outcomesRoot?: string;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -1034,8 +1042,46 @@ async function querySourceAnalyticsPayloadFromStorageDir(storageDir: string): Pr
   };
 }
 
+/**
+ * Aggregate every run store found under an outcomes root into a single
+ * payload. Each `<hash>` subdirectory is one workspace's store (the hash is
+ * derived from the VS Code workspace folder path, which may be an ancestor of
+ * this package). Merging across stores — and deduplicating by runId later in
+ * `prepareSourceAnalytics` — lets the dashboard report across all workspaces,
+ * including migrated data recorded under old repo paths. Returns the merged
+ * payload and the number of stores that contributed.
+ */
+async function queryAllRunAnalyticsStores(
+  outcomesRootDir: string,
+): Promise<{ source: SourceAnalyticsPayload; storeCount: number }> {
+  const candidates = await listStorageDirCandidates(outcomesRootDir);
+  const completedRuns: RunSnapshot[] = [];
+  const openRuns: RunSnapshot[] = [];
+  const outcomes: OutcomeHistoryLogEntry[] = [];
+
+  for (const { storageDir } of candidates) {
+    const result = await querySourceAnalyticsPayloadFromStorageDir(storageDir);
+    completedRuns.push(...result.completedRuns);
+    openRuns.push(...result.openRuns);
+    outcomes.push(...result.outcomes);
+  }
+
+  const source: SourceAnalyticsPayload = {
+    schemaVersion: RUN_ANALYTICS_SCHEMA_VERSION,
+    exportedAt: new Date().toISOString(),
+    workspaceKey: 'all',
+    completedRuns,
+    openRuns,
+    outcomes,
+    pruningDecisions: [],
+    pruningEvents: [],
+  };
+
+  return { source, storeCount: candidates.length };
+}
+
 export async function loadSourceAnalytics(selection: SourceSelection = {}): Promise<LoadedSourceAnalytics> {
-  const configRoot = path.resolve(SCRIPT_DIR, '..', '..');
+  const configRoot = CONFIG_ROOT;
   if (selection.exportPath) {
     const source = await readSourceAnalyticsPayload(selection.exportPath);
     const { decisions, events } = readPruningLog(configRoot);
@@ -1060,12 +1106,28 @@ export async function loadSourceAnalytics(selection: SourceSelection = {}): Prom
     };
   }
 
-  const source = await readSourceAnalyticsPayload(DEFAULT_FIXTURE_PATH);
+  // Default: aggregate every run store under the outcomes root (all
+  // workspaces, including migrated data recorded under old repo paths). Falls
+  // back to the bundled fixture only when no local run stores exist, so the
+  // dashboard still renders in a fresh checkout.
+  const outcomesRoot = selection.outcomesRoot ?? DEFAULT_OUTCOMES_ROOT;
+  const { source, storeCount } = await queryAllRunAnalyticsStores(outcomesRoot);
   const { decisions, events } = readPruningLog(configRoot);
-  source.pruningDecisions = decisions;
-  source.pruningEvents = events;
+  if (storeCount > 0) {
+    source.pruningDecisions = decisions;
+    source.pruningEvents = events;
+    return {
+      source,
+      sourceKind: 'all-stores',
+      sourcePath: outcomesRoot,
+    };
+  }
+
+  const fixtureSource = await readSourceAnalyticsPayload(DEFAULT_FIXTURE_PATH);
+  fixtureSource.pruningDecisions = decisions;
+  fixtureSource.pruningEvents = events;
   return {
-    source,
+    source: fixtureSource,
     sourceKind: 'fixture',
     sourcePath: DEFAULT_FIXTURE_PATH,
   };

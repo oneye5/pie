@@ -3,11 +3,13 @@ import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
 import test from 'node:test';
 
-import { RUN_ANALYTICS_SCHEMA_VERSION, type SourceAnalyticsPayload } from '../scripts/contracts.ts';
+import { RUN_ANALYTICS_SCHEMA_VERSION, type RunSnapshot, type SourceAnalyticsPayload } from '../scripts/contracts.ts';
+import { prepareSourceAnalytics } from '../scripts/prepare.ts';
 import {
   coerceOutcomeHistoryEntry,
   coerceRunSnapshot,
   coerceSourceAnalyticsPayload,
+  DEFAULT_FIXTURE_PATH,
   loadSourceAnalytics,
   readSourceAnalyticsPayload,
 } from '../scripts/source.ts';
@@ -84,6 +86,72 @@ test('loadSourceAnalytics can query a storage-dir run store', async () => {
     assert.equal(loaded.source.openRuns.length, 1);
     assert.equal(loaded.source.outcomes.length, 2);
     assert.equal(loaded.source.workspaceKey, path.basename(dir));
+  });
+});
+
+async function writeRunSnapshotsJsonl(dir: string, runs: RunSnapshot[]): Promise<void> {
+  const lines = runs.map((run) => JSON.stringify({
+    schemaVersion: RUN_ANALYTICS_SCHEMA_VERSION,
+    kind: 'run_snapshot',
+    recordedAt: run.updatedAt,
+    run,
+  }));
+  await fs.writeFile(path.join(dir, 'run-snapshots.jsonl'), `${lines.join('\n')}\n`, 'utf8');
+}
+
+test('loadSourceAnalytics aggregates every run store under an outcomes root', async () => {
+  await withTempDir(async (outcomesRoot) => {
+    const fixture = await loadFixture();
+    // Two distinct workspace-hash stores under the outcomes root.
+    const storeA = path.join(outcomesRoot, 'aaaaaaaaaaaaaaaa');
+    const storeB = path.join(outcomesRoot, 'bbbbbbbbbbbbbbbb');
+    await fs.mkdir(storeA, { recursive: true });
+    await fs.mkdir(storeB, { recursive: true });
+
+    const runsA = fixture.completedRuns.slice(0, 3);
+    const runsB = fixture.completedRuns.slice(3, 6);
+    await writeRunSnapshotsJsonl(storeA, runsA);
+    await writeRunSnapshotsJsonl(storeB, runsB);
+    // outcome-history.jsonl presence is what makes a dir qualify as a store.
+    await fs.writeFile(path.join(storeA, 'outcome-history.jsonl'), '', 'utf8');
+    await fs.writeFile(path.join(storeB, 'outcome-history.jsonl'), '', 'utf8');
+
+    const loaded = await loadSourceAnalytics({ outcomesRoot });
+    assert.equal(loaded.sourceKind, 'all-stores');
+    assert.equal(loaded.sourcePath, outcomesRoot);
+    assert.equal(loaded.source.workspaceKey, 'all');
+    // Merged source carries runs from both stores (dedup happens later in prepare).
+    assert.equal(loaded.source.completedRuns.length, runsA.length + runsB.length);
+  });
+});
+
+test('loadSourceAnalytics dedupes the same runId across stores via prepare', async () => {
+  await withTempDir(async (outcomesRoot) => {
+    const fixture = await loadFixture();
+    const storeA = path.join(outcomesRoot, 'aaaaaaaaaaaaaaaa');
+    const storeB = path.join(outcomesRoot, 'bbbbbbbbbbbbbbbb');
+    await fs.mkdir(storeA, { recursive: true });
+    await fs.mkdir(storeB, { recursive: true });
+
+    // Same run written to both stores (e.g. a run whose analytics landed in two places).
+    const sharedRun = fixture.completedRuns[0]!;
+    await writeRunSnapshotsJsonl(storeA, [sharedRun]);
+    await writeRunSnapshotsJsonl(storeB, [sharedRun]);
+    await fs.writeFile(path.join(storeA, 'outcome-history.jsonl'), '', 'utf8');
+    await fs.writeFile(path.join(storeB, 'outcome-history.jsonl'), '', 'utf8');
+
+    const loaded = await loadSourceAnalytics({ outcomesRoot });
+    assert.equal(loaded.source.completedRuns.length, 2); // merged before dedup
+    const prepared = prepareSourceAnalytics(loaded.source);
+    assert.equal(prepared.runs.length, 1); // deduped to a single run
+  });
+});
+
+test('loadSourceAnalytics falls back to the fixture when no run stores exist', async () => {
+  await withTempDir(async (outcomesRoot) => {
+    const loaded = await loadSourceAnalytics({ outcomesRoot });
+    assert.equal(loaded.sourceKind, 'fixture');
+    assert.equal(loaded.sourcePath, DEFAULT_FIXTURE_PATH);
   });
 });
 

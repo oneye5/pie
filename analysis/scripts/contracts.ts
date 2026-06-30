@@ -288,7 +288,7 @@ export interface SourceAnalyticsPayload {
 
 export interface LoadedSourceAnalytics {
   source: SourceAnalyticsPayload;
-  sourceKind: 'fixture' | 'export' | 'storage-dir';
+  sourceKind: 'fixture' | 'export' | 'storage-dir' | 'all-stores';
   sourcePath: string;
 }
 

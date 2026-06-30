@@ -87,36 +87,6 @@ export async function workspaceStorageHashCandidates(
   return hashes;
 }
 
-/**
- * Returns ancestor paths of the workspace root (each parent up to the
- * filesystem root), normalized the same way workspace keys are.
- *
- * VS Code's workspace folder may be an ancestor of the analysis package —
- * e.g. a multi-repo workspace root such as `.../GitHub` when this package
- * lives at `.../GitHub/pie`. Run analytics are recorded against whatever
- * folder VS Code had open, so those ancestors are also considered when
- * matching a run store. Acceptance still requires an exact hash match against
- * an existing candidate directory, so considering extra ancestors cannot
- * produce a false positive.
- */
-function listAncestorWorkspaceRootPaths(
-  workspaceRootPath: string,
-  platform: NodeJS.Platform = process.platform,
-): string[] {
-  const pathApi = platform === 'win32' ? path.win32 : path.posix;
-  let current = normalizeFileSystemPathForWorkspaceKey(workspaceRootPath, platform);
-  const ancestors: string[] = [];
-  for (let depth = 0; depth < 32; depth += 1) {
-    const parent = pathApi.dirname(current);
-    if (parent === current) {
-      break;
-    }
-    ancestors.push(parent);
-    current = parent;
-  }
-  return ancestors;
-}
-
 async function readLatestActivityMs(storageDir: string): Promise<number | null> {
   let latest: number | null = null;
 
@@ -179,9 +149,6 @@ export async function detectPreferredStorageDir(
   }
 
   const preferredHashes = await workspaceStorageHashCandidates(workspaceRootPath, platform);
-  for (const ancestorPath of listAncestorWorkspaceRootPaths(workspaceRootPath, platform)) {
-    preferredHashes.add(workspaceStorageHash(buildWorkspaceAnalyticsIdFromRoot(ancestorPath, platform)));
-  }
   const preferredCandidate = candidates.find((candidate) => preferredHashes.has(path.basename(candidate.storageDir)));
   return preferredCandidate?.storageDir ?? null;
 }
