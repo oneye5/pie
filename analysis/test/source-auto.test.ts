@@ -58,6 +58,26 @@ test('detectPreferredStorageDir returns null when no workspace-hash match exists
   });
 });
 
+test('detectPreferredStorageDir matches a store whose workspace folder is an ancestor', async () => {
+  await withTempDir(async (outcomesRoot) => {
+    // The analysis package lives at .../nested/pie-analysis, but VS Code had the
+    // parent folder .../nested open, so run analytics were recorded against it.
+    const workspaceRoot = 'D:\\Repo\\nested\\pie-analysis';
+    const ancestorRoot = 'D:\\Repo\\nested';
+    const ancestorHash = workspaceStorageHash(buildWorkspaceAnalyticsIdFromRoot(ancestorRoot, 'win32'));
+
+    const ancestorDir = path.join(outcomesRoot, ancestorHash);
+    const newerDecoyDir = path.join(outcomesRoot, 'ffffffffffffffff');
+
+    await writeArtifact(ancestorDir, 'run-snapshots.jsonl', 1_000);
+    // A newer store with a non-matching hash must not win over the ancestor match.
+    await writeArtifact(newerDecoyDir, 'run-snapshots.jsonl', 5_000);
+
+    const selected = await detectPreferredStorageDir(outcomesRoot, workspaceRoot, 'win32');
+    assert.equal(selected, ancestorDir);
+  });
+});
+
 test('detectLatestStorageDir returns the most recently active storage dir', async () => {
   await withTempDir(async (outcomesRoot) => {
     const olderDir = path.join(outcomesRoot, '1111111111111111');
