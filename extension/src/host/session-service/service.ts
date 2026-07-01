@@ -222,6 +222,7 @@ export class SessionService implements vscode.Disposable {
       subagentMaxDepth: merged.subagentMaxDepth,
       subagentMaxTreeSessions: merged.subagentMaxTreeSessions,
       subagentBuckets: merged.subagentBuckets,
+      subagentNestedAllowedBuckets: merged.subagentNestedAllowedBuckets,
     }).catch((error) => {
       // Non-fatal: the backend may be restarting or may not support runtime prefs yet.
       console.warn('[pie] runtimePrefs.set failed (non-fatal):', toErrorMessage(error));

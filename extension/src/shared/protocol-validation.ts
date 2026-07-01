@@ -132,6 +132,18 @@ function isSubagentBucketsPatch(value: unknown): boolean {
   return true;
 }
 
+/** A partial {@link NestedAllowedBuckets} patch: an object whose present
+ *  `small`/`medium`/`frontier` keys are each a boolean (missing keys are allowed
+ *  and normalized to `true` by the reducer). */
+function isNestedAllowedBucketsPatch(value: unknown): boolean {
+  if (!isObject(value)) return false;
+  for (const key of ['small', 'medium', 'frontier'] as const) {
+    const v = value[key];
+    if (v !== undefined && typeof v !== 'boolean') return false;
+  }
+  return true;
+}
+
 function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
   if (!isObject(value)) return false;
   const booleanKeys: Array<keyof ChatPrefs> = [
@@ -177,6 +189,10 @@ function validateChatPrefsPatch(value: unknown): value is Partial<ChatPrefs> {
     }
     if (key === 'subagentBuckets') {
       if (v !== undefined && !isSubagentBucketsPatch(v)) return false;
+      continue;
+    }
+    if (key === 'subagentNestedAllowedBuckets') {
+      if (v !== undefined && !isNestedAllowedBucketsPatch(v)) return false;
       continue;
     }
     if ((booleanKeys as string[]).includes(key)) {

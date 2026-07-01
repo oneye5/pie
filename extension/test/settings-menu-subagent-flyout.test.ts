@@ -45,6 +45,25 @@ test('SubagentFlyout renders the flyout chrome, toggle, buckets, and nesting con
   assert.match(html, /Tree session budget</);
 });
 
+test('SubagentFlyout renders the nested-bucket allowlist toggles reflecting prefs', () => {
+  const html = renderToString(
+    h(SubagentFlyout, {
+      prefs: prefsWith({ subagentNestedAllowedBuckets: { small: true, medium: true, frontier: false } }),
+      onSetPrefs: () => undefined,
+      availableModels: AVAILABLE_MODELS,
+      modelEntries: orderModelsForPicker(AVAILABLE_MODELS),
+    }),
+  );
+
+  // Group label + hint explain the downgrade behaviour.
+  assert.match(html, /Nested bucket allowlist</);
+  assert.match(html, /downgraded to the highest allowed tier/);
+  // All three tier toggles render, highest tier first.
+  assert.match(html, /Allow Frontier \(Opus\)/);
+  assert.match(html, /Allow Medium \(Sonnet\)/);
+  assert.match(html, /Allow Small \(Haiku\)/);
+});
+
 test('SubagentFlyout renders selected bucket models as chips labelled with model names', () => {
   const html = renderToString(
     h(SubagentFlyout, {

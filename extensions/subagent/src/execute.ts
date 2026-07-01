@@ -5,6 +5,7 @@
 import type { ExtensionAPI, ToolContext } from "@mariozechner/pi-coding-agent";
 import { existsSync, readFileSync } from "node:fs";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseJsonOrThrow } from "../../../shared/error-message.js";
 import { type AgentConfig, type AgentScope, discoverAgents } from "../agents.js";
 import {
@@ -25,19 +26,23 @@ import {
 	type ThinkingLevel,
 	type BucketAssignments,
 	type SimpleModelConfig,
+	type NestedAllowedBuckets,
+	ALL_NESTED_BUCKETS_ALLOWED,
 	PROVIDER_TOGGLES_ENV,
 	getAllowedModelIdsForProviders,
 	getDisabledProviders,
 	loadModelConfig,
 	parseProviderToggles,
 	readBucketAssignments,
+	readNestedAllowedBuckets,
+	downgradeBucketForNested,
 	selectModel,
 } from "../bucket-selector.js";
 import { MAX_SESSIONS_PER_CALL, makeDetails } from "./helpers.js";
 import type { ParentBridge } from "./parent-extension-ui-bridge-proxy.js";
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
-const CONFIG_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
+const CONFIG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 /** Environment key used by the pie host to force sub-agents to use the parent model. */
 const SUBAGENT_ALWAYS_PARENT_MODEL_ENV = "PIE_SUBAGENT_ALWAYS_PARENT_MODEL";
@@ -85,6 +90,10 @@ export interface SelectionContext {
 	bucketAssignments: BucketAssignments | undefined;
 	/** When true, skip bucket selection and always use the parent's active model. */
 	alwaysParentModel: boolean;
+	/** Per-tier allowlist restricting which buckets *nested* subagents (depth ≥ 1)
+	 *  may use. Read once from the env mirror (PIE_SUBAGENT_NESTED_ALLOWED_BUCKETS_JSON).
+	 *  All-true (the default) leaves behaviour unchanged. */
+	nestedAllowedBuckets: NestedAllowedBuckets;
 }
 
 /**
@@ -143,7 +152,14 @@ export function validateSubagentParams(
 	return { ok: true, mode, invalidResults };
 }
 
-/** Resolves which model to use for an agent based on bucket hint and configuration. */
+/** Resolves which model to use for an agent based on bucket hint and configuration.
+ *
+ *  `childDepth` is the depth of the subagent being spawned (parent depth + 1).
+ *  When ≥ 1 (i.e. every subagent spawn — the root caller never reaches here),
+ *  the nested-bucket allowlist is applied: a requested bucket not allowed for
+ *  nested subagents is downgraded to the highest allowed tier at or below it
+ *  (see `downgradeBucketForNested`). Omit `childDepth` to skip the cap (used by
+ *  unit tests that exercise bucket selection directly without a runtime context). */
 export async function resolveModel(
 	agent: AgentConfig,
 	selectionCtx: SelectionContext,
@@ -151,8 +167,9 @@ export async function resolveModel(
 	perCallBucket?: string,
 	perCallThinkingLevel?: ThinkingLevel,
 	excludeModels?: Set<string>,
+	childDepth?: number,
 ) {
-	const bucket = perCallBucket ?? agent.bucket ?? "medium";
+	const requestedBucket = perCallBucket ?? agent.bucket ?? "medium";
 	const thinkingLevel = perCallThinkingLevel ?? agent.thinkingLevel;
 
 	// When the user has enabled "always use parent model", skip bucket
@@ -167,12 +184,46 @@ export async function resolveModel(
 			selection: {
 				modelId: fallbackId,
 				thinkingLevel,
-				bucket,
+				bucket: requestedBucket,
 				pool: [],
 				fallback: true,
 			},
-			bucket,
+			bucket: requestedBucket,
 		};
+	}
+
+	// Nested-bucket cap: for nested subagents (depth ≥ 1), restrict the bucket to
+	// the user-configured allowlist. A requested tier that is not allowed is
+	// downgraded to the highest allowed tier at or below it; when no tier is
+	// allowed at all, fall back to the caller's active model (same path as the
+	// empty-pool fallback in selectModel). The root caller never reaches here
+	// (resolveModel is only invoked for subagent spawns), so this cap applies to
+	// every subagent in the tree.
+	let bucket = requestedBucket;
+	let bucketDowngradeReason: string | undefined;
+	if (childDepth !== undefined && childDepth >= 1) {
+		const allowed = selectionCtx.nestedAllowedBuckets ?? ALL_NESTED_BUCKETS_ALLOWED;
+		const downgraded = downgradeBucketForNested(bucket, allowed);
+		if (downgraded.downgraded) {
+			if (downgraded.bucket === "") {
+				const fallbackId = activeModelId && !excludeModels?.has(activeModelId) ? activeModelId : "";
+				return {
+					modelOverride: fallbackId,
+					thinkingLevel,
+					selection: {
+						modelId: fallbackId,
+						thinkingLevel,
+						bucket,
+						pool: [],
+						fallback: true,
+					},
+					bucket,
+					bucketDowngradeReason: `Nested subagent (depth ${childDepth}) requested bucket "${bucket}" but no bucket is allowed for nested subagents; falling back to the parent's active model.`,
+				};
+			}
+			bucketDowngradeReason = `Nested subagent (depth ${childDepth}) requested bucket "${requestedBucket}" but it is not allowed for nested subagents; downgraded to "${downgraded.bucket}".`;
+			bucket = downgraded.bucket;
+		}
 	}
 
 	// User-configured bucket assignments are read once from the env mirror
@@ -196,6 +247,7 @@ export async function resolveModel(
 		thinkingLevel: selection.thinkingLevel,
 		selection,
 		bucket,
+		bucketDowngradeReason,
 	};
 }
 
@@ -207,6 +259,9 @@ export function attachSelectionMetadata(result: SingleResult, resolved: Awaited<
 		result.thinkingLevel = resolved.selection.thinkingLevel;
 		result.bucket = resolved.selection.bucket;
 		result.fallback = resolved.selection.fallback;
+	}
+	if (resolved.bucketDowngradeReason) {
+		result.bucketDowngradeReason = resolved.bucketDowngradeReason;
 	}
 }
 
@@ -411,7 +466,7 @@ function setupModelSelection(ctx: ToolContext): SelectionContext {
 			.map((m) => m.id),
 	);
 
-	return { modelConfig, disabledProviders, allowedModelIds, bucketAssignments, alwaysParentModel: readAlwaysParentModel() };
+	return { modelConfig, disabledProviders, allowedModelIds, bucketAssignments, alwaysParentModel: readAlwaysParentModel(), nestedAllowedBuckets: readNestedAllowedBuckets() };
 }
 
 /** Routes the validated request to the mode-specific execution function. */

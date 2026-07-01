@@ -67,6 +67,32 @@ Model selection still reads `<pi-config>/model-profiles.yaml` (`.json`
 fallback) for thinking-level support lookups — the shared registry, also
 consumed by pie's model picker.
 
+## Nested Bucket Allowlist
+
+You can restrict which tiers **nested** subagents (depth ≥ 1 — every subagent
+spawned via the subagent tool; the root caller is never restricted) may use.
+The config is persisted in `ChatPrefs.subagentNestedAllowedBuckets`
+(`{ small, medium, frontier }` of booleans, all `true` by default) and mirrored
+to the in-process subagent extension via the
+`PIE_SUBAGENT_NESTED_ALLOWED_BUCKETS_JSON` env var (set by the pie host on
+startup and on every change).
+
+When a nested subagent requests a bucket that is **not** allowed, the selector
+downgrades to the highest allowed tier **at or below** the request ("highest
+available gets chosen"):
+
+- `frontier` requested, disallowed → `medium` (or `small` if only that's allowed).
+- `medium` requested, disallowed → `small`.
+- If no tier is allowed at or below the request, the cheapest allowed tier
+  overall is used (so the cap is still respected rather than falling back to an
+  uncapped active model).
+- If no tier is allowed at all, the subagent falls back to the caller's active
+  model.
+
+A downgrade is recorded on the result as `bucketDowngradeReason`. All-true
+(the default) leaves behaviour unchanged. This is independent of "Always use
+parent model", which takes precedence (and skips bucket selection) when enabled.
+
 ## Task Scores
 
 Optional hints for model selection:

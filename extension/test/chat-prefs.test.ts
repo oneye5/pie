@@ -8,6 +8,7 @@ import {
   getChatPrefContextValue,
   getToolCallContextType,
   setBucketModels,
+  setNestedAllowedBucket,
   toggleChatPref,
   toggleChatPrefForContext,
 } from '../src/webview/panel/chat-prefs';
@@ -23,6 +24,7 @@ const prefs: ChatPrefs = {
   subagentMaxDepth: 3,
   subagentMaxTreeSessions: 50,
   subagentBuckets: { small: [], medium: [], frontier: [] },
+  subagentNestedAllowedBuckets: { small: true, medium: true, frontier: true },
   completionSoundVolume: 50,
   uiBaseFontSize: 13,
   uiComposerFontSize: 13,
@@ -89,6 +91,7 @@ test('toggle helpers return partial pref patches without mutating source prefs',
     subagentMaxDepth: 3,
     subagentMaxTreeSessions: 50,
     subagentBuckets: { small: [], medium: [], frontier: [] },
+    subagentNestedAllowedBuckets: { small: true, medium: true, frontier: true },
     completionSoundVolume: 50,
     uiBaseFontSize: 13,
     uiComposerFontSize: 13,
@@ -140,4 +143,27 @@ test('setBucketModels preserves the other two buckets', () => {
     },
   });
   assert.deepEqual(populated.subagentBuckets, { small: ['haiku'], medium: ['sonnet'], frontier: ['opus'] });
+});
+
+test('setNestedAllowedBucket toggles one tier without mutating source prefs', () => {
+  const before = prefs.subagentNestedAllowedBuckets;
+  const patch = setNestedAllowedBucket(prefs, 'frontier', false);
+  assert.deepEqual(patch, {
+    subagentNestedAllowedBuckets: { small: true, medium: true, frontier: false },
+  });
+  // source prefs untouched (and the original allowlist reference unchanged)
+  assert.deepEqual(prefs.subagentNestedAllowedBuckets, { small: true, medium: true, frontier: true });
+  assert.equal(prefs.subagentNestedAllowedBuckets, before);
+});
+
+test('setNestedAllowedBucket preserves the other two tiers', () => {
+  const populated: ChatPrefs = {
+    ...prefs,
+    subagentNestedAllowedBuckets: { small: true, medium: false, frontier: false },
+  };
+  const patch = setNestedAllowedBucket(populated, 'medium', true);
+  assert.deepEqual(patch, {
+    subagentNestedAllowedBuckets: { small: true, medium: true, frontier: false },
+  });
+  assert.deepEqual(populated.subagentNestedAllowedBuckets, { small: true, medium: false, frontier: false });
 });

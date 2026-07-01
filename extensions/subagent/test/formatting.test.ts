@@ -325,6 +325,21 @@ test("formatSelectionInfo handles fallback flag and includes diagnostics", () =>
 	assert.match(result!, /model override not found/);
 });
 
+test("formatSelectionInfo surfaces the nested-bucket downgrade reason", () => {
+	const result = formatSelectionInfo(
+		{
+			bucket: "medium",
+			selectedModel: "sonnet",
+			selectionPool: ["sonnet"],
+			bucketDowngradeReason: 'Nested subagent (depth 1) requested bucket "frontier" but it is not allowed for nested subagents; downgraded to "medium".',
+		},
+		fg,
+	);
+	assert.ok(result);
+	assert.match(result!, /⚠/);
+	assert.match(result!, /downgraded to "medium"/);
+});
+
 test("formatSelectionInfo returns undefined when no bucket and no model", () => {
 	assert.equal(formatSelectionInfo({}, fg), undefined);
 });

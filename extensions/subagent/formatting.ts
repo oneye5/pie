@@ -218,5 +218,10 @@ export function formatSelectionInfo(
 		parts.push(themeFg("warning", "⚠ ") + themeFg("dim", result.modelResolutionDiagnostic));
 	}
 
+	// Nested-bucket cap: requested tier was downgraded (or fell back to active model)
+	if (result.bucketDowngradeReason) {
+		parts.push(themeFg("warning", "⚠ ") + themeFg("dim", result.bucketDowngradeReason));
+	}
+
 	return parts.length > 0 ? `🎯 ${parts.join(" ")}` : undefined;
 }

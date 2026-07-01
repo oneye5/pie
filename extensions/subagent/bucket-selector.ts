@@ -59,9 +59,41 @@ export const PROVIDER_TOGGLES_ENV = "PIE_PROVIDER_TOGGLES_JSON";
 /** Environment key used by the pie host to mirror the user-configured subagent buckets. */
 export const SUBAGENT_BUCKETS_ENV = "PIE_SUBAGENT_BUCKETS_JSON";
 
-/** The three valid bucket keys, in display order. */
+/** Environment key used by the pie host to mirror the nested-bucket allowlist
+ *  (which tiers nested subagents may use) to the in-process subagent extension.
+ *  Value is JSON {@link NestedAllowedBuckets}. */
+export const NESTED_ALLOWED_BUCKETS_ENV = "PIE_SUBAGENT_NESTED_ALLOWED_BUCKETS_JSON";
+
+/** The three valid bucket keys, in display order (lowest → highest tier). */
 const BUCKET_KEYS = ["small", "medium", "frontier"] as const;
 type BucketKey = (typeof BUCKET_KEYS)[number];
+
+/** The three valid bucket keys, ordered from highest tier to lowest (for downgrade walks). */
+const BUCKET_TIERS_DESC = ["frontier", "medium", "small"] as const;
+/** A single bucket tier. */
+export type BucketTier = (typeof BUCKET_TIERS_DESC)[number];
+
+/**
+ * Per-bucket allowlist governing which tiers *nested* subagents (depth ≥ 1)
+ * may use. Mirrored to the in-process subagent extension via
+ * {@link NESTED_ALLOWED_BUCKETS_ENV}. When a nested subagent requests a bucket
+ * that is not allowed, the selector downgrades to the highest allowed bucket at
+ * or below the requested tier (and, if none are at/below, the cheapest allowed
+ * bucket overall) so the cap is always respected. All-true (the default) leaves
+ * behaviour unchanged.
+ */
+export interface NestedAllowedBuckets {
+  small: boolean;
+  medium: boolean;
+  frontier: boolean;
+}
+
+/** All buckets allowed — the default before the user restricts nested tiers. */
+export const ALL_NESTED_BUCKETS_ALLOWED: NestedAllowedBuckets = {
+  small: true,
+  medium: true,
+  frontier: true,
+};
 
 /** Thinking levels ordered from lightest to heaviest. */
 const THINKING_ORDER: ThinkingLevel[] = [
@@ -196,6 +228,36 @@ export function parseBucketConfig(raw: string | undefined): BucketAssignments {
  */
 export function readBucketAssignments(): BucketAssignments {
   return parseBucketConfig(process.env[SUBAGENT_BUCKETS_ENV]);
+}
+
+/**
+ * Parse the nested-allowed-buckets JSON (from {@link NESTED_ALLOWED_BUCKETS_ENV}).
+ *
+ * Accepts `{ small, medium, frontier }` of booleans; missing keys default to
+ * `true` (allowed) and non-boolean values are ignored (treated as allowed) so a
+ * malformed mirror never silently blocks every nested tier. Never throws.
+ */
+export function parseNestedAllowedBuckets(raw: string | undefined): NestedAllowedBuckets {
+  const out: NestedAllowedBuckets = { ...ALL_NESTED_BUCKETS_ALLOWED };
+  if (!raw) return out;
+  let parsed: unknown;
+  try {
+    parsed = parseJsonOrThrow<unknown>(raw, "nested allowed buckets");
+  } catch {
+    return out;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return out;
+  const obj = parsed as Record<string, unknown>;
+  for (const key of BUCKET_KEYS) {
+    const v = obj[key];
+    if (typeof v === "boolean") out[key] = v;
+  }
+  return out;
+}
+
+/** Read + parse the nested-allowed-buckets config from the process environment. */
+export function readNestedAllowedBuckets(): NestedAllowedBuckets {
+  return parseNestedAllowedBuckets(process.env[NESTED_ALLOWED_BUCKETS_ENV]);
 }
 
 // --- Provider toggles (preserved from old model-selection.ts) ---
@@ -374,4 +436,59 @@ export function selectModel(
     pool,
     fallback: false,
   };
+}
+
+/** Result of applying the nested-bucket allowlist to a requested tier. */
+export interface NestedBucketResolution {
+  /** The effective bucket to use, or `""` when no bucket is allowed at all
+   *  (the caller should fall back to the parent's active model). */
+  bucket: string;
+  /** True when the returned bucket differs from the request (including the
+   *  `""` exhaustion case). */
+  downgraded: boolean;
+}
+
+/**
+ * Resolve the effective bucket for a nested subagent (depth ≥ 1) under the
+ * nested-bucket allowlist.
+ *
+ * - If the requested bucket is allowed, it is returned unchanged (`downgraded: false`).
+ * - Otherwise, walk DOWN from the requested tier and return the highest allowed
+ *   bucket at or below it (e.g. frontier → medium → small). This matches the
+ *   "highest available gets chosen" rule: of the allowed tiers at or below the
+ *   request, the highest is used.
+ * - If no bucket is allowed at or below the requested tier, return the cheapest
+ *   allowed bucket overall (the lowest allowed tier) so the cap is still
+ *   respected rather than falling back to an uncapped active model.
+ * - If no bucket is allowed at all, returns `bucket: ""` to signal that the
+ *   caller should fall back to the parent's active model.
+ *
+ * An unknown/invalid `requested` tier is treated as `"medium"`.
+ */
+export function downgradeBucketForNested(
+  requested: string,
+  allowed: NestedAllowedBuckets,
+): NestedBucketResolution {
+  const reqTier: BucketTier = (BUCKET_TIERS_DESC as readonly string[]).includes(requested)
+    ? (requested as BucketTier)
+    : "medium";
+  if (allowed[reqTier]) return { bucket: reqTier, downgraded: false };
+
+  const reqIdx = BUCKET_TIERS_DESC.indexOf(reqTier);
+
+  // Downgrade: highest allowed tier at or below the request.
+  for (let i = reqIdx; i < BUCKET_TIERS_DESC.length; i++) {
+    const tier = BUCKET_TIERS_DESC[i];
+    if (allowed[tier]) return { bucket: tier, downgraded: true };
+  }
+
+  // No allowed tier at/below: use the cheapest allowed tier above the request
+  // (closest to the request = lowest index difference), so the cap is respected.
+  for (let i = reqIdx - 1; i >= 0; i--) {
+    const tier = BUCKET_TIERS_DESC[i];
+    if (allowed[tier]) return { bucket: tier, downgraded: true };
+  }
+
+  // Nothing allowed at all → caller falls back to the active model.
+  return { bucket: "", downgraded: true };
 }

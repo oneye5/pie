@@ -24,6 +24,7 @@ function makeSelectionCtx(overrides: Partial<SelectionContext> = {}): SelectionC
 		allowedModelIds: undefined,
 		bucketAssignments: { small: ["haiku"], medium: ["sonnet"], frontier: ["opus"] },
 		alwaysParentModel: false,
+		nestedAllowedBuckets: { small: true, medium: true, frontier: true },
 		...overrides,
 	};
 }

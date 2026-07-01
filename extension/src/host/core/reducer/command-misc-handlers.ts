@@ -1,7 +1,7 @@
 import { produce } from 'immer';
 
 import type { ArchState } from '../arch-state.js';
-import { mergePruningSettings, normalizeSubagentBuckets, type ChatPrefs } from '../../../shared/protocol.js';
+import { mergePruningSettings, normalizeNestedAllowedBuckets, normalizeSubagentBuckets, type ChatPrefs } from '../../../shared/protocol.js';
 import type { Command } from '../commands.js';
 import type { ReducerResult } from './helpers.js';
 import { addToArray, appendLocalUserMessage } from './helpers.js';
@@ -255,6 +255,12 @@ export function handleSetPrefs(state: ArchState, cmd: Extract<Command, { kind: '
     // undefined and crash the webview BucketModelsEditor.
     ...(cmd.prefs.subagentBuckets !== undefined && {
       subagentBuckets: normalizeSubagentBuckets(cmd.prefs.subagentBuckets),
+    }),
+    // Normalize subagentNestedAllowedBuckets so ArchState always holds a
+    // complete {small,medium,frontier} object (missing keys default to true)
+    // even if a caller dispatches a partial patch.
+    ...(cmd.prefs.subagentNestedAllowedBuckets !== undefined && {
+      subagentNestedAllowedBuckets: normalizeNestedAllowedBuckets(cmd.prefs.subagentNestedAllowedBuckets),
     }),
   };
   // Phase 2 cutover: the unread-finished-sessions clear moved here from

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { handleBackendRequest } from '../src/backend/request-handler';
-import { EXTENSION_TOGGLES_ENV, PROVIDER_TOGGLES_ENV, SUBAGENT_BUCKETS_ENV } from '../src/shared/protocol';
+import { EXTENSION_TOGGLES_ENV, NESTED_ALLOWED_BUCKETS_ENV, PROVIDER_TOGGLES_ENV, SUBAGENT_BUCKETS_ENV } from '../src/shared/protocol';
 import { validateRuntimePrefsSet } from '../src/backend/rpc';
 
 const SUBAGENT_ALWAYS_PARENT_MODEL_ENV = 'PIE_SUBAGENT_ALWAYS_PARENT_MODEL';
@@ -45,7 +45,7 @@ test('runtimePrefs.set mirrors provider and extension toggles into backend envir
     params: { providerToggles, extensionToggles },
   });
 
-  assert.deepEqual(result, { providerToggles, extensionToggles, subagentAlwaysParentModel: undefined, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined, subagentBuckets: undefined });
+  assert.deepEqual(result, { providerToggles, extensionToggles, subagentAlwaysParentModel: undefined, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined, subagentBuckets: undefined, subagentNestedAllowedBuckets: undefined });
   assert.equal(process.env[PROVIDER_TOGGLES_ENV], JSON.stringify(providerToggles));
   assert.equal(process.env[EXTENSION_TOGGLES_ENV], JSON.stringify(extensionToggles));
   // When the field is omitted, the env var must not be touched.
@@ -70,7 +70,7 @@ test('runtimePrefs.set writes the subagent always-parent-model env var when prov
     params: { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: true },
   });
 
-  assert.deepEqual(result, { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: true, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined, subagentBuckets: undefined });
+  assert.deepEqual(result, { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: true, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined, subagentBuckets: undefined, subagentNestedAllowedBuckets: undefined });
   assert.equal(process.env[SUBAGENT_ALWAYS_PARENT_MODEL_ENV], '1');
 });
 
@@ -190,4 +190,46 @@ test('runtimePrefs.set leaves the buckets env var untouched when omitted', async
   });
 
   assert.equal(process.env[SUBAGENT_BUCKETS_ENV], 'pre-existing');
+});
+
+test('runtimePrefs.set mirrors subagentNestedAllowedBuckets into the backend environment', async (t) => {
+  const previous = process.env[NESTED_ALLOWED_BUCKETS_ENV];
+  t.after(() => {
+    if (previous === undefined) {
+      delete process.env[NESTED_ALLOWED_BUCKETS_ENV];
+    } else {
+      process.env[NESTED_ALLOWED_BUCKETS_ENV] = previous;
+    }
+  });
+
+  delete process.env[NESTED_ALLOWED_BUCKETS_ENV];
+  const allowlist = { small: true, medium: true, frontier: false };
+  const result = (await handleBackendRequest({} as any, {
+    id: 'test-runtime-prefs-nested',
+    method: 'runtimePrefs.set',
+    params: { providerToggles: {}, extensionToggles: {}, subagentNestedAllowedBuckets: allowlist },
+  })) as { subagentNestedAllowedBuckets?: typeof allowlist };
+
+  assert.deepEqual(result.subagentNestedAllowedBuckets, allowlist);
+  assert.equal(process.env[NESTED_ALLOWED_BUCKETS_ENV], JSON.stringify(allowlist));
+});
+
+test('runtimePrefs.set leaves the nested-allowlist env var untouched when omitted', async (t) => {
+  const previous = process.env[NESTED_ALLOWED_BUCKETS_ENV];
+  t.after(() => {
+    if (previous === undefined) {
+      delete process.env[NESTED_ALLOWED_BUCKETS_ENV];
+    } else {
+      process.env[NESTED_ALLOWED_BUCKETS_ENV] = previous;
+    }
+  });
+
+  process.env[NESTED_ALLOWED_BUCKETS_ENV] = 'pre-existing';
+  await handleBackendRequest({} as any, {
+    id: 'test-runtime-prefs-nested-omitted',
+    method: 'runtimePrefs.set',
+    params: { providerToggles: {}, extensionToggles: {} },
+  });
+
+  assert.equal(process.env[NESTED_ALLOWED_BUCKETS_ENV], 'pre-existing');
 });

@@ -55,6 +55,11 @@ export interface PruningDetails {
   prepassSystemPrompt?: string;
   /** Latency of the prepass LLM call in milliseconds. */
   prepassLatencyMs?: number;
+  /** Token usage reported by the prepass LLM call, when available. */
+  prepassInputTokens?: number;
+  prepassOutputTokens?: number;
+  prepassCacheReadTokens?: number;
+  prepassCacheWriteTokens?: number;
   /** Error message if pruning prepass failed. */
   prepassError?: string;
   /** Reason surfaced when a keep-all safeguard retained every item (prepass pruned 100% of a category, or a non-JSON parse failure). */
@@ -111,6 +116,22 @@ export interface SubagentBuckets {
 /** Empty buckets — the default before the user configures any models. */
 export const EMPTY_SUBAGENT_BUCKETS: SubagentBuckets = { small: [], medium: [], frontier: [] };
 
+/**
+ * Per-tier allowlist restricting which buckets *nested* subagents (depth ≥ 1)
+ * may use. When a nested subagent requests a disallowed tier, the in-process
+ * subagent extension downgrades to the highest allowed tier at or below the
+ * request. All-true (the default) leaves behaviour unchanged. Mirrored to the
+ * in-process subagent extension via {@link NESTED_ALLOWED_BUCKETS_ENV}.
+ */
+export interface NestedAllowedBuckets {
+  small: boolean;
+  medium: boolean;
+  frontier: boolean;
+}
+
+/** All buckets allowed for nested subagents — the default before the user restricts any tier. */
+export const ALL_NESTED_BUCKETS_ALLOWED: NestedAllowedBuckets = { small: true, medium: true, frontier: true };
+
 export interface ChatPrefs {
   autoExpandReasoning: boolean;
   autoExpandToolCalls: boolean;
@@ -131,6 +152,11 @@ export interface ChatPrefs {
    *  bucket falls back to the parent's active model. Mirrored to the in-process
    *  subagent extension via PIE_SUBAGENT_BUCKETS_JSON. Default: all empty. */
   subagentBuckets: SubagentBuckets;
+  /** Per-tier allowlist restricting which buckets nested subagents (depth ≥ 1)
+   *  may use. A nested subagent requesting a disallowed tier is downgraded to the
+   *  highest allowed tier at or below it. Mirrored to the in-process subagent
+   *  extension via PIE_SUBAGENT_NESTED_ALLOWED_BUCKETS_JSON. Default: all true. */
+  subagentNestedAllowedBuckets: NestedAllowedBuckets;
   completionSoundVolume: number;
   /** Base font size (px) for body text and message prose — the primary
    *  readable content (assistant/user messages and the inline editor). Drives
@@ -208,6 +234,11 @@ export const EXTENSION_TOGGLES_ENV = 'PIE_EXTENSION_TOGGLES_JSON';
  *  the in-process subagent extension. Value is JSON `SubagentBuckets`. */
 export const SUBAGENT_BUCKETS_ENV = 'PIE_SUBAGENT_BUCKETS_JSON';
 
+/** Environment key used to mirror the nested-bucket allowlist (which tiers
+ *  nested subagents may use) to the in-process subagent extension. Value is JSON
+ *  `NestedAllowedBuckets`. */
+export const NESTED_ALLOWED_BUCKETS_ENV = 'PIE_SUBAGENT_NESTED_ALLOWED_BUCKETS_JSON';
+
 export type ActiveRunStatus = 'open' | 'scored' | 'closed_unscored';
 
 export interface ActiveRunSummary {
@@ -236,6 +267,7 @@ export const DEFAULT_CHAT_PREFS: ChatPrefs = {
   subagentMaxDepth: 3,
   subagentMaxTreeSessions: 50,
   subagentBuckets: { ...EMPTY_SUBAGENT_BUCKETS },
+  subagentNestedAllowedBuckets: { ...ALL_NESTED_BUCKETS_ALLOWED },
   completionSoundVolume: 50,
   uiBaseFontSize: 13,
   uiComposerFontSize: 13,
@@ -334,6 +366,25 @@ export function normalizeSubagentBuckets(value: unknown): SubagentBuckets {
   };
 }
 
+/**
+ * Coerce an unknown stored value into a valid {@link NestedAllowedBuckets},
+ * defaulting missing / non-boolean keys to `true` (allowed). Used by
+ * {@link resolveChatPrefs} so a malformed or partially-stored value (e.g. from
+ * an older version) can never silently block every nested tier at runtime.
+ */
+export function normalizeNestedAllowedBuckets(value: unknown): NestedAllowedBuckets {
+  const coerce = (v: unknown): boolean => (typeof v === 'boolean' ? v : true);
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...ALL_NESTED_BUCKETS_ALLOWED };
+  }
+  const v = value as Record<string, unknown>;
+  return {
+    small: coerce(v.small),
+    medium: coerce(v.medium),
+    frontier: coerce(v.frontier),
+  };
+}
+
 export function resolveChatPrefs(prefs?: Partial<ChatPrefs> | null): ChatPrefs {
   return {
     ...DEFAULT_CHAT_PREFS,
@@ -347,6 +398,7 @@ export function resolveChatPrefs(prefs?: Partial<ChatPrefs> | null): ChatPrefs {
       ...(prefs?.providerToggles ?? {}),
     },
     subagentBuckets: normalizeSubagentBuckets(prefs?.subagentBuckets),
+    subagentNestedAllowedBuckets: normalizeNestedAllowedBuckets(prefs?.subagentNestedAllowedBuckets),
     autoExpandSubagentCalls:
       prefs?.autoExpandSubagentCalls
       ?? prefs?.autoExpandToolCalls

@@ -63,6 +63,9 @@ export interface SingleResult {
 	retryCount?: number;
 	/** Diagnostic when a requested model could not be resolved and execution fell back. */
 	modelResolutionDiagnostic?: string;
+	/** Diagnostic when a nested subagent's requested bucket was not allowed and
+	 *  was downgraded (or fell back to the active model) under the nested-bucket cap. */
+	bucketDowngradeReason?: string;
 }
 
 export interface SubagentDetails {

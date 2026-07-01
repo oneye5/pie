@@ -152,12 +152,13 @@ test('validateRuntimePrefsSet accepts provider and extension toggles', () => {
       subagentMaxDepth: undefined,
       subagentMaxTreeSessions: undefined,
       subagentBuckets: undefined,
+      subagentNestedAllowedBuckets: undefined,
     },
   );
 });
 
 test('validateRuntimePrefsSet defaults missing toggle maps to empty', () => {
-  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: undefined, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined, subagentBuckets: undefined });
+  assert.deepEqual(validateRuntimePrefsSet({}), { providerToggles: {}, extensionToggles: {}, subagentAlwaysParentModel: undefined, subagentMaxDepth: undefined, subagentMaxTreeSessions: undefined, subagentBuckets: undefined, subagentNestedAllowedBuckets: undefined });
 });
 
 test('validateRuntimePrefsSet accepts a subagentBuckets patch', () => {
@@ -172,6 +173,7 @@ test('validateRuntimePrefsSet accepts a subagentBuckets patch', () => {
       subagentMaxDepth: undefined,
       subagentMaxTreeSessions: undefined,
       subagentBuckets: { small: ['haiku'], medium: ['sonnet'], frontier: ['opus'] },
+      subagentNestedAllowedBuckets: undefined,
     },
   );
 });
@@ -186,6 +188,7 @@ test('validateRuntimePrefsSet allows partial subagentBuckets and drops missing k
       subagentMaxDepth: undefined,
       subagentMaxTreeSessions: undefined,
       subagentBuckets: { small: [], medium: ['sonnet'], frontier: [] },
+      subagentNestedAllowedBuckets: undefined,
     },
   );
 });
@@ -201,6 +204,52 @@ test('validateRuntimePrefsSet rejects non-object subagentBuckets', () => {
   assert.throws(
     () => validateRuntimePrefsSet({ subagentBuckets: 'nope' }),
     /subagentBuckets must be an object/,
+  );
+});
+
+test('validateRuntimePrefsSet accepts a subagentNestedAllowedBuckets patch', () => {
+  assert.deepEqual(
+    validateRuntimePrefsSet({
+      subagentNestedAllowedBuckets: { small: true, medium: false, frontier: false },
+    }),
+    {
+      providerToggles: {},
+      extensionToggles: {},
+      subagentAlwaysParentModel: undefined,
+      subagentMaxDepth: undefined,
+      subagentMaxTreeSessions: undefined,
+      subagentBuckets: undefined,
+      subagentNestedAllowedBuckets: { small: true, medium: false, frontier: false },
+    },
+  );
+});
+
+test('validateRuntimePrefsSet allows partial subagentNestedAllowedBuckets and defaults missing keys to true', () => {
+  assert.deepEqual(
+    validateRuntimePrefsSet({ subagentNestedAllowedBuckets: { frontier: false } }),
+    {
+      providerToggles: {},
+      extensionToggles: {},
+      subagentAlwaysParentModel: undefined,
+      subagentMaxDepth: undefined,
+      subagentMaxTreeSessions: undefined,
+      subagentBuckets: undefined,
+      subagentNestedAllowedBuckets: { small: true, medium: true, frontier: false },
+    },
+  );
+});
+
+test('validateRuntimePrefsSet rejects non-boolean values in subagentNestedAllowedBuckets', () => {
+  assert.throws(
+    () => validateRuntimePrefsSet({ subagentNestedAllowedBuckets: { frontier: 'no' } }),
+    /subagentNestedAllowedBuckets\.frontier must be a boolean/,
+  );
+});
+
+test('validateRuntimePrefsSet rejects non-object subagentNestedAllowedBuckets', () => {
+  assert.throws(
+    () => validateRuntimePrefsSet({ subagentNestedAllowedBuckets: 'nope' }),
+    /subagentNestedAllowedBuckets must be an object/,
   );
 });
 

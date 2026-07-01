@@ -86,6 +86,9 @@ interface RunWithModelRetryArgs {
 	thinkingLevel: string | undefined;
 	activeModelId: string;
 	selectionCtx: SelectionContext;
+	/** Depth of the subagent being spawned (parent depth + 1). Drives the
+	 *  nested-bucket cap in resolveModel (applied when ≥ 1). */
+	childDepth: number;
 	/** Build a fresh runtime context for the attempt. */
 	buildRuntime: () => SubagentRuntimeContext;
 	/** Execute one attempt with the resolved model; returns the raw result. */
@@ -112,6 +115,7 @@ async function runWithModelRetry(args: RunWithModelRetryArgs): Promise<ModelRetr
 			args.bucket,
 			args.thinkingLevel as ThinkingLevel | undefined,
 			args.excludeModels,
+			args.childDepth,
 		);
 		result = await subagentRuntime.run(args.buildRuntime(), () => args.runAttempt(resolved));
 		attachSelectionMetadata(result, resolved);
@@ -130,6 +134,7 @@ async function runWithModelRetry(args: RunWithModelRetryArgs): Promise<ModelRetr
 			args.bucket,
 			args.thinkingLevel as ThinkingLevel | undefined,
 			args.excludeModels,
+			args.childDepth,
 		);
 		if (!next.modelOverride || args.excludeModels.has(next.modelOverride)) break;
 	}
@@ -181,6 +186,7 @@ export async function executeSingleMode(
 		thinkingLevel: params.thinkingLevel,
 		activeModelId: ctx.model?.id ?? "",
 		selectionCtx,
+		childDepth: runtimeCtx.depth + 1,
 		buildRuntime: () => ({
 			depth: runtimeCtx.depth + 1,
 			trail: [...runtimeCtx.trail, params.agent!],
@@ -326,6 +332,7 @@ async function runParallelTask(
 		thinkingLevel: t.thinkingLevel,
 		activeModelId: ctx.model?.id ?? "",
 		selectionCtx,
+		childDepth: runtimeCtx.depth + 1,
 		buildRuntime: () => ({
 			depth: runtimeCtx.depth + 1,
 			trail: [...runtimeCtx.trail, t.agent],
@@ -476,6 +483,7 @@ export async function executeChainMode(
 			thinkingLevel: step.thinkingLevel,
 			activeModelId: ctx.model?.id ?? "",
 			selectionCtx,
+			childDepth: runtimeCtx.depth + 1,
 			buildRuntime: () => ({
 				depth: runtimeCtx.depth + 1,
 				trail: [...runtimeCtx.trail, step.agent],

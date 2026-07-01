@@ -1,4 +1,5 @@
-import type { ComposerInput, ExtensionUIResponsePayload, FilesystemPathComposerInput, ImageBlobComposerInput, ModelSettings, SubagentBuckets, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
+import type { ComposerInput, ExtensionUIResponsePayload, FilesystemPathComposerInput, ImageBlobComposerInput, ModelSettings, NestedAllowedBuckets, SubagentBuckets, ThinkingLevel, TranscriptPageDirection } from '../shared/protocol';
+import { ALL_NESTED_BUCKETS_ALLOWED } from '../shared/protocol';
 import { ALLOWED_IMAGE_MIME_TYPES, MAX_IMAGE_INPUT_BYTES } from '../shared/image-constraints';
 import { THINKING_LEVELS } from '../shared/thinking-level.js';
 import { BackendError } from './server-io';
@@ -330,6 +331,7 @@ export interface RuntimePrefsSetParams {
   subagentMaxDepth?: number;
   subagentMaxTreeSessions?: number;
   subagentBuckets?: SubagentBuckets;
+  subagentNestedAllowedBuckets?: NestedAllowedBuckets;
 }
 
 export interface SettingsSetParams extends Partial<ModelSettings> {
@@ -380,6 +382,34 @@ function validateOptionalSubagentBuckets(
   return out;
 }
 
+/**
+ * Validate an optional `subagentNestedAllowedBuckets` payload. Accepts `undefined`
+ * (omitted) or an object whose `small`/`medium`/`frontier` fields are each a
+ * boolean. Missing bucket keys default to `true` (allowed). Returns a normalized
+ * {@link NestedAllowedBuckets}, or `undefined` when omitted so the host can skip
+ * the env update.
+ */
+function validateOptionalNestedAllowedBuckets(
+  method: string,
+  raw: unknown,
+): NestedAllowedBuckets | undefined {
+  if (raw === undefined) return undefined;
+  if (!isObj(raw) || Array.isArray(raw)) {
+    fail(method, 'subagentNestedAllowedBuckets must be an object when provided');
+  }
+  const src = raw as Record<string, unknown>;
+  const out: NestedAllowedBuckets = { ...ALL_NESTED_BUCKETS_ALLOWED };
+  for (const key of BUCKET_FIELD_KEYS) {
+    const v = src[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'boolean') {
+      fail(method, `subagentNestedAllowedBuckets.${key} must be a boolean when provided`);
+    }
+    out[key] = v;
+  }
+  return out;
+}
+
 function validateBooleanMap(
   method: string,
   fieldName: string,
@@ -421,7 +451,8 @@ export function validateRuntimePrefsSet(params: unknown): RuntimePrefsSetParams 
   const subagentMaxDepth = validateOptionalInt('runtimePrefs.set', 'subagentMaxDepth', (params as Record<string, unknown>)['subagentMaxDepth'], 1, 8);
   const subagentMaxTreeSessions = validateOptionalInt('runtimePrefs.set', 'subagentMaxTreeSessions', (params as Record<string, unknown>)['subagentMaxTreeSessions'], 5, 200);
   const subagentBuckets = validateOptionalSubagentBuckets('runtimePrefs.set', (params as Record<string, unknown>)['subagentBuckets']);
-  return { providerToggles, extensionToggles, subagentAlwaysParentModel, subagentMaxDepth, subagentMaxTreeSessions, subagentBuckets };
+  const subagentNestedAllowedBuckets = validateOptionalNestedAllowedBuckets('runtimePrefs.set', (params as Record<string, unknown>)['subagentNestedAllowedBuckets']);
+  return { providerToggles, extensionToggles, subagentAlwaysParentModel, subagentMaxDepth, subagentMaxTreeSessions, subagentBuckets, subagentNestedAllowedBuckets };
 }
 
 export function validateSettingsSet(params: unknown): SettingsSetParams {

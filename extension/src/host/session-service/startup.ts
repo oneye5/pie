@@ -263,6 +263,7 @@ async function sendRuntimePrefsWithLogging(
       subagentMaxDepth: archState.settings.prefs.subagentMaxDepth,
       subagentMaxTreeSessions: archState.settings.prefs.subagentMaxTreeSessions,
       subagentBuckets: archState.settings.prefs.subagentBuckets,
+      subagentNestedAllowedBuckets: archState.settings.prefs.subagentNestedAllowedBuckets,
     });
     bootLog('session-startup', 'runtimePrefs.set.completed', {
       backendReady: options.getArchState().settings.backendReady,

@@ -122,3 +122,18 @@ export function setBucketModels(
     },
   };
 }
+
+/** Toggle whether a single bucket tier is allowed for *nested* sub-agents
+ *  (depth ≥ 1), preserving the other two tiers. */
+export function setNestedAllowedBucket(
+  prefs: ChatPrefs,
+  bucket: 'small' | 'medium' | 'frontier',
+  enabled: boolean,
+): Partial<ChatPrefs> {
+  return {
+    subagentNestedAllowedBuckets: {
+      ...prefs.subagentNestedAllowedBuckets,
+      [bucket]: enabled,
+    },
+  };
+}
