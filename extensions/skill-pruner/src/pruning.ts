@@ -1,5 +1,5 @@
 import path from "node:path";
-import type { Skill, ToolInfo, BeforeAgentStartEvent } from "@mariozechner/pi-coding-agent";
+import type { Skill, ToolInfo, BeforeAgentStartEvent } from "@earendil-works/pi-coding-agent";
 import { loadConfig } from "../config.js";
 import type { PruningConfig } from "../types.js";
 import {
@@ -31,6 +31,9 @@ export {
 	buildPrepassThinkingAttempts,
 	hasUsablePrepassResponse,
 	formatEmptyPrepassError,
+	isTransportError,
+	isTransportErrorMessage,
+	PREPASS_MAX_TRANSPORT_RETRIES,
 	runPruningPrepass,
 	LLM_TIMEOUT_MS_BY_THINKING_LEVEL,
 } from "./prepass.js";

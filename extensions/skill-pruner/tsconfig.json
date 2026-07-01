@@ -7,7 +7,7 @@
   // `module: preserve` + `moduleResolution: bundler` allow `import.meta` and
   // `.js`-extension imports without a package.json "type": "module".
   //
-  // The `@mariozechner/pi-*` peer packages are provided by the pi runtime
+  // The `@earendil-works/pi-*` peer packages are provided by the pi runtime
   // (globally installed) and are NOT in this repo's node_modules, so tsc
   // cannot resolve them. They are declared as opaque ambient modules in
   // `types-global.d.ts` (imports resolve to `any`) so this gate covers

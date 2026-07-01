@@ -2,12 +2,21 @@
   "defaultModel": "umans-glm-5.2",
   "defaultThinkingLevel": "high",
   "defaultProvider": "umans",
+  "retry": {
+    "enabled": true,
+    "maxRetries": 6,
+    "baseDelayMs": 3000,
+    "provider": {
+      "maxRetries": 2,
+      "maxRetryDelayMs": 60000
+    }
+  },
   "packages": [
     "npm:pi-web-access@0.13.0"
   ],
   "pruning": {
-    "model": "umans-flash",
-    "provider": "umans",
+    "model": "gpt-5-mini",
+    "provider": "github-copilot",
     "thinkingLevel": "medium",
     "tools": {
       "alwaysKeep": [

@@ -1,4 +1,4 @@
-import type { ExtensionAPI, BeforeAgentStartEvent, ToolCallEvent, Skill } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, BeforeAgentStartEvent, ToolCallEvent, Skill } from "@earendil-works/pi-coding-agent";
 import { appendDecision, estimateTokens, recordSkillRead, recordKnownSkills, recordSkillsBlockNotFound } from "../logger.js";
 import {
 	setPiApi,

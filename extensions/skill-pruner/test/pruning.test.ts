@@ -3,7 +3,7 @@
  * extensions/skill-pruner/src/pruning.ts.
  *
  * pruning.ts transitively imports state.ts, which runtime-imports
- * `formatSkillsForPrompt` from `@mariozechner/pi-coding-agent`. That package
+ * `formatSkillsForPrompt` from `@earendil-works/pi-coding-agent`. That package
  * is not resolvable from the repo root under tsx, so this file uses the same
  * createRequire + Module._resolveFilename mock bootstrap as the existing
  * integration.test.ts / copilot-headers.test.ts, then requires pruning.ts.
@@ -19,7 +19,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import type { PruningConfig } from "../types.js";
-import type { Skill, ToolInfo } from "@mariozechner/pi-coding-agent";
+import type { Skill, ToolInfo } from "@earendil-works/pi-coding-agent";
 
 installSdkResolverForTests();
 const require = createRequire(import.meta.url);
@@ -29,6 +29,9 @@ const {
 	applySkillSelection,
 	applyToolSelection,
 	runPruningPrepass,
+	isTransportError,
+	isTransportErrorMessage,
+	PREPASS_MAX_TRANSPORT_RETRIES,
 	getRecentConversation,
 	subagentContext,
 	SKILLS_BLOCK_RE,
@@ -49,8 +52,8 @@ function installSdkResolverForTests(): void {
 	};
 	const originalResolveFilename = moduleWithResolver._resolveFilename;
 	moduleWithResolver._resolveFilename = function resolveFilename(request, parent, isMain, options): string {
-		if (request === "@mariozechner/pi-coding-agent") return sdkPath;
-		if (request === "@mariozechner/pi-tui") return tuiPath;
+		if (request === "@earendil-works/pi-coding-agent") return sdkPath;
+		if (request === "@earendil-works/pi-tui") return tuiPath;
 		return originalResolveFilename.call(this, request, parent, isMain, options);
 	};
 }
@@ -488,4 +491,134 @@ test("getRecentConversation: returns [] when the session lacks walk methods or i
 	assert.deepEqual(getRecentConversation({}), []);
 	assert.deepEqual(getRecentConversation(undefined), []);
 	assert.deepEqual(getRecentConversation({ sessionManager: fakeSessionManager([]) }), []);
+});
+
+// ---------------------------------------------------------------------------
+// isTransportError / isTransportErrorMessage: classify transient upstream
+// failures so the retry loop can distinguish "retry at same level" from
+// "downgrade thinking level".
+// ---------------------------------------------------------------------------
+
+test("isTransportErrorMessage: detects 5xx / 429 status codes", () => {
+	assert.ok(isTransportErrorMessage("OpenAI API error (500): 500 Internal Server Error"));
+	assert.ok(isTransportErrorMessage("OpenAI API error (502): 502 Bad Gateway"));
+	assert.ok(isTransportErrorMessage("OpenAI API error (503): 503 Service Unavailable"));
+	assert.ok(isTransportErrorMessage("OpenAI API error (429): 429 Too Many Requests"));
+});
+
+test("isTransportErrorMessage: detects network/timeout keywords", () => {
+	assert.ok(isTransportErrorMessage("fetch failed: ECONNRESET"));
+	assert.ok(isTransportErrorMessage("request ETIMEDOUT"));
+	assert.ok(isTransportErrorMessage("network error"));
+	assert.ok(isTransportErrorMessage("Gateway Timeout"));
+});
+
+test("isTransportErrorMessage: rejects non-transport errors", () => {
+	assert.ok(!isTransportErrorMessage("Model 'gpt-5-mini' not found in registry"));
+	assert.ok(!isTransportErrorMessage("LLM pruning failed: returned no text response"));
+	assert.ok(!isTransportErrorMessage("stopReason=error"));
+	assert.ok(!isTransportErrorMessage("Invalid JSON in LLM response"));
+	assert.ok(!isTransportErrorMessage(""));
+});
+
+test("isTransportError: classifies result by stopReason + errorMessage", () => {
+	// The pi-ai signature: stopReason="error" + an HTTP-status-bearing errorMessage.
+	assert.ok(isTransportError({ stopReason: "error", errorMessage: "OpenAI API error (500): 500 Internal Server Error", rawResponse: "" } as any));
+	assert.ok(isTransportError({ stopReason: "error", errorMessage: "OpenAI API error (429): 429 Too Many Requests", rawResponse: "" } as any));
+	// Non-error stopReason → not transport even if message looks like one.
+	assert.ok(!isTransportError({ stopReason: "stop", errorMessage: "500 Internal Server Error", rawResponse: "" } as any));
+	// Error stopReason but no status code → content error, not transport.
+	assert.ok(!isTransportError({ stopReason: "error", errorMessage: "Invalid JSON", rawResponse: "" } as any));
+	// No result at all.
+	assert.ok(!isTransportError(undefined));
+});
+
+test("isTransportError: classifies thrown errors by message", () => {
+	const transportErr = new Error("OpenAI API error (500): 500 Internal Server Error");
+	assert.ok(isTransportError(undefined, transportErr));
+	const contentErr = new Error("Model not found");
+	assert.ok(!isTransportError(undefined, contentErr));
+});
+
+test("PREPASS_MAX_TRANSPORT_RETRIES: is a positive number", () => {
+	assert.equal(typeof PREPASS_MAX_TRANSPORT_RETRIES, "number");
+	assert.ok(PREPASS_MAX_TRANSPORT_RETRIES > 0);
+});
+
+// ---------------------------------------------------------------------------
+// runPruningPrepass: transport 500 retried at same thinking level before
+// falling through. Verifies a transient gateway blip does not cause a
+// terminal "no text response" — it retries, and recovers when the provider
+// comes back.
+// ---------------------------------------------------------------------------
+
+/** A modelRegistry stub that resolves a model (so prepass reaches runLlmPruning). */
+function modelRegistryStub() {
+	return { find: () => ({ id: "gpt-5-mini", provider: "github-copilot" }) };
+}
+
+test("runPruningPrepass: 500 then recovery on retry -> returns parsed pruned skills", async () => {
+	const cfg = config();
+	let calls = 0;
+	const completeFn = async () => {
+		calls++;
+		if (calls === 1) {
+			// First call: transient transport 500.
+			return { text: "", stopReason: "error", errorMessage: "OpenAI API error (500): 500 Internal Server Error" };
+		}
+		// Retry: valid prune-list JSON response.
+		return { text: '{"pruneSkills":["alpha"],"pruneTools":[]}', stopReason: "stop" };
+	};
+	const result = await runPruningPrepass(
+		{ modelRegistry: modelRegistryStub() },
+		{ userPrompt: "do something", skills: visibleSkills, tools: allTools, config: cfg },
+		cfg,
+		completeFn as any,
+	);
+	assert.equal(calls, 2, "should have retried exactly once after the 500");
+	assert.ok(result.prunedSkills, "should have parsed prune list after recovery");
+	assert.deepEqual(result.prunedSkills, ["alpha"]);
+	assert.equal(result.error, null);
+});
+
+test("runPruningPrepass: persistent 500 -> terminal error surfaced (not swallowed)", async () => {
+	const cfg = config();
+	let calls = 0;
+	const completeFn = async () => {
+		calls++;
+		// Every call returns a transport 500.
+		return { text: "", stopReason: "error", errorMessage: "OpenAI API error (500): 500 Internal Server Error" };
+	};
+	const result = await runPruningPrepass(
+		{ modelRegistry: modelRegistryStub() },
+		{ userPrompt: "do something", skills: visibleSkills, tools: allTools, config: cfg },
+		cfg,
+		completeFn as any,
+	);
+	// Should have retried: initial + transport retries (at same level).
+	assert.ok(calls > 1, "should have retried at least once before failing: " + calls);
+	// Fail-open keeps all skills: parsed empty prune list → [] (not null).
+	assert.deepEqual(result.prunedSkills, []);
+	assert.deepEqual(result.prunedTools, []);
+	assert.ok(result.error, "error must be surfaced, not swallowed");
+	assert.match(result.error, /500/);
+});
+
+test("runPruningPrepass: thrown transport error retried before failing open", async () => {
+	const cfg = config();
+	let calls = 0;
+	const completeFn = async () => {
+		calls++;
+		if (calls === 1) throw new Error("OpenAI API error (503): 503 Service Unavailable");
+		return { text: '{"pruneSkills":["beta"],"pruneTools":[]}', stopReason: "stop" };
+	};
+	const result = await runPruningPrepass(
+		{ modelRegistry: modelRegistryStub() },
+		{ userPrompt: "do something", skills: visibleSkills, tools: allTools, config: cfg },
+		cfg,
+		completeFn as any,
+	);
+	assert.equal(calls, 2, "thrown transport error should be retried");
+	assert.deepEqual(result.prunedSkills, ["beta"]);
+	assert.equal(result.error, null);
 });

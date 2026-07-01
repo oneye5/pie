@@ -1,5 +1,5 @@
-import { formatSkillsForPrompt } from "@mariozechner/pi-coding-agent";
-import type { Skill, ToolInfo } from "@mariozechner/pi-coding-agent";
+import { formatSkillsForPrompt } from "@earendil-works/pi-coding-agent";
+import type { Skill, ToolInfo } from "@earendil-works/pi-coding-agent";
 import type { CompleteSimpleFn } from "../llm-scorer.js";
 import type { PruningConfig } from "../types.js";
 import path from "node:path";
@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
  * read and write through the same `state` object.
  */
 export const state = {
-	/** Lazily-resolved reference to @mariozechner/pi-ai's completeSimple. */
+	/** Lazily-resolved reference to @earendil-works/pi-ai's completeSimple. */
 	_piCompleteSimple: undefined as ((model: unknown, context: unknown, options: unknown) => Promise<unknown>) | null | undefined,
 
 	/** Facade for pi API methods used for tool introspection. */

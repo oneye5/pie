@@ -1,6 +1,6 @@
 import { __setPromptTemplate as __setPruningPromptTemplate } from "./llm-scorer.js";
 import type { CompleteSimpleFn } from "./llm-scorer.js";
-import type { Skill, ToolInfo } from "@mariozechner/pi-coding-agent";
+import type { Skill, ToolInfo } from "@earendil-works/pi-coding-agent";
 import {
 	setPiApi,
 	setConfigOverrideForTesting,

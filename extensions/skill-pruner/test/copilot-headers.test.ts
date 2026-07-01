@@ -35,10 +35,10 @@ function installSdkResolverForTests(): void {
 	};
 	const originalResolveFilename = moduleWithResolver._resolveFilename;
 	moduleWithResolver._resolveFilename = function resolveFilename(request, parent, isMain, options): string {
-		if (request === "@mariozechner/pi-coding-agent") {
+		if (request === "@earendil-works/pi-coding-agent") {
 			return sdkPath;
 		}
-		if (request === "@mariozechner/pi-tui") {
+		if (request === "@earendil-works/pi-tui") {
 			return tuiPath;
 		}
 		return originalResolveFilename.call(this, request, parent, isMain, options);

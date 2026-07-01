@@ -1,5 +1,5 @@
 import type { PruningResult } from "../types.js";
-import { Box, Text } from "@mariozechner/pi-tui";
+import { Box, Text } from "@earendil-works/pi-tui";
 
 export const pruningResultRenderer = {
 	messageType: "pruning-result" as const,
@@ -26,15 +26,25 @@ export const pruningResultRenderer = {
 		const tokenNote = details.skillTokensSaved + details.toolTokensSaved > 0
 			? ` · Saved ~${details.skillTokensSaved + details.toolTokensSaved} tokens`
 			: "";
+		const hasError = !!details.prepassError;
+		const errorNote = hasError ? ` · ${details.prepassError}` : "";
 
 		if (!expanded) {
-			const compact = `${modeLabel}${parts.join(", ")}${tokenNote}`;
+			const compact = hasError
+				? `${modeLabel}${theme.fg("error", "Pruning error")}${errorNote}`
+				: `${modeLabel}${parts.join(", ")}${tokenNote}`;
 			const box = new Box(1, 1, (t: unknown) => theme.bg("customMessageBg", t));
 			box.addChild(new Text(compact, 0, 0));
 			return box;
 		}
 
 		const lines: string[] = [];
+		if (hasError) {
+			// Surface the full verbatim error so it is debuggable, not swallowed.
+			lines.push(theme.fg("error", `  Prepass error: ${details.prepassError}`));
+			if (details.prepassModel) lines.push(theme.fg("dim", `  Model: ${details.prepassModel} (${details.prepassThinkingLevel ?? "n/a"})`));
+			if (details.prepassLatencyMs) lines.push(theme.fg("dim", `  Latency: ${details.prepassLatencyMs}ms`));
+		}
 		if (details.excludedSkills.length > 0) {
 			lines.push(theme.fg("success", `  Skills kept: ${details.includedSkills.join(", ")}`));
 			lines.push(theme.fg("dim", `  Skills pruned: ${details.excludedSkills.join(", ")}`));
@@ -48,7 +58,8 @@ export const pruningResultRenderer = {
 		}
 
 		const box = new Box(1, 1, (t: unknown) => theme.bg("customMessageBg", t));
-		box.addChild(new Text(`${modeLabel}Pruning Results\n${lines.join("\n")}`, 0, 0));
+		const header = hasError ? "Pruning Results (prepass failed — kept all)" : "Pruning Results";
+		box.addChild(new Text(`${modeLabel}${header}\n${lines.join("\n")}`, 0, 0));
 		return box;
 	},
 };

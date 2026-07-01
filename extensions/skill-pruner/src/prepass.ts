@@ -23,6 +23,24 @@ export const LLM_TIMEOUT_MS_BY_THINKING_LEVEL: Record<string, number> = {
 	xhigh: 35_000,
 };
 
+/**
+ * Max transport-level retries (5xx / network errors) per thinking-level
+ * attempt, with exponential backoff between them. This is distinct from the
+ * thinking-level downgrade loop: a transient 500 from the provider gateway
+ * must be retried at the SAME reasoning level before we give up on that level
+ * and downgrade, otherwise a single gateway blip turns "no text response"
+ * fatal with zero transport retries (pi-ai's OpenAI client defaults to
+ * `maxRetries: 0`). See OPENAI-SDK retry plumbing: `openai-responses.js`
+ * reads `options?.maxRetries ?? 0`.
+ */
+export const PREPASS_MAX_TRANSPORT_RETRIES = 2;
+const PREPASS_TRANSPORT_BACKOFF_BASE_MS = 1_000;
+
+/** Resolve after `ms` milliseconds. Used for transport-retry backoff. */
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /** Max recent turns (user+assistant) surfaced to the prepass for follow-up interpretation. */
 const RECENT_CONVERSATION_MAX = 6;
 /** Per-message text cap so the prepass prompt stays modest. */
@@ -113,7 +131,7 @@ export function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 	const adapter: CompleteSimpleFn = async (model, context, options) => {
 		if (state._piCompleteSimple === undefined) {
 			try {
-				const piAi = await import("@mariozechner/pi-ai");
+				const piAi = await import("@earendil-works/pi-ai");
 				state._piCompleteSimple = piAi.completeSimple;
 			} catch {
 				state._piCompleteSimple = null;
@@ -121,7 +139,7 @@ export function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 		}
 		if (!state._piCompleteSimple) {
 			throw new Error(
-				"@mariozechner/pi-ai is not available; install it (npm install @mariozechner/pi-ai) or run via the pi host that provides it",
+				"@earendil-works/pi-ai is not available; install it (npm install @earendil-works/pi-ai) or run via the pi host that provides it",
 			);
 		}
 		const systemMsg = context.find((m) => m.role === "system");
@@ -237,6 +255,33 @@ export function formatEmptyPrepassError(result: Awaited<ReturnType<typeof runLlm
 	return `LLM pruning failed: returned no text response (${diagnostics.join("; ")})`;
 }
 
+/**
+ * Classify a prepass result as a *transport* error worth retrying at the same
+ * reasoning level (as opposed to a genuine empty-text response, which gets the
+ * thinking-level-downgrade path). Transport errors are transient upstream
+ * failures — HTTP 5xx, 429, network/timeout — that another shot may resolve.
+ *
+ * `stopReason === "error"` combined with an HTTP-status-bearing errorMessage
+ * (e.g. `OpenAI API error (500): 500 Internal Server Error`) is the signature
+ * pi-ai produces when the OpenAI client surfaces a non-2xx response. We also
+ * treat a thrown error whose message carries an HTTP status as transport.
+ */
+export function isTransportError(result: Awaited<ReturnType<typeof runLlmPruning>> | undefined, thrown?: unknown): boolean {
+	if (thrown !== undefined) {
+		const msg = toErrorMessage(thrown);
+		return /\b(?:5\d\d|429)\b/.test(msg) || /Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout|connection reset|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(msg);
+	}
+	if (!result) return false;
+	if (result.stopReason !== "error") return false;
+	const msg = result.errorMessage ?? "";
+	return /\b(?:5\d\d|429)\b/.test(msg) || /Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout|connection reset|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(msg);
+}
+
+/** Classify a thrown/returned error as a transport error by message alone. */
+export function isTransportErrorMessage(message: string): boolean {
+	return /\b(?:5\d\d|429)\b/.test(message) || /Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout|connection reset|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(message);
+}
+
 export async function runPruningPrepass(
 	ctx: unknown,
 	llmInput: LlmPruningInput,
@@ -279,6 +324,11 @@ export async function runPruningPrepass(
 		try {
 			const result = await runLlmPruning(llmInput, model, {
 				reasoning: thinkingLevel,
+				// Forward an explicit transport-retry budget so pi-ai's
+				// `openai-responses.js` (`maxRetries: options?.maxRetries ?? 0`)
+				// retries 5xx/429/timeout at the SDK layer instead of surfacing
+				// the first blip as a terminal "no text response".
+				maxRetries: PREPASS_MAX_TRANSPORT_RETRIES,
 				signal: AbortSignal.timeout(prepassTimeoutMs(thinkingLevel, index)),
 				...auth,
 			}, completeFn);
@@ -301,12 +351,129 @@ export async function runPruningPrepass(
 				return latestResult;
 			}
 
-			latestResult.error = formatEmptyPrepassError(result);
+			// Transport error (5xx/429/network): retry at the SAME reasoning
+			// level with backoff before downgrading. A transient gateway 500
+			// must not be treated as a content-empty "no text" response that
+			//_downgrades_ the reasoning — that never fixes a transport fault.
+			if (isTransportError(result)) {
+				let recovered = false;
+				for (let r = 1; r <= PREPASS_MAX_TRANSPORT_RETRIES; r++) {
+					const backoff = PREPASS_TRANSPORT_BACKOFF_BASE_MS * 2 ** (r - 1);
+					console.warn(`[skill-pruner] transport error (attempt ${r}/${PREPASS_MAX_TRANSPORT_RETRIES}); retrying in ${backoff}ms: ${result.errorMessage}`);
+					await sleep(backoff);
+					try {
+						const retryResult = await runLlmPruning(llmInput, model, {
+							reasoning: thinkingLevel,
+							maxRetries: PREPASS_MAX_TRANSPORT_RETRIES,
+							signal: AbortSignal.timeout(prepassTimeoutMs(thinkingLevel, index)),
+							...auth,
+						}, completeFn);
+						if (hasUsablePrepassResponse(retryResult)) {
+							latestResult = {
+								prunedSkills: retryResult.prunedSkills,
+								prunedTools: retryResult.prunedTools,
+								error: null,
+								rawResponse: retryResult.rawResponse,
+								rawThinking: retryResult.rawThinking,
+								rawSystemPrompt: retryResult.systemPrompt,
+								rawUserMessage: retryResult.userMessage,
+								latencyMs: retryResult.latencyMs,
+								thinkingLevel,
+								usage: retryResult.usage,
+								keptAllDueToParseFailure: retryResult.keptAllDueToParseFailure,
+							};
+							recovered = true;
+							break;
+						}
+						if (!isTransportError(retryResult)) {
+							// Non-transport empty response → stop transport-retrying;
+							// fall through to the thinking-level downgrade path.
+							latestResult.error = formatEmptyPrepassError(retryResult);
+							break;
+						}
+						latestResult.error = formatEmptyPrepassError(retryResult);
+					} catch (retryError) {
+						const msg = toErrorMessage(retryError);
+						latestResult.error = isTransportErrorMessage(msg)
+							? `LLM pruning failed (transport): ${msg}`
+							: `LLM pruning failed: ${msg}`;
+						if (!isTransportErrorMessage(msg)) break;
+					}
+				}
+				if (recovered) return latestResult;
+			} else {
+				latestResult.error = formatEmptyPrepassError(result);
+			}
+
 			if (index < attempts.length - 1) {
 				console.warn(`[skill-pruner] ${latestResult.error}; retrying with minimal reasoning`);
 			}
 		} catch (error) {
-			const errorMessage = `LLM pruning failed: ${toErrorMessage(error)}`;
+			const errorMessage = isTransportErrorMessage(toErrorMessage(error))
+				? `LLM pruning failed (transport): ${toErrorMessage(error)}`
+				: `LLM pruning failed: ${toErrorMessage(error)}`;
+
+			if (isTransportErrorMessage(toErrorMessage(error))) {
+				// Thrown transport error: retry at the SAME reasoning level with
+				// backoff (mirrors the returned-error inner loop above). A thrown
+				// 503 must be retried even on the final thinking level — gating
+				// on `index < attempts.length - 1` would skip the retry when
+				// there is no level to downgrade to, surfacing a transient blip
+				// as a terminal failure.
+				let recovered = false;
+				for (let r = 1; r <= PREPASS_MAX_TRANSPORT_RETRIES; r++) {
+					const backoff = PREPASS_TRANSPORT_BACKOFF_BASE_MS * 2 ** (r - 1);
+					console.warn(`[skill-pruner] ${errorMessage} (attempt ${r}/${PREPASS_MAX_TRANSPORT_RETRIES}); retrying in ${backoff}ms`);
+					await sleep(backoff);
+					try {
+						const retryResult = await runLlmPruning(llmInput, model, {
+							reasoning: thinkingLevel,
+							maxRetries: PREPASS_MAX_TRANSPORT_RETRIES,
+							signal: AbortSignal.timeout(prepassTimeoutMs(thinkingLevel, index)),
+							...auth,
+						}, completeFn);
+						if (hasUsablePrepassResponse(retryResult)) {
+							latestResult = {
+								prunedSkills: retryResult.prunedSkills,
+								prunedTools: retryResult.prunedTools,
+								error: null,
+								rawResponse: retryResult.rawResponse,
+								rawThinking: retryResult.rawThinking,
+								rawSystemPrompt: retryResult.systemPrompt,
+								rawUserMessage: retryResult.userMessage,
+								latencyMs: retryResult.latencyMs,
+								thinkingLevel,
+								usage: retryResult.usage,
+								keptAllDueToParseFailure: retryResult.keptAllDueToParseFailure,
+							};
+							recovered = true;
+							break;
+						}
+						latestResult.error = formatEmptyPrepassError(retryResult);
+						if (!isTransportError(retryResult)) break;
+					} catch (retryError) {
+						const msg = toErrorMessage(retryError);
+						latestResult.error = isTransportErrorMessage(msg)
+							? `LLM pruning failed (transport): ${msg}`
+							: `LLM pruning failed: ${msg}`;
+						if (!isTransportErrorMessage(msg)) break;
+					}
+				}
+				if (recovered) return latestResult;
+				if (index < attempts.length - 1) {
+					console.warn(`[skill-pruner] ${latestResult.error}; retrying with minimal reasoning`);
+					continue;
+				}
+				console.warn(`[skill-pruner] ${latestResult.error}`);
+				return {
+					...latestResult,
+					prunedSkills: null,
+					prunedTools: null,
+					error: latestResult.error ?? errorMessage,
+					thinkingLevel,
+				};
+			}
+
 			if (index < attempts.length - 1) {
 				latestResult = {
 					...latestResult,

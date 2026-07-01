@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import Module, { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ExtensionAPI, Skill, ToolInfo } from "@mariozechner/pi-coding-agent";
+import type { ExtensionAPI, Skill, ToolInfo } from "@earendil-works/pi-coding-agent";
 import { clearPruningTrackingForTesting, flushLog, setLogPathForTesting } from "../logger.js";
 import type { PruningConfig } from "../types.js";
 
@@ -48,10 +48,10 @@ function installSdkResolverForTests(): void {
 	};
 	const originalResolveFilename = moduleWithResolver._resolveFilename;
 	moduleWithResolver._resolveFilename = function resolveFilename(request, parent, isMain, options): string {
-		if (request === "@mariozechner/pi-coding-agent") {
+		if (request === "@earendil-works/pi-coding-agent") {
 			return sdkPath;
 		}
-		if (request === "@mariozechner/pi-tui") {
+		if (request === "@earendil-works/pi-tui") {
 			return tuiPath;
 		}
 		return originalResolveFilename.call(this, request, parent, isMain, options);

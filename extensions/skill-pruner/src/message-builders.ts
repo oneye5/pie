@@ -9,7 +9,7 @@
  * "shape of output" without standing up the full prepass flow.
  */
 
-import type { ToolInfo } from "@mariozechner/pi-coding-agent";
+import type { ToolInfo } from "@earendil-works/pi-coding-agent";
 
 import { estimateTokens } from "../logger.js";
 import { countTokens } from "../tokenize.js";
@@ -218,9 +218,17 @@ export function buildFeedbackMessage(
 		if (prepass.userMessage) details.prepassUserMessage = prepass.userMessage;
 		details.prepassLatencyMs = prepass.latencyMs;
 		applyPrepassUsage(details, prepass.usage);
+		// Surface the error verbatim — never swallow it. Transport errors
+		// (5xx/429/network) are prefixed so users can tell an upstream blip
+		// apart from a genuine content/parse failure. This is the only
+		// user-visible signal that the prepass failed; truncating or
+		// summarising it would hide the diagnostic needed to debug it.
+		const isTransport = /\b(?:5\d\d|429)\b/.test(prepass.error)
+			|| /Internal Server Error|Bad Gateway|Service Unavailable|Gateway Timeout|connection reset|ECONNRESET|ETIMEDOUT|fetch failed|network/i.test(prepass.error);
+		const label = isTransport ? "Pruning prepass skipped (provider transport error, kept all skills)" : "Pruning error (kept all skills)";
 		return {
 			customType: "pruning-result",
-			content: `Pruning error: ${prepass.error}`,
+			content: `${label}: ${prepass.error}`,
 			display: true,
 			details,
 		};

@@ -5,7 +5,7 @@
  * These helpers take already-resolved data and return immutable values with
  * no side effects, so they can be exercised directly without the SDK-mock
  * bootstrap that the orchestrator (pruning.ts) needs. `message-builders.ts`
- * only type-imports `@mariozechner/pi-coding-agent`, so a plain ESM import
+ * only type-imports `@earendil-works/pi-coding-agent`, so a plain ESM import
  * resolves under tsx.
  *
  * The host editor exports PIE_EXTENSION_TOGGLES_JSON with skill-pruner
@@ -363,7 +363,7 @@ test("buildFeedbackMessage: prepass error -> verbatim error content with diagnos
 	assert.ok(msg);
 	assert.equal(msg!.customType, "pruning-result");
 	assert.equal(msg!.display, true);
-	assert.equal(msg!.content, "Pruning error: model unavailable");
+	assert.equal(msg!.content, "Pruning error (kept all skills): model unavailable");
 	assert.equal(msg!.details.prepassModel, "gpt-5-mini");
 	assert.equal(msg!.details.prepassThinkingLevel, "minimal");
 	assert.equal(msg!.details.prepassLatencyMs, 99);
