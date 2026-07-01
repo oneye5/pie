@@ -40,6 +40,19 @@ import {
 } from "../bucket-selector.js";
 import { MAX_SESSIONS_PER_CALL, makeDetails } from "./helpers.js";
 import type { ParentBridge } from "./parent-extension-ui-bridge-proxy.js";
+// Model-selection primitives (SelectionContext, resolveModel, …) now live in
+// ./selection.ts. They are imported here for local use and re-exported below so
+// existing `from "./execute.js"` imports (incl. tests) keep resolving. This
+// extraction breaks the execute↔modes circular import that caused parallel
+// subagent dispatch to crash with `Cannot read properties of undefined
+// (reading 'checkTrailLoop')` under pi's TS→CJS loader.
+import {
+	resolveModel,
+	attachSelectionMetadata,
+	isModelFailure,
+	checkTrailLoop,
+	type SelectionContext,
+} from "./selection.js";
 
 /** Root of the pi-config repo, resolved from this extension's known position. */
 const CONFIG_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -81,20 +94,7 @@ export function readSubagentConfirmDefault(): boolean | undefined {
 	return readConfirmDefaultFromSettings(path.join(CONFIG_ROOT, "settings.json"));
 }
 
-/** Context for model selection settings and restrictions. */
-export interface SelectionContext {
-	modelConfig: SimpleModelConfig[];
-	disabledProviders: Set<string>;
-	allowedModelIds: Set<string> | undefined;
-	/** User-configured bucket assignments (read once from the env mirror). */
-	bucketAssignments: BucketAssignments | undefined;
-	/** When true, skip bucket selection and always use the parent's active model. */
-	alwaysParentModel: boolean;
-	/** Per-tier allowlist restricting which buckets *nested* subagents (depth ≥ 1)
-	 *  may use. Read once from the env mirror (PIE_SUBAGENT_NESTED_ALLOWED_BUCKETS_JSON).
-	 *  All-true (the default) leaves behaviour unchanged. */
-	nestedAllowedBuckets: NestedAllowedBuckets;
-}
+// SelectionContext moved to ./selection.ts (see import above).
 
 /**
  * Validates exactly-one-mode and agent name existence.
@@ -152,134 +152,11 @@ export function validateSubagentParams(
 	return { ok: true, mode, invalidResults };
 }
 
-/** Resolves which model to use for an agent based on bucket hint and configuration.
- *
- *  `childDepth` is the depth of the subagent being spawned (parent depth + 1).
- *  When ≥ 1 (i.e. every subagent spawn — the root caller never reaches here),
- *  the nested-bucket allowlist is applied: a requested bucket not allowed for
- *  nested subagents is downgraded to the highest allowed tier at or below it
- *  (see `downgradeBucketForNested`). Omit `childDepth` to skip the cap (used by
- *  unit tests that exercise bucket selection directly without a runtime context). */
-export async function resolveModel(
-	agent: AgentConfig,
-	selectionCtx: SelectionContext,
-	activeModelId: string,
-	perCallBucket?: string,
-	perCallThinkingLevel?: ThinkingLevel,
-	excludeModels?: Set<string>,
-	childDepth?: number,
-) {
-	const requestedBucket = perCallBucket ?? agent.bucket ?? "medium";
-	const thinkingLevel = perCallThinkingLevel ?? agent.thinkingLevel;
-
-	// When the user has enabled "always use parent model", skip bucket
-	// selection entirely and use the caller's active model (the same path as
-	// the empty-pool fallback in selectModel). If the active model has been
-	// excluded via retry, fall through to a "" modelId to signal exhaustion.
-	if (selectionCtx.alwaysParentModel) {
-		const fallbackId = activeModelId && !excludeModels?.has(activeModelId) ? activeModelId : "";
-		return {
-			modelOverride: fallbackId,
-			thinkingLevel,
-			selection: {
-				modelId: fallbackId,
-				thinkingLevel,
-				bucket: requestedBucket,
-				pool: [],
-				fallback: true,
-			},
-			bucket: requestedBucket,
-		};
-	}
-
-	// Nested-bucket cap: for nested subagents (depth ≥ 1), restrict the bucket to
-	// the user-configured allowlist. A requested tier that is not allowed is
-	// downgraded to the highest allowed tier at or below it; when no tier is
-	// allowed at all, fall back to the caller's active model (same path as the
-	// empty-pool fallback in selectModel). The root caller never reaches here
-	// (resolveModel is only invoked for subagent spawns), so this cap applies to
-	// every subagent in the tree.
-	let bucket = requestedBucket;
-	let bucketDowngradeReason: string | undefined;
-	if (childDepth !== undefined && childDepth >= 1) {
-		const allowed = selectionCtx.nestedAllowedBuckets ?? ALL_NESTED_BUCKETS_ALLOWED;
-		const downgraded = downgradeBucketForNested(bucket, allowed);
-		if (downgraded.downgraded) {
-			if (downgraded.bucket === "") {
-				const fallbackId = activeModelId && !excludeModels?.has(activeModelId) ? activeModelId : "";
-				return {
-					modelOverride: fallbackId,
-					thinkingLevel,
-					selection: {
-						modelId: fallbackId,
-						thinkingLevel,
-						bucket,
-						pool: [],
-						fallback: true,
-					},
-					bucket,
-					bucketDowngradeReason: `Nested subagent (depth ${childDepth}) requested bucket "${bucket}" but no bucket is allowed for nested subagents; falling back to the parent's active model.`,
-				};
-			}
-			bucketDowngradeReason = `Nested subagent (depth ${childDepth}) requested bucket "${requestedBucket}" but it is not allowed for nested subagents; downgraded to "${downgraded.bucket}".`;
-			bucket = downgraded.bucket;
-		}
-	}
-
-	// User-configured bucket assignments are read once from the env mirror
-	// (PIE_SUBAGENT_BUCKETS_JSON) in setupModelSelection. When absent (e.g.
-	// running under stock pi without the pie host), fall back to empty
-	// assignments so selectModel falls through to the active model.
-	const assignments = selectionCtx.bucketAssignments ?? { small: [], medium: [], frontier: [] };
-
-	const selection = selectModel(
-		bucket,
-		thinkingLevel,
-		assignments,
-		selectionCtx.modelConfig,
-		selectionCtx.allowedModelIds,
-		excludeModels,
-		activeModelId,
-	);
-
-	return {
-		modelOverride: selection.modelId,
-		thinkingLevel: selection.thinkingLevel,
-		selection,
-		bucket,
-		bucketDowngradeReason,
-	};
-}
-
-/** Attaches model selection metadata to a subagent result. */
-export function attachSelectionMetadata(result: SingleResult, resolved: Awaited<ReturnType<typeof resolveModel>>): void {
-	if (resolved.selection) {
-		result.selectedModel = resolved.selection.modelId;
-		result.selectionPool = resolved.selection.pool;
-		result.thinkingLevel = resolved.selection.thinkingLevel;
-		result.bucket = resolved.selection.bucket;
-		result.fallback = resolved.selection.fallback;
-	}
-	if (resolved.bucketDowngradeReason) {
-		result.bucketDowngradeReason = resolved.bucketDowngradeReason;
-	}
-}
-
-/** Check if a subagent result represents a model-level failure that qualifies for retry. */
-export function isModelFailure(
-	result: SingleResult,
-	modelOverride: string | undefined,
-	hasBucketAssignments: boolean,
-): boolean {
-	return (
-		result.exitCode !== 0 && result.stopReason !== "aborted" && modelOverride !== undefined && hasBucketAssignments
-	);
-}
-
-export const checkTrailLoop = (agentName: string, trail: string[]): boolean => {
-	const occurrences = trail.filter((t) => t === agentName).length;
-	return occurrences >= 2;
-};
+// resolveModel / attachSelectionMetadata / isModelFailure / checkTrailLoop moved to
+// ./selection.ts. Re-exported here so existing `from "./execute.js"` imports
+// (incl. tests) keep resolving. modes.ts now imports them directly from
+// ./selection.ts, which removes the execute↔modes circular import.
+export { resolveModel, attachSelectionMetadata, isModelFailure, checkTrailLoop, type SelectionContext };
 
 /** Standard error response shape used by early returns. */
 export type Mode = "single" | "parallel" | "chain";

@@ -23,8 +23,11 @@ import {
 	type SubagentDetails,
 	type UsageStats,
 } from "../types.js";
-import type { SelectionContext } from "./execute.js";
-import { resolveModel, attachSelectionMetadata, isModelFailure, checkTrailLoop } from "./execute.js";
+// Shared model-selection helpers live in ./selection.ts (NOT ./execute.ts) —
+// importing them from there breaks the execute↔modes circular import that
+// crashed parallel subagent dispatch with `Cannot read properties of
+// undefined (reading 'checkTrailLoop')`.
+import { resolveModel, attachSelectionMetadata, isModelFailure, checkTrailLoop, type SelectionContext } from "./selection.js";
 import type { ParentBridge } from "./parent-extension-ui-bridge-proxy.js";
 import type { ThinkingLevel } from "../bucket-selector.js";
 
