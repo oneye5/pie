@@ -21,7 +21,7 @@ export {
 	type PrepassDiagnostics,
 } from "./message-builders.js";
 export { COPILOT_IDE_HEADERS, ensureCopilotHeaders, withCopilotHeaders, withCopilotOptions } from "./copilot-headers.js";
-export type { PrepassRunResult, SkillPruningResult, ToolPruningResult } from "./pruning-types.js";
+export type { PrepassRunResult, PrepassUsage, SkillPruningResult, ToolPruningResult } from "./pruning-types.js";
 export {
 	getRecentConversation,
 	getCompleteFn,
@@ -39,7 +39,16 @@ export {
  * `shouldSkipPruning` reads (same module instance the subagent runner sets). */
 export { subagentContext } from "../../../shared/subagent-context.js";
 
-export const SKILLS_BLOCK_RE = /\n\nThe following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
+/**
+ * Locates the host-injected skills block in the system prompt so the pruner
+ * can rewrite it. The leading `\n\s*` (rather than a brittle `\n\n`) tolerates
+ * whitespace/newline-count variation in the host layout — if the block's exact
+ * leading whitespace shifts slightly, matching still succeeds instead of
+ * silently self-disabling skill pruning. The intro sentence and
+ * `<available_skills>` tags remain the structural anchors, so behaviour is
+ * unchanged when the block is present in the standard layout.
+ */
+export const SKILLS_BLOCK_RE = /\n\s*The following skills provide specialized instructions for specific tasks\.[\s\S]*?<\/available_skills>/;
 export const MIN_PROMPT_LENGTH = 8;
 
 /** Returns the pi API facade, falling back to no-ops when pi hasn't been initialized. */

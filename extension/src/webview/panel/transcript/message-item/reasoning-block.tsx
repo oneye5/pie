@@ -105,7 +105,6 @@ export function ReasoningBlock({ text, autoExpand, collapsibleKey, onContextMenu
     <Collapsible
       open={open}
       onToggle={setOpen}
-      stickyHeader
       ariaLabel="Toggle reasoning details"
       class={cx('rounded-md', open && 'bg-control/60')}
       headerClass="px-2 py-1"

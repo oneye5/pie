@@ -1,5 +1,6 @@
 import * as crypto from 'node:crypto';
 import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 import { EXTENSION_TOGGLES_ENV, NESTED_ALLOWED_BUCKETS_ENV, PROVIDER_TOGGLES_ENV, PROTOCOL_VERSION, SUBAGENT_BUCKETS_ENV, type ErrorPayload, type ModelInfo, type ModelSettings, type PreflightFailedPayload, type RequestEnvelope, type SessionOpenedPayload, type SessionSummary, type TranscriptPageDirection, type TranscriptPagePayload } from '../shared/protocol';
 import { toErrorMessage } from '../shared/error-message';
@@ -19,6 +20,21 @@ import type { SdkModule, SdkSessionManager, SdkImageContent } from './sdk';
 import { buildPromptText, lowerImageInputs, normalizeThinkingLevel } from './message-inputs';
 import type { SessionContext, SessionContextCreationReason } from './server-types';
 import { BackendError } from './server-io';
+
+/**
+ * Backend safety-net timeout for a hung `session.prompt()`. `message.send`
+ * early-acks and fire-and-forgets the prompt promise (see `handleMessageSend`);
+ * without a bound, a prompt that neither reaches a commit point (first
+ * `MessageStarted`) nor rejects would leave `activeRequest` set forever,
+ * blocking all future sends with `REQUEST_IN_PROGRESS`. On fire it aborts the
+ * session and emits `preflight.failed` (a post-ack, pre-commit failure) so the
+ * host reverts via `pending.promoted`. The SDK `prompt()` does not accept an
+ * `AbortSignal`, so the abort is effected via `session.abort()`. Generous by
+ * design — a healthy turn clears the timer via `.finally` long before this
+ * fires. Distinct from the host-side send-timer (prepass phase) and the
+ * streaming watchdog (streaming hangs), which own their own windows.
+ */
+const PROMPT_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes — tunable
 
 export interface BackendRequestHandlerDeps {
   sdkPath: string;
@@ -204,7 +220,23 @@ async function handleSessionTruncateAfter(
     }
   }
   const newContent = keepLines.length > 0 ? keepLines.join('\n') + '\n' : '';
-  await fs.writeFile(params.sessionPath, newContent, 'utf8');
+  // Atomically replace the transcript: write to a temp file in the same
+  // directory (same filesystem → `fs.rename` is atomic) then rename over the
+  // original. A crash mid-write leaves the original intact instead of
+  // truncating/corrupting it. UUID suffix keeps the temp name collision-safe
+  // under rapid repeated truncation.
+  const dir = path.dirname(params.sessionPath);
+  const tmpPath = path.join(
+    dir,
+    `.${path.basename(params.sessionPath)}.${crypto.randomUUID()}.tmp`,
+  );
+  await fs.writeFile(tmpPath, newContent, 'utf8');
+  try {
+    await fs.rename(tmpPath, params.sessionPath);
+  } catch (renameError) {
+    await fs.rm(tmpPath, { force: true }).catch(() => {});
+    throw renameError;
+  }
 
   const context = await deps.createSessionContext(
     deps.sdk.SessionManager.open(params.sessionPath),
@@ -302,9 +334,31 @@ async function handleMessageSend(
   //  - failure → emit `preflight.failed` so the host dispatches `PreflightFailed`
   //    and reverts via `pending.promoted` (STATE_CONTRACT § Optimistic
   //    Reconciliation "Two failure windows for send").
-  // `preflightFailed` makes the failure emission one-shot so `preflightResult`
-  // and a concurrent `session.prompt()` rejection cannot both emit.
+  // `preflightFailed` makes the failure emission one-shot so `preflightResult`,
+  // the `PROMPT_TIMEOUT_MS` safety net, and a concurrent `session.prompt()`
+  // rejection cannot both emit.
   let preflightFailed = false;
+
+  // Backend safety net (see PROMPT_TIMEOUT_MS): bound the fire-and-forget
+  // prompt promise so a hung SDK call cannot pin `activeRequest` forever. It
+  // is cleared on settle via `.finally` below, so it never fires for a healthy
+  // turn. The `activeRequest` identity check guards the edge case where this
+  // request was already superseded (turn completed or a new send started) but
+  // the old promise has not yet settled — it must not abort an unrelated turn.
+  const promptTimer = setTimeout(() => {
+    if (!context.activeRequest || context.activeRequest.id !== requestId) return;
+    if (preflightFailed) return;
+    preflightFailed = true;
+    void context.session.abort().catch(() => {
+      // Best-effort abort; the failure is surfaced via `preflight.failed` below.
+    });
+    emitPreflightFailed(
+      deps,
+      context,
+      requestId,
+      `Prompt timed out after ${PROMPT_TIMEOUT_MS}ms without reaching a commit point.`,
+    );
+  }, PROMPT_TIMEOUT_MS);
 
   try {
     context.session
@@ -340,11 +394,13 @@ async function handleMessageSend(
         }
         preflightFailed = true;
         emitPreflightFailed(deps, context, requestId, error.message || 'Prompt failed before streaming started.');
-      });
+      })
+      .finally(() => clearTimeout(promptTimer));
   } catch (syncError) {
     // `session.prompt` threw synchronously before returning a promise — treat
     // as a pre-ack failure: clear activeRequest and let the RPC reject so the
     // host dispatches `SendResult{ok:false}` and reverts via `pending.ops`.
+    clearTimeout(promptTimer);
     clearActiveRequest(context, requestId);
     throw syncError;
   }

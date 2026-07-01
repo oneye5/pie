@@ -5,7 +5,7 @@ import Module, { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ExtensionAPI, Skill, ToolInfo } from "@mariozechner/pi-coding-agent";
-import { clearPruningTrackingForTesting, setLogPathForTesting } from "../logger.js";
+import { clearPruningTrackingForTesting, flushLog, setLogPathForTesting } from "../logger.js";
 import type { PruningConfig } from "../types.js";
 
 installSdkResolverForTests();
@@ -491,6 +491,7 @@ test("non-JSON prose response → kept all, prepassSafeguardReason notes parse f
 		assert.match(String(details.prepassSafeguardReason), /parse failure/i);
 
 		// The persisted decision carries the flag so analytics can query it.
+		await flushLog();
 		const logged = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 		const decision = logged.find((e) => Array.isArray(e.included) && Array.isArray(e.excluded));
 		assert.ok(decision, "a PruningDecision row should be logged");

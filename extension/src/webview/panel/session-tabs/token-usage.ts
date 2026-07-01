@@ -1,4 +1,6 @@
 import type { AssistantUsage, ChatMessage, ContextWindowUsage, PruningDetails, ToolCall } from '../../../shared/protocol';
+import { formatToolResult } from '../../../shared/tool-result-format';
+import { getRenderableSubagentResult, type RawMessage } from '../../../shared/subagent-result';
 import { estimateTextTokens } from '../system-prompt-tokens';
 import {
   formatTokens as formatReadableTokens,
@@ -140,6 +142,92 @@ type PruningCostDetails = PruningDetails & {
   prepassCacheWriteTokens?: number;
 };
 
+interface ModelCostBreakdown extends CostUsage {
+  modelId: string;
+  cost: number;
+  sources: Map<string, number>;
+}
+
+function emptyCostUsage(): CostUsage {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+  };
+}
+
+function normalizeModelId(modelId: string | undefined, fallback: string): string {
+  const normalized = modelId?.trim();
+  return normalized && normalized.length > 0 ? normalized : fallback;
+}
+
+function addModelCost(
+  models: Map<string, ModelCostBreakdown>,
+  modelId: string,
+  source: string,
+  usage: CostUsage,
+  cost: number,
+): void {
+  const existing = models.get(modelId) ?? {
+    modelId,
+    ...emptyCostUsage(),
+    cost: 0,
+    sources: new Map<string, number>(),
+  };
+
+  existing.inputTokens += usage.inputTokens;
+  existing.outputTokens += usage.outputTokens;
+  existing.cacheReadTokens += usage.cacheReadTokens;
+  existing.cacheWriteTokens += usage.cacheWriteTokens;
+  existing.totalTokens += usage.totalTokens;
+  existing.cost += cost;
+  existing.sources.set(source, (existing.sources.get(source) ?? 0) + cost);
+  models.set(modelId, existing);
+}
+
+function mergeModelCosts(target: Map<string, ModelCostBreakdown>, source: Map<string, ModelCostBreakdown>): void {
+  for (const entry of source.values()) {
+    const existing = target.get(entry.modelId) ?? {
+      modelId: entry.modelId,
+      ...emptyCostUsage(),
+      cost: 0,
+      sources: new Map<string, number>(),
+    };
+    existing.inputTokens += entry.inputTokens;
+    existing.outputTokens += entry.outputTokens;
+    existing.cacheReadTokens += entry.cacheReadTokens;
+    existing.cacheWriteTokens += entry.cacheWriteTokens;
+    existing.totalTokens += entry.totalTokens;
+    existing.cost += entry.cost;
+    for (const [sourceName, sourceCost] of entry.sources) {
+      existing.sources.set(sourceName, (existing.sources.get(sourceName) ?? 0) + sourceCost);
+    }
+    target.set(entry.modelId, existing);
+  }
+}
+
+function formatModelCostBreakdown(models: Map<string, ModelCostBreakdown>): string[] {
+  const entries = Array.from(models.values())
+    .filter((entry) => entry.cost > 0)
+    .sort((a, b) => b.cost - a.cost || a.modelId.localeCompare(b.modelId));
+
+  if (entries.length === 0) return [];
+
+  const lines = ['Cost by model:'];
+  for (const entry of entries) {
+    lines.push(`  ${entry.modelId}: ${formatCostDetail(entry.cost)} (↑ ${formatReadableTokens(entry.inputTokens)} ↓ ${formatReadableTokens(entry.outputTokens)})`);
+    const sources = Array.from(entry.sources.entries())
+      .filter(([, cost]) => cost > 0)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+    if (sources.length > 1) {
+      lines.push(`    ${sources.map(([name, cost]) => `${name} ${formatCostDetail(cost)}`).join(' · ')}`);
+    }
+  }
+  return lines;
+}
+
 function formatCostDetail(cost: number): string {
   return `$${Math.max(0, cost).toFixed(4)}`;
 }
@@ -214,53 +302,170 @@ function toolCallsFromMessage(message: ChatMessage): ToolCall[] {
     .map((part) => part.toolCall) ?? [];
 }
 
-export function extractSubagentDirectCost(transcript: ChatMessage[]): number {
-  let cost = 0;
+export interface SubagentCostSummary {
+  totalCost: number;
+  directCost: number;
+  nestedCost: number;
+  directResultCount: number;
+  nestedResultCount: number;
+  modelCosts: Map<string, ModelCostBreakdown>;
+}
+
+function emptySubagentCostSummary(): SubagentCostSummary {
+  return {
+    totalCost: 0,
+    directCost: 0,
+    nestedCost: 0,
+    directResultCount: 0,
+    nestedResultCount: 0,
+    modelCosts: new Map<string, ModelCostBreakdown>(),
+  };
+}
+
+function usageFromSubagentUsage(rawUsage: unknown): (CostUsage & { cost: number }) | null {
+  if (!isRecord(rawUsage)) return null;
+  const inputTokens = numberValue(rawUsage.input);
+  const outputTokens = numberValue(rawUsage.output);
+  const cacheReadTokens = numberValue(rawUsage.cacheRead);
+  const cacheWriteTokens = numberValue(rawUsage.cacheWrite);
+  const totalTokens = inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens;
+  const cost = numberValue(rawUsage.cost);
+  if (cost <= 0 && totalTokens <= 0) return null;
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    totalTokens,
+    cost,
+  };
+}
+
+function collectRawToolResultMap(messages: RawMessage[]): Map<string, { result: unknown; status: ToolCall['status'] }> {
+  const map = new Map<string, { result: unknown; status: ToolCall['status'] }>();
+  for (const message of messages) {
+    if (message.role === 'toolResult' && message.toolCallId) {
+      map.set(String(message.toolCallId), {
+        result: formatToolResult(message),
+        status: message.isError ? 'failed' : 'completed',
+      });
+      continue;
+    }
+    if (message.role !== 'user' || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (part.type !== 'toolResult' || part.id === undefined) continue;
+      map.set(String(part.id), {
+        result: part.result,
+        status: 'completed',
+      });
+    }
+  }
+  return map;
+}
+
+function addSubagentToolCallCost(
+  summary: SubagentCostSummary,
+  toolCall: Pick<ToolCall, 'input' | 'result' | 'status'>,
+  depth: number,
+): void {
+  if (toolCall.status === 'failed') return;
+  const subagentResult = getRenderableSubagentResult(toolCall.result);
+  if (!subagentResult) return;
+
+  for (const result of subagentResult.results) {
+    const rawResult = result as unknown;
+    if (!isRecord(rawResult)) continue;
+
+    const usage = usageFromSubagentUsage(rawResult.usage);
+    if (usage) {
+      const source = depth <= 1 ? 'Sub-agents' : 'Nested sub-agents';
+      const modelId = normalizeModelId(
+        typeof rawResult.model === 'string' ? rawResult.model : (typeof rawResult.selectedModel === 'string' ? rawResult.selectedModel : undefined),
+        depth <= 1 ? 'Unknown subagent model' : 'Unknown nested subagent model',
+      );
+      summary.totalCost += usage.cost;
+      if (depth <= 1) {
+        summary.directCost += usage.cost;
+        summary.directResultCount += 1;
+      } else {
+        summary.nestedCost += usage.cost;
+        summary.nestedResultCount += 1;
+      }
+      addModelCost(summary.modelCosts, modelId, source, usage, usage.cost);
+    }
+
+    if (!Array.isArray(result.messages) || depth >= 6) continue;
+    const toolResults = collectRawToolResultMap(result.messages);
+    for (const message of result.messages) {
+      if (message.role !== 'assistant' || !Array.isArray(message.content)) continue;
+      for (const part of message.content) {
+        if (part.type !== 'toolCall' || part.name !== 'subagent' || !part.id) continue;
+        const toolResult = toolResults.get(String(part.id));
+        addSubagentToolCallCost(summary, {
+          input: part.arguments ?? {},
+          result: toolResult?.result ?? part.result,
+          status: toolResult?.status ?? 'running',
+        }, depth + 1);
+      }
+    }
+  }
+}
+
+export function extractSubagentCostSummary(transcript: ChatMessage[]): SubagentCostSummary {
+  const summary = emptySubagentCostSummary();
   for (const message of transcript) {
     if (message.role !== 'assistant') continue;
     for (const toolCall of toolCallsFromMessage(message)) {
       if (typeof toolCall.name !== 'string') continue;
-      if (toolCall.name.trim().toLowerCase() !== 'subagent' || toolCall.status === 'failed') continue;
-      if (!isRecord(toolCall.result) || !isRecord(toolCall.result.details) || !Array.isArray(toolCall.result.details.results)) continue;
-      for (const result of toolCall.result.details.results) {
-        if (!isRecord(result) || !isRecord(result.usage)) continue;
-        cost += numberValue(result.usage.cost);
-      }
+      if (toolCall.name.trim().toLowerCase() !== 'subagent') continue;
+      addSubagentToolCallCost(summary, toolCall, 1);
     }
   }
-  return cost;
+  return summary;
+}
+
+export function extractSubagentDirectCost(transcript: ChatMessage[]): number {
+  return extractSubagentCostSummary(transcript).directCost;
 }
 
 function buildPruningPrepassSummary(
   details: PruningCostDetails | undefined,
   pricing: TokenPricing | undefined,
   pricingForModel?: TokenPricingResolver,
-): { cost: number; lines: string[] } {
-  if (!details?.prepassModel) return { cost: 0, lines: [] };
-  const prepassPricing = pricingForModel?.(details.prepassModel) ?? pricing;
-  const inputTokens = numberValue(details.prepassInputTokens);
-  const outputTokens = numberValue(details.prepassOutputTokens);
-  const cacheReadTokens = numberValue(details.prepassCacheReadTokens);
-  const cacheWriteTokens = numberValue(details.prepassCacheWriteTokens);
-  const hasUsage = inputTokens > 0 || outputTokens > 0 || cacheReadTokens > 0 || cacheWriteTokens > 0;
+): { cost: number; usage: CostUsage; modelId?: string; lines: string[] } {
+  const empty = { cost: 0, usage: emptyCostUsage(), lines: [] };
+  if (!details?.prepassModel) return empty;
+  // Resolve the prepass model's OWN pricing — do NOT fall back to the
+  // selected model's pricing. The prepass model is usually a different
+  // (often cheaper/local) model; pricing it at the selected model's rate
+  // would silently over-state the prepass cost. When no pricing is known for
+  // the prepass model, fall through to the "unavailable" branch.
+  const prepassPricing = pricingForModel?.(details.prepassModel);
+  const usage = {
+    inputTokens: numberValue(details.prepassInputTokens),
+    outputTokens: numberValue(details.prepassOutputTokens),
+    cacheReadTokens: numberValue(details.prepassCacheReadTokens),
+    cacheWriteTokens: numberValue(details.prepassCacheWriteTokens),
+    totalTokens: 0,
+  };
+  usage.totalTokens = usage.inputTokens + usage.outputTokens + usage.cacheReadTokens + usage.cacheWriteTokens;
+  const hasUsage = usage.totalTokens > 0;
   if (!hasUsage) {
-    return { cost: 0, lines: ['Pruning prepass:', `  Model: ${details.prepassModel}`] };
+    return { cost: 0, usage, modelId: details.prepassModel, lines: ['Pruning prepass:', `  Model: ${details.prepassModel}`] };
   }
 
-  const cost = prepassPricing
-    ? ((inputTokens / 1_000_000) * prepassPricing.input)
-      + ((outputTokens / 1_000_000) * prepassPricing.output)
-      + ((cacheReadTokens / 1_000_000) * prepassPricing.cacheRead)
-      + ((cacheWriteTokens / 1_000_000) * prepassPricing.cacheWrite)
-    : 0;
+  const cost = prepassPricing ? costFromUsage(usage, prepassPricing) : 0;
 
   return {
     cost,
+    usage,
+    modelId: details.prepassModel,
     lines: [
       'Pruning prepass:',
       `  Model: ${details.prepassModel}`,
-      `  Tokens: \u2191 ${formatReadableTokens(inputTokens)} \u2193 ${formatReadableTokens(outputTokens)}`,
-      ...(prepassPricing ? [`  Cost: ${formatCostDetail(cost)}`] : []),
+      `  Tokens: \u2191 ${formatReadableTokens(usage.inputTokens)} \u2193 ${formatReadableTokens(usage.outputTokens)}`,
+      ...(usage.cacheReadTokens > 0 || usage.cacheWriteTokens > 0 ? [`  Cache: read ${formatReadableTokens(usage.cacheReadTokens)} · write ${formatReadableTokens(usage.cacheWriteTokens)}`] : []),
+      ...(prepassPricing ? [`  Cost: ${formatCostDetail(cost)}`] : ['  Cost: unavailable (no pricing)']),
     ],
   };
 }
@@ -273,6 +478,7 @@ export interface CompletedCostSummary extends CostUsage {
   totalCost: number;
   pricedTurnCount: number;
   modelIds: Set<string>;
+  modelCosts: Map<string, ModelCostBreakdown>;
 }
 
 function emptyCompletedCostSummary(): CompletedCostSummary {
@@ -289,6 +495,7 @@ function emptyCompletedCostSummary(): CompletedCostSummary {
     totalCost: 0,
     pricedTurnCount: 0,
     modelIds: new Set<string>(),
+    modelCosts: new Map<string, ModelCostBreakdown>(),
   };
 }
 
@@ -313,6 +520,7 @@ function addCompletedUsageCost(
   summary.cacheWriteCost += costs.cacheWrite;
   summary.totalCost += costs.total;
   summary.pricedTurnCount += 1;
+  addModelCost(summary.modelCosts, normalizeModelId(modelId, 'Selected model'), 'Main turns', usage, costs.total);
 }
 
 export function buildCompletedCostSummary(
@@ -345,38 +553,44 @@ export function buildSessionCostIndicator(
   pricing: TokenPricing | undefined,
   modelName: string | undefined,
   completed: CompletedCostSummary,
-  subagentCost: number,
+  subagentCostOrSummary: number | SubagentCostSummary,
   pruningDetails: PruningCostDetails | undefined,
   pricingForModel?: TokenPricingResolver,
   liveEstimate?: LiveSessionCostEstimate | null,
+  selectedModelId?: string,
 ): SessionCostIndicatorState | null {
-  if (summary.reportedTurnCount === 0 && !liveEstimate) return null;
-
   const labelModel = modelName ?? 'Selected model';
+  // Key the in-flight live-turn estimate by the selected model's *id* (not its
+  // display name) so it merges with that model's completed turns in the
+  // "Cost by model" rollup instead of spawning a duplicate display-name row
+  // every time a turn streams.
+  const subagents = typeof subagentCostOrSummary === 'number'
+    ? { ...emptySubagentCostSummary(), totalCost: subagentCostOrSummary, directCost: subagentCostOrSummary }
+    : subagentCostOrSummary;
   const prepass = buildPruningPrepassSummary(pruningDetails, pricing, pricingForModel);
   const liveCost = pricing && liveEstimate ? costFromUsage(liveEstimate, pricing) : 0;
+  const mainCost = completed.totalCost;
+  const totalCost = mainCost + liveCost + subagents.totalCost + prepass.cost;
 
-  if (!pricing) {
-    return {
-      label: '$0.00',
-      ariaLabel: `Session cost unavailable: ${formatReadableTokens(summary.totalTokens)} tokens reported without pricing.`,
-      tooltip: [
-        `${labelModel}`,
-        `${formatReadableTokens(summary.totalTokens)} tokens (no pricing)`,
-        ...(liveEstimate ? ['', 'Live turn estimate:', `  Input:  ${formatCostTokens(liveEstimate.inputTokens)}`, `  Output: ${formatCostTokens(liveEstimate.outputTokens)}`] : []),
-        ...(subagentCost > 0 ? ['', 'Sub-agents:', `  Direct cost: ${formatCostDetail(subagentCost)}`] : []),
-        ...(prepass.lines.length > 0 ? ['', ...prepass.lines] : []),
-      ].join('\n'),
-    };
+  if (summary.reportedTurnCount === 0 && !liveEstimate && totalCost <= 0 && prepass.lines.length === 0) return null;
+
+  const modelCosts = new Map<string, ModelCostBreakdown>();
+  mergeModelCosts(modelCosts, completed.modelCosts);
+  mergeModelCosts(modelCosts, subagents.modelCosts);
+  if (pricing && liveEstimate && liveCost > 0) {
+    addModelCost(modelCosts, normalizeModelId(selectedModelId, labelModel), 'Live estimate', liveEstimate, liveCost);
+  }
+  if (prepass.modelId && prepass.cost > 0) {
+    addModelCost(modelCosts, prepass.modelId, 'Pruning prepass', prepass.usage, prepass.cost);
   }
 
-  const mainCost = completed.totalCost;
-  const totalCost = mainCost + liveCost + subagentCost + prepass.cost;
   const tooltipLines = [
     `${labelModel}`,
-    `Completed subtotal: ${formatCostDetail(mainCost)}`,
-    `  Input:  ${formatCostDetail(completed.inputCost)} (${formatCostTokens(completed.inputTokens)})`,
-    `  Output: ${formatCostDetail(completed.outputCost)} (${formatCostTokens(completed.outputTokens)})`,
+    pricing
+      ? `Completed subtotal: ${formatCostDetail(mainCost)}`
+      : `Completed subtotal: unavailable (${formatReadableTokens(summary.totalTokens)} tokens (no pricing))`,
+    `  Input:  ${pricing ? formatCostDetail(completed.inputCost) : 'unpriced'} (${formatCostTokens(completed.inputTokens)})`,
+    `  Output: ${pricing ? formatCostDetail(completed.outputCost) : 'unpriced'} (${formatCostTokens(completed.outputTokens)})`,
   ];
 
   if (completed.modelIds.size > 1) {
@@ -387,27 +601,36 @@ export function buildSessionCostIndicator(
 
   if (completed.cacheReadTokens > 0 || completed.cacheWriteTokens > 0) {
     tooltipLines.push(
-      `  Cache read:  ${formatCostDetail(completed.cacheReadCost)} (${formatCostTokens(completed.cacheReadTokens)})`,
-      `  Cache write: ${formatCostDetail(completed.cacheWriteCost)} (${formatCostTokens(completed.cacheWriteTokens)})`,
+      `  Cache read:  ${pricing ? formatCostDetail(completed.cacheReadCost) : 'unpriced'} (${formatCostTokens(completed.cacheReadTokens)})`,
+      `  Cache write: ${pricing ? formatCostDetail(completed.cacheWriteCost) : 'unpriced'} (${formatCostTokens(completed.cacheWriteTokens)})`,
     );
   }
 
   if (liveEstimate) {
-    const liveCosts = costBreakdownFromUsage(liveEstimate, pricing);
+    const liveCosts = pricing ? costBreakdownFromUsage(liveEstimate, pricing) : null;
     tooltipLines.push(
       '',
-      `Live turn estimate: ${formatCostDetail(liveCost)}`,
-      `  Input:  ${formatCostDetail(liveCosts.input)} (${formatCostTokens(liveEstimate.inputTokens)})`,
-      `  Output: ${formatCostDetail(liveCosts.output)} (${formatCostTokens(liveEstimate.outputTokens)})`,
+      `Live turn estimate: ${pricing ? formatCostDetail(liveCost) : 'unavailable (no pricing)'}`,
+      `  Input:  ${liveCosts ? formatCostDetail(liveCosts.input) : 'unpriced'} (${formatCostTokens(liveEstimate.inputTokens)})`,
+      `  Output: ${liveCosts ? formatCostDetail(liveCosts.output) : 'unpriced'} (${formatCostTokens(liveEstimate.outputTokens)})`,
     );
   }
 
-  if (subagentCost > 0) {
-    tooltipLines.push('', 'Sub-agents:', `  Direct cost: ${formatCostDetail(subagentCost)}`);
+  if (subagents.totalCost > 0) {
+    const directCount = subagents.directResultCount > 0 ? ` (${subagents.directResultCount} result${subagents.directResultCount === 1 ? '' : 's'})` : '';
+    tooltipLines.push('', 'Sub-agents:', `  Direct cost: ${formatCostDetail(subagents.directCost)}${directCount}`);
+    if (subagents.nestedCost > 0) {
+      tooltipLines.push(`  Nested cost: ${formatCostDetail(subagents.nestedCost)} (${subagents.nestedResultCount} result${subagents.nestedResultCount === 1 ? '' : 's'})`);
+    }
   }
 
   if (prepass.lines.length > 0) {
     tooltipLines.push('', ...prepass.lines);
+  }
+
+  const modelCostLines = formatModelCostBreakdown(modelCosts);
+  if (modelCostLines.length > 0) {
+    tooltipLines.push('', ...modelCostLines);
   }
 
   tooltipLines.push(`Total: ${formatCostDetail(totalCost)}`);

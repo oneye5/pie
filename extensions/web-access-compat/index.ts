@@ -39,19 +39,86 @@
  * It is idempotent and forward-compatible: if `pi-web-access` drops the
  * `./compat` import upstream (or `pi-ai` re-adds the export) every step
  * becomes a no-op. It registers no tools. It never throws — a failure here
- * must not break the rest of extension loading.
+ * must not break the rest of extension loading — but every failure is logged
+ * to stderr with the `[web-access-compat]` prefix, and source patches are
+ * written atomically (temp file + rename) then re-verified, so a silent or
+ * half-written break is never left undiagnosed.
  */
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { execSync } from "node:child_process";
-import { type Dirent, existsSync, readdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { randomBytes } from "node:crypto";
+import { type Dirent } from "node:fs";
+import { access, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import * as path from "node:path";
+
+/** Prefix on every diagnostic line so users can attribute/filter the source. */
+const LOG_PREFIX = "web-access-compat";
 
 /** Matches `@earendil-works/pi-ai/compat` only when it ends a string/import. */
 const COMPAT_REGEX = /@earendil-works\/pi-ai\/compat(?=["')])/g;
 const COMPAT_TO = "@earendil-works/pi-ai";
 /** `@mozilla/readability`'s `index.js` `require()`s this; missing it = corrupted. */
 const READABILITY_ENTRY = "@mozilla/readability/Readability.js";
+
+/**
+ * Best-effort diagnostic sink. `ExtensionAPI` exposes no logger, so route to
+ * stderr (`console.warn`) — never throws.
+ */
+function log(message: string): void {
+	console.warn(`[${LOG_PREFIX}] ${message}`);
+}
+
+/** Render an unknown catch value as a short, human-readable string. */
+function describeErr(err: unknown): string {
+	if (err instanceof Error) return err.message || err.name;
+	return String(err);
+}
+
+/** True iff `p` exists (async, non-throwing). */
+async function pathExists(p: string): Promise<boolean> {
+	try {
+		await access(p);
+		return true;
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Atomically replace `target` with `content`: write to a sibling temp file
+ * then rename over `target`. A crash mid-write leaves either the old or the
+ * new file, never a truncated/partial one. The temp file is cleaned up on
+ * failure. Throws on failure so the caller can log + degrade gracefully.
+ */
+async function atomicWriteFile(target: string, content: string): Promise<void> {
+	const tmp = `${target}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`;
+	try {
+		await writeFile(tmp, content, "utf8");
+		await rename(tmp, target);
+	} catch (err) {
+		await rm(tmp, { force: true });
+		throw err;
+	}
+}
+
+/**
+ * Re-read `target` and confirm it equals `expected` — verifies the patch
+ * actually landed (guards against a silent / partial / concurrent write).
+ * Logs an actionable warning on mismatch; never throws.
+ */
+async function verifyPatch(target: string, expected: string): Promise<void> {
+	let actual: string;
+	try {
+		actual = await readFile(target, "utf8");
+	} catch (err) {
+		log(`could not verify ${target} after write: ${describeErr(err)} — web tools may not load; reinstall pi-web-access if needed`);
+		return;
+	}
+	if (actual !== expected) {
+		log(`verification mismatch in ${target} after write — another process may have modified it; web tools may not load; reinstall pi-web-access if needed`);
+	}
+}
 
 /** Rewrite the `./compat` subpath import to the main `@earendil-works/pi-ai` entry. */
 export function patchCompatInSource(content: string): string {
@@ -71,50 +138,57 @@ export function stripDeleteSuffix(name: string): string {
 
 /**
  * Patch the `./compat` import in `pi-web-access`'s top-level `.ts`/`.js`
- * sources. Returns the number of files written. Idempotent.
+ * sources. Returns the number of files written. Idempotent — an already
+ * patched file (or one without the specifier) is a no-op. Never throws: read,
+ * write, and verify failures are logged and skipped so one bad file cannot
+ * abort the rest, and writes are atomic so a failure never corrupts the file.
  */
-export function patchCompatFiles(root: string): number {
+export async function patchCompatFiles(root: string): Promise<number> {
 	let entries: string[];
 	try {
-		entries = readdirSync(root);
-	} catch {
+		entries = await readdir(root);
+	} catch (err) {
+		log(`could not read package directory ${root}: ${describeErr(err)}`);
 		return 0;
 	}
 	let patched = 0;
 	for (const name of entries) {
 		if (!/\.(ts|js)$/i.test(name)) continue;
 		const full = path.join(root, name);
-		let stat: ReturnType<typeof statSync>;
 		try {
-			stat = statSync(full);
-		} catch {
+			if (!(await stat(full)).isFile()) continue;
+		} catch (err) {
+			log(`could not stat ${full}: ${describeErr(err)} — skipping`);
 			continue;
 		}
-		if (!stat.isFile()) continue;
 		let content: string;
 		try {
-			content = readFileSync(full, "utf8");
-		} catch {
+			content = await readFile(full, "utf8");
+		} catch (err) {
+			log(`could not read ${full}: ${describeErr(err)} — skipping`);
 			continue;
 		}
 		const next = patchCompatInSource(content);
-		if (next === content) continue;
+		if (next === content) continue; // already patched / no compat import — idempotent no-op
 		try {
-			writeFileSync(full, next);
+			await atomicWriteFile(full, next);
+			await verifyPatch(full, next);
 			patched++;
-		} catch {
-			/* read-only fs — leave as-is */
+		} catch (err) {
+			// atomic write failed before rename → original file is untouched
+			log(`failed to patch ${full}: ${describeErr(err)} — file left unchanged; web tools may not load; reinstall pi-web-access if needed`);
 		}
 	}
 	return patched;
 }
 
 /** Yield every real (non-symlink) file under `dir`, recursively. */
-function* walkFiles(dir: string): Iterable<string> {
+async function* walkFiles(dir: string): AsyncGenerator<string> {
 	let entries: Dirent[];
 	try {
-		entries = readdirSync(dir, { withFileTypes: true });
-	} catch {
+		entries = await readdir(dir, { withFileTypes: true });
+	} catch (err) {
+		log(`could not walk directory ${dir}: ${describeErr(err)} — skipping subtree`);
 		return;
 	}
 	for (const entry of entries) {
@@ -131,20 +205,20 @@ function* walkFiles(dir: string): Iterable<string> {
  * Repair npm's `.DELETE.<hash>` corruption under `root`: rename each artifact
  * back to its original name, but only when no real file already occupies that
  * name (npm may have written a fresh copy we must keep). Returns the count
- * restored. Idempotent.
+ * restored. Idempotent. Never throws — rename failures are logged and skipped.
  */
-export function repairDeleteArtifacts(root: string): number {
+export async function repairDeleteArtifacts(root: string): Promise<number> {
 	let restored = 0;
-	for (const file of walkFiles(root)) {
+	for await (const file of walkFiles(root)) {
 		const name = path.basename(file);
 		if (!isDeleteArtifact(name)) continue;
 		const base = path.join(path.dirname(file), stripDeleteSuffix(name));
-		if (existsSync(base)) continue;
+		if (await pathExists(base)) continue; // a real file already occupies the name — keep it
 		try {
-			renameSync(file, base);
+			await rename(file, base);
 			restored++;
-		} catch {
-			/* leave as-is */
+		} catch (err) {
+			log(`could not restore ${name} → ${stripDeleteSuffix(name)}: ${describeErr(err)} — left as-is`);
 		}
 	}
 	return restored;
@@ -155,20 +229,20 @@ export function repairDeleteArtifacts(root: string): number {
  * `./Readability`, so a missing `Readability.js` (renamed to `.DELETE.<hash>`)
  * is a reliable, cheap signal that `node_modules` is corrupted.
  */
-export function readabilityIntact(root: string): boolean {
+export async function readabilityIntact(root: string): Promise<boolean> {
 	try {
 		const req = createRequire(path.join(root, "package.json"));
-		return existsSync(req.resolve(READABILITY_ENTRY));
+		return await pathExists(req.resolve(READABILITY_ENTRY));
 	} catch {
 		return false;
 	}
 }
 
 /** Apply both fixes to the package at `root`. */
-export function applyCompatFixes(root: string): void {
-	patchCompatFiles(root);
-	if (!readabilityIntact(root)) {
-		repairDeleteArtifacts(root);
+export async function applyCompatFixes(root: string): Promise<void> {
+	await patchCompatFiles(root);
+	if (!(await readabilityIntact(root))) {
+		await repairDeleteArtifacts(root);
 	}
 }
 
@@ -177,6 +251,8 @@ export function execText(command: string): string | null {
 	try {
 		return execSync(command, { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim();
 	} catch {
+		// `null` is a meaningful "command unavailable" result (e.g. pnpm not
+		// installed) consumed by `resolvePackageRoot`, not an error to surface.
 		return null;
 	}
 }
@@ -190,13 +266,13 @@ let cachedRoot: string | null | undefined;
  * `null` when the package is not installed (nothing to heal). Cached per
  * process. No hardcoded paths — works on every machine.
  */
-export function resolvePackageRoot(): string | null {
+export async function resolvePackageRoot(): Promise<string | null> {
 	if (cachedRoot !== undefined) return cachedRoot;
 	for (const command of ["npm root -g", "pnpm root -g"]) {
 		const root = execText(command);
 		if (!root) continue;
 		const pkg = path.join(root, "pi-web-access", "package.json");
-		if (existsSync(pkg)) {
+		if (await pathExists(pkg)) {
 			cachedRoot = path.dirname(pkg);
 			return cachedRoot;
 		}
@@ -206,15 +282,19 @@ export function resolvePackageRoot(): string | null {
 }
 
 /**
- * Self-heal entry point. `resolveRoot` is injectable for testing; in production
- * it queries the global package roots. Never throws.
+ * Self-heal entry point. `resolveRoot` is injectable for testing (sync or
+ * async); in production it queries the global package roots. Never throws —
+ * any failure is logged with an actionable hint and swallowed so extension
+ * loading continues.
  */
-export async function runSelfHeal(resolveRoot: () => string | null = resolvePackageRoot): Promise<void> {
+export async function runSelfHeal(
+	resolveRoot: () => string | null | Promise<string | null> = resolvePackageRoot,
+): Promise<void> {
 	try {
-		const root = resolveRoot();
-		if (root) applyCompatFixes(root);
-	} catch {
-		/* best-effort: never break extension loading */
+		const root = await resolveRoot();
+		if (root) await applyCompatFixes(root);
+	} catch (err) {
+		log(`self-heal failed: ${describeErr(err)} — web tools may be unavailable; reinstall pi-web-access if web_search/fetch_content are missing`);
 	}
 }
 

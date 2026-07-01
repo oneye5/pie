@@ -45,6 +45,9 @@ export class RunAnalyticsStorage {
   private seq = 0;
   private activeSlot: CheckpointSlot = 'a';
   private lastPersistError: { message: string; at: string } | null = null;
+  private dirty = false;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly persistIntervalMs = 1000;
   /**
    * Appends staged by `schedulePersist` that have not yet been flushed to disk.
    * A failed JSONL append stays here and is replayed by the next persist
@@ -105,43 +108,16 @@ export class RunAnalyticsStorage {
     // is retried by the next persist rather than dropped. Dedup per runId keeps
     // only the newest pending snapshot/outcome so retries don't double-append.
     this.stagePendingAppend(snapshotToAppend, outcomeToAppend);
+    this.dirty = true;
 
-    const checkpoint = this.buildCheckpoint(++this.seq);
-    this.persistenceQueue = this.persistenceQueue
-      .catch((error) => {
-        this.recordPersistError(error);
-      })
-      .then(async () => {
-        await fs.mkdir(this.storageDir, { recursive: true });
-        // Replay any appends still pending from this or a previously failed
-        // persist. Clear each entry immediately after its append succeeds so a
-        // later failure (e.g. checkpoint write) doesn't trigger a redundant
-        // retry-append of something already on disk.
-        for (const snapshot of [...this.pendingSnapshots.values()]) {
-          await fs.appendFile(
-            path.join(this.storageDir, 'run-snapshots.jsonl'),
-            serializeJsonLine({
-              schemaVersion: RUN_ANALYTICS_SCHEMA_VERSION,
-              kind: 'run_snapshot',
-              recordedAt: this.isoNow(),
-              run: snapshot,
-            } satisfies RunSnapshotLogEntry),
-            'utf8',
-          );
-          this.pendingSnapshots.delete(snapshot.runId);
-        }
-        for (const outcome of [...this.pendingOutcomes.values()]) {
-          await fs.appendFile(
-            path.join(this.storageDir, 'outcome-history.jsonl'),
-            serializeJsonLine(outcome),
-            'utf8',
-          );
-          this.pendingOutcomes.delete(outcome.runId);
-        }
-        await this.writeCheckpoint(checkpoint);
-        await this.writeAutoExportSafely();
-        this.lastPersistError = null;
-      });
+    // Coalesce high-frequency analytics events into a single debounced flush
+    // instead of chaining a full checkpoint + JSONL write per event.
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => {
+        this.flushTimer = null;
+        this.schedulePersistJob();
+      }, this.persistIntervalMs);
+    }
   }
 
   /** The most recent persistence failure, or null if the last persist succeeded. */
@@ -150,6 +126,11 @@ export class RunAnalyticsStorage {
   }
 
   async flush(): Promise<void> {
+    this.cancelPersistTimer();
+    if (this.dirty || this.pendingSnapshots.size > 0 || this.pendingOutcomes.size > 0) {
+      this.schedulePersistJob();
+    }
+
     // Surface the most recent persist failure so a caller that reads
     // getPersistError() after flush sees the actual last error, not a stale
     // null (the failure is otherwise only observed by the *next* persist's
@@ -157,6 +138,69 @@ export class RunAnalyticsStorage {
     await this.persistenceQueue.catch((error) => {
       this.recordPersistError(error);
     });
+  }
+
+  /**
+   * Cancels any pending coalesced flush and performs a final flush. Call this
+   * before disposing the storage to ensure no pending analytics data is lost.
+   */
+  async dispose(): Promise<void> {
+    this.cancelPersistTimer();
+    await this.flush();
+  }
+
+  private cancelPersistTimer(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+  }
+
+  private schedulePersistJob(): void {
+    this.persistenceQueue = this.persistenceQueue
+      .catch((error) => {
+        this.recordPersistError(error);
+      })
+      .then(async () => {
+        await this.runPersistJob();
+        this.lastPersistError = null;
+      });
+  }
+
+  private async runPersistJob(): Promise<void> {
+    const needsCheckpoint = this.dirty;
+    this.dirty = false;
+    await fs.mkdir(this.storageDir, { recursive: true });
+    // Replay any appends still pending from this or a previously failed
+    // persist. Clear each entry immediately after its append succeeds so a
+    // later failure (e.g. checkpoint write) doesn't trigger a redundant
+    // retry-append of something already on disk.
+    for (const snapshot of [...this.pendingSnapshots.values()]) {
+      await fs.appendFile(
+        path.join(this.storageDir, 'run-snapshots.jsonl'),
+        serializeJsonLine({
+          schemaVersion: RUN_ANALYTICS_SCHEMA_VERSION,
+          kind: 'run_snapshot',
+          recordedAt: this.isoNow(),
+          run: snapshot,
+        } satisfies RunSnapshotLogEntry),
+        'utf8',
+      );
+      this.pendingSnapshots.delete(snapshot.runId);
+    }
+    for (const outcome of [...this.pendingOutcomes.values()]) {
+      await fs.appendFile(
+        path.join(this.storageDir, 'outcome-history.jsonl'),
+        serializeJsonLine(outcome),
+        'utf8',
+      );
+      this.pendingOutcomes.delete(outcome.runId);
+    }
+    if (needsCheckpoint) {
+      const checkpoint = this.buildCheckpoint(++this.seq);
+      await this.writeCheckpoint(checkpoint);
+    }
+    await this.writeAutoExportSafely();
   }
 
   async queryRunAnalytics(): Promise<RunAnalyticsQueryResult> {

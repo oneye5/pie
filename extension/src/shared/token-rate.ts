@@ -3,6 +3,7 @@ import { isRecord } from './type-guards';
 import { estimateTextTokens } from './tokenize';
 import {
   getRenderableSubagentResultFromToolCall,
+  getRenderableSubagentResult,
   type SubagentSingleResult,
 } from './subagent-result';
 import {
@@ -188,12 +189,23 @@ function estimatedSubagentOutputTokens(result: SubagentSingleResult): number {
 }
 
 interface RunningSubagent {
-  toolCallId: string;
-  /** Position within the parent call's `results` array — disambiguates the
-   * multiple results of a parallel/chain subagent call (shared toolCallId). */
-  resultIndex: number;
+  /** Composite key unique across the nested tree: `${toolCallId}#${resultIndex}`
+   * at the top level, `${parentKey}>${toolCallId}#${resultIndex}` for nested
+   * (depth ≥ 2) results. A parallel/collision-safe key is required because a
+   * *parallel* subagent call shares one toolCallId across all its results, and
+   * a nested call's toolCallId may repeat across sibling branches. */
+  key: string;
   result: SubagentSingleResult;
 }
+
+/** Nominal max recursion depth into nested subagent results. Mirrors the
+ * runner's DEFAULT_MAX_DEPTH so token-counting and the nesting guards stay
+ * aligned: depth-2 output is counted one level below depth-1. */
+const MAX_DEPTH = 3;
+/** Hard safeguard against pathological walks (cycles / runaway nesting). Even
+ * if MAX_DEPTH is raised, recursion never exceeds this. */
+const HARD_MAX_DEPTH = 6;
+const RECURSION_DEPTH_CAP = Math.min(MAX_DEPTH, HARD_MAX_DEPTH);
 
 function findRunningSubagents(transcript: ChatMessage[]): RunningSubagent[] {
   const running: RunningSubagent[] = [];
@@ -204,7 +216,44 @@ function findRunningSubagents(transcript: ChatMessage[]): RunningSubagent[] {
       if (!subagentResult) continue;
       subagentResult.results.forEach((single, index) => {
         if (isSubagentRunning(single)) {
-          running.push({ toolCallId: toolCall.id, resultIndex: index, result: single });
+          const key = `${toolCall.id}#${index}`;
+          running.push({ key, result: single });
+          running.push(...findNestedRunningSubagents(single, key, 1));
+        }
+      });
+    }
+  }
+  return running;
+}
+
+/** Collect running subagents nested inside a result's messages (depth ≥ 2).
+ *
+ * A nested subagent's output travels as a `tool_execution_update` partial
+ * stamped on the assistant message's `toolCall` content part (see the subagent
+ * runner). Without recursing here, depth-2 output is structurally uncountable —
+ * `findRunningSubagents` only scans the top-level transcript toolCalls — so the
+ * speed chip reads 0 tps while depth-2 scouts actively stream. */
+function findNestedRunningSubagents(
+  result: SubagentSingleResult,
+  parentKey: string,
+  depth: number,
+): RunningSubagent[] {
+  if (depth >= RECURSION_DEPTH_CAP) return [];
+  const running: RunningSubagent[] = [];
+  const messages = Array.isArray(result.messages) ? result.messages : [];
+  for (const msg of messages) {
+    if (msg.role !== 'assistant') continue;
+    const parts = Array.isArray(msg.content) ? msg.content : [];
+    for (const part of parts) {
+      if (!isRecord(part) || part.type !== 'toolCall' || part.name !== 'subagent') continue;
+      const nestedResult = getRenderableSubagentResult(part.result);
+      if (!nestedResult) continue;
+      const tcId = typeof part.id === 'string' ? part.id : '';
+      nestedResult.results.forEach((single, index) => {
+        if (isSubagentRunning(single)) {
+          const key = `${parentKey}>${tcId}#${index}`;
+          running.push({ key, result: single });
+          running.push(...findNestedRunningSubagents(single, key, depth + 1));
         }
       });
     }
@@ -219,10 +268,10 @@ function computeSubagentDelta(
   let delta = 0;
   const seenIds = new Set<string>();
 
-  for (const { toolCallId, resultIndex, result } of running) {
+  for (const { key, result } of running) {
     // Composite key: a parallel call shares one toolCallId across all its
-    // results, so the index is required to track each result's own growth.
-    const key = `${toolCallId}#${resultIndex}`;
+    // results, so the index is required to track each result's own growth;
+    // nesting adds the parent key so depth-2+ results never collide.
     seenIds.add(key);
     const current = estimatedSubagentOutputTokens(result);
     const previous = acc.subagentTokens.get(key) ?? 0;
@@ -412,7 +461,7 @@ export function tickTokenRate(
   // even after an earlier subagent in the same run has produced.
   const mainProducedOutput = currentTokens > 0;
   const subagentProducedOutput = runningSubagents.some(
-    ({ toolCallId, resultIndex }) => (acc.subagentTokens.get(`${toolCallId}#${resultIndex}`) ?? 0) > 0,
+    ({ key }) => (acc.subagentTokens.get(key) ?? 0) > 0,
   );
   const generating =
     totalDelta > 0

@@ -3,6 +3,7 @@ import {
   incrementNamedCount,
   mergeFileMutationDelta,
   normalizeToolCallName,
+  type ToolCallAnalysis,
   type ToolFailureKind,
   type ToolResultIssueKind,
 } from '../../shared/tool-call-analysis';
@@ -229,6 +230,37 @@ export class SessionRunTracker {
     const normalizedName = normalizeToolCallName(toolCall.name) || toolCall.name || '(unknown)';
     const analysis = analyzeToolCall(toolCall);
 
+    this.recordToolDuration(run, normalizedName, toolCall);
+
+    if (toolCall.status === 'failed') {
+      if (analysis.failure) {
+        // Execution failure: the tool could not complete its job.
+        this.recordExecutionFailure(run, normalizedName, analysis);
+      } else if (analysis.resultIssue) {
+        // Non-success result: the tool ran fine but reported a non-success outcome
+        // (a failing test/build/lint, or an empty probe/search). Measured, not a failure.
+        this.recordResultIssue(run, normalizedName, analysis);
+      }
+    }
+
+    if (analysis.subagentCallCount > 0) {
+      this.recordSubagentUsage(run, analysis);
+    }
+
+    if (analysis.verificationKinds.length > 0) {
+      this.recordVerification(run, toolCall, analysis);
+    }
+
+    if (toolCall.status !== 'failed') {
+      this.recordFileMutationAndExtensions(run, analysis);
+    }
+
+    run.updatedAt = this.runState.isoNow();
+    this.runState.persist();
+  }
+
+  /** Roll up a tool call's execution duration (when reported and finite). */
+  private recordToolDuration(run: RunSnapshot, normalizedName: string, toolCall: ToolCall): void {
     if (typeof toolCall.durationMs === 'number' && Number.isFinite(toolCall.durationMs) && toolCall.durationMs >= 0) {
       const durationMs = Math.trunc(toolCall.durationMs);
       run.toolUsage.totalDurationMs += durationMs;
@@ -236,99 +268,103 @@ export class SessionRunTracker {
       run.toolUsage.durationMsByName[normalizedName] =
         (run.toolUsage.durationMsByName[normalizedName] ?? 0) + durationMs;
     }
+  }
 
+  /** Record an execution failure: the tool could not complete its job. */
+  private recordExecutionFailure(run: RunSnapshot, normalizedName: string, analysis: ToolCallAnalysis): void {
+    const failure = analysis.failure!;
+    run.toolUsage.failureCount += 1;
+    run.toolUsage.executionFailureCount += 1;
+    incrementNamedCount(run.toolUsage.failureCountsByName, normalizedName);
+    incrementNamedCount(run.toolUsage.failureCountsByKind, failure.kind);
+    const countsForTool = run.toolUsage.failureCountsByNameAndKind[normalizedName] ?? {} as Record<ToolFailureKind, number>;
+    run.toolUsage.failureCountsByNameAndKind[normalizedName] = countsForTool;
+    incrementNamedCount(countsForTool, failure.kind);
+
+    this.appendCappedSample(run.toolUsage.failureSamples, {
+      toolName: normalizedName,
+      failureKind: failure.kind,
+      exitCode: failure.exitCode,
+      errorExcerpt: failure.errorExcerpt,
+      verificationKinds: analysis.verificationKinds,
+      occurredAt: this.runState.isoNow(),
+    });
+  }
+
+  /** Record a non-success result: the tool ran fine but reported a non-success outcome. */
+  private recordResultIssue(run: RunSnapshot, normalizedName: string, analysis: ToolCallAnalysis): void {
+    const resultIssue = analysis.resultIssue!;
+    run.toolUsage.resultIssueCount += 1;
+    incrementNamedCount(run.toolUsage.resultIssueCountsByName, normalizedName);
+    incrementNamedCount(run.toolUsage.resultIssueCountsByKind, resultIssue.kind);
+    const issueCountsForTool = run.toolUsage.resultIssueCountsByNameAndKind[normalizedName] ?? {} as Record<ToolResultIssueKind, number>;
+    run.toolUsage.resultIssueCountsByNameAndKind[normalizedName] = issueCountsForTool;
+    incrementNamedCount(issueCountsForTool, resultIssue.kind);
+
+    if (resultIssue.kind === 'verification_failure') {
+      run.toolUsage.verificationProjectFailureCount += 1;
+    } else {
+      run.toolUsage.probeFailureCount += 1;
+    }
+
+    this.appendCappedSample(run.toolUsage.resultIssueSamples, {
+      toolName: normalizedName,
+      resultIssueKind: resultIssue.kind,
+      exitCode: resultIssue.exitCode,
+      errorExcerpt: resultIssue.errorExcerpt,
+      verificationKinds: resultIssue.verificationKinds,
+      occurredAt: this.runState.isoNow(),
+    });
+  }
+
+  /** Append a failure/result-issue sample, capped at TOOL_FAILURE_SAMPLE_LIMIT entries. */
+  private appendCappedSample<TSample>(samples: TSample[], sample: TSample): void {
+    if (samples.length < TOOL_FAILURE_SAMPLE_LIMIT) {
+      samples.push(sample);
+    }
+  }
+
+  /** Roll up sub-agent call/task counts and score dimensions. */
+  private recordSubagentUsage(run: RunSnapshot, analysis: ToolCallAnalysis): void {
+    run.toolUsage.subagentCallCount += analysis.subagentCallCount;
+    run.toolUsage.subagentTaskCount += analysis.subagentTaskCount;
+    run.toolUsage.subagentAgentNames = appendUnique(
+      run.toolUsage.subagentAgentNames,
+      analysis.subagentAgentNames,
+    );
+    run.toolUsage.subagentScoredTaskCount += analysis.subagentScoredTaskCount;
+    const dims = ['precision', 'creativity', 'reasoning', 'thoroughness'] as const;
+    for (const dim of dims) {
+      const src = analysis.subagentTaskScores[dim];
+      const dst = run.toolUsage.subagentTaskScores[dim];
+      dst.sum   += src.sum;
+      dst.count += src.count;
+      dst.max   = Math.max(dst.max, src.max);
+    }
+  }
+
+  /** Roll up verification-command counts (and failures, when the call failed). */
+  private recordVerification(run: RunSnapshot, toolCall: ToolCall, analysis: ToolCallAnalysis): void {
+    run.verification.totalCount += analysis.verificationKinds.length;
+    for (const kind of analysis.verificationKinds) {
+      run.verification.countsByKind[kind] += 1;
+    }
     if (toolCall.status === 'failed') {
-      if (analysis.failure) {
-        // Execution failure: the tool could not complete its job.
-        run.toolUsage.failureCount += 1;
-        run.toolUsage.executionFailureCount += 1;
-        incrementNamedCount(run.toolUsage.failureCountsByName, normalizedName);
-        incrementNamedCount(run.toolUsage.failureCountsByKind, analysis.failure.kind);
-        const countsForTool = run.toolUsage.failureCountsByNameAndKind[normalizedName] ?? {} as Record<ToolFailureKind, number>;
-        run.toolUsage.failureCountsByNameAndKind[normalizedName] = countsForTool;
-        incrementNamedCount(countsForTool, analysis.failure.kind);
-
-        if (run.toolUsage.failureSamples.length < TOOL_FAILURE_SAMPLE_LIMIT) {
-          run.toolUsage.failureSamples.push({
-            toolName: normalizedName,
-            failureKind: analysis.failure.kind,
-            exitCode: analysis.failure.exitCode,
-            errorExcerpt: analysis.failure.errorExcerpt,
-            verificationKinds: analysis.verificationKinds,
-            occurredAt: this.runState.isoNow(),
-          });
-        }
-      } else if (analysis.resultIssue) {
-        // Non-success result: the tool ran fine but reported a non-success outcome
-        // (a failing test/build/lint, or an empty probe/search). Measured, not a failure.
-        run.toolUsage.resultIssueCount += 1;
-        incrementNamedCount(run.toolUsage.resultIssueCountsByName, normalizedName);
-        incrementNamedCount(run.toolUsage.resultIssueCountsByKind, analysis.resultIssue.kind);
-        const issueCountsForTool = run.toolUsage.resultIssueCountsByNameAndKind[normalizedName] ?? {} as Record<ToolResultIssueKind, number>;
-        run.toolUsage.resultIssueCountsByNameAndKind[normalizedName] = issueCountsForTool;
-        incrementNamedCount(issueCountsForTool, analysis.resultIssue.kind);
-
-        if (analysis.resultIssue.kind === 'verification_failure') {
-          run.toolUsage.verificationProjectFailureCount += 1;
-        } else {
-          run.toolUsage.probeFailureCount += 1;
-        }
-
-        if (run.toolUsage.resultIssueSamples.length < TOOL_FAILURE_SAMPLE_LIMIT) {
-          run.toolUsage.resultIssueSamples.push({
-            toolName: normalizedName,
-            resultIssueKind: analysis.resultIssue.kind,
-            exitCode: analysis.resultIssue.exitCode,
-            errorExcerpt: analysis.resultIssue.errorExcerpt,
-            verificationKinds: analysis.resultIssue.verificationKinds,
-            occurredAt: this.runState.isoNow(),
-          });
-        }
-      }
+      run.verification.failureCount += analysis.verificationKinds.length;
     }
+  }
 
-    if (analysis.subagentCallCount > 0) {
-      run.toolUsage.subagentCallCount += analysis.subagentCallCount;
-      run.toolUsage.subagentTaskCount += analysis.subagentTaskCount;
-      run.toolUsage.subagentAgentNames = appendUnique(
-        run.toolUsage.subagentAgentNames,
-        analysis.subagentAgentNames,
-      );
-      run.toolUsage.subagentScoredTaskCount += analysis.subagentScoredTaskCount;
-      const dims = ['precision', 'creativity', 'reasoning', 'thoroughness'] as const;
-      for (const dim of dims) {
-        const src = analysis.subagentTaskScores[dim];
-        const dst = run.toolUsage.subagentTaskScores[dim];
-        dst.sum   += src.sum;
-        dst.count += src.count;
-        dst.max   = Math.max(dst.max, src.max);
-      }
+  /** Roll up file mutations and per-extension read/write/edit counts (non-failed calls only). */
+  private recordFileMutationAndExtensions(run: RunSnapshot, analysis: ToolCallAnalysis): void {
+    run.fileMutation = mergeFileMutationDelta(run.fileMutation, analysis.fileMutation);
+
+    if (analysis.fileExtension) {
+      const { extension, operation } = analysis.fileExtension;
+      const target = operation === 'read' ? run.fileExtensions.readCountsByExtension
+        : operation === 'write' ? run.fileExtensions.writeCountsByExtension
+        : run.fileExtensions.editCountsByExtension;
+      incrementNamedCount(target, extension);
     }
-
-    if (analysis.verificationKinds.length > 0) {
-      run.verification.totalCount += analysis.verificationKinds.length;
-      for (const kind of analysis.verificationKinds) {
-        run.verification.countsByKind[kind] += 1;
-      }
-      if (toolCall.status === 'failed') {
-        run.verification.failureCount += analysis.verificationKinds.length;
-      }
-    }
-
-    if (toolCall.status !== 'failed') {
-      run.fileMutation = mergeFileMutationDelta(run.fileMutation, analysis.fileMutation);
-
-      if (analysis.fileExtension) {
-        const { extension, operation } = analysis.fileExtension;
-        const target = operation === 'read' ? run.fileExtensions.readCountsByExtension
-          : operation === 'write' ? run.fileExtensions.writeCountsByExtension
-          : run.fileExtensions.editCountsByExtension;
-        incrementNamedCount(target, extension);
-      }
-    }
-
-    run.updatedAt = this.runState.isoNow();
-    this.runState.persist();
   }
 
   onInterrupted(sessionPath: string): void {

@@ -65,6 +65,7 @@ export function PruningInlineCard({ details, fallbackText, createdAt }: PruningI
           class="w-full rounded-sm text-left text-foreground"
           headerClass="w-full"
           bodyClass="mt-1"
+          closeFooter={false}
           header={
             <>
               <span class="shrink-0 text-[10px] text-muted" aria-hidden="true">✂</span>

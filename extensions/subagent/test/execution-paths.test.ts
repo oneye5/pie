@@ -521,3 +521,122 @@ test("runSingleAgent: error thrown during prefill is annotated with the run stag
 	assert.match(result.errorMessage ?? "", /Request was aborted/);
 	assert.match(result.errorMessage ?? "", /while waiting for model response/);
 });
+
+test("runSingleAgent propagates nested tool_execution_update partials onto result.messages (T1)", async () => {
+	// Depth-2 subagent output travels as `tool_execution_update` on the depth-1
+	// session — the one event the runner previously dropped. Without propagating
+	// it, depth-2 streaming never reaches the host transcript (the "no reply"
+	// half of the hang). Verify the runner stamps the partial onto the matching
+	// toolCall in result.messages and emits an update.
+	const nestedPartial = {
+		content: [{ type: "text", text: "nested streaming..." }],
+		details: {
+			mode: "single",
+			results: [
+				{ agent: "scout", task: "x", exitCode: -1, messages: [], streamingText: "nested streaming..." },
+			],
+		},
+	};
+	let updateCount = 0;
+	let lastDetails: { results: unknown[] } | undefined;
+
+	const { sdk } = createFakeSdk({
+		onPrompt: async (emit) => {
+			// 1. assistant message carrying a nested subagent toolCall
+			emit({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [
+						{ type: "text", text: "spawning nested scout" },
+						{ type: "toolCall", id: "tc-nested", name: "subagent", arguments: { agent: "scout", task: "x" } },
+					],
+					usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } },
+					model: "m",
+					stopReason: "toolUse",
+				},
+			});
+			// 2. nested tool starts
+			emit({ type: "tool_execution_start", toolCallId: "tc-nested", toolName: "subagent" });
+			// 3. nested tool streams a partial (depth-2 output)
+			emit({ type: "tool_execution_update", toolCallId: "tc-nested", partialResult: nestedPartial });
+		},
+	});
+
+	const result = await runSingleAgent(
+		process.cwd(),
+		[makeAgent()],
+		"worker",
+		"do work",
+		undefined,
+		undefined,
+		undefined,
+		(partial) => {
+			updateCount++;
+			lastDetails = partial.details as { results: unknown[] } | undefined;
+		},
+		(results) => ({ mode: "single", agentScope: "user", projectAgentsDir: null, results }),
+		makeModelRegistry(),
+		undefined,
+		{ modelId: "model-a", bucket: "medium", thinkingLevel: "low", pool: ["model-a"], fallback: false },
+		undefined,
+		undefined,
+		undefined,
+		{ sdk: sdk as any, timeoutMs: 0 },
+	);
+
+	// The depth-1 result's messages carry the assistant message whose toolCall
+	// part now holds the nested partial (stamped by tool_execution_update).
+	const asst = result.messages.find((m) => m.role === "assistant") as any;
+	assert.ok(asst, "assistant message committed");
+	const tcPart = asst.content.find((p: any) => p.type === "toolCall" && p.id === "tc-nested");
+	assert.ok(tcPart, "nested toolCall part present");
+	assert.equal(tcPart.result, nestedPartial, "nested partial stamped on the toolCall part");
+	assert.equal(tcPart.status, "running", "toolCall part marked running");
+	// The nested partial's streamingText survives — the webview/token-rate read it.
+	assert.equal(tcPart.result.details.results[0].streamingText, "nested streaming...");
+	// The update propagated through the emitter (onUpdate fired for the partial).
+	assert.ok(updateCount > 0, "onUpdate fired");
+	assert.ok(lastDetails, "last update carried details");
+});
+
+test("runSingleAgent tool_execution_update is a graceful no-op before the assistant message lands (T1)", async () => {
+	// An update arriving before message_end committed the toolCall's owner
+	// assistant message must not throw — the next update catches it.
+	const { sdk } = createFakeSdk({
+		onPrompt: async (emit) => {
+			emit({ type: "tool_execution_update", toolCallId: "tc-early", partialResult: { content: [], details: { results: [] } } });
+			emit({
+				type: "message_end",
+				message: {
+					role: "assistant",
+					content: [{ type: "text", text: "done" }],
+					usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 2, cost: { total: 0 } },
+					model: "m",
+					stopReason: "completed",
+				},
+			});
+		},
+	});
+
+	const result = await runSingleAgent(
+		process.cwd(),
+		[makeAgent()],
+		"worker",
+		"do work",
+		undefined,
+		undefined,
+		undefined,
+		undefined,
+		(results) => ({ mode: "single", agentScope: "user", projectAgentsDir: null, results }),
+		makeModelRegistry(),
+		undefined,
+		{ modelId: "model-a", bucket: "medium", thinkingLevel: "low", pool: ["model-a"], fallback: false },
+		undefined,
+		undefined,
+		undefined,
+		{ sdk: sdk as any, timeoutMs: 0 },
+	);
+
+	assert.equal(result.exitCode, 0);
+});

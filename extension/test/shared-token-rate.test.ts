@@ -302,3 +302,65 @@ test('shouldResetForRun: a known run id resets only on a different non-null run 
   assert.equal(shouldResetForRun('run-1', 'run-1'), false);
   assert.equal(shouldResetForRun('run-1', 'run-2'), true);
 });
+
+// --- T2: nested (depth-2) subagent output is counted via the shared module ---
+
+/** A running depth-1 subagent whose messages carry a nested depth-2 subagent
+ *  toolCall with a live streaming partial (the shape T1 stamps). */
+function nestedSubagentToolCall(topId: string, nestedStreamingText: string): ToolCall {
+  return {
+    id: topId,
+    name: 'subagent',
+    input: {},
+    status: 'running',
+    result: {
+      mode: 'single',
+      results: [
+        {
+          agent: 'scout',
+          task: 't',
+          exitCode: -1,
+          messages: [
+            {
+              role: 'assistant',
+              content: [
+                {
+                  type: 'toolCall',
+                  id: 'nested-tc',
+                  name: 'subagent',
+                  arguments: {},
+                  result: {
+                    content: [{ type: 'text', text: 'nested' }],
+                    details: {
+                      mode: 'single',
+                      results: [
+                        { agent: 'scout', task: 't', exitCode: -1, messages: [], streamingText: nestedStreamingText },
+                      ],
+                    },
+                  },
+                },
+              ],
+            },
+          ],
+          streamingText: '',
+        },
+      ],
+    },
+  };
+}
+
+test('computeSubagentDelta (via tickTokenRate) counts nested depth-2 streaming tokens (T2)', () => {
+  const acc = createAccumulator(BASE_NOW);
+  const m = streamingMessage();
+  const t1 = estimateTextTokens(tokenText(100));
+  const t2 = estimateTextTokens(tokenText(250));
+  tickTokenRate(acc, [{ ...m, toolCalls: [nestedSubagentToolCall('top', tokenText(100))] }], BASE_NOW + 1000);
+  const state = tickTokenRate(acc, [{ ...m, toolCalls: [nestedSubagentToolCall('top', tokenText(250))] }], BASE_NOW + 2000);
+  assert.equal(state.state, 'generating');
+  const rate = Number.parseFloat(state.label!.replace(/[^\d.]/g, ''));
+  const expected = (t2 - t1) / 1.0;
+  assert.ok(rate >= expected - 5 && rate <= expected + 5, `expected ~${expected} tok/s from nested subagent, got ${rate}`);
+  assert.ok(acc.cumTokens > 0, 'nested tokens banked into cumTokens');
+  // The nested result has its own composite-keyed snapshot, distinct from the parent's.
+  assert.ok(acc.subagentTokens.has('top#0>nested-tc#0'), 'nested snapshot tracked under a composite key');
+});

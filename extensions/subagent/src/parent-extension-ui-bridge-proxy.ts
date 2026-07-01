@@ -34,18 +34,38 @@ export class ParentExtensionUIBridgeProxy implements ExtensionUIContext {
     this.subagentCallId = subagentCallId;
   }
 
+  /**
+   * Build the options to forward to the parent bridge. For a nested proxy
+   * chain, the innermost proxy has already stamped the depth-N identity onto
+   * `opts`; forwarding that (rather than overwriting with this proxy's own
+   * depth-1 id) keeps the request matching the webview's depth-N
+   * `SubagentCallContext.id` so the inline `ask_user` card lands on the right
+   * block. Overwriting stamped every nested dialog with the depth-1 id and
+   * orphaned the depth-2+ card (routed to the bottom ExtensionUIPrompt strip).
+   */
+  private forwardOpts(opts?: ExtensionUIDialogOptions): {
+    signal?: AbortSignal;
+    subagentCallId?: string;
+    toolCallId?: string;
+  } {
+    const inner = opts as ForwardedDialogOptions | undefined;
+    const subagentCallId = inner?.subagentCallId ?? this.subagentCallId;
+    const toolCallId = inner?.toolCallId ?? this.subagentCallId;
+    return { signal: opts?.signal, subagentCallId, toolCallId };
+  }
+
   // ── Dialog methods (delegated to parent bridge) ──────────────────────────
 
   async select(title: string, options: string[], opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
-    return this.parentBridge.select(title, options, { signal: opts?.signal, subagentCallId: this.subagentCallId, toolCallId: this.subagentCallId });
+    return this.parentBridge.select(title, options, this.forwardOpts(opts));
   }
 
   async confirm(title: string, message: string, opts?: ExtensionUIDialogOptions): Promise<boolean> {
-    return this.parentBridge.confirm(title, message, { signal: opts?.signal, subagentCallId: this.subagentCallId, toolCallId: this.subagentCallId });
+    return this.parentBridge.confirm(title, message, this.forwardOpts(opts));
   }
 
   async input(title: string, placeholder?: string, opts?: ExtensionUIDialogOptions): Promise<string | undefined> {
-    return this.parentBridge.input(title, placeholder, { signal: opts?.signal, subagentCallId: this.subagentCallId, toolCallId: this.subagentCallId });
+    return this.parentBridge.input(title, placeholder, this.forwardOpts(opts));
   }
 
   notify(message: string, type?: "info" | "warning" | "error"): void {

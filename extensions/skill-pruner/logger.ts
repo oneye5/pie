@@ -1,4 +1,4 @@
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFile, mkdir, rename, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { PruningDecision, PruningMode } from "./types.js";
 import { countTokens } from "./tokenize.js";
@@ -16,9 +16,10 @@ interface SessionTracking {
 }
 
 type JsonLineEvent = PruningDecision | {
-	event: "skill_read" | "skill_miss" | "shadow_miss_candidate" | "tool_recovered";
+	event: "skill_read" | "skill_miss" | "shadow_miss_candidate" | "tool_recovered" | "skills_block_not_found";
 	skillName?: string;
 	toolName?: string;
+	mode?: PruningMode;
 	sessionId: string;
 	timestamp: string;
 };
@@ -26,8 +27,22 @@ type JsonLineEvent = PruningDecision | {
 const sessionTracking = new Map<string, SessionTracking>();
 let logPathOverride: string | null = null;
 
+/** Serializes async writes so concurrent appends preserve line ordering. Each
+ *  call chains onto this promise; an error in one write doesn't break the next. */
+let writeQueue: Promise<void> = Promise.resolve();
+
+/** Rotate the log once it grows past this many bytes (~5MB) so it can't grow unbounded. */
+const MAX_LOG_BYTES = 5 * 1024 * 1024;
+/** Number of rotated backups to keep (newest first: .1, .2, ...). */
+const MAX_ROTATIONS = 2;
+let maxLogBytesOverride: number | null = null;
+
 function getLogPath(): string {
 	return logPathOverride ?? path.join(CONFIG_ROOT, "data", "pruning.jsonl");
+}
+
+function getLogByteLimit(): number {
+	return maxLogBytesOverride ?? MAX_LOG_BYTES;
 }
 
 function normalizeSkillPath(readPath: string): string {
@@ -35,13 +50,66 @@ function normalizeSkillPath(readPath: string): string {
 }
 
 function appendJsonLine(event: JsonLineEvent): void {
-	try {
-		const logPath = getLogPath();
-		mkdirSync(path.dirname(logPath), { recursive: true });
-		appendFileSync(logPath, `${JSON.stringify(event)}\n`, "utf-8");
-	} catch (error) {
-		console.warn(`[skill-pruner] failed to append pruning log: ${toErrorMessage(error)}`);
+	// Non-blocking: serialize the line and chain an async append onto the write
+	// queue (preserves ordering without blocking the event loop). Capturing the
+	// resolved path here — not at write time — keeps an already-queued write
+	// pointed at the right file if the override changes later (e.g. between tests).
+	const logPath = getLogPath();
+	const line = `${JSON.stringify(event)}\n`;
+	writeQueue = writeQueue
+		.then(() => writeJsonLine(logPath, line))
+		.catch((error) => {
+			console.warn(`[skill-pruner] failed to append pruning log: ${toErrorMessage(error)}`);
+		});
+}
+
+async function writeJsonLine(logPath: string, line: string): Promise<void> {
+	await mkdir(path.dirname(logPath), { recursive: true });
+	if (await shouldRotateLog(logPath)) {
+		await rotateLog(logPath);
 	}
+	await appendFile(logPath, line, "utf-8");
+}
+
+async function shouldRotateLog(logPath: string): Promise<boolean> {
+	try {
+		const stats = await stat(logPath);
+		return stats.size >= getLogByteLimit();
+	} catch {
+		// File doesn't exist yet — nothing to rotate.
+		return false;
+	}
+}
+
+/** Rename the current log to `.1` (shifting older backups down) so the next
+ *  append starts a fresh file. Keeps the newest `MAX_ROTATIONS` backups. */
+async function rotateLog(logPath: string): Promise<void> {
+	// Drop the oldest backup, then shift each remaining backup up by one slot.
+	await rm(`${logPath}.${MAX_ROTATIONS}`, { force: true });
+	for (let i = MAX_ROTATIONS - 1; i >= 1; i--) {
+		await safeRename(`${logPath}.${i}`, `${logPath}.${i + 1}`);
+	}
+	// Move the current log into the .1 slot; the next append recreates it fresh.
+	await safeRename(logPath, `${logPath}.1`);
+}
+
+async function safeRename(from: string, to: string): Promise<void> {
+	try {
+		await rename(from, to);
+	} catch (error) {
+		// A backup slot may not exist yet on the first few rotations — skip it.
+		if (!isEnoent(error)) throw error;
+	}
+}
+
+function isEnoent(error: unknown): boolean {
+	return (error as NodeJS.ErrnoException | undefined)?.code === "ENOENT";
+}
+
+/** Wait for all queued log writes to finish. Tests await this before reading
+ *  the JSONL file; production may call it to drain on shutdown. */
+export function flushLog(): Promise<void> {
+	return writeQueue;
 }
 
 export function appendDecision(decision: PruningDecision): PruningDecision {
@@ -106,6 +174,20 @@ export function recordToolRecovery(sessionId: string, toolName: string): void {
 	appendJsonLine({ event: "tool_recovered", toolName, sessionId, timestamp: new Date().toISOString() });
 }
 
+/** Record that skill pruning self-disabled because the host skills block was
+ *  missing from the system prompt (most likely a host system-prompt layout
+ *  drift). Emitted to the JSONL log so the silent disable is auditable rather
+ *  than just a transient `console.warn`. The analytics pipeline drops unknown
+ *  event types, so this is a diagnostic signal, not a dashboard metric. */
+export function recordSkillsBlockNotFound(sessionId: string, mode: PruningMode): void {
+	appendJsonLine({
+		event: "skills_block_not_found",
+		mode,
+		sessionId,
+		timestamp: new Date().toISOString(),
+	});
+}
+
 export function estimateTokens(text: string): number {
 	return countTokens(text);
 }
@@ -122,6 +204,11 @@ function deriveSkillName(readPath: string): string {
 
 export function setLogPathForTesting(logPath: string | null): void {
 	logPathOverride = logPath;
+}
+
+/** Lower the rotation threshold so tests can exercise rotation without writing 5MB. */
+export function setMaxLogBytesForTesting(bytes: number | null): void {
+	maxLogBytesOverride = bytes;
 }
 
 export function clearPruningTrackingForTesting(): void {

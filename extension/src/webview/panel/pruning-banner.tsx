@@ -43,6 +43,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
         class={cx('pruning-banner pruning-banner-error', expanded ? 'pruning-banner-expanded' : 'pruning-banner-collapsed')}
         headerClass="pruning-banner-summary"
         bodyClass="pruning-banner-detail"
+        closeFooter={false}
         header={
           <>
             <span class="pruning-banner-icon" aria-hidden="true">⚠</span>
@@ -75,6 +76,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
       class={cx('pruning-banner', expanded ? 'pruning-banner-expanded' : 'pruning-banner-collapsed')}
       headerClass="pruning-banner-summary"
       bodyClass="pruning-banner-detail"
+      closeFooter={false}
       header={
         <>
           <span class="pruning-banner-icon" aria-hidden="true">✂</span>
@@ -110,6 +112,7 @@ export function PruningBanner({ pruningResult }: PruningBannerProps) {
               class="pruning-banner-raw-toggle"
               headerClass="pruning-banner-raw-toggle-text"
               bodyClass="pruning-banner-raw-content"
+              closeFooter={false}
               header={<span>Raw LLM output</span>}
             >
               {details.prepassSystemPrompt && (

@@ -1,6 +1,6 @@
 {
   "defaultModel": "umans-glm-5.2",
-  "defaultThinkingLevel": "xhigh",
+  "defaultThinkingLevel": "high",
   "defaultProvider": "umans",
   "packages": [
     "npm:pi-web-access@0.13.0"
@@ -23,7 +23,8 @@
         "request_tool",
         "subagent",
         "web_search",
-        "write"
+        "write",
+        "code_search"
       ]
     }
   },

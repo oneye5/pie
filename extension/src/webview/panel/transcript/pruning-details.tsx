@@ -120,6 +120,7 @@ function PruningDiagnosticsContent({ details, rawExpanded, onRawToggle }: Omit<P
           class="pruning-raw-toggle-collapsible"
           headerClass="pruning-raw-toggle-button"
           bodyClass="pruning-raw-content"
+          closeFooter={false}
           header={<span>Prepass prompts and output</span>}
         >
           <RawBlock label="System prompt">{diagnosticText(details.prepassSystemPrompt, '∅ No system prompt captured')}</RawBlock>

@@ -35,27 +35,18 @@
 /* ── Tool-call header (expand/collapse hitbox) ──────────────────────── */
 /* The entire header row is the click-to-toggle hitbox: a single role=button
    spanning the full card width, with a clear hover/focus affordance so the
-   clickable region is obvious, and a generous min-height (set inline) so it
-   covers enough vertical space to hit comfortably.
+   clickable region is obvious, and a compact min-height (set inline) so it
+   is easy to hit without dominating the card.
 
-   Sticky: when an open card is taller than the viewport (a large file read,
-   a terminal pane the user resized tall, or simply scrolling the transcript
-   past the card), the header pins to the top of the transcript scroll
-   viewport so the collapse control stays reachable without scrolling back to
-   the top. This works because the card root uses `overflow: clip` (not
-   `hidden`): it still rounds/clips its corners but is NOT a scroll container,
-   so it does not trap the sticky header. The opaque card-surface background
-   + z-index keep the body/streaming content from showing through the pinned
-   header; the virtual row's `transform` scopes the z-index so a stuck header
-   never bleeds over neighbouring cards (and it un-sticks exactly as the next
-   card arrives, so there is no inter-row overlap). */
+   Non-sticky: the header used to pin to the top of the transcript viewport so
+   the collapse control stayed reachable inside a tall open body, but the
+   pinned opaque bar read as a detaching strip floating above the body. It now
+   flows with the card content; reachability of the close action is preserved
+   by the `CollapsibleCloseFooter` strip at the bottom of the open body (and
+   the header's trailing chevron on the side). The card root keeps
+   `overflow: clip` so its rounded corners still clip cleanly. */
 
 .tool-call-header {
-  position: sticky;
-  top: 0;
-  z-index: 10;
-  /* Opaque so content scrolling beneath the pinned header is hidden. Matches
-     the card's `bg-card` surface so the resting (non-stuck) look is unchanged. */
   background: var(--panel-card-surface);
   transition: background var(--panel-transition-fast);
 }
@@ -64,10 +55,9 @@
   background: var(--panel-control-hover);
 }
 
-/* Mirror the card's hover state on the header so the opaque sticky header
-   doesn't read as a darker strip when the body (not the header) is hovered.
-   Hovering the header itself also triggers the card hover, so this single
-   rule covers both. */
+/* Mirror the card's hover state on the header so it doesn't read as a
+   darker strip when the body (not the header) is hovered. Hovering the header
+   itself also triggers the card hover, so this single rule covers both. */
 .tool-call-card:hover .tool-call-header {
   background: var(--panel-control-hover);
 }
@@ -132,23 +122,22 @@
   align-items: center;
   gap: 7px;
   min-width: 0;
-  padding: 5px 8px;
+  padding: 4px 8px;
   border-radius: 8px;
   cursor: pointer;
-  /* Sticky (not `relative`): when the expanded subagent thread is taller than
-     the viewport, the header pins to the top of the transcript scroll viewport
-     so the collapse control stays reachable. Works because the card root uses
-     `overflow: clip` (not `hidden`) — clips rounded corners without becoming a
-     scroll container that would trap the sticky header. `sticky` is a
-     positioned value and establishes the containing block exactly as
-     `relative` did, so the pending-ask-user `::after` pulse overlay still
-     anchors to the header. Opaque `--panel-card-surface` (matches the card's
-     `bg-card`) so the tall nested transcript doesn't show through the pinned
-     header; the virtual row's `transform` scopes the z-index so a stuck header
-     never bleeds over neighbouring cards (same scoping as `.tool-call-header`). */
-  position: sticky;
-  top: 0;
-  z-index: 10;
+  /* `relative` (not `sticky`): the header used to pin to the top of the
+     transcript scroll viewport so the collapse control stayed reachable in a
+     tall thread, but the pinned opaque bar read as a detaching strip above
+     the body. It now flows with the thread; reachability of the close action
+     is preserved by the `CollapsibleCloseFooter` at the bottom of the thread
+     (and the header's trailing chevron). `relative` still establishes the
+     containing block exactly as `sticky` did, so the pending-ask-user
+     `::after` pulse overlay still anchors to the header. Nested (depth ≥ 2)
+     headers were already `relative` to avoid colliding with the parent's
+     pinned header; depth-1 now matches them. */
+  position: relative;
+  top: auto;
+  z-index: auto;
   background: var(--panel-card-surface);
   transition:
     background var(--panel-transition-fast),
@@ -165,11 +154,11 @@
   outline-offset: -1px;
 }
 
-/* Mirror the card's hover state on the header so the opaque sticky header
-   doesn't read as a darker strip when the body (not the header) is hovered.
-   Hovering the header itself also triggers the card hover, so this single rule
-   covers both. The collapsed-state hover rule (above, higher specificity) keeps
-   the subagent-specific hover surface when collapsed, so this only governs the
+/* Mirror the card's hover state on the header so it doesn't read as a
+   darker strip when the body (not the header) is hovered. Hovering the header
+   itself also triggers the card hover, so this single rule covers both. The
+   collapsed-state hover rule (above, higher specificity) keeps the
+   subagent-specific hover surface when collapsed, so this only governs the
    expanded/open state. */
 .tool-call.tool-call-subagent:hover .subagent-header {
   background: var(--panel-control-hover);
@@ -255,15 +244,13 @@
 
 /* ── Nested (depth ≥ 2) subagent header ─────────────────────────────────── */
 /* A nested subagent renders inside a parent subagent's bounded scroll region.
-   A `sticky` header there pins to the parent's scroll port and collides with
-   the parent's own sticky header (the two overlap as the parent header sticks
-   to the main transcript viewport while the nested header sticks to the
-   parent's thread). Use `relative` instead of `sticky`: it still establishes
-   the containing block for the pending-ask-user `::after` pulse overlay (so
-   the blink anchors to this header) but does not pin, so the nested header
-   scrolls with its parent thread and never overlaps the parent header.
-   `z-index: auto` avoids creating a stacking context that could bleed over
-   neighbouring nested content. */
+   Depth-1 headers are already `relative` (non-pinning; see `.subagent-header`
+   above), so the nested modifier no longer needs to differ for positioning —
+   it now primarily marks the nested body as free-flowing (see
+   `.subagent-messages-scroll-nested`). Kept `relative`/`auto` here for
+   explicitness and to avoid creating a stacking context that could bleed
+   over neighbouring nested content. It still establishes the containing
+   block for the pending-ask-user `::after` pulse overlay. */
 .subagent-header.subagent-header-nested {
   position: relative;
   top: auto;

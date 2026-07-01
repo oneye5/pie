@@ -22,55 +22,6 @@ import { DEFAULT_CHAT_PREFS, DEFAULT_PRUNING_SETTINGS, EMPTY_TRANSCRIPT_WINDOW, 
 import { pickStable } from '../utils/view-state-stabilize';
 import { pickStableModelList } from '../utils/model-list-stabilize';
 
-/**
- * Fill gaps in host-delivered state with safe defaults and log violations.
- * Prevents render crashes when the host omits newly-added nested fields.
- *
- * `prefs` / `pruningSettings` / `pruningCatalog` are reference-stabilised (flat
- * objects, via `pickStable`), and `availableModels` is stabilised via the
- * dedicated `pickStableModelList` (its nested `ModelInfo` elements defeat
- * `shallowConfigEqual`). The host re-serialises the whole `ViewState` on every
- * snapshot (fresh refs even when content is unchanged), which would otherwise
- * defeat every `memo()` / `useMemo` / `useCallback` barrier downstream (notably
- * `MessageItem = memo()`, the `Composer`/`BottomSection`/`VirtualRow` memo
- * boundaries, and `useTranscriptRenderToolCall`'s `useCallback([prefs, ...])`).
- * Reusing the previous reference when content is unchanged keeps those barriers
- * effective. The cached refs live for the module's lifetime; `pickStable` /
- * `pickStableModelList` compare content so a genuinely different value (e.g. a
- * pref toggle, a newly-added model) still produces a new ref.
- */
-let stablePrefs: ChatPrefs | null = null;
-let stablePruningSettings: PruningSettings | null = null;
-let stablePruningCatalog: PruningCatalog | null = null;
-/** Reference-stabilised `availableModels` (see `model-list-stabilize.ts`);
- *  seeded with `[]` to mirror `EMPTY_VIEW_STATE.availableModels`. */
-let stableAvailableModels: ModelInfo[] = [];
-
-function hydrateViewState(raw: ViewState): ViewState {
-  validateViewState(raw);
-  const prefs = pickStable(stablePrefs, { ...DEFAULT_CHAT_PREFS, ...raw.prefs });
-  stablePrefs = prefs;
-  const pruningSettings = pickStable(stablePruningSettings, { ...DEFAULT_PRUNING_SETTINGS, ...raw.pruningSettings });
-  stablePruningSettings = pruningSettings;
-  const pruningCatalog = pickStable(stablePruningCatalog, { ...EMPTY_VIEW_STATE.pruningCatalog, ...raw.pruningCatalog });
-  stablePruningCatalog = pruningCatalog;
-  // `availableModels` is an array of nested `ModelInfo` objects, which
-  // `shallowConfigEqual`/`pickStable` cannot stabilise (nested clones → fresh
-  // refs → always reported unequal). Run it through the dedicated stabilizer
-  // so downstream `useMemo` deps and `memo()` barriers keyed on the
-  // `availableModels` ref (model-state, pricing-by-model-id, Composer) hold
-  // across snapshots whose model list didn't actually change.
-  const availableModels = pickStableModelList(stableAvailableModels, raw.availableModels);
-  stableAvailableModels = availableModels;
-  return {
-    ...raw,
-    prefs,
-    pruningSettings,
-    pruningCatalog,
-    availableModels,
-  };
-}
-
 export const EMPTY_VIEW_STATE: ViewState = {
   sessions: [],
   openTabPaths: [],
@@ -136,6 +87,67 @@ export interface HostSyncState {
 /* ------------------------------------------------------------------ */
 //  Sub-hooks
 /* ------------------------------------------------------------------ */
+
+/**
+ * Fill gaps in host-delivered state with safe defaults and log violations.
+ * Prevents render crashes when the host omits newly-added nested fields.
+ *
+ * `prefs` / `pruningSettings` / `pruningCatalog` are reference-stabilised (flat
+ * objects, via `pickStable`), and `availableModels` is stabilised via the
+ * dedicated `pickStableModelList` (its nested `ModelInfo` elements defeat
+ * `shallowConfigEqual`). The host re-serialises the whole `ViewState` on every
+ * snapshot (fresh refs even when content is unchanged), which would otherwise
+ * defeat every `memo()` / `useMemo` / `useCallback` barrier downstream (notably
+ * `MessageItem = memo()`, the `Composer`/`BottomSection`/`VirtualRow` memo
+ * boundaries, and `useTranscriptRenderToolCall`'s `useCallback([prefs, ...])`).
+ * Reusing the previous reference when content is unchanged keeps those barriers
+ * effective. `pickStable` / `pickStableModelList` compare content so a genuinely
+ * different value (e.g. a pref toggle, a newly-added model) still produces a new
+ * ref.
+ *
+ * Unlike the previous module-level singletons, the cached refs live inside this
+ * hook so they are scoped to the component instance; this prevents leaks across
+ * tests/webview reloads and eliminates order-dependence during hydration.
+ */
+function useHydrateViewState() {
+  const stablePrefsRef = useRef<ChatPrefs | null>(null);
+  const stablePruningSettingsRef = useRef<PruningSettings | null>(null);
+  const stablePruningCatalogRef = useRef<PruningCatalog | null>(null);
+  /** Reference-stabilised `availableModels` (see `model-list-stabilize.ts`);
+   *  seeded with `[]` to mirror `EMPTY_VIEW_STATE.availableModels`. */
+  const stableAvailableModelsRef = useRef<ModelInfo[]>([]);
+
+  return useCallback((raw: ViewState): ViewState => {
+    validateViewState(raw);
+    const prefs = pickStable(stablePrefsRef.current, { ...DEFAULT_CHAT_PREFS, ...raw.prefs });
+    stablePrefsRef.current = prefs;
+    const pruningSettings = pickStable(stablePruningSettingsRef.current, {
+      ...DEFAULT_PRUNING_SETTINGS,
+      ...raw.pruningSettings,
+    });
+    stablePruningSettingsRef.current = pruningSettings;
+    const pruningCatalog = pickStable(stablePruningCatalogRef.current, {
+      ...EMPTY_VIEW_STATE.pruningCatalog,
+      ...raw.pruningCatalog,
+    });
+    stablePruningCatalogRef.current = pruningCatalog;
+    // `availableModels` is an array of nested `ModelInfo` objects, which
+    // `shallowConfigEqual`/`pickStable` cannot stabilise (nested clones → fresh
+    // refs → always reported unequal). Run it through the dedicated stabilizer
+    // so downstream `useMemo` deps and `memo()` barriers keyed on the
+    // `availableModels` ref (model-state, pricing-by-model-id, Composer) hold
+    // across snapshots whose model list didn't actually change.
+    const availableModels = pickStableModelList(stableAvailableModelsRef.current, raw.availableModels);
+    stableAvailableModelsRef.current = availableModels;
+    return {
+      ...raw,
+      prefs,
+      pruningSettings,
+      pruningCatalog,
+      availableModels,
+    };
+  }, []);
+}
 
 function useMergedTranscript(viewState: ViewState, optimisticMessages: OptimisticUserMessage[]): ChatMessage[] {
   return useMemo(() => {
@@ -260,6 +272,7 @@ interface InputsRestoreOps {
 }
 
 interface HostMessageContext {
+  hydrateViewState: (raw: ViewState) => ViewState;
   resetPerSessionState: () => void;
   hostInstanceIdRef: { current: string };
   /** Last applied snapshot revision (Brief D). Allowlisted webview-local
@@ -361,7 +374,7 @@ function handleStateMessage(msg: HostToWebviewMessage, ctx: HostMessageContext) 
   // has done its job — clear it so the authoritative snapshot takes over.
   ctx.inputsOps.clear();
 
-  ctx.setViewState(hydrateViewState(m.state));
+  ctx.setViewState(ctx.hydrateViewState(m.state));
   ctx.setPendingStateApplied({
     revision: m.revision,
     backendReady: m.state.backendReady,
@@ -445,6 +458,8 @@ export function useHostSync(
   const committedSessionPathRef = useRef<string | null>(null);
   const pendingDraftRestoreRef = useRef(new Map<string, { text: string }>());
 
+  const hydrateViewState = useHydrateViewState();
+
   const clearTransientUi = useCallback(() => {
     setDraftRestore(null);
     setInputsRestore(null);
@@ -526,6 +541,7 @@ export function useHostSync(
       // further validates the `type` field against known handlers.
       if (!event.data || typeof event.data.type !== 'string') return;
       dispatchHostMessage(event.data as HostToWebviewMessage, {
+        hydrateViewState,
         resetPerSessionState,
         hostInstanceIdRef,
         lastRevisionRef,
@@ -544,7 +560,7 @@ export function useHostSync(
     postMessage({ type: 'ready' });
     postMessage({ type: 'refreshState' });
     return () => window.removeEventListener('message', handleMessage);
-  }, [clearTransientUi, postMessage, resetPerSessionState]);
+  }, [clearTransientUi, postMessage, resetPerSessionState, hydrateViewState]);
 
   useStateAppliedDiagnostics(pendingStateApplied, postMessage);
 

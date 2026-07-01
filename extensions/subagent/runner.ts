@@ -50,6 +50,10 @@ interface SubagentSessionEvent {
 	};
 	toolCallId?: string;
 	toolName?: string;
+	/** Partial result from a tool's `onUpdate` callback. Present on
+	 * `tool_execution_update` events — the exact event that carries a nested
+	 * (depth ≥ 2) subagent's streaming output on the depth-1 session. */
+	partialResult?: unknown;
 }
 
 /**
@@ -321,6 +325,63 @@ function recordAssistantMessage(result: SingleResult, msg: SubagentEventMessage)
 	if (msg.errorMessage) result.errorMessage = msg.errorMessage;
 }
 
+/**
+ * Handle a `tool_execution_update` event by merging the tool's partial result
+ * onto the matching toolCall in `result.messages`, then emitting an update.
+ *
+ * This is the event that carries a nested (depth ≥ 2) subagent's streaming
+ * output: depth-2 activity happens *inside* a tool call of the depth-1
+ * session, so it only ever travels as `tool_execution_update` on the depth-1
+ * session — the one event the runner previously dropped. Without this handler
+ * depth-2 progress never reaches the host transcript, which is the root cause
+ * of the "nested subagent hangs / 0 tps / no reply" symptom.
+ *
+ * Generic over any nested tool's `onUpdate` partial (not only subagent): a
+ * nested bash etc. also streams here, so its partial surfaces too. The partial
+ * is stamped onto the assistant message's `toolCall` content part; the host
+ * already forwards it (`onToolProgress` sets `toolCall.result =
+ * payload.partialResult`) and the webview already recurses into nested results
+ * — so no host/webview change is needed for *propagation*, only the runner must
+ * emit it.
+ *
+ * Safe to mutate the pi-ai `ToolCall` part: provider serializers (Anthropic /
+ * OpenAI / Google) pick only known fields (`type`/`id`/`name`/`arguments`)
+ * when sending the message back to the model, so the extra `result`/`status`
+ * fields live only in memory for the host/webview to read.
+ *
+ * Graceful no-op when the assistant message carrying this toolCall hasn't been
+ * committed yet (`message_end` pending) — the next update catches it.
+ */
+function applyToolExecutionUpdate(
+	result: SingleResult,
+	toolCallId: string,
+	partialResult: unknown,
+	emitUpdate: () => void,
+): void {
+	if (partialResult === undefined) return;
+	for (let i = result.messages.length - 1; i >= 0; i--) {
+		const msg = result.messages[i];
+		if (msg.role !== "assistant") continue;
+		const content = msg.content;
+		if (!Array.isArray(content)) continue;
+		for (const part of content) {
+			if (typeof part !== "object" || part === null) continue;
+			const tc = part as { type?: string; id?: string; result?: unknown; status?: string };
+			if (tc.type !== "toolCall" || tc.id !== toolCallId) continue;
+			// Don't clobber a terminal toolCall (its toolResult message already
+			// landed). The pi-ai ToolCall part has no status field, so this is a
+			// defensive guard for any path that stamps one.
+			if (tc.status === "completed" || tc.status === "failed") return;
+			tc.result = partialResult;
+			tc.status = "running";
+			emitUpdate();
+			return;
+		}
+	}
+	// No matching toolCall part yet — the assistant message carrying it hasn't
+	// been committed (message_end pending). The next update will catch it.
+}
+
 /** Wire up a subscription to session events, mutating `result` and emitting updates. */
 function subscribeToSession(
 	session: { subscribe: (cb: (event: SubagentSessionEvent) => void) => () => void },
@@ -342,6 +403,10 @@ function subscribeToSession(
 		if (event.type === "tool_execution_end" && event.toolName) {
 			result.runningTools = (result.runningTools ?? []).filter((t) => t !== event.toolName);
 			emitUpdate();
+			return;
+		}
+		if (event.type === "tool_execution_update" && event.toolCallId !== undefined) {
+			applyToolExecutionUpdate(result, event.toolCallId, event.partialResult, emitUpdate);
 			return;
 		}
 		if (event.type === "message_end" && event.message) {
@@ -412,7 +477,35 @@ function buildCombinedAbortSignal(parentSignal: AbortSignal | undefined, timeout
 	}
 
 	const timeoutSignal = AbortSignal.timeout(timeoutMs);
-	const signal = parentSignal ? AbortSignal.any([parentSignal, timeoutSignal]) : timeoutSignal;
+	let signal: AbortSignal;
+	if (parentSignal) {
+		if (typeof AbortSignal.any === 'function') {
+			signal = AbortSignal.any([parentSignal, timeoutSignal]);
+		} else {
+			// Fallback for runtimes without AbortSignal.any
+			const controller = new AbortController();
+			const stop = (reason: () => void) => {
+				reason();
+				parentSignal.removeEventListener('abort', onParent);
+				timeoutSignal.removeEventListener('abort', onTimeout);
+			};
+			const onParent = () => stop(() => controller.abort());
+			const onTimeout = () => stop(() => controller.abort());
+			if (parentSignal.aborted) {
+				stop(() => controller.abort());
+			} else {
+				parentSignal.addEventListener('abort', onParent, { once: true });
+			}
+			if (timeoutSignal.aborted) {
+				stop(() => controller.abort());
+			} else {
+				timeoutSignal.addEventListener('abort', onTimeout, { once: true });
+			}
+			signal = controller.signal;
+		}
+	} else {
+		signal = timeoutSignal;
+	}
 	const onAbort = (handler: () => void): (() => void) => {
 		signal.addEventListener("abort", handler, { once: true });
 		return () => signal.removeEventListener("abort", handler);

@@ -119,11 +119,17 @@ function appendRawContentPart(
 
   if (part.type === 'toolCall' && part.id && part.name) {
     const toolResult = toolResultMap.get(String(part.id));
+    // A partial result may be stamped directly on the toolCall part by the
+    // subagent runner's `tool_execution_update` handler (the event that carries
+    // nested depth-2 streaming). It surfaces while the tool is still running —
+    // before its toolResult message lands — so the nested block renders its
+    // live streaming text instead of a blank "(running…)" placeholder. A
+    // completed toolResult (from the map) always takes precedence once present.
     upsertAssistantToolPart(orderedParts, {
       id: part.id,
       name: part.name,
       input: part.arguments ?? {},
-      result: toolResult?.result,
+      result: toolResult?.result ?? part.result,
       status: toolResult?.status ?? 'running',
     });
   }

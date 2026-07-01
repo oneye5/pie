@@ -6,6 +6,7 @@ import {
   buildLiveSessionCostEstimate,
   buildSessionCostIndicator,
   buildSessionTokenIndicator,
+  extractSubagentCostSummary,
   extractSubagentDirectCost,
   formatCostUsd,
   type SessionTokenUsageSummary,
@@ -157,6 +158,140 @@ test('buildSessionCostIndicator shows sub-agent costs from transcript', () => {
   assert.match(result.tooltip, /Total: \$0\.1100/);
 });
 
+test('buildSessionCostIndicator breaks down direct and nested sub-agent costs by model', () => {
+  const summary = makeSummary({
+    inputTokens: 10_000,
+    outputTokens: 2_000,
+    totalTokens: 12_000,
+    reportedTurnCount: 1,
+  });
+  const pricing = { input: 3, output: 15, cacheRead: 0, cacheWrite: 0 };
+  const transcript = [
+    { id: 'm1', role: 'assistant' as const, createdAt: '', markdown: '', status: 'completed' as const, toolCalls: [
+      {
+        id: 'tc1',
+        name: 'subagent',
+        input: { agent: 'worker', task: 'do stuff' },
+        status: 'completed' as const,
+        result: {
+          details: {
+            mode: 'single',
+            results: [
+              {
+                agent: 'worker',
+                task: 'do stuff',
+                exitCode: 0,
+                model: 'claude-sonnet',
+                usage: { input: 5000, output: 1000, cacheRead: 0, cacheWrite: 0, cost: 0.05, contextTokens: 6000, turns: 1 },
+                messages: [
+                  {
+                    role: 'assistant',
+                    content: [
+                      {
+                        type: 'toolCall',
+                        id: 'nested-tc',
+                        name: 'subagent',
+                        arguments: {},
+                        result: {
+                          details: {
+                            mode: 'single',
+                            results: [
+                              {
+                                agent: 'scout',
+                                task: 'inspect',
+                                exitCode: 0,
+                                model: 'claude-haiku',
+                                usage: { input: 2000, output: 500, cacheRead: 100, cacheWrite: 0, cost: 0.02, contextTokens: 2600, turns: 1 },
+                                messages: [],
+                              },
+                            ],
+                          },
+                        },
+                      },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      },
+    ] },
+  ];
+
+  const result = buildSessionCostIndicator(
+    summary,
+    pricing,
+    'Test Model',
+    buildCompletedCostSummary(summary, transcript, pricing, undefined),
+    extractSubagentCostSummary(transcript as never),
+    undefined,
+  );
+
+  assert.ok(result);
+  assert.equal(result.label, '$0.13');
+  assert.match(result.tooltip, /Direct cost:\s+\$0\.0500/);
+  assert.match(result.tooltip, /Nested cost:\s+\$0\.0200/);
+  assert.match(result.tooltip, /Cost by model/);
+  assert.match(result.tooltip, /claude-sonnet:\s+\$0\.0500/);
+  assert.match(result.tooltip, /claude-haiku:\s+\$0\.0200/);
+  assert.match(result.tooltip, /Selected model:\s+\$0\.0600/);
+});
+
+test('buildSessionCostIndicator merges the live estimate into the selected model\'s by-model row', () => {
+  // Regression: the in-flight live-turn estimate used to be keyed by the
+  // selected model's DISPLAY NAME while completed turns are keyed by the
+  // model's ID, so the "Cost by model" rollup showed two rows for the same
+  // model while a turn streamed. Passing `selectedModelId` keys the live
+  // estimate by the model id so it merges with the completed turns.
+  const summary = makeSummary({
+    inputTokens: 100_000,
+    outputTokens: 10_000,
+    totalTokens: 110_000,
+    reportedTurnCount: 1,
+  });
+  const pricing = { input: 0.25, output: 2, cacheRead: 0, cacheWrite: 0 };
+  const transcript = [
+    {
+      id: 'a1',
+      role: 'assistant' as const,
+      createdAt: '',
+      markdown: '',
+      status: 'completed' as const,
+      modelId: 'gpt-5.4-mini',
+      usage: { inputTokens: 100_000, outputTokens: 10_000, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 110_000 },
+    },
+  ];
+  const liveEstimate = {
+    source: 'live-context' as const,
+    inputTokens: 50_000,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 50_000,
+  };
+
+  const result = buildSessionCostIndicator(
+    summary,
+    pricing,
+    'GPT-5.4 Mini',
+    buildCompletedCostSummary(summary, transcript, pricing, (id) => (id === 'gpt-5.4-mini' ? pricing : undefined)),
+    extractSubagentDirectCost([]),
+    undefined,
+    (id) => (id === 'gpt-5.4-mini' ? pricing : undefined),
+    liveEstimate,
+    'gpt-5.4-mini',
+  );
+
+  assert.ok(result);
+  // Main: 0.1M*0.25 + 0.01M*2 = 0.025 + 0.02 = 0.045. Live: 0.05M*0.25 = 0.0125. Total: 0.0575.
+  assert.equal(result.label, '$0.06');
+  assert.match(result.tooltip, /gpt-5\.4-mini:\s+\$0\.0575/);
+  // Merged sources line — only present when the live estimate keyed onto the
+  // same model id as the completed turns (two sources > 1).
+  assert.match(result.tooltip, /Main turns \$0\.0450 · Live estimate \$0\.0125/);
+});
+
 test('buildSessionCostIndicator shows tokens when no pricing (Ollama)', () => {
   const summary = makeSummary({
     inputTokens: 100_000,
@@ -234,6 +369,58 @@ test('buildSessionCostIndicator uses prepass model pricing when available', () =
   assert.match(result.tooltip, /Pruning prepass/);
   assert.match(result.tooltip, /Cost:\s+\$2\.5000/);
   assert.match(result.tooltip, /Total: \$12\.5000/);
+});
+
+test('buildSessionCostIndicator does not price the prepass at the selected model\'s rate when its pricing is unknown', () => {
+  // Regression: `prepassPricing` used to fall back to the SELECTED model's
+  // pricing when the prepass model had no pricing entry, silently pricing a
+  // local/cheap prepass model at the main model's rate. It must instead report
+  // "unavailable" and contribute $0 to the total.
+  const summary = makeSummary({
+    inputTokens: 100_000,
+    outputTokens: 0,
+    totalTokens: 100_000,
+    reportedTurnCount: 1,
+  });
+  const selectedPricing = { input: 10, output: 10, cacheRead: 0, cacheWrite: 0 };
+  const transcript = [
+    {
+      id: 'a1',
+      role: 'assistant' as const,
+      createdAt: '',
+      markdown: '',
+      status: 'completed' as const,
+      modelId: 'selected-model',
+      usage: { inputTokens: 100_000, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, totalTokens: 100_000 },
+    },
+  ];
+
+  const result = buildSessionCostIndicator(
+    summary,
+    selectedPricing,
+    'Selected Model',
+    buildCompletedCostSummary(summary, transcript, selectedPricing, (id) => (id === 'selected-model' ? selectedPricing : undefined)),
+    extractSubagentDirectCost([]),
+    {
+      mode: 'auto' as const,
+      skillTokensSaved: 0,
+      toolTokensSaved: 0,
+      includedSkills: [],
+      excludedSkills: [],
+      includedTools: [],
+      excludedTools: [],
+      prepassModel: 'gemma3:4b',
+      prepassInputTokens: 1_000_000,
+      prepassOutputTokens: 0,
+    },
+    (id) => (id === 'selected-model' ? selectedPricing : undefined),
+  );
+
+  assert.ok(result);
+  // Main: 0.1M * 10 = 1.0. Prepass: unavailable → $0. Total: $1.00 (NOT $11).
+  assert.equal(result.label, '$1.00');
+  assert.match(result.tooltip, /Cost: unavailable \(no pricing\)/);
+  assert.doesNotMatch(result.tooltip, /gemma3:4b:[^\n]*\$10/);
 });
 
 test('buildSessionCostIndicator uses assistant message model pricing when available', () => {

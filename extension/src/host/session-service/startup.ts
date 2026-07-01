@@ -8,6 +8,7 @@ import { normalizeStoredTabPaths } from '../../shared/tab-behavior';
 import { createCommandExecutor } from '../../shared/exec-command';
 
 import { resolveNodePath, resolveSdkPath } from '../../shared/runtime-resolution';
+import { resolveAgentDir } from '../../shared/agent-dir-resolution';
 import type { ChatPrefs, SessionSummary } from '../../shared/protocol';
 import { SessionService } from './service';
 import { SessionServiceEvents } from './events';
@@ -194,27 +195,64 @@ function setupInTreeAuthEnv(): void {
 /**
  * Ensure PI_CODING_AGENT_DIR is set in process.env before the backend is
  * spawned. The backend inherits process.env and the pi SDK uses
- * PI_CODING_AGENT_DIR to resolve getAgentDir()` — which controls where
+ * PI_CODING_AGENT_DIR to resolve `getAgentDir()` — which controls where
  * settings.json, models.json, and auth.json are read from.
  *
- * VS Code only picks up newly set User-scope env vars on a full restart,
- * not on window reload. To make pie work immediately after install (where
- * the installer sets PI_CODING_AGENT_DIR at User scope but the running VS
- * Code instance predates it), the pie.agentDir VS Code setting is checked
- * first and forwarded into process.env. The OS env var is still used as a
- * fallback so existing deployments keep working.
+ * Candidates (pie.agentDir setting, PI_CODING_AGENT_DIR env var, and the
+ * dir above the extension package) are VALIDATED: a dir is only trusted if
+ * it actually contains settings.json. This is what makes the recurring
+ * "umans provider missing" failure self-healing: a STALE pie.agentDir
+ * pointing at a path from another machine (or after a repo relocation) used
+ * to silently overwrite a correct PI_CODING_AGENT_DIR env var, leaving the
+ * backend to read models.json from a non-existent dir — so custom providers
+ * (umans is defined ONLY in models.json, never built-in) vanished with no
+ * error. Now stale candidates are rejected (logged) and resolution falls
+ * through to a valid dir instead of clobbering a good env var.
+ *
+ * `extensionPath` is the loaded extension's install dir; its parent is the
+ * repo root in the standard checkout layout, used as a last-resort fallback
+ * so pie works even when both the setting and the env var are missing/stale.
  */
-function setupAgentDirEnv(): void {
+function setupAgentDirEnv(options: StartSessionBackendOptions): void {
   const configuredAgentDir = vscode.workspace.getConfiguration('pie').get<string>('agentDir', '').trim();
-  if (configuredAgentDir) {
-    process.env.PI_CODING_AGENT_DIR = configuredAgentDir;
+  const result = resolveAgentDir({
+    configuredAgentDir,
+    envAgentDir: process.env.PI_CODING_AGENT_DIR,
+    extensionPath: options.context.extensionPath,
+  });
+
+  if (result.agentDir) {
+    process.env.PI_CODING_AGENT_DIR = result.agentDir;
+  } else {
+    // No candidate validated. Clear any stale value so the backend doesn't
+    // read a non-existent dir; the pi SDK will fall back to ~/.pi/agent.
+    delete process.env.PI_CODING_AGENT_DIR;
+    const tried = result.rejections
+      .map((r) => `${r.source}="${r.candidate}" (${r.reason})`)
+      .join('; ');
+    console.warn(
+      `[pie] No valid agent dir found (settings.json absent from every candidate). Tried: ${tried || 'none'}. ` +
+        'Custom providers like "umans" will be unavailable. Set pie.agentDir to the directory containing settings.json and models.json.',
+    );
+    return;
   }
-  // If pie.agentDir is not set and PI_CODING_AGENT_DIR is not in the
-  // environment, getAgentDir() falls back to ~/.pi/agent (the legacy
-  // default), which typically doesn't contain models.json. We log this
-  // so the user can diagnose "no models appear" issues.
-  if (!process.env.PI_CODING_AGENT_DIR) {
-    console.warn('[pie] PI_CODING_AGENT_DIR is not set. The backend will fall back to ~/.pi/agent. Set pie.agentDir in settings to the directory containing settings.json and models.json.');
+
+  // Surface stale-setting recovery so the user understands WHY providers were
+  // missing and can fix the persisted setting (rather than relying on the
+  // env-var fallback indefinitely). The notice is only shown when the setting
+  // was set but a DIFFERENT source actually resolved — i.e. the setting is stale.
+  const settingRejected = result.rejections.some((r) => r.source === 'setting');
+  if (settingRejected && result.source !== 'setting') {
+    const sourceLabel =
+      result.source === 'env' ? 'the PI_CODING_AGENT_DIR env var'
+      : result.source === 'extension-relative' ? 'the extension\'s parent dir'
+      : 'a fallback';
+    options.dispatchArch({
+      kind: 'NoticeShown',
+      notice:
+        `pie.agentDir points to a path that no longer exists${configuredAgentDir ? ` (${configuredAgentDir})` : ''}. ` +
+        `Recovering using ${sourceLabel} (${result.agentDir}). Set pie.agentDir to this path, or re-run the installer, to clear this warning.`,
+    });
   }
 }
 
@@ -346,7 +384,7 @@ export async function startSessionBackend(options: StartSessionBackendOptions): 
   const { nodePath, sdkPath } = paths;
 
   const backendPath = path.join(options.context.extensionPath, 'out', 'backend.js');
-  setupAgentDirEnv();
+  setupAgentDirEnv(options);
   setupInTreeAuthEnv();
 
   options.events.attach(options.backend);

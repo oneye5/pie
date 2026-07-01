@@ -143,6 +143,12 @@ export function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 			content?: Array<{ type: string; text?: string; thinking?: string }>;
 			stopReason?: string;
 			errorMessage?: string;
+			usage?: {
+				input?: number;
+				output?: number;
+				cacheRead?: number;
+				cacheWrite?: number;
+			};
 		};
 		const content = assistantMessage.content ?? [];
 		const text = content
@@ -158,6 +164,12 @@ export function getCompleteFn(_ctx: unknown): CompleteSimpleFn | null {
 			thinking,
 			stopReason: assistantMessage.stopReason,
 			errorMessage: assistantMessage.errorMessage,
+			usage: assistantMessage.usage ? {
+				input: assistantMessage.usage.input ?? 0,
+				output: assistantMessage.usage.output ?? 0,
+				cacheRead: assistantMessage.usage.cacheRead ?? 0,
+				cacheWrite: assistantMessage.usage.cacheWrite ?? 0,
+			} : undefined,
 		};
 	};
 	return adapter;
@@ -281,6 +293,7 @@ export async function runPruningPrepass(
 				rawUserMessage: result.userMessage,
 				latencyMs: result.latencyMs,
 				thinkingLevel,
+				usage: result.usage,
 				keptAllDueToParseFailure: result.keptAllDueToParseFailure,
 			};
 

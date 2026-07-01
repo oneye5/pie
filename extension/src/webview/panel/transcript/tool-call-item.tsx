@@ -1,7 +1,7 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useContext, useEffect, useId, useMemo, useRef } from 'preact/hooks';
+import { useContext, useEffect, useId, useMemo, useRef, useState } from 'preact/hooks';
 import type { ChatPrefs, ToolCall } from '../../../shared/protocol';
 import { summarizeSubagentToolCallInput } from '../../../shared/tool-call-analysis';
 import { shouldOpenSubagentContextMenu } from './interactions';
@@ -11,6 +11,7 @@ import { AskUserContext } from '../hooks/ask-user-context';
 
 import { cx } from '../utils/cx';
 import { CollapsibleChevron } from '../components/chevron';
+import { CollapsibleCloseFooter } from '../components/collapsible-close-footer';
 import { ResizeHandle } from '../components/resize-handle';
 import { useResizableHeight } from '../components/use-resizable-height';
 import {
@@ -189,6 +190,8 @@ interface SubagentMessagesProps {
   /** id for this body region so the subagent header can reference it via
    *  `aria-controls` (set on the root `.subagent-messages` div). */
   bodyId?: string;
+  /** Collapse the owning subagent (bottom `CollapsibleCloseFooter`). */
+  onClose?: () => void;
 }
 
 /**
@@ -209,6 +212,7 @@ function SubagentMessages({
   renderToolCall,
   isNested,
   bodyId,
+  onClose,
 }: SubagentMessagesProps) {
   const messages = useMemo(
     () => subagentSingleResultToChatMessages(singleResult, `${toolCall.id}-${index}`),
@@ -313,6 +317,7 @@ function SubagentMessages({
           onReset={reset}
         />
       )}
+      {onClose && !isNested && <CollapsibleCloseFooter onCollapse={onClose} />}
     </div>
   );
 }
@@ -352,34 +357,80 @@ function SubagentSingleBlock({
   const subagentDepth = (parentSubagentCtx?.depth ?? 0) + 1;
   const subagentCallId = multipleResults ? `${toolCall.id}:${index}` : toolCall.id;
   // Nested (depth ≥ 2) subagents live inside a parent subagent's bounded
-  // scroll region. A sticky header there pins to the parent's scroll port and
-  // collides with the parent's own sticky header (overlap), and a second
-  // nested scroll container creates nested-scroll confusion. So nested
-  // blocks use a non-sticky header (`relative`, preserving the pending-ask-user
-  // `::after` anchor) and a free-flowing body (no max-height / overflow).
+  // scroll region. A nested header/body establishing its own scroll container
+  // creates nested-scroll confusion, so nested blocks use a free-flowing body
+  // (no max-height / overflow). Both depth-1 and nested headers are now
+  // `relative` (non-pinning) so there is no header overlap; the nested
+  // modifier still marks the free-flowing body.
   const isNested = subagentDepth > 1;
   // Stable id for the body region so the header can reference it via
-  // `aria-controls` (only when the body is mounted, i.e. open).
+  // `aria-controls` (only when the body is mounted, i.e. open or closing).
   const bodyId = useId();
+
+  // ── Animated close ──────────────────────────────────────────────────────
+  // Mirror the generic `Collapsible`: keep the body mounted with `closing`
+  // while a grid-track `1fr→0fr` transition collapses it, then unmount (with
+  // a timer fallback for environments where `transitionend` doesn't fire).
+  // Opening mounts instantly. Keeps the subagent's open/close consistent with
+  // tool-call cards and reasoning blocks (no snap).
+  const [closing, setClosing] = useState(false);
+  const closeFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const SUBAGENT_CLOSE_MS = 200;
+  const renderBody = open || closing;
+
+  useEffect(() => {
+    if (open) setClosing(false);
+  }, [open]);
+
+  useEffect(() => () => {
+    if (closeFallbackRef.current) clearTimeout(closeFallbackRef.current);
+  }, []);
+
+  const close = () => {
+    if (closing && !open) return;
+    if (closeFallbackRef.current) clearTimeout(closeFallbackRef.current);
+    setClosing(true);
+    setOpen(false);
+    closeFallbackRef.current = setTimeout(() => {
+      closeFallbackRef.current = null;
+      setClosing(false);
+    }, SUBAGENT_CLOSE_MS + 60);
+  };
+
+  const toggle = () => {
+    if (open) close();
+    else setOpen(true);
+  };
+
+  const onBodyTransitionEnd = (e: TransitionEvent) => {
+    if (e.target !== e.currentTarget) return;
+    if (closing && !open) {
+      if (closeFallbackRef.current) {
+        clearTimeout(closeFallbackRef.current);
+        closeFallbackRef.current = null;
+      }
+      setClosing(false);
+    }
+  };
 
   return (
     // `overflow-clip` (not `hidden`): clips children to the rounded card
-    // corners but does NOT establish a scroll container, so the sticky
-    // `.subagent-header` inside pins to the transcript scroll viewport
-    // instead of being trapped by the card (mirrors `.tool-call-card`).
+    // corners but does NOT establish a scroll container. (The header is no
+    // longer sticky, so this no longer exists to free a sticky header.)
     <div
       class={cx('tool-call tool-call-subagent', 'border border-border-subtle rounded-xl bg-card shadow-sm overflow-clip transition-[border-color,background,box-shadow] duration-150 hover:border-border hover:bg-control-hover hover:shadow-md forced-colors:border forced-colors:border-[ButtonText]', status, hasPendingAskUser && 'pending-ask-user')}
       onContextMenu={(e) => { e.preventDefault(); onContextMenu(e as unknown as MouseEvent); }}
     >
       <div
-        class={cx('subagent-header min-h-[32px] select-none', isNested && 'subagent-header-nested')}
+        class={cx('subagent-header min-h-[28px] select-none', isNested && 'subagent-header-nested')}
         role="button"
         tabIndex={0}
         aria-expanded={open}
-        aria-controls={open ? bodyId : undefined}
+        aria-controls={renderBody ? bodyId : undefined}
+        title={open ? 'Collapse' : 'Expand'}
         aria-label={`Toggle ${singleResult.agent} subagent`}
-        onClick={() => setOpen((v) => !v)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((v) => !v); } }}
+        onClick={toggle}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } }}
       >
         <div class="flex min-w-0 flex-1 items-center gap-[7px]">
           <span class="subagent-agent-name transcript-header-title-mono">{singleResult.agent}</span>
@@ -389,22 +440,31 @@ function SubagentSingleBlock({
         <StatusIndicator status={status} errorDetail={errorDetail} />
         <CollapsibleChevron open={open} class="ml-0.5 shrink-0" />
       </div>
-      {open && (
-        <SubagentCallContext.Provider value={{ id: subagentCallId, agent: singleResult.agent, depth: subagentDepth }}>
-          <SubagentMessages
-            singleResult={singleResult}
-            toolCall={toolCall}
-            index={index}
-            prefs={prefs}
-            workingDirectory={workingDirectory}
-            onOpenFile={onOpenFile}
-            onContextMenu={onContextMenu}
-            onNestedContextMenu={onNestedContextMenu}
-            renderToolCall={renderToolCall}
-            isNested={isNested}
-            bodyId={bodyId}
-          />
-        </SubagentCallContext.Provider>
+      {renderBody && (
+        <div
+          class="collapsible-body-wrap"
+          data-closing={!open && closing ? 'true' : undefined}
+          onTransitionEnd={onBodyTransitionEnd}
+        >
+          <div class="collapsible-body-clip">
+            <SubagentCallContext.Provider value={{ id: subagentCallId, agent: singleResult.agent, depth: subagentDepth }}>
+              <SubagentMessages
+                singleResult={singleResult}
+                toolCall={toolCall}
+                index={index}
+                prefs={prefs}
+                workingDirectory={workingDirectory}
+                onOpenFile={onOpenFile}
+                onContextMenu={onContextMenu}
+                onNestedContextMenu={onNestedContextMenu}
+                renderToolCall={renderToolCall}
+                isNested={isNested}
+                bodyId={bodyId}
+                onClose={close}
+              />
+            </SubagentCallContext.Provider>
+          </div>
+        </div>
       )}
     </div>
   );

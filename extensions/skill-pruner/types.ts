@@ -49,6 +49,11 @@ export interface PruningResult {
 	prepassUserMessage?: string;
 	/** Latency of the LLM prepass call in milliseconds. */
 	prepassLatencyMs?: number;
+	/** Token usage reported by the LLM prepass call, when available. */
+	prepassInputTokens?: number;
+	prepassOutputTokens?: number;
+	prepassCacheReadTokens?: number;
+	prepassCacheWriteTokens?: number;
 	/** Error message if the prepass failed. */
 	prepassError?: string;
 	/** Human-readable explanation of why the pruner kept a category instead of trusting the model. */

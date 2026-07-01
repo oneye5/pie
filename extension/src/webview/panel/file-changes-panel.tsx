@@ -1,11 +1,21 @@
 /** @jsxRuntime automatic */
 /** @jsxImportSource preact */
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'preact/hooks';
-import type { FileChangeEntry, FileChangeKind } from '../../shared/protocol';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'preact/hooks';
+import type { FileChangeEntry } from '../../shared/protocol';
 import { cx } from './utils/cx';
 import { ResizeHandle } from './components/resize-handle';
 import { useResizableWidth } from './components/use-resizable-width';
+import { LineStats, FileName } from './file-changes-row';
+import { FileChangeContextMenu } from './file-changes-context-menu';
+import type { FileChangeContextMenuState } from './file-changes-context-menu';
+import { computeDiffTotals, computeKindStats, KIND_ORDER, KIND_LABEL, basename } from './file-changes-stats';
+
+// Re-export the public surface previously bundled in this module so existing
+// import paths (`./file-changes-panel`) keep resolving unchanged.
+export { computeDiffTotals, computeKindStats } from './file-changes-stats';
+export { FileChangeContextMenu } from './file-changes-context-menu';
+export type { FileChangeContextMenuState } from './file-changes-context-menu';
 
 interface FileChangesPanelProps {
   fileChanges: FileChangeEntry[];
@@ -20,295 +30,11 @@ interface FileChangesPanelProps {
   onSetFileRead: (filePath: string, read: boolean) => void;
 }
 
-// Reading order for the collapsed sliver's hover `title` kind breakdown:
-// created → modified → deleted (calm → concerning).
-const KIND_ORDER: { kind: FileChangeKind; label: string }[] = [
-  { kind: 'created', label: 'Added' },
-  { kind: 'modified', label: 'Modified' },
-  { kind: 'deleted', label: 'Deleted' },
-];
-
 // Hover-intent / dismiss delays for the peek overlay (STATE_CONTRACT
 // § Webview-Local State — peek/hover overlays). Tunable; see
 // CHANGED-FILES-UI-PLAN D9.
 const PEEK_OPEN_DELAY = 160;
 const PEEK_CLOSE_DELAY = 120;
-
-interface DiffTotals {
-  additions: number;
-  deletions: number;
-}
-
-/** Per-kind counts + line churn (drives the collapsed sliver's hover `title`
- * kind breakdown; the per-file list colors each name by kind instead). */
-interface KindStats {
-  count: number;
-  additions: number;
-  deletions: number;
-}
-
-export function computeDiffTotals(changes: FileChangeEntry[]): DiffTotals {
-  let additions = 0;
-  let deletions = 0;
-  for (const c of changes) {
-    additions += c.additions ?? 0;
-    deletions += c.deletions ?? 0;
-  }
-  return { additions, deletions };
-}
-
-export function computeKindStats(
-  changes: FileChangeEntry[],
-): Record<FileChangeKind, KindStats> {
-  const stats: Record<FileChangeKind, KindStats> = {
-    created: { count: 0, additions: 0, deletions: 0 },
-    modified: { count: 0, additions: 0, deletions: 0 },
-    deleted: { count: 0, additions: 0, deletions: 0 },
-  };
-  for (const c of changes) {
-    const s = stats[c.kind];
-    s.count += 1;
-    s.additions += c.additions ?? 0;
-    s.deletions += c.deletions ?? 0;
-  }
-  return stats;
-}
-
-/** Long-form kind name for the row path aria-label, the context-menu title,
- * and the collapsed-sliver hover titles. */
-const KIND_LABEL: Record<FileChangeKind, string> = {
-  created: 'Added',
-  modified: 'Modified',
-  deleted: 'Deleted',
-};
-
-function LineStats({
-  additions,
-  deletions,
-  path,
-  onDiff,
-}: {
-  additions?: number;
-  deletions?: number;
-  path: string;
-  onDiff: () => void;
-}) {
-  if (!additions && !deletions) return null;
-  return (
-    <button
-      class="file-change-stats"
-      type="button"
-      aria-label={`View diff of ${path}`}
-      title={`Open diff: ${path}`}
-      onClick={onDiff}
-    >
-      <span class="stat-additions">{additions ? `+${additions}` : ''}</span>
-      <span class="stat-deletions">{deletions ? `-${deletions}` : ''}</span>
-    </button>
-  );
-}
-
-function FileName({
-  path,
-  kind,
-  disabled,
-  onClick,
-}: {
-  path: string;
-  kind: FileChangeKind;
-  disabled?: boolean;
-  onClick: () => void;
-}) {
-  const parts = path.split(/[/\\]/);
-  const name = parts.pop() ?? path;
-  const dir = parts.join('/');
-  const label = disabled
-    ? `${KIND_LABEL[kind]}: ${path} (deleted)`
-    : `${KIND_LABEL[kind]}: open ${path} in the editor`;
-  // The full path — directory prefix + basename — is the open-in-editor
-  // hitbox, so the path-text itself is the <button>; dir and name are spans
-  // inside it. Hovering anywhere on the path underlines it (CSS) so the
-  // click target is discoverable across the whole path, not just the name.
-  return (
-    <button
-      class="file-change-path-text"
-      type="button"
-      disabled={disabled}
-      aria-label={label}
-      title={disabled ? `Deleted — ${path}` : `Open ${path} in the editor`}
-      onClick={onClick}
-    >
-      {dir ? <span class="file-change-dir">{dir}/</span> : null}
-      <span class="file-change-name">{name}</span>
-    </button>
-  );
-}
-
-/** Last path segment — the file's name without its directory. */
-function basename(path: string): string {
-  // Find the last path separator ("/" or "\") without a regex literal so the
-  // source has no backslash escapes to mangle across tool/JSON round-trips.
-  let i = path.length;
-  while (i-- > 0) {
-    const c = path.charCodeAt(i);
-    if (c === 47 || c === 92) break; // 47 = forward slash, 92 = backslash
-  }
-  return i < 0 ? path : path.slice(i + 1);
-}
-
-export interface FileChangeContextMenuState {
-  x: number;
-  y: number;
-  path: string;
-  kind: FileChangeKind;
-  /** Captured at open time so the menu can label/perform mark-read vs unread. */
-  read: boolean;
-}
-
-/**
- * Self-contained right-click menu for a changed-file row. Hosts the secondary
- * actions (Copy path, Revert) that don't earn a spot in the per-row hover
- * buttons — those stay limited to the two primary actions (View diff, View in
- * editor). Revert is a two-step confirm (click -> "Confirm revert?" -> click) to
- * guard the destructive op, mirroring the old in-row RevertButton. Positioned
- * and clamped to the viewport, dismissed on click-outside / Escape / scroll /
- * resize (same posture as the transcript ContextMenu). Rendered at the rail
- * level (position: fixed) so it escapes the drawer's overflow clipping.
- */
-export function FileChangeContextMenu({
-  menu,
-  onRevert,
-  onSetFileRead,
-  onClose,
-}: {
-  menu: FileChangeContextMenuState;
-  onRevert: (path: string) => void;
-  onSetFileRead: (path: string, read: boolean) => void;
-  onClose: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [pos, setPos] = useState({ top: menu.y, left: menu.x });
-  const [confirming, setConfirming] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Clamp to viewport after first paint so the corrected position is what the
-  // user first sees (mirrors the transcript ContextMenu).
-  useLayoutEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const margin = 4;
-    const width = node.offsetWidth;
-    const height = node.offsetHeight;
-    let top = menu.y;
-    let left = menu.x;
-    if (top + height > window.innerHeight - margin) {
-      const flipped = menu.y - height;
-      top = flipped >= margin ? flipped : Math.max(margin, window.innerHeight - margin - height);
-    }
-    if (left + width > window.innerWidth - margin) {
-      const flipped = menu.x - width;
-      left = flipped >= margin ? flipped : Math.max(margin, window.innerWidth - margin - width);
-    }
-    top = Math.max(margin, top);
-    left = Math.max(margin, left);
-    setPos({ top, left });
-  }, [menu.x, menu.y]);
-
-  // Focus the first item on open; clear the copied-feedback timer on close.
-  useEffect(() => {
-    ref.current?.querySelector<HTMLButtonElement>('button.context-menu-item')?.focus();
-    return () => {
-      if (copiedTimer.current) clearTimeout(copiedTimer.current);
-    };
-  }, []);
-
-  // Dismiss on click-outside / Escape / scroll / resize.
-  useEffect(() => {
-    const down = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
-    };
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    const scroll = () => onClose();
-    const resize = () => onClose();
-    document.addEventListener('mousedown', down);
-    document.addEventListener('keydown', key);
-    window.addEventListener('resize', resize);
-    window.addEventListener('scroll', scroll, true);
-    return () => {
-      document.removeEventListener('mousedown', down);
-      document.removeEventListener('keydown', key);
-      window.removeEventListener('resize', resize);
-      window.removeEventListener('scroll', scroll, true);
-    };
-  }, [onClose]);
-
-  const copyPath = () => {
-    if (!navigator.clipboard?.writeText) return;
-    void navigator.clipboard
-      .writeText(menu.path)
-      .then(() => {
-        setCopied(true);
-        if (copiedTimer.current) clearTimeout(copiedTimer.current);
-        copiedTimer.current = setTimeout(() => setCopied(false), 1100);
-      })
-      .catch(() => {
-        /* ignore */
-      });
-  };
-
-  const onRevertClick = () => {
-    if (confirming) {
-      onRevert(menu.path);
-      onClose();
-    } else {
-      setConfirming(true);
-    }
-  };
-
-  return (
-    <div
-      ref={ref}
-      class="block-context-menu file-change-context-menu"
-      role="menu"
-      style={`position:fixed;top:${pos.top}px;left:${pos.left}px`}
-      onMouseDown={(e) => e.stopPropagation()}
-    >
-      <div class="file-change-ctx-title" title={menu.path}>
-        {KIND_LABEL[menu.kind]} · {basename(menu.path)}
-      </div>
-      <div class="context-menu-separator" />
-      <button class="context-menu-item" role="menuitem" type="button" onClick={copyPath}>
-        <span class="context-menu-check" aria-hidden="true" />
-        {copied ? 'Copied!' : 'Copy path'}
-      </button>
-      <button
-        class="context-menu-item"
-        role="menuitem"
-        type="button"
-        onClick={() => {
-          onSetFileRead(menu.path, !menu.read);
-          onClose();
-        }}
-      >
-        <span class="context-menu-check" aria-hidden="true" />
-        {menu.read ? 'Mark as unread' : 'Mark as read'}
-      </button>
-      <button
-        class={`context-menu-item${confirming ? ' is-danger' : ''}`}
-        role="menuitem"
-        type="button"
-        onClick={onRevertClick}
-      >
-        <span class="context-menu-check" aria-hidden="true" />
-        {confirming ? 'Confirm revert?' : 'Revert changes'}
-      </button>
-    </div>
-  );
-}
-
 
 export function FileChangesPanel({
   fileChanges,

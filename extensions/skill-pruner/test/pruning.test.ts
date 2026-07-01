@@ -31,6 +31,7 @@ const {
 	runPruningPrepass,
 	getRecentConversation,
 	subagentContext,
+	SKILLS_BLOCK_RE,
 } = require("../src/pruning.ts") as typeof import("../src/pruning.js");
 
 function installSdkResolverForTests(): void {
@@ -53,6 +54,36 @@ function installSdkResolverForTests(): void {
 		return originalResolveFilename.call(this, request, parent, isMain, options);
 	};
 }
+
+// ---------------------------------------------------------------------------
+// SKILLS_BLOCK_RE: robustness against host system-prompt layout drift
+// ---------------------------------------------------------------------------
+
+test("SKILLS_BLOCK_RE: matches the standard host layout", () => {
+	const prompt = `Base prompt.\n\nThe following skills provide specialized instructions for specific tasks.\nUse the read tool to load a skill's file when the task matches its description.\n\n<available_skills>\n  <skill>\n    <name>x</name>\n  </skill>\n</available_skills>\nTail.`;
+	assert.ok(SKILLS_BLOCK_RE.test(prompt));
+});
+
+test("SKILLS_BLOCK_RE: tolerates a single leading newline (layout variation)", () => {
+	const prompt = `Base prompt.\nThe following skills provide specialized instructions for specific tasks.\n\n<available_skills>\n</available_skills>`;
+	assert.ok(SKILLS_BLOCK_RE.test(prompt), "should match even with one leading newline instead of two");
+});
+
+test("SKILLS_BLOCK_RE: tolerates extra blank lines / spaces before the block", () => {
+	const prompt = `Base.\n\n\n   \nThe following skills provide specialized instructions for specific tasks.\n<available_skills>\n</available_skills>`;
+	assert.ok(SKILLS_BLOCK_RE.test(prompt), "should match across extra blank lines and trailing whitespace");
+});
+
+test("SKILLS_BLOCK_RE: does not match when the skills block is absent", () => {
+	assert.equal(SKILLS_BLOCK_RE.test("Base prompt without the skills block"), false);
+});
+
+test("SKILLS_BLOCK_RE: replace on the standard layout preserves surrounding text (unchanged behavior)", () => {
+	const block = `\n\nThe following skills provide specialized instructions for specific tasks.\n\n<available_skills>\n  <skill>\n    <name>x</name>\n  </skill>\n</available_skills>`;
+	const prompt = `Base.${block}\nTail.`;
+	const replaced = prompt.replace(SKILLS_BLOCK_RE, "\n\nREPLACED");
+	assert.equal(replaced, "Base.\n\nREPLACED\nTail.");
+});
 
 function skill(name: string, overrides: Partial<Skill> = {}): Skill {
 	return {

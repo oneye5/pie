@@ -282,3 +282,57 @@ test('header command summary hands off into the header as the body begins closin
     timers.restore();
   }
 });
+
+test('manual close via the footer animates the body closed then unmounts', () => {
+  const timers = useFakeTimers();
+  try {
+    // Completed read tool, collapsed by default.
+    renderCard(readTool('completed', 'read-manual-footer-close'));
+    assert.ok(!container.querySelector(BODY_WRAP), 'body hidden when collapsed');
+
+    // Manually open via the header toggle.
+    const header = container.querySelector('[role="button"]') as HTMLElement;
+    act(() => { header.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    assert.ok(container.querySelector(BODY_WRAP), 'body shown after manual open');
+    const footer = container.querySelector('.collapsible-close-footer') as HTMLElement;
+    assert.ok(footer, 'close footer present on a manually-opened body');
+
+    // Close via the footer → enter the closing state (data-closing engages).
+    act(() => { footer.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    assert.ok(container.querySelector(BODY_WRAP), 'body still mounted while closing');
+    assert.ok(container.querySelector(`${BODY_WRAP}[data-closing="true"]`), 'wrapper is closing');
+
+    // After the fallback close window: body unmounts.
+    timers.advance(TOOL_CALL_CLOSE_TRANSITION_MS + 60 + 60);
+    assert.ok(!container.querySelector(BODY_WRAP), 'body unmounted after close');
+  } finally {
+    timers.restore();
+  }
+});
+
+test('manual close via the header animates the body closed then unmounts', () => {
+  const timers = useFakeTimers();
+  try {
+    renderCard(readTool('completed', 'read-manual-header-close'));
+    const header = container.querySelector('[role="button"]') as HTMLElement;
+    // Open, then close via the same header toggle.
+    act(() => { header.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    assert.ok(container.querySelector(BODY_WRAP), 'body shown after open');
+    act(() => { header.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
+    assert.ok(container.querySelector(BODY_WRAP), 'body still mounted while closing');
+    assert.ok(container.querySelector(`${BODY_WRAP}[data-closing="true"]`), 'wrapper is closing');
+    timers.advance(TOOL_CALL_CLOSE_TRANSITION_MS + 60 + 60);
+    assert.ok(!container.querySelector(BODY_WRAP), 'body unmounted after close');
+  } finally {
+    timers.restore();
+  }
+});
+
+test('a streaming shell body shows no close footer (close cannot animate while running)', () => {
+  renderCard(bashTool('running', 'bash-no-footer-while-running'));
+  assert.ok(container.querySelector(BODY_WRAP), 'auto-shown body present while running');
+  // The footer is gated on `open` — the running body is auto-shown (!open), so
+  // no close target is offered (it would be a no-op: data-closing can't engage
+  // while showBody is true).
+  assert.ok(!container.querySelector('.collapsible-close-footer'), 'no footer on a streaming body');
+});

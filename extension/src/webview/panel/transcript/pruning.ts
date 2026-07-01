@@ -63,6 +63,10 @@ export function normalizePruningDetails(value: unknown): PruningDetails | null {
     prepassUserMessage: optionalString(value.prepassUserMessage),
     prepassThinking: optionalString(value.prepassThinking),
     prepassLatencyMs: optionalNumber(value.prepassLatencyMs),
+    prepassInputTokens: optionalNumber(value.prepassInputTokens),
+    prepassOutputTokens: optionalNumber(value.prepassOutputTokens),
+    prepassCacheReadTokens: optionalNumber(value.prepassCacheReadTokens),
+    prepassCacheWriteTokens: optionalNumber(value.prepassCacheWriteTokens),
     prepassError: optionalString(value.prepassError),
     prepassSafeguardReason: optionalString(value.prepassSafeguardReason),
   };

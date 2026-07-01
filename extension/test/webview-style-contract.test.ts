@@ -65,7 +65,11 @@ test('panel chip styling is centralized instead of embedded in feature component
 
 test('expanded-section max-height pref is wired to a CSS var with a :root default', async () => {
   const highlightCss = await readStyleSource('highlight.css');
+  const prefsCss = await readWebviewSource('use-chat-prefs-css.ts');
   const appBody = await readWebviewSource('app-body.tsx');
+
+  // app-body must call the hook so the CSS vars actually get applied.
+  assert.match(appBody, /useChatPrefsCss/);
 
   // The :root default mirrors --expanded-font-size (both expanded-section
   // theme tokens live together in highlight.css).
@@ -78,15 +82,15 @@ test('expanded-section max-height pref is wired to a CSS var with a :root defaul
   // The host emits the var from the pref (alongside --expanded-font-size),
   // and the pref is an effect dependency so updates propagate.
   assert.match(
-    appBody,
-    /setProperty\(['"]--expanded-section-max-height['"],\s*`\$\{prefs\.expandedSectionMaxHeight\}px`\)/,
+    prefsCss,
+    /setProperty\(['"]--expanded-section-max-height['"],\s*`\$\{expandedSectionMaxHeight\}px`\)/,
   );
-  assert.match(appBody, /prefs\.expandedSectionMaxHeight,/);
+  assert.match(prefsCss, /expandedSectionMaxHeight,/);
 });
 
 test('activity-tail preview-rows pref is wired to a CSS var with a :root default', async () => {
   const transcriptCss = await readStyleSource('transcript.css');
-  const appBody = await readWebviewSource('app-body.tsx');
+  const prefsCss = await readWebviewSource('use-chat-prefs-css.ts');
 
   // The :root default (2 content rows × 18px row height) lands the preview at
   // its bundled height before the host effect runs.
@@ -99,17 +103,21 @@ test('activity-tail preview-rows pref is wired to a CSS var with a :root default
   // The host emits the var from the pref (content rows × row-height constant),
   // and the pref is an effect dependency so updates propagate live.
   assert.match(
-    appBody,
-    /setProperty\(['"]--activity-tail-content-min-height['"],\s*`\$\{prefs\.activityTailLines\s*\*\s*ACTIVITY_TAIL_ROW_HEIGHT_PX\}px`\)/,
+    prefsCss,
+    /setProperty\(['"]--activity-tail-content-min-height['"],\s*`\$\{activityTailLines\s*\*\s*ACTIVITY_TAIL_ROW_HEIGHT_PX\}px`\)/,
   );
-  assert.match(appBody, /prefs\.activityTailLines,/);
+  assert.match(prefsCss, /activityTailLines,/);
 });
 
 test('per-place font sizes and link/muted color prefs are wired to CSS vars', async () => {
   const indexCss = await readStyleSource('index.css');
   const transcriptCss = await readStyleSource('transcript.css');
   const promptCss = await readStyleSource('extension-ui-prompt.css');
+  const prefsCss = await readWebviewSource('use-chat-prefs-css.ts');
   const appBody = await readWebviewSource('app-body.tsx');
+
+  // app-body must call the hook so the CSS vars actually get applied.
+  assert.match(appBody, /useChatPrefsCss/);
 
   // :root defaults reproduce the bundled sizes so an uncustomized panel is unchanged.
   assert.match(indexCss, /--panel-font-size:\s*13px/);
@@ -126,16 +134,16 @@ test('per-place font sizes and link/muted color prefs are wired to CSS vars', as
   assert.match(promptCss, /\.ask-prose a\s*\{[^}]*color:\s*var\(--panel-link\)/);
 
   // The host emits the per-place font sizes from prefs…
-  assert.match(appBody, /setProperty\(['"]--panel-font-size['"],\s*`\$\{prefs\.uiBaseFontSize\}px`\)/);
-  assert.match(appBody, /setProperty\(['"]--panel-composer-font-size['"],\s*`\$\{prefs\.uiComposerFontSize\}px`\)/);
+  assert.match(prefsCss, /setProperty\(['"]--panel-font-size['"],\s*`\$\{uiBaseFontSize\}px`\)/);
+  assert.match(prefsCss, /setProperty\(['"]--panel-composer-font-size['"],\s*`\$\{uiComposerFontSize\}px`\)/);
   // …applies the muted override on top of the foreground-derived shade…
-  assert.match(appBody, /prefs\.uiMutedColor/);
+  assert.match(prefsCss, /uiMutedColor/);
   // …and sets/removes the link override.
-  assert.match(appBody, /prefs\.uiLinkColor/);
+  assert.match(prefsCss, /uiLinkColor/);
 
   // All four new prefs are effect dependencies so updates propagate live.
-  assert.match(appBody, /prefs\.uiBaseFontSize,/);
-  assert.match(appBody, /prefs\.uiComposerFontSize,/);
-  assert.match(appBody, /prefs\.uiMutedColor,/);
-  assert.match(appBody, /prefs\.uiLinkColor,/);
+  assert.match(prefsCss, /uiBaseFontSize,/);
+  assert.match(prefsCss, /uiComposerFontSize,/);
+  assert.match(prefsCss, /uiMutedColor,/);
+  assert.match(prefsCss, /uiLinkColor,/);
 });

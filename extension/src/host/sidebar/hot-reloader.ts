@@ -99,6 +99,7 @@ export class SidebarHotReloader {
     }
 
     this.reloading = true;
+    let applied = false;
     try {
       const nextAssetVersion = await getWebviewAssetVersion(this.deps.getContext());
       const nextHtml = await renderWebviewHtml(this.deps.getContext(), view.webview, nextAssetVersion);
@@ -111,6 +112,7 @@ export class SidebarHotReloader {
       this.deps.setSyncState({ ...this.deps.getSyncState(), globalDirty: true });
       this.deps.onReloadWebviewReadyReset();
       view.webview.html = nextHtml;
+      applied = true;
       this.reloadingForAssetMismatch = false;
       this.reloadingForStateAppliedTimeout = false;
 
@@ -123,6 +125,15 @@ export class SidebarHotReloader {
       this.reloadingForAssetMismatch = false;
       this.reloadingForStateAppliedTimeout = false;
       console.warn(`[pie] Failed to hot reload webview assets after ${changedPath}: ${toErrorMessage(error)}`);
+    } finally {
+      // A non-applied reload (view swapped mid-await, or a throw) leaves no new
+      // renderer to send a `ready` handshake, so `clearReloading` (called by the
+      // provider on bridge-ready) would never fire — reset here to avoid a
+      // permanent `reloading=true` that freezes readiness probes / snapshot
+      // posts. A successful apply stays set until bridge-ready (see field doc).
+      if (!applied) {
+        this.reloading = false;
+      }
     }
   }
 

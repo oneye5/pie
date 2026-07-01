@@ -103,7 +103,7 @@ test("stripDeleteSuffix recovers the original name", () => {
 
 // --- fs: patchCompatFiles ---
 
-test("patchCompatFiles patches only .ts/.js sources containing the specifier", () => {
+test("patchCompatFiles patches only .ts/.js sources containing the specifier", async () => {
 	const root = makePkg();
 	try {
 		writeFileSync(
@@ -119,7 +119,7 @@ test("patchCompatFiles patches only .ts/.js sources containing the specifier", (
 		writeFileSync(path.join(root, "plain.ts"), 'export const x = 1;\n', "utf8");
 		writeFileSync(path.join(root, "README.md"), "# nope", "utf8");
 
-		const patched = patchCompatFiles(root);
+		const patched = await patchCompatFiles(root);
 		assert.equal(patched, 2);
 		assert.equal(
 			readFileSync(path.join(root, "index.ts"), "utf8"),
@@ -135,13 +135,13 @@ test("patchCompatFiles patches only .ts/.js sources containing the specifier", (
 	}
 });
 
-test("patchCompatFiles is idempotent (second run writes nothing)", () => {
+test("patchCompatFiles is idempotent (second run writes nothing)", async () => {
 	const root = makePkg();
 	try {
 		const f = path.join(root, "index.ts");
 		writeFileSync(f, 'import { complete } from "@earendil-works/pi-ai/compat";\n', "utf8");
-		assert.equal(patchCompatFiles(root), 1);
-		assert.equal(patchCompatFiles(root), 0);
+		assert.equal(await patchCompatFiles(root), 1);
+		assert.equal(await patchCompatFiles(root), 0);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -149,7 +149,7 @@ test("patchCompatFiles is idempotent (second run writes nothing)", () => {
 
 // --- fs: repairDeleteArtifacts ---
 
-test("repairDeleteArtifacts renames a .DELETE artifact back when no original exists", () => {
+test("repairDeleteArtifacts renames a .DELETE artifact back when no original exists", async () => {
 	const root = makePkg();
 	try {
 		const dir = path.join(root, "node_modules", "@mozilla", "readability");
@@ -157,7 +157,7 @@ test("repairDeleteArtifacts renames a .DELETE artifact back when no original exi
 		const artifact = path.join(dir, "Readability.js.DELETE.e90203593ab2f7c54e4046ca5ca7f373");
 		writeFileSync(artifact, "module.exports = {};", "utf8");
 
-		const restored = repairDeleteArtifacts(root);
+		const restored = await repairDeleteArtifacts(root);
 		assert.equal(restored, 1);
 		assert.equal(existsSync(artifact), false);
 		assert.equal(existsSync(path.join(dir, "Readability.js")), true);
@@ -171,7 +171,7 @@ test("repairDeleteArtifacts renames a .DELETE artifact back when no original exi
 	}
 });
 
-test("repairDeleteArtifacts keeps a .DELETE artifact when a real file already exists", () => {
+test("repairDeleteArtifacts keeps a .DELETE artifact when a real file already exists", async () => {
 	const root = makePkg();
 	try {
 		const dir = path.join(root, "node_modules", "pkg");
@@ -179,7 +179,7 @@ test("repairDeleteArtifacts keeps a .DELETE artifact when a real file already ex
 		const artifact = path.join(dir, "foo.js.DELETE.deadbeef");
 		writeFileSync(artifact, "stale", "utf8");
 
-		assert.equal(repairDeleteArtifacts(root), 0);
+		assert.equal(await repairDeleteArtifacts(root), 0);
 		assert.equal(existsSync(path.join(dir, "foo.js")), true);
 		assert.equal(existsSync(artifact), true); // preserved, not clobbered
 	} finally {
@@ -187,7 +187,7 @@ test("repairDeleteArtifacts keeps a .DELETE artifact when a real file already ex
 	}
 });
 
-test("repairDeleteArtifacts recurses into nested node_modules", () => {
+test("repairDeleteArtifacts recurses into nested node_modules", async () => {
 	const root = makePkg();
 	try {
 		writePkgFile(
@@ -196,7 +196,7 @@ test("repairDeleteArtifacts recurses into nested node_modules", () => {
 			"old",
 			"utf8",
 		);
-		const restored = repairDeleteArtifacts(root);
+		const restored = await repairDeleteArtifacts(root);
 		assert.equal(restored, 1);
 		assert.equal(
 			existsSync(
@@ -209,12 +209,12 @@ test("repairDeleteArtifacts recurses into nested node_modules", () => {
 	}
 });
 
-test("repairDeleteArtifacts is idempotent", () => {
+test("repairDeleteArtifacts is idempotent", async () => {
 	const root = makePkg();
 	try {
 		writePkgFile(root, "node_modules/@mozilla/readability/Readability.js.DELETE.hash", "x", "utf8");
-		assert.equal(repairDeleteArtifacts(root), 1);
-		assert.equal(repairDeleteArtifacts(root), 0);
+		assert.equal(await repairDeleteArtifacts(root), 1);
+		assert.equal(await repairDeleteArtifacts(root), 0);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -222,7 +222,7 @@ test("repairDeleteArtifacts is idempotent", () => {
 
 // --- fs: readabilityIntact ---
 
-test("readabilityIntact is true when Readability.js resolves", () => {
+test("readabilityIntact is true when Readability.js resolves", async () => {
 	const root = makePkg();
 	try {
 		writePkgFile(root, "package.json", '{"name":"pi-web-access","version":"0.0.0"}', "utf8");
@@ -244,13 +244,13 @@ test("readabilityIntact is true when Readability.js resolves", () => {
 			"module.exports = {};",
 			"utf8",
 		);
-		assert.equal(readabilityIntact(root), true);
+		assert.equal(await readabilityIntact(root), true);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
 });
 
-test("readabilityIntact is false when Readability.js is missing (corrupted)", () => {
+test("readabilityIntact is false when Readability.js is missing (corrupted)", async () => {
 	const root = makePkg();
 	try {
 		writePkgFile(root, "package.json", '{"name":"pi-web-access","version":"0.0.0"}', "utf8");
@@ -268,7 +268,7 @@ test("readabilityIntact is false when Readability.js is missing (corrupted)", ()
 			"x",
 			"utf8",
 		);
-		assert.equal(readabilityIntact(root), false);
+		assert.equal(await readabilityIntact(root), false);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
@@ -276,7 +276,7 @@ test("readabilityIntact is false when Readability.js is missing (corrupted)", ()
 
 // --- fs: applyCompatFixes (orchestration) ---
 
-test("applyCompatFixes patches the import AND repairs corruption in one pass", () => {
+test("applyCompatFixes patches the import AND repairs corruption in one pass", async () => {
 	const root = makePkg();
 	try {
 		writeFileSync(
@@ -289,7 +289,7 @@ test("applyCompatFixes patches the import AND repairs corruption in one pass", (
 		writeFileSync(path.join(dir, "Readability.js.DELETE.hash"), "x", "utf8");
 		// no Readability.js present → corruption
 
-		applyCompatFixes(root);
+		await applyCompatFixes(root);
 
 		assert.equal(
 			readFileSync(path.join(root, "index.ts"), "utf8"),
@@ -297,13 +297,13 @@ test("applyCompatFixes patches the import AND repairs corruption in one pass", (
 		);
 		assert.equal(existsSync(path.join(dir, "Readability.js")), true);
 		assert.equal(existsSync(path.join(dir, "Readability.js.DELETE.hash")), false);
-		assert.equal(readabilityIntact(root), true);
+		assert.equal(await readabilityIntact(root), true);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}
 });
 
-test("applyCompatFixes skips the repair walk when node_modules is healthy", () => {
+test("applyCompatFixes skips the repair walk when node_modules is healthy", async () => {
 	const root = makePkg();
 	try {
 		writeFileSync(path.join(root, "index.ts"), 'import { complete } from "@earendil-works/pi-ai";\n', "utf8");
@@ -318,8 +318,8 @@ test("applyCompatFixes skips the repair walk when node_modules is healthy", () =
 		writePkgFile(root, "node_modules/@mozilla/readability/Readability.js", "module.exports = {};", "utf8");
 
 		// Should not throw and should leave everything intact.
-		applyCompatFixes(root);
-		assert.equal(readabilityIntact(root), true);
+		await applyCompatFixes(root);
+		assert.equal(await readabilityIntact(root), true);
 	} finally {
 		rmSync(root, { recursive: true, force: true });
 	}

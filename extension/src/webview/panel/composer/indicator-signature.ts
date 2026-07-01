@@ -1,4 +1,5 @@
 import type { ChatMessage, SystemPromptEntry } from '../../../shared/protocol';
+import { isRecord } from '../../../shared/type-guards';
 
 /**
  * Cheap fingerprints that gate the O(transcript) indicator walks in
@@ -104,6 +105,28 @@ export function systemPromptsSignature(systemPrompts: readonly SystemPromptEntry
  * `toolCallsFromMessage` (prefers `toolCalls` when non-empty, else the `parts`
  * tool-call entries) so the fingerprint tracks exactly the calls the walk sees.
  */
+function subagentResultCostFingerprint(rawResult: unknown, depth = 0): string {
+  if (depth >= 6 || !isRecord(rawResult)) return '';
+  const details = isRecord(rawResult.details) ? rawResult.details : rawResult;
+  const results = Array.isArray(details.results) ? details.results : [];
+  return results.map((result, index) => {
+    if (!isRecord(result)) return `${index}:`;
+    const usage = isRecord(result.usage) ? result.usage : undefined;
+    const model = typeof result.model === 'string' ? result.model : (typeof result.selectedModel === 'string' ? result.selectedModel : '');
+    const own = `${index}:${result.exitCode ?? ''}:${model}:${usage?.cost ?? ''}:${usage?.input ?? ''}:${usage?.output ?? ''}:${usage?.cacheRead ?? ''}:${usage?.cacheWrite ?? ''}`;
+    if (!Array.isArray(result.messages)) return own;
+    const nested: string[] = [];
+    for (const message of result.messages) {
+      if (!isRecord(message) || message.role !== 'assistant' || !Array.isArray(message.content)) continue;
+      for (const part of message.content) {
+        if (!isRecord(part) || part.type !== 'toolCall' || part.name !== 'subagent') continue;
+        nested.push(`${part.id ?? ''}:${subagentResultCostFingerprint(part.result, depth + 1)}`);
+      }
+    }
+    return nested.length > 0 ? `${own}>${nested.join(',')}` : own;
+  }).join(';');
+}
+
 export function subagentCostSignature(transcript: readonly ChatMessage[]): string {
   const last = transcript[transcript.length - 1];
   if (!last) return `${transcript.length}|`;
@@ -113,7 +136,7 @@ export function subagentCostSignature(transcript: readonly ChatMessage[]): strin
     .map((p) => p.toolCall) ?? [];
   const calls = tcs.length ? tcs : partTcs;
   const fp = calls
-    .map((tc) => `${tc.id}:${tc.status}:${tc.name ?? ''}:${tc.result !== undefined ? 1 : 0}`)
+    .map((tc) => `${tc.id}:${tc.status}:${tc.name ?? ''}:${tc.result !== undefined ? 1 : 0}:${subagentResultCostFingerprint(tc.result)}`)
     .join(',');
   return `${transcript.length}|${fp}`;
 }

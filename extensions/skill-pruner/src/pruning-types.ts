@@ -19,6 +19,13 @@ export interface ToolPruningResult {
 	tokensSaved: number;
 }
 
+export interface PrepassUsage {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
+}
+
 export interface PrepassRunResult {
 	/** Skills the LLM chose to prune (null = no usable prepass signal → keep all). */
 	prunedSkills: string[] | null;
@@ -31,6 +38,7 @@ export interface PrepassRunResult {
 	rawUserMessage: string;
 	latencyMs: number;
 	thinkingLevel: string;
+	usage?: PrepassUsage;
 	/** True when the prepass response was unreadable as JSON → kept all (parse failure). */
 	keptAllDueToParseFailure?: boolean;
 }

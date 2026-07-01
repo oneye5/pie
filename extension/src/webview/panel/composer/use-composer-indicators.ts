@@ -16,7 +16,7 @@ import { buildContextWindowBreakdown } from '../context-window/breakdown';
 import { buildContextWindowIndicatorState } from '../context-window/indicator';
 import {
   buildCompletedCostSummary,
-  extractSubagentDirectCost,
+  extractSubagentCostSummary,
   buildLiveSessionCostEstimate,
   buildSessionCostIndicator,
   buildSessionTokenIndicator,
@@ -169,8 +169,8 @@ export function useComposerIndicators({
     () => buildCompletedCostSummary(sessionTokenUsage, transcript, fallbackPricing, resolvePricing),
     [sessionTokenUsage, fallbackPricing, resolvePricing],
   );
-  const subagentDirectCost = useMemo(
-    () => extractSubagentDirectCost(transcript),
+  const subagentCostSummary = useMemo(
+    () => extractSubagentCostSummary(transcript),
     [subagentSig],
   );
   const sessionCostIndicator = useMemo(
@@ -179,12 +179,13 @@ export function useComposerIndicators({
       fallbackPricing,
       selectedModelInfo?.name,
       completedCostSummary,
-      subagentDirectCost,
+      subagentCostSummary,
       (pruningResult?.details as PruningDetails | undefined),
       resolvePricing,
       liveCostEstimate,
+      selectedModel,
     ),
-    [sessionTokenUsage, fallbackPricing, selectedModelInfo?.name, completedCostSummary, subagentDirectCost, pruningResult, resolvePricing, liveCostEstimate],
+    [sessionTokenUsage, fallbackPricing, selectedModelInfo?.name, completedCostSummary, subagentCostSummary, pruningResult, resolvePricing, liveCostEstimate, selectedModel],
   );
 
   const tokenRateIndicator = useTokenRateIndicator({ sessionPath, tokenRateBySession });

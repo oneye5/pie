@@ -58,7 +58,7 @@ Both installers are idempotent and safe to re-run. On each run they:
 8. **Build and install the pie VS Code extension** from `extension/` via `vsce package` + `code --install-extension`.
 9. **Run a post-install verification** that checks auth content, `pie.agentDir`, and env vars, and warns about split-brain or missing credentials.
 
-The macOS/Linux script (`install.sh`) is intentionally lighter: it covers steps 1–5 and 9. Full feature parity (session migration, sessionDir repair, VSIX packaging) is planned — see [TODO.md](TODO.md).
+The macOS/Linux script (`install.sh`) is intentionally lighter: it covers steps 1–5 and 9. Full feature parity (session migration, sessionDir repair, VSIX packaging) is planned — see [docs/internal/code-review/TODO-archive.md](docs/internal/code-review/TODO-archive.md).
 
 ## Authentication
 

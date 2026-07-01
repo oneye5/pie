@@ -5,7 +5,7 @@ import Module, { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ExtensionAPI, Skill, ToolInfo } from "@mariozechner/pi-coding-agent";
-import { clearPruningTrackingForTesting, setLogPathForTesting } from "../logger.js";
+import { clearPruningTrackingForTesting, flushLog, setLogPathForTesting } from "../logger.js";
 import type { PruningConfig } from "../types.js";
 
 installSdkResolverForTests();
@@ -449,6 +449,7 @@ test("skills block absent but tools pruned → decision logs tool pruning, skill
 		});
 		// systemPrompt WITHOUT the skills block → skill pruning can't apply.
 		await runBeforeAgentStart(handlers, "edit code", realisticSkills, "Base prompt without the skills block");
+		await flushLog();
 
 		const lines = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 		const decision = lines.find((l) => Array.isArray(l.included) && Array.isArray(l.excluded));
@@ -461,6 +462,12 @@ test("skills block absent but tools pruned → decision logs tool pruning, skill
 		// Tool pruning WAS applied and is logged.
 		assert.deepEqual(decision.toolExcluded, ["web_search"]);
 		assert.ok(decision.toolIncluded.includes("read"));
+		// Skill pruning self-disabled (skills block absent) → a warning event is
+		// logged so the silent disable is auditable, not just a console.warn.
+		assert.ok(
+			lines.some((l) => l.event === "skills_block_not_found"),
+			"skills_block_not_found warning should be logged when the skills block is expected but absent",
+		);
 	} finally {
 		__setCompleteFn(null);
 		__setToolSeams({ getAllTools: null, getActiveTools: null, setActiveTools: null });
@@ -503,6 +510,7 @@ test("shadow mode leaves prompt unchanged and logs decision", async () => {
 		const result = await runBeforeAgentStart(handlers, "Refactor this code for clarity", realisticSkills, originalPrompt) as { systemPrompt?: string } | undefined;
 
 		assert.equal(result?.systemPrompt, originalPrompt);
+		await flushLog();
 
 		const lines = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 		assert.equal(lines[0].mode, "shadow");
@@ -529,6 +537,7 @@ test("shadow mode: skill read of pruned skill → shadow_miss_candidate", async 
 			type: "tool_call", toolCallId: "1", toolName: "read",
 			input: { path: "/repo/skills/duckdb-query-optimization/SKILL.md" },
 		}, { cwd: "/repo", sessionManager: { getSessionId: () => "session-1" } });
+		await flushLog();
 
 		const lines = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 		assert.ok(lines.some((line) => line.event === "shadow_miss_candidate" && line.skillName === "duckdb-query-optimization"));
@@ -559,6 +568,7 @@ test("auto mode: pruned skill read → skill_miss; included skill read → skill
 			type: "tool_call", toolCallId: "2", toolName: "read",
 			input: { path: "/repo/skills/code-simplification/SKILL.md" },
 		}, { cwd: "/repo", sessionManager: { getSessionId: () => "session-1" } });
+		await flushLog();
 
 		const lines = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 		assert.ok(lines.some((line) => line.event === "skill_miss" && line.skillName === "duckdb-query-optimization"));
@@ -708,6 +718,7 @@ test("off mode baseline: known skill read → skill_read; non-skill read → no 
 			type: "tool_call", toolCallId: "2", toolName: "read",
 			input: { path: "/repo/src/index.ts" },
 		}, { cwd: "/repo", sessionManager: { getSessionId: () => "session-1" } });
+		await flushLog();
 
 		const lines = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 		assert.ok(lines.some((line) => line.event === "skill_read" && line.skillName === "code-simplification"));
@@ -843,6 +854,7 @@ test("request_tool execute enables a pruned tool and logs the recovery", async (
 		assert.ok(result.content[0].text.includes("web_search"));
 
 		// The recovery is logged to the pruning log for analytics.
+		await flushLog();
 		const lines = readFileSync(logPath, "utf-8").trim().split("\n").map((line) => JSON.parse(line));
 		assert.ok(lines.some((line) => line.event === "tool_recovered" && line.toolName === "web_search"), "tool recovery should be logged");
 	} finally {

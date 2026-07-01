@@ -8,7 +8,7 @@ import {
   type RunCheckpoint,
 } from '../run-analytics/types';
 import { MIGRATION_FAILED, migrateCheckpoint } from './checkpoint-migrations';
-import { parseJsonOrThrow } from '../../shared/error-message';
+import { parseJsonOrThrow, toErrorMessage } from '../../shared/error-message';
 
 // Import choice / cycle-avoidance:
 //  - RUN_ANALYTICS_SCHEMA_VERSION + PersistedSessionRunState + RunCheckpoint come from
@@ -67,6 +67,7 @@ export function parseCheckpoint(raw: string): RunCheckpoint | null {
       sessions?: unknown;
     }>(raw, 'checkpoint file');
     if (typeof value.schemaVersion !== 'number' || typeof value.seq !== 'number') {
+      console.warn(`[checkpoint-io] checkpoint has unexpected top-level shape (missing/invalid schemaVersion or seq); dropping checkpoint`);
       return null;
     }
     const fileVersion = value.schemaVersion;
@@ -95,16 +96,23 @@ export function parseCheckpoint(raw: string): RunCheckpoint | null {
     }
 
     if (!isObjectRecord(resolved.sessions)) {
+      console.warn(`[checkpoint-io] checkpoint.sessions has unexpected shape; dropping checkpoint`);
       return null;
     }
 
     const sessions: Record<string, PersistedSessionRunState> = {};
+    let invalidSessions = 0;
     for (const [sessionPath, sessionState] of Object.entries(resolved.sessions)) {
       const parsed = parsePersistedSessionRunState(sessionState);
       if (!parsed) {
+        invalidSessions += 1;
         continue;
       }
       sessions[sessionPath] = parsed;
+    }
+
+    if (invalidSessions > 0) {
+      console.warn(`[checkpoint-io] dropped ${invalidSessions} invalid session entries from checkpoint`);
     }
 
     return {
@@ -112,7 +120,11 @@ export function parseCheckpoint(raw: string): RunCheckpoint | null {
       seq: value.seq,
       sessions,
     };
-  } catch {
+  } catch (err) {
+    // Log parse / migration exceptions so corruption is observable (missing files are
+    // expected to be handled by callers via readOptionalText returning null).
+    // Prefer the audit logger if available; fall back to console.warn.
+console.warn(`[checkpoint-io] failed to parse checkpoint: ${toErrorMessage(err)}`);
     return null;
   }
 }

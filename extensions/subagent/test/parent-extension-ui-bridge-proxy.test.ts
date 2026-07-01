@@ -265,3 +265,76 @@ describe("ParentExtensionUIBridgeProxy", () => {
     });
   });
 });
+
+// ── Nested proxy chain (depth ≥ 2) — T3 ───────────────────────────────────
+// A depth-2 subagent's UI context is a ParentExtensionUIBridgeProxy whose
+// parentBridge is the depth-1 proxy (the depth-1 session's UI ctx). The
+// depth-2 proxy stamps its own call id; the depth-1 proxy must FORWARD that
+// innermost identity instead of overwriting it with its own, so the request
+// matches the webview's depth-2 SubagentCallContext.id block.
+
+describe("nested proxy chain (depth >= 2)", () => {
+  const DEPTH1_ID = "depth-1-call";
+  const DEPTH2_ID = "depth-2-call";
+
+  function chain() {
+    const host = createMockParentBridge();
+    const depth1 = new ParentExtensionUIBridgeProxy(host, DEPTH1_ID);
+    // depth-2's parentBridge is the depth-1 proxy (the depth-1 session's UI ctx).
+    const depth2 = new ParentExtensionUIBridgeProxy(depth1 as unknown as ParentBridge, DEPTH2_ID);
+    return { host, depth1, depth2 };
+  }
+
+  it("select forwards the depth-2 identity instead of overwriting with depth-1's (T3)", async () => {
+    const { host, depth2 } = chain();
+    const ac = new AbortController();
+    await depth2.select("Pick one", ["a", "b"], { signal: ac.signal });
+
+    assert.equal(host.calls.select.length, 1);
+    const opts = host.calls.select[0].args[2] as { signal?: AbortSignal; subagentCallId?: string; toolCallId?: string };
+    assert.equal(opts.subagentCallId, DEPTH2_ID, "forwarded depth-2 subagentCallId, not depth-1's");
+    assert.equal(opts.toolCallId, DEPTH2_ID, "forwarded depth-2 toolCallId, not depth-1's");
+    assert.equal(opts.signal, ac.signal);
+  });
+
+  it("confirm forwards the depth-2 identity (T3)", async () => {
+    const { host, depth2 } = chain();
+    await depth2.confirm("Really?", "Are you sure?");
+    const opts = host.calls.confirm[0].args[2] as { subagentCallId?: string; toolCallId?: string };
+    assert.equal(opts.subagentCallId, DEPTH2_ID);
+    assert.equal(opts.toolCallId, DEPTH2_ID);
+  });
+
+  it("input forwards the depth-2 identity (T3)", async () => {
+    const { host, depth2 } = chain();
+    await depth2.input("Enter value", "placeholder");
+    const opts = host.calls.input[0].args[2] as { subagentCallId?: string; toolCallId?: string };
+    assert.equal(opts.subagentCallId, DEPTH2_ID);
+    assert.equal(opts.toolCallId, DEPTH2_ID);
+  });
+
+  it("depth-1 (no inner identity) still stamps its own id (regression guard)", async () => {
+    // When the ask_user extension calls the depth-1 proxy directly (no inner
+    // proxy above it), opts carries no subagentCallId/toolCallId, so the proxy
+    // stamps its own — the original behaviour must be preserved.
+    const host = createMockParentBridge();
+    const depth1 = new ParentExtensionUIBridgeProxy(host, DEPTH1_ID);
+    await depth1.select("Pick", ["x"]);
+    const opts = host.calls.select[0].args[2] as { subagentCallId?: string; toolCallId?: string };
+    assert.equal(opts.subagentCallId, DEPTH1_ID);
+    assert.equal(opts.toolCallId, DEPTH1_ID);
+  });
+
+  it("a depth-2 request matches the webview's depth-2 SubagentCallContext.id (T3)", async () => {
+    // The webview's depth-2 block id (single-result) is the depth-2 toolCall id
+    // verbatim; for a parallel depth-2 call it is `${id}:${index}`. The proxy
+    // stamps exactly the depth-2 toolCall id it was constructed with, so a
+    // depth-2 select's subagentCallId equals the depth-2 block id — the inline
+    // card lands on the right block instead of being orphaned to the bottom strip.
+    const { host, depth2 } = chain();
+    await depth2.select("Pick", ["x"]);
+    const opts = host.calls.select[0].args[2] as { subagentCallId?: string };
+    const depth2BlockId = DEPTH2_ID; // single-result depth-2 block
+    assert.equal(opts.subagentCallId, depth2BlockId, "depth-2 request id matches the depth-2 block id");
+  });
+});

@@ -89,7 +89,7 @@
         "pie.agentDir": {
           "type": "string",
           "default": "",
-          "description": "Absolute path to the pi agent directory that contains settings.json and models.json. Forwarded to the backend as PI_CODING_AGENT_DIR. If empty, the environment variable PI_CODING_AGENT_DIR is used as a fallback."
+          "description": "Absolute path to the pi agent directory that contains settings.json and models.json. Forwarded to the backend as PI_CODING_AGENT_DIR. Validated on startup: if this path no longer exists or lacks settings.json, the PI_CODING_AGENT_DIR env var and the extension's parent directory are tried as fallbacks (a warning is shown). If empty, the environment variable PI_CODING_AGENT_DIR is used as a fallback."
         },
         "pie.experimentAssignment": {
           "type": "string",

@@ -236,16 +236,17 @@ test('nested subagent: toggling the inner header does not collapse the outer', (
 
 // ─── Nested sticky/scroll/overlap fix (depth ≥ 2) ───────────────────────────
 // A nested subagent renders inside a parent subagent's bounded scroll region.
-// Its header must NOT be sticky (else it pins to the parent's scroll port and
-// bleeds over the parent's sticky header), and its body must NOT establish a
-// second nested scroll container (else two stacked capped scroll regions).
-// Depth-1 (top-level) subagents keep the sticky header + bounded scroll region.
+// Its body must NOT establish a second nested scroll container (else two
+// stacked capped scroll regions), so it flows inside the parent's scroll
+// region. Headers are non-detaching (`relative`, no pinning) at every depth —
+// depth-1 used to pin and read as a detaching bar; the bottom
+// `CollapsibleCloseFooter` now keeps the close reachable without the pin.
 
-test('nested subagent: depth-1 header is sticky, nested header is NOT sticky', () => {
+test('nested subagent: depth-1 header is non-detaching, nested header carries the nested modifier', () => {
   mount(nestedSubagentToolCall(), prefsWith({ autoExpandSubagentCalls: true }));
   const headers = container.querySelectorAll('.subagent-header');
   assert.equal(headers.length, 2, 'outer (depth 1) + inner (depth 2)');
-  assert.ok(!headers[0].classList.contains('subagent-header-nested'), 'depth-1 header is sticky (no nested modifier)');
+  assert.ok(!headers[0].classList.contains('subagent-header-nested'), 'depth-1 header has no nested modifier');
   assert.ok(headers[1].classList.contains('subagent-header-nested'), 'nested header has subagent-header-nested');
 });
 
@@ -265,7 +266,7 @@ test('nested subagent: no resize handles on the nested (free-flowing) body', () 
   assert.equal(resizeHandles.length, 0, 'nested body has no resize handles');
 });
 
-test('nested subagent CSS: nested header is relative (not sticky); nested body unbounded', async () => {
+test('nested subagent CSS: every header is relative (non-detaching); nested body unbounded', async () => {
   const css = await readFile(new URL('../src/webview/panel/styles/tool-call.css', import.meta.url), 'utf8');
   assert.match(css, /\.subagent-header\.subagent-header-nested\s*\{[^}]*position:\s*relative/);
   assert.match(css, /\.subagent-header\.subagent-header-nested\s*\{[^}]*top:\s*auto/);
@@ -273,17 +274,21 @@ test('nested subagent CSS: nested header is relative (not sticky); nested body u
   assert.match(css, /\.subagent-messages-scroll\.subagent-messages-scroll-nested\s*\{[^}]*max-height:\s*none/);
   assert.match(css, /\.subagent-messages-scroll\.subagent-messages-scroll-nested\s*\{[^}]*overflow-y:\s*visible/);
   assert.match(css, /\.subagent-messages-scroll\.subagent-messages-scroll-nested\s*\{[^}]*min-height:\s*0/);
-  // Depth-1 rules are unchanged: sticky header + capped scroll region.
-  assert.match(css, /\.subagent-header\s*\{[^}]*position:\s*sticky/);
+  // Depth-1 header is non-detaching (`relative`) too — it used to be sticky and
+  // read as a detaching bar; the bottom close footer now keeps the close
+  // reachable without the pin. The depth-1 body stays a capped scroll region.
+  assert.match(css, /\.subagent-header\s*\{[^}]*position:\s*relative/);
+  assert.match(css, /\.subagent-header\s*\{[^}]*top:\s*auto/);
+  assert.match(css, /\.subagent-header\s*\{[^}]*z-index:\s*auto/);
   assert.match(css, /\.subagent-messages-scroll\s*\{[^}]*max-height:\s*var\(--expanded-section-max-height\)/);
 });
 
-test('depth-3 subagent: every level ≥ 2 is nested (non-sticky header, free-flowing body)', () => {
+test('depth-3 subagent: every level ≥ 2 is nested (non-detaching header, free-flowing body)', () => {
   mount(depth3SubagentToolCall(), prefsWith({ autoExpandSubagentCalls: true }));
   const headers = container.querySelectorAll('.subagent-header');
   assert.equal(headers.length, 3, 'worker (d1) + scout (d2) + reviewer (d3)');
-  // Only the depth-1 header is sticky; both nested headers get the modifier.
-  assert.ok(!headers[0].classList.contains('subagent-header-nested'), 'depth-1 header is sticky');
+  // Only the depth-1 header lacks the nested modifier; both nested headers get it.
+  assert.ok(!headers[0].classList.contains('subagent-header-nested'), 'depth-1 header has no nested modifier');
   assert.ok(headers[1].classList.contains('subagent-header-nested'), 'depth-2 header is nested');
   assert.ok(headers[2].classList.contains('subagent-header-nested'), 'depth-3 header is nested');
   const scrolls = container.querySelectorAll('.subagent-messages-scroll');

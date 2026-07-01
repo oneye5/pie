@@ -383,6 +383,7 @@ test("buildFeedbackMessage: includes mode/model/latency and fail-open reason whe
 			systemPrompt: "sp",
 			userMessage: "um",
 			latencyMs: 250,
+			usage: { input: 8000, output: 200, cacheRead: 1000, cacheWrite: 50 },
 			safeguardReason: "kept all skills as fail-open",
 		},
 	);
@@ -391,6 +392,10 @@ test("buildFeedbackMessage: includes mode/model/latency and fail-open reason whe
 	assert.equal(msg!.details.prepassModel, "gpt-5-mini");
 	assert.equal(msg!.details.prepassThinkingLevel, "minimal");
 	assert.equal(msg!.details.prepassLatencyMs, 250);
+	assert.equal(msg!.details.prepassInputTokens, 8000);
+	assert.equal(msg!.details.prepassOutputTokens, 200);
+	assert.equal(msg!.details.prepassCacheReadTokens, 1000);
+	assert.equal(msg!.details.prepassCacheWriteTokens, 50);
 	assert.equal(msg!.details.prepassSafeguardReason, "kept all skills as fail-open");
 	assert.equal(msg!.details.skillTokensSaved, 100);
 	assert.equal(msg!.details.toolTokensSaved, 50);

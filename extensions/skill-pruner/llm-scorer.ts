@@ -41,8 +41,16 @@ export interface LlmPruningOutput {
 	latencyMs: number;
 	stopReason?: string;
 	errorMessage?: string;
+	usage?: PrepassUsage;
 	/** True when the prepass response was unreadable as JSON → kept all (parse failure). */
 	keptAllDueToParseFailure?: boolean;
+}
+
+export interface PrepassUsage {
+	input: number;
+	output: number;
+	cacheRead: number;
+	cacheWrite: number;
 }
 
 export interface CompleteSimpleResult {
@@ -50,6 +58,7 @@ export interface CompleteSimpleResult {
 	thinking?: string;
 	stopReason?: string;
 	errorMessage?: string;
+	usage?: Partial<PrepassUsage>;
 }
 
 const DEFAULT_PROMPT_TEMPLATE = loadPromptTemplate();
@@ -248,6 +257,12 @@ export async function runLlmPruning(
 		latencyMs,
 		stopReason: response.stopReason,
 		errorMessage: response.errorMessage,
+		usage: response.usage ? {
+			input: response.usage.input ?? 0,
+			output: response.usage.output ?? 0,
+			cacheRead: response.usage.cacheRead ?? 0,
+			cacheWrite: response.usage.cacheWrite ?? 0,
+		} : undefined,
 		keptAllDueToParseFailure: parsed.keptAllDueToParseFailure,
 	};
 }

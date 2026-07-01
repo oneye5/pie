@@ -8,6 +8,6 @@
 
 - Always verify your work before completion using a sub agent.
 
-- Commit your changes after task completion (scoped to just your changes, there may be unrelated local changes, dont commit these)
+- Commit your changes after task completion if working in a repo (scoped to just your changes, there may be unrelated local changes from other work streams, dont commit these)
 
 - If you run into inefficiencies of any kind, be it bugs, quality, inaccuracies or other issues with agent infrastructure (tools, prompts, extensions, skills etc), then take action to fix it, as to make this tool / setup self improving.

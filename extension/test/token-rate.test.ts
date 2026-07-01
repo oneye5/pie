@@ -608,3 +608,113 @@ test('computeIdleDisplayState: shows the turn latency inline even without the pr
   assert.match(state.tooltip, /overhead: 0\.1s/);
   assert.match(state.tooltip, /time to first token: —/);
 });
+
+// --- T2: nested (depth-2) subagent output is counted in the token rate ---
+
+/**
+ * A running depth-1 subagent call whose own output is idle, but whose messages
+ * carry a nested depth-2 subagent toolCall with a live streaming partial — the
+ * shape the subagent runner stamps via `tool_execution_update` (T1). The
+ * nested partial arrives as `{ content, details: { results } }` (the AgentToolResult
+ * the runner's onUpdate emits), which `getRenderableSubagentResult` extracts via
+ * `details.results`.
+ */
+function nestedSubagentToolCall(
+  topId: string,
+  nestedStreamingTokens: number,
+  overrides: { topStatus?: ToolCall['status']; nestedExitCode?: number } = {},
+): ToolCall {
+  const nestedPartial = {
+    content: [{ type: 'text', text: 'nested streaming' }],
+    details: {
+      mode: 'single' as const,
+      results: [
+        {
+          agent: 'scout',
+          task: 't',
+          exitCode: overrides.nestedExitCode ?? -1,
+          messages: [],
+          streamingText: tokenText(nestedStreamingTokens),
+        },
+      ],
+    },
+  };
+  return {
+    id: topId,
+    name: 'subagent',
+    input: {},
+    status: overrides.topStatus ?? 'running',
+    result: {
+      mode: 'single',
+      results: [
+        {
+          agent: 'scout',
+          task: 't',
+          exitCode: -1,
+          // depth-1's own output is idle; the nested toolCall carries the live partial.
+          messages: [
+            {
+              role: 'assistant',
+              content: [
+                { type: 'toolCall', id: 'nested-tc', name: 'subagent', arguments: {}, result: nestedPartial },
+              ],
+            },
+          ],
+          streamingText: '',
+        },
+      ],
+    },
+  };
+}
+
+test('nested (depth-2) subagent streaming output is counted in the token rate (T2)', () => {
+  // Mirrors the existing "subagent streaming output is counted while the main
+  // session is paused on a tool call" test, but one level down: the main
+  // session is paused on the depth-1 tool call, and depth-2 streams underneath.
+  const m = streamingMessage();
+  const acc = createTokenRateAccumulator(BASE_NOW);
+  tickTokenRate(acc, [{ ...m, toolCalls: [nestedSubagentToolCall('top', 200)] }], BASE_NOW + 1000);
+  const state = tickTokenRate(acc, [{ ...m, toolCalls: [nestedSubagentToolCall('top', 400)] }], BASE_NOW + 2000);
+  // ~200 nested tokens over 1s of generation time.
+  assert.equal(state.state, 'generating');
+  const rate = Number.parseFloat(state.label!.replace(/[^\d.]/g, ''));
+  assert.ok(rate >= 180 && rate <= 220, `expected ~200 tok/s from nested subagent, got ${rate}`);
+  // The nested tokens were banked into cumTokens (structurally uncountable before T2).
+  assert.ok(acc.cumTokens > 0, `expected cumTokens > 0, got ${acc.cumTokens}`);
+});
+
+test('nested subagent tokens use a composite key so parallel/collisions never clash (T2)', () => {
+  // Two sibling depth-1 subagent calls, each with its own nested depth-2
+  // stream. All share toolCall id "nested-tc" for the nested part — without a
+  // composite `${parentKey}>...` key the depth-2 snapshots would clobber each
+  // other and the delta would be computed between different subagents' counts.
+  // Disparate magnitudes (100 vs 300) make a clash produce a visibly wrong rate.
+  const m = streamingMessage();
+  const acc = createTokenRateAccumulator(BASE_NOW);
+  const twoNests = (a: number, b: number): ToolCall[] => [
+    nestedSubagentToolCall('top-a', a),
+    nestedSubagentToolCall('top-b', b),
+  ];
+  tickTokenRate(acc, [{ ...m, toolCalls: twoNests(100, 300) }], BASE_NOW + 1000);
+  const state = tickTokenRate(acc, [{ ...m, toolCalls: twoNests(300, 500) }], BASE_NOW + 2000);
+  // Each nested subagent grew by 200 tokens -> ~400 tok/s combined.
+  assert.equal(state.state, 'generating');
+  const rate = Number.parseFloat(state.label!.replace(/[^\d.]/g, ''));
+  assert.ok(rate >= 360 && rate <= 440, `expected ~400 tok/s from two nested subagents, got ${rate}`);
+});
+
+test('completed (non-running) nested subagents are not counted (T2)', () => {
+  // A depth-2 result that has finished (exitCode 0) must not anchor a snapshot
+  // or contribute to the rate — only running subagents drive the clock. The
+  // depth-1 parent is still running (so it occupies its own snapshot slot), but
+  // it produces no output, so cumTokens stays 0 and the rate stays paused.
+  const m = streamingMessage();
+  const acc = createTokenRateAccumulator(BASE_NOW);
+  const finished = nestedSubagentToolCall('top', 200, { nestedExitCode: 0 });
+  const state = tickTokenRate(acc, [{ ...m, toolCalls: [finished] }], BASE_NOW + 1000);
+  assert.equal(state.state, 'paused');
+  assert.equal(acc.cumTokens, 0);
+  // Only the running depth-1 parent is tracked; the completed nested result is not.
+  assert.equal(acc.subagentTokens.size, 1);
+  assert.equal(acc.subagentTokens.has('top#0>nested-tc#0'), false);
+});

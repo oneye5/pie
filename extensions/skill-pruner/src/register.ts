@@ -1,5 +1,5 @@
 import type { ExtensionAPI, BeforeAgentStartEvent, ToolCallEvent, Skill } from "@mariozechner/pi-coding-agent";
-import { appendDecision, estimateTokens, recordSkillRead, recordKnownSkills } from "../logger.js";
+import { appendDecision, estimateTokens, recordSkillRead, recordKnownSkills, recordSkillsBlockNotFound } from "../logger.js";
 import {
 	setPiApi,
 	getFormatSkillsForPromptImpl,
@@ -23,6 +23,7 @@ import {
 	runPruningPrepass,
 	SkillPruningResult,
 	ToolPruningResult,
+	PrepassUsage,
 	buildHint,
 	buildReplacement,
 	buildDecision,
@@ -78,6 +79,7 @@ export default function register(pi: ExtensionAPI) {
 		let rawUserMessage = "";
 		let prepassThinkingLevel = activeConfig.thinkingLevel;
 		let latencyMs = 0;
+		let prepassUsage: PrepassUsage | undefined;
 		let skillSafeguardReason: string | undefined;
 		let toolSafeguardReason: string | undefined;
 		let keptAllDueToParseFailure = false;
@@ -120,6 +122,7 @@ export default function register(pi: ExtensionAPI) {
 				rawUserMessage = prepassResult.rawUserMessage;
 				prepassThinkingLevel = prepassResult.thinkingLevel;
 				latencyMs = prepassResult.latencyMs;
+				prepassUsage = prepassResult.usage;
 				keptAllDueToParseFailure = prepassResult.keptAllDueToParseFailure ?? false;
 			}
 
@@ -156,6 +159,7 @@ export default function register(pi: ExtensionAPI) {
 					}
 				} else if (skills.length > 0) {
 					console.warn("[skill-pruner] skills block not found in system prompt; skipping skill pruning");
+					recordSkillsBlockNotFound(sessionId, activeConfig.mode);
 					recordKnownSkills(sessionId, activeConfig.mode, allSkillPaths, [], []);
 				}
 
@@ -217,6 +221,7 @@ export default function register(pi: ExtensionAPI) {
 			systemPrompt: rawSystemPrompt,
 			userMessage: rawUserMessage,
 			latencyMs,
+			usage: prepassUsage,
 			error: pruningError,
 			safeguardReason,
 		});

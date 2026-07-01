@@ -15,7 +15,7 @@ import { estimateTokens } from "../logger.js";
 import { countTokens } from "../tokenize.js";
 import type { PruningConfig, PruningDecision, PruningResult } from "../types.js";
 
-import type { SkillPruningResult, ToolPruningResult } from "./pruning-types.js";
+import type { PrepassUsage, SkillPruningResult, ToolPruningResult } from "./pruning-types.js";
 
 export interface PrepassDiagnostics {
 	model: string;
@@ -25,8 +25,17 @@ export interface PrepassDiagnostics {
 	systemPrompt: string;
 	userMessage: string;
 	latencyMs: number;
+	usage?: PrepassUsage;
 	error?: string | null;
 	safeguardReason?: string | null;
+}
+
+function applyPrepassUsage(details: PruningResult, usage: PrepassUsage | undefined): void {
+	if (!usage) return;
+	details.prepassInputTokens = usage.input;
+	details.prepassOutputTokens = usage.output;
+	details.prepassCacheReadTokens = usage.cacheRead;
+	details.prepassCacheWriteTokens = usage.cacheWrite;
 }
 
 /** Display shape returned from `buildFeedbackMessage`. */
@@ -208,6 +217,7 @@ export function buildFeedbackMessage(
 		if (prepass.systemPrompt) details.prepassSystemPrompt = prepass.systemPrompt;
 		if (prepass.userMessage) details.prepassUserMessage = prepass.userMessage;
 		details.prepassLatencyMs = prepass.latencyMs;
+		applyPrepassUsage(details, prepass.usage);
 		return {
 			customType: "pruning-result",
 			content: `Pruning error: ${prepass.error}`,
@@ -238,6 +248,7 @@ export function buildFeedbackMessage(
 		if (prepass.systemPrompt) details.prepassSystemPrompt = prepass.systemPrompt;
 		if (prepass.userMessage) details.prepassUserMessage = prepass.userMessage;
 		details.prepassLatencyMs = prepass.latencyMs;
+		applyPrepassUsage(details, prepass.usage);
 		if (prepass.safeguardReason) details.prepassSafeguardReason = prepass.safeguardReason;
 	}
 
