@@ -57,3 +57,26 @@ test('cost columns are surfaced in core_runs, model_quality, and timeline', asyn
     'timeline must expose cost columns',
   );
 });
+
+test('verification_impact buckets per-kind counts instead of the run total', async () => {
+  const rows = await runNamedDuckDbQuery(sharedDbPath, 'verification_impact');
+  assert.ok(rows.length > 0, 'verification_impact should return rows');
+
+  // The fixture has at least one run with multiple verification kinds; the
+  // SQL should bucket each kind by its own count, not the run's total bucket.
+  const testRows = rows.filter((row) => row['verification_kind'] === 'test');
+  const otherRows = rows.filter((row) => row['verification_kind'] === 'other');
+
+  assert.ok(
+    testRows.some((row) => row['count_bucket'] === '1' || row['count_bucket'] === '2-3' || row['count_bucket'] === '4+'),
+    'test kind should carry a non-run-total bucket',
+  );
+  assert.ok(
+    otherRows.some((row) => row['count_bucket'] === '1'),
+    'other kind with a single count should be bucketed as 1',
+  );
+  assert.ok(
+    rows.some((row) => row['verification_kind'] === 'none' && row['count_bucket'] === '0'),
+    'none kind should map missing usage to bucket 0',
+  );
+});

@@ -2667,7 +2667,7 @@ async function renderCharts(
   const busyDomainMin = [...logTicks].reverse().find((tick) => tick <= minBusyMinutes) ?? 0.01;
   const busyDomainMax = logTicks.find((tick) => tick >= maxBusyMinutes) ?? maxBusyMinutes;
   const busyTickValues = logTicks.filter((tick) => tick >= busyDomainMin && tick <= busyDomainMax);
-  setNote('time-quality-note', `${timeQuality.length} scored runs; subjective satisfaction view${showTimeQualityTrend ? ' with linear trend' : ''}.`, renderToken);
+  setNote('time-quality-note', `${timeQuality.length} scored runs; subjective satisfaction view${showTimeQualityTrend ? ' with log trend' : ''}.`, renderToken);
 
   const timeQualitySpec: Record<string, unknown> | null = timeQuality.length === 0 ? null : {
     width: 'container',
@@ -2713,7 +2713,10 @@ async function renderCharts(
         },
       },
       ...(showTimeQualityTrend ? [{
-        transform: [{ regression: 'satisfaction', on: 'busyMinutes', method: 'linear' }],
+        // x-axis is log-scaled (busyMinutes is clamped ≥ 1/60 by busyMinutesForChart), so use a
+        // log regression (y = a + b·ln(x)) which renders as a straight line on the log axis and
+        // tracks the point cloud. A linear fit would curve on a log axis and mislead.
+        transform: [{ regression: 'satisfaction', on: 'busyMinutes', method: 'log' }],
         mark: { type: 'line', strokeDash: [6, 4], strokeWidth: 2, opacity: 0.5 },
         encoding: {
           x: { field: 'busyMinutes', type: 'quantitative', scale: { type: 'log', domain: [busyDomainMin, Math.max(busyDomainMax, busyDomainMin)] }, axis: { values: busyTickValues, format: '~g' } },
@@ -3185,7 +3188,7 @@ async function renderCharts(
   const bucketing = mutationBucketRows(mutation);
   setNote('mutation-note', bucketing
     ? `${bucketing.means.length} size buckets (quartile cuts); raw scatter below for context.`
-    : `${mutation.length} scored runs${showTrend ? '; trend line shown.' : '.'}`,
+    : `${mutation.length} scored runs${showTrend ? '; trend omitted (sqrt axis).' : '.'}`,
   renderToken);
 
   const scatterSpec: Record<string, unknown> = {
@@ -3224,15 +3227,10 @@ async function renderCharts(
           ],
         },
       },
-      ...(showTrend ? [{
-        transform: [{ regression: 'satisfaction', on: 'lineMutationTotal', method: 'linear' }],
-        mark: { type: 'line', strokeDash: [7, 5], strokeWidth: 2, opacity: 0.62 },
-        encoding: {
-          x: { field: 'lineMutationTotal', type: 'quantitative', scale: { type: 'sqrt', nice: true } },
-          y: { field: 'satisfaction', type: 'quantitative', scale: { domain: [1, 5] } },
-          color: { value: CHART_COLORS.accent2 },
-        },
-      }] : []),
+      // Trend line intentionally omitted: the x-axis is sqrt-scaled because lineMutationTotal is
+      // zero-heavy (~65% of runs have 0 mutations, so a log scale would drop most points), and
+      // Vega-Lite has no sqrt regression method. A linear OLS fit drawn on a sqrt axis would not
+      // track the visual point cloud, so the misleading line is omitted rather than misfit.
     ],
   };
 

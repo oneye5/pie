@@ -364,7 +364,38 @@ test('prepareSourceAnalytics computes execution failures and unknown fallback fa
   assert.equal(classifiedBashUsage?.resultIssueCount, 3);
   assert.equal(classifiedEditUsage?.executionFailureCount, 0);
   assert.equal(classifiedEditUsage?.resultIssueCount, 0);
-  assert.deepEqual(fallbackUnknownRows, [['bash', 2], ['read', 1]]);
+  // Legacy branch has no per-tool classification: the unclassified remainder
+  // (failureCount - classifiedTotal = 3 - 1 = 2) is emitted once at the run level,
+  // not per-tool, so failures already counted by kind are not double-counted.
+  assert.deepEqual(fallbackUnknownRows, [['(unattributed)', 2]]);
+});
+
+test('prepareSourceAnalytics legacy tool-failure branch does not double-count failures', async () => {
+  const fixture = deepClone(await loadFixture());
+  const fallbackRun = fixture.completedRuns[1] as any;
+  fallbackRun.toolUsage.failureCount = 5;
+  fallbackRun.toolUsage.failureCountsByName = { bash: 3, read: 2 };
+  fallbackRun.toolUsage.failureCountsByKind = { timeout: 2, missing_file_or_path: 1 };
+  fallbackRun.toolUsage.failureCountsByNameAndKind = {};
+  fallbackRun.toolUsage.failureSamples = [];
+
+  const prepared = prepareSourceAnalytics(fixture);
+  const fallbackRows = prepared.toolFailures.filter((row) => row.runId === fallbackRun.runId);
+
+  const totalEmitted = fallbackRows.reduce((sum, row) => sum + row.count, 0);
+  assert.equal(totalEmitted, 5, 'total emitted counts should equal run-level failureCount');
+
+  const classifiedTotal = fallbackRows
+    .filter((row) => row.toolName === '(unattributed)' && row.failureKind !== 'unknown')
+    .reduce((sum, row) => sum + row.count, 0);
+  assert.equal(classifiedTotal, 3, 'classified by-kind total should be emitted');
+
+  const unknownRow = fallbackRows.find((row) => row.toolName === '(unattributed)' && row.failureKind === 'unknown');
+  assert.ok(unknownRow, 'a single unknown row should cover the unclassified remainder');
+  assert.equal(unknownRow.count, 2, 'unknown row should be failureCount - classifiedTotal');
+
+  const perToolUnknownRows = fallbackRows.filter((row) => row.toolName !== '(unattributed)' && row.failureKind === 'unknown');
+  assert.equal(perToolUnknownRows.length, 0, 'legacy branch should not emit per-tool unknown rows');
 });
 
 test('prepareSourceAnalytics trims backend errors and skips empty file-extension rollups', async () => {

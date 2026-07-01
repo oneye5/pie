@@ -7,6 +7,7 @@ import type {
 } from '../scripts/contracts.ts';
 import {
   BOOTSTRAP_MIN_RUNS,
+  MIN_SCORED_RUNS_PER_MODEL,
   type BucketAssignments,
   computeBucketAssignments,
   computeComplexityScores,
@@ -691,23 +692,25 @@ test('rankModelsInBand: stage 1 sorts by composite descending', () => {
   assert.equal(ranked[0], 'high');
 });
 
-test('rankModelsInBand: stage 2 re-ranks by cost within quality tiers', () => {
-  // 4 models: 2 in top half (sorted by quality), 2 in bottom half
+test('rankModelsInBand: cost breaks ties within quantized quality tiers', () => {
+  // quality-a and quality-b are in the same 0.05 quality tier, so cost decides
+  // their order. quality-c is in a lower tier, so it stays below both regardless
+  // of its lower cost.
   const outcomes: ModelOutcomeScores[] = [
-    { modelId: 'quality-a', runCount: 5, satisfaction: 4, resolutionRate: 0.8, fileChurn: 0.7, toolReliability: 0.9, verificationAdoption: 0.8, tokenEfficiency: 0.7, compositeScore: 0.8 },
-    { modelId: 'quality-b', runCount: 5, satisfaction: 4, resolutionRate: 0.7, fileChurn: 0.6, toolReliability: 0.8, verificationAdoption: 0.7, tokenEfficiency: 0.6, compositeScore: 0.7 },
+    { modelId: 'quality-a', runCount: 5, satisfaction: 4, resolutionRate: 0.8, fileChurn: 0.7, toolReliability: 0.9, verificationAdoption: 0.8, tokenEfficiency: 0.7, compositeScore: 0.81 },
+    { modelId: 'quality-b', runCount: 5, satisfaction: 4, resolutionRate: 0.7, fileChurn: 0.6, toolReliability: 0.8, verificationAdoption: 0.7, tokenEfficiency: 0.6, compositeScore: 0.79 },
     { modelId: 'quality-c', runCount: 5, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.4, toolReliability: 0.6, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.4 },
     { modelId: 'quality-d', runCount: 5, satisfaction: 2, resolutionRate: 0.3, fileChurn: 0.2, toolReliability: 0.4, verificationAdoption: 0.3, tokenEfficiency: 0.3, compositeScore: 0.2 },
   ];
   const config: SimpleModelConfig[] = [
-    { id: 'quality-a', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 5 },   // expensive, top half
-    { id: 'quality-b', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },   // cheap, top half
-    { id: 'quality-c', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },   // cheap, bottom half
-    { id: 'quality-d', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 5 },   // expensive, bottom half
+    { id: 'quality-a', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 5 },   // expensive, top tier
+    { id: 'quality-b', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },   // cheap, top tier
+    { id: 'quality-c', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },   // cheap, middle tier
+    { id: 'quality-d', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 5 },   // expensive, bottom tier
   ];
   const ranked = rankModelsInBand(outcomes, config);
-  // Top half (ceil(4/2)=2): quality-a (0.8), quality-b (0.7) → re-sort by cost → quality-b(1), quality-a(5)
-  // Bottom half: quality-c (0.4), quality-d (0.2) → re-sort by cost → quality-c(1), quality-d(5)
+  // 0.81 and 0.79 both quantize to the 0.80 tier → cheaper quality-b wins.
+  // 0.40 is a distinct tier, so quality-c follows regardless of its low cost.
   assert.deepEqual(ranked, ['quality-b', 'quality-a', 'quality-c', 'quality-d']);
 });
 
@@ -724,6 +727,19 @@ test('rankModelsInBand: model not in config gets default cost 10', () => {
   // Top half (ceil(2/2)=1): both in top half → sort by cost → known(1) before unknown(10)
   assert.equal(ranked[0], 'known');
   assert.equal(ranked[1], 'unknown');
+});
+
+test('rankModelsInBand: a cheaper lower-quality model does not outrank a pricier higher-quality model', () => {
+  const outcomes: ModelOutcomeScores[] = [
+    { modelId: 'cheap-low', runCount: 5, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.3 },
+    { modelId: 'expensive-high', runCount: 5, satisfaction: 5, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 1, compositeScore: 0.9 },
+  ];
+  const config: SimpleModelConfig[] = [
+    { id: 'cheap-low', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
+    { id: 'expensive-high', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 10 },
+  ];
+  const ranked = rankModelsInBand(outcomes, config);
+  assert.deepEqual(ranked, ['expensive-high', 'cheap-low']);
 });
 
 // ===========================================================================
@@ -785,8 +801,10 @@ test('filterEligible: empty buckets stay empty', () => {
 
 test('assignModelsToBuckets: models appear in their best band', () => {
   // Create runs for model-x in both low and high bands.
-  // Give model-x higher compositeScore in the high band.
-  const lowRuns = Array.from({ length: 5 }, (_, i) =>
+  // Give model-x higher compositeScore in the high band. Use enough high-
+  // complexity runs so the high band has ≥3 scored runs after the tercile split
+  // and the per-model minimum-sample threshold is satisfied there.
+  const lowRuns = Array.from({ length: 7 }, (_, i) =>
     makeRun({
       runId: `low-${i}`,
       modelId: 'model-x',
@@ -802,7 +820,7 @@ test('assignModelsToBuckets: models appear in their best band', () => {
       tokenEfficiency: 40,      // poor efficiency
     })
   );
-  const highRuns = Array.from({ length: 5 }, (_, i) =>
+  const highRuns = Array.from({ length: 8 }, (_, i) =>
     makeRun({
       runId: `high-${i}`,
       modelId: 'model-x',
@@ -834,29 +852,50 @@ test('assignModelsToBuckets: models appear in their best band', () => {
 });
 
 test('assignModelsToBuckets: model with runs in only one band appears in that bucket', () => {
-  const runs = Array.from({ length: 5 }, (_, i) =>
+  // model-y has 5 low-complexity runs; filler-z has 10 higher-complexity runs.
+  // This keeps all model-y runs in the low band so it clears the per-band
+  // minimum-sample threshold and appears in exactly one bucket.
+  const yRuns = Array.from({ length: 5 }, (_, i) =>
     makeRun({
-      runId: `single-${i}`,
+      runId: `single-y-${i}`,
       modelId: 'model-y',
       satisfaction: 4,
       resolution: 'resolved',
-      // All medium complexity
-      lineAdditions: 50,
-      lineDeletions: 10,
-      lineModifications: 5,
-      touchedFileCount: 5,
-      toolCallCount: 10,
-      busyDurationMs: 5000,
-      inputTokens: 500,
-      tokenEfficiency: 15,
+      lineAdditions: 5,
+      lineDeletions: 1,
+      lineModifications: 1,
+      touchedFileCount: 1,
+      toolCallCount: 1,
+      busyDurationMs: 100,
+      inputTokens: 20,
+      tokenEfficiency: 10,
     })
   );
 
+  const zRuns = Array.from({ length: 10 }, (_, i) =>
+    makeRun({
+      runId: `single-z-${i}`,
+      modelId: 'filler-z',
+      satisfaction: 3,
+      resolution: 'resolved',
+      lineAdditions: 500,
+      lineDeletions: 100,
+      lineModifications: 50,
+      touchedFileCount: 20,
+      toolCallCount: 100,
+      busyDurationMs: 50000,
+      inputTokens: 5000,
+      tokenEfficiency: 30,
+    })
+  );
+
+  const runs = [...yRuns, ...zRuns];
   const scores = computeComplexityScores(runs);
   const bands = assignBands(runs, scores);
 
   const config: SimpleModelConfig[] = [
     { id: 'model-y', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
+    { id: 'filler-z', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 2 },
   ];
   const result = assignModelsToBuckets(bands, config);
 
@@ -910,6 +949,68 @@ test('assignModelsToBuckets: family grouping collapses two provider ids into one
   assert.ok(!allIds.includes('glm-5.2:cloud'), 'glm-5.2:cloud should be collapsed into its family');
 });
 
+test('assignModelsToBuckets: models with fewer than 3 scored runs in a band are excluded', () => {
+  const lowCountRuns = Array.from({ length: 2 }, (_, i) =>
+    makeRun({
+      runId: `few-${i}`,
+      modelId: 'low-count-model',
+      satisfaction: 5,
+      resolution: 'resolved',
+      lineAdditions: 1, lineDeletions: 0, lineModifications: 0,
+      touchedFileCount: 1,
+      toolCallCount: 1,
+      busyDurationMs: 100,
+      inputTokens: 10,
+      tokenEfficiency: 5,
+    })
+  );
+
+  const qualifyingRuns = Array.from({ length: 6 }, (_, i) =>
+    makeRun({
+      runId: `qual-${i}`,
+      modelId: 'qualifying-model',
+      satisfaction: 4,
+      resolution: 'resolved',
+      lineAdditions: 5, lineDeletions: 2, lineModifications: 1,
+      touchedFileCount: 1,
+      toolCallCount: 1,
+      busyDurationMs: 200,
+      inputTokens: 20,
+      tokenEfficiency: 6,
+    })
+  );
+
+  const fillerRuns = Array.from({ length: 6 }, (_, i) =>
+    makeRun({
+      runId: `fill-${i}`,
+      modelId: 'filler-model',
+      satisfaction: 3,
+      resolution: 'resolved',
+      lineAdditions: 500, lineDeletions: 100, lineModifications: 50,
+      touchedFileCount: 20,
+      toolCallCount: 100,
+      busyDurationMs: 50000,
+      inputTokens: 5000,
+      tokenEfficiency: 30,
+    })
+  );
+
+  const allRuns = [...lowCountRuns, ...qualifyingRuns, ...fillerRuns];
+  const scores = computeComplexityScores(allRuns);
+  const bands = assignBands(allRuns, scores);
+
+  const config: SimpleModelConfig[] = [
+    { id: 'low-count-model', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
+    { id: 'qualifying-model', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 2 },
+    { id: 'filler-model', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 3 },
+  ];
+  const result = assignModelsToBuckets(bands, config);
+
+  const allIds = [...result.small, ...result.medium, ...result.frontier];
+  assert.ok(!allIds.includes('low-count-model'), 'model with < 3 scored runs should be excluded');
+  assert.ok(allIds.includes('qualifying-model'), 'qualifying model should be ranked');
+});
+
 // ===========================================================================
 // computeBucketAssignments (integration via internal pipeline)
 // ===========================================================================
@@ -921,6 +1022,10 @@ test('computeBucketAssignments: returns empty for non-existent directory', async
 
 test('computeBucketAssignments: bootstrap gate constant is 40', () => {
   assert.equal(BOOTSTRAP_MIN_RUNS, 40);
+});
+
+test('computeBucketAssignments: per-model minimum scored runs constant is 3', () => {
+  assert.equal(MIN_SCORED_RUNS_PER_MODEL, 3);
 });
 
 // Test the full pipeline logic by composing internal functions directly,
@@ -1047,9 +1152,10 @@ test('full pipeline: model not in config is kept', () => {
   assert.ok(allIds.includes('new-model-not-in-config'), 'model not in config should be kept');
 });
 
-test('full pipeline: cost-based re-ranking within quality tiers', () => {
-  // rankModelsInBand splits into top/bottom halves by composite, then re-sorts each by cost.
-  // With 4 models, mid = ceil(4/2) = 2, so top half gets 2 models.
+test('full pipeline: cost tiebreaker does not override quality gaps', () => {
+  // With tiered ranking, cost only reorders models whose composite scores
+  // quantize to the same 0.05 tier. cheap-high (0.85) remains below
+  // expensive-high (0.9), and cheap-low (0.35) remains below expensive-low (0.4).
   const outcomes: ModelOutcomeScores[] = [
     { modelId: 'expensive-high', runCount: 10, satisfaction: 4, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 0.8, compositeScore: 0.9 },
     { modelId: 'cheap-high', runCount: 10, satisfaction: 4, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 0.8, compositeScore: 0.85 },
@@ -1063,9 +1169,7 @@ test('full pipeline: cost-based re-ranking within quality tiers', () => {
     { id: 'cheap-low', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
   ];
   const ranked = rankModelsInBand(outcomes, config);
-  // Top half: expensive-high(0.9), cheap-high(0.85) → re-sort by cost → cheap-high(1), expensive-high(10)
-  // Bottom half: expensive-low(0.4), cheap-low(0.35) → re-sort by cost → cheap-low(1), expensive-low(10)
-  assert.deepEqual(ranked, ['cheap-high', 'expensive-high', 'cheap-low', 'expensive-low']);
+  assert.deepEqual(ranked, ['expensive-high', 'cheap-high', 'expensive-low', 'cheap-low']);
 });
 
 // ===========================================================================

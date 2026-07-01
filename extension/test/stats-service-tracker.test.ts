@@ -6,7 +6,7 @@ import { createInitialArchState } from '../src/host/core/arch-state';
 import { reducer } from '../src/host/core/reducer';
 import type { Event } from '../src/host/core/events';
 import type { ArchState, SettingsState } from '../src/host/core/arch-state';
-import type { ComposerInput, RunOutcome, SessionAnalyticsFactors } from '../src/shared/protocol';
+import type { AssistantUsage, ComposerInput, RunOutcome, SessionAnalyticsFactors, ToolCall } from '../src/shared/protocol';
 import { produce } from 'immer';
 
 function createHarness() {
@@ -423,4 +423,63 @@ test('an overhead-only turn (no content delta) still records its measured overhe
   assert.equal(samples[0]?.overheadMs, 120);
   assert.equal(samples[0]?.turnLatencyMs, null);
   assert.equal(samples[0]?.providerLatencyMs, null);
+});
+
+test('duplicate tool.started and tool.finished events do not double-count', () => {
+  const harness = createHarness();
+  harness.tracker.prepareForSend(harness.sessionPath, []);
+
+  const toolCall: ToolCall = {
+    id: 'tool-dup-1',
+    name: 'bash',
+    input: { command: 'echo ok' },
+    status: 'running',
+  };
+
+  harness.tracker.onToolStarted(harness.sessionPath, toolCall);
+  harness.tracker.onToolStarted(harness.sessionPath, toolCall); // duplicate
+  harness.tracker.onToolFinished(harness.sessionPath, { ...toolCall, status: 'completed', durationMs: 100 });
+  harness.tracker.onToolFinished(harness.sessionPath, { ...toolCall, status: 'completed', durationMs: 100 }); // duplicate
+
+  const run = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun;
+  assert.equal(run?.toolUsage.totalCount, 1, 'duplicate tool.started must not double-count totalCount');
+  assert.equal(run?.toolUsage.countsByName['bash'], 1, 'duplicate tool.started must not double-count per-name count');
+  assert.equal(run?.toolUsage.timedCallCount, 1, 'duplicate tool.finished must not double-count timedCallCount');
+  assert.equal(run?.toolUsage.totalDurationMs, 100, 'duplicate tool.finished must not double-count duration');
+});
+
+test('assistant turn usage with NaN or negative values does not corrupt counters', () => {
+  const harness = createHarness();
+  harness.tracker.prepareForSend(harness.sessionPath, []);
+
+  const invalidUsage: AssistantUsage = {
+    inputTokens: NaN,
+    outputTokens: -10,
+    cacheReadTokens: -5,
+    cacheWriteTokens: Infinity,
+    totalTokens: NaN,
+  };
+
+  harness.tracker.onAssistantTurnStarted(harness.sessionPath, 'turn-invalid');
+  harness.tracker.onAssistantTurnEnded(
+    harness.sessionPath,
+    'turn-invalid',
+    100,
+    invalidUsage,
+    'completed',
+    { turnLatencyMs: NaN, overheadMs: Infinity, providerLatencyMs: -Infinity },
+  );
+
+  const run = harness.tracker.serializeSessions()[harness.sessionPath]?.currentRun;
+  assert.equal(run?.inputTokens, 0);
+  assert.equal(run?.outputTokens, 0);
+  assert.equal(run?.cacheReadTokens, 0);
+  assert.equal(run?.cacheWriteTokens, 0);
+  assert.equal(run?.tokenReportedTurnCount, 1);
+  assert.equal(run?.turnThroughputSamples.length, 1);
+  const sample = run?.turnThroughputSamples[0];
+  assert.equal(sample?.outputTokens, 0);
+  assert.equal(sample?.turnLatencyMs, null);
+  assert.equal(sample?.overheadMs, null);
+  assert.equal(sample?.providerLatencyMs, null);
 });

@@ -3,7 +3,12 @@ WITH verification_groups AS (
   SELECT
     r.run_id,
     COALESCE(v.kind, 'none') AS verification_kind,
-    r.verification_count_bucket AS count_bucket,
+    CASE
+      WHEN v.count IS NULL OR v.count <= 0 THEN '0'
+      WHEN v.count = 1 THEN '1'
+      WHEN v.count <= 3 THEN '2-3'
+      ELSE '4+'
+    END AS count_bucket,
     r.verification_state,
     r.satisfaction,
     r.resolution

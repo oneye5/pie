@@ -45,6 +45,15 @@ export class RunAnalyticsStorage {
   private seq = 0;
   private activeSlot: CheckpointSlot = 'a';
   private lastPersistError: { message: string; at: string } | null = null;
+  /**
+   * Appends staged by `schedulePersist` that have not yet been flushed to disk.
+   * A failed JSONL append stays here and is replayed by the next persist
+   * instead of being silently dropped, so a scored snapshot/outcome is
+   * eventually written or remains pending. Keyed by runId so the newest
+   * pending snapshot/outcome per run wins and retries don't double-append.
+   */
+  private pendingSnapshots: Map<string, RunSnapshot> = new Map();
+  private pendingOutcomes: Map<string, OutcomeHistoryLogEntry> = new Map();
 
   constructor(options: RunAnalyticsStorageOptions) {
     const workspaceIds = [...new Set([options.workspaceId, ...(options.legacyWorkspaceIds ?? [])])];
@@ -92,34 +101,42 @@ export class RunAnalyticsStorage {
   }
 
   schedulePersist(snapshotToAppend?: RunSnapshot, outcomeToAppend?: OutcomeHistoryLogEntry): void {
+    // Stage this persist's appends into the pending buffers so a failed append
+    // is retried by the next persist rather than dropped. Dedup per runId keeps
+    // only the newest pending snapshot/outcome so retries don't double-append.
+    this.stagePendingAppend(snapshotToAppend, outcomeToAppend);
+
     const checkpoint = this.buildCheckpoint(++this.seq);
     this.persistenceQueue = this.persistenceQueue
       .catch((error) => {
-        const message = toErrorMessage(error);
-        const at = this.isoNow();
-        this.lastPersistError = { message, at };
-        console.warn(`[pie] run-analytics persist failed at ${at}: ${message}`);
+        this.recordPersistError(error);
       })
       .then(async () => {
         await fs.mkdir(this.storageDir, { recursive: true });
-        if (snapshotToAppend) {
+        // Replay any appends still pending from this or a previously failed
+        // persist. Clear each entry immediately after its append succeeds so a
+        // later failure (e.g. checkpoint write) doesn't trigger a redundant
+        // retry-append of something already on disk.
+        for (const snapshot of [...this.pendingSnapshots.values()]) {
           await fs.appendFile(
             path.join(this.storageDir, 'run-snapshots.jsonl'),
             serializeJsonLine({
               schemaVersion: RUN_ANALYTICS_SCHEMA_VERSION,
               kind: 'run_snapshot',
               recordedAt: this.isoNow(),
-              run: snapshotToAppend,
+              run: snapshot,
             } satisfies RunSnapshotLogEntry),
             'utf8',
           );
+          this.pendingSnapshots.delete(snapshot.runId);
         }
-        if (outcomeToAppend) {
+        for (const outcome of [...this.pendingOutcomes.values()]) {
           await fs.appendFile(
             path.join(this.storageDir, 'outcome-history.jsonl'),
-            serializeJsonLine(outcomeToAppend),
+            serializeJsonLine(outcome),
             'utf8',
           );
+          this.pendingOutcomes.delete(outcome.runId);
         }
         await this.writeCheckpoint(checkpoint);
         await this.writeAutoExportSafely();
@@ -133,7 +150,13 @@ export class RunAnalyticsStorage {
   }
 
   async flush(): Promise<void> {
-    await this.persistenceQueue.catch(() => undefined);
+    // Surface the most recent persist failure so a caller that reads
+    // getPersistError() after flush sees the actual last error, not a stale
+    // null (the failure is otherwise only observed by the *next* persist's
+    // leading .catch). Never clears a recorded error.
+    await this.persistenceQueue.catch((error) => {
+      this.recordPersistError(error);
+    });
   }
 
   async queryRunAnalytics(): Promise<RunAnalyticsQueryResult> {
@@ -144,6 +167,48 @@ export class RunAnalyticsStorage {
   async exportRunAnalytics(targetPath: string): Promise<RunAnalyticsExportPayload> {
     await this.flush();
     return await exportRunAnalyticsStore(this.storageDir, targetPath, this.now);
+  }
+
+  private recordPersistError(error: unknown): void {
+    const message = toErrorMessage(error);
+    const at = this.isoNow();
+    this.lastPersistError = { message, at };
+    console.warn(`[pie] run-analytics persist failed at ${at}: ${message}`);
+  }
+
+  private stagePendingAppend(snapshotToAppend?: RunSnapshot, outcomeToAppend?: OutcomeHistoryLogEntry): void {
+    if (snapshotToAppend) {
+      const existing = this.pendingSnapshots.get(snapshotToAppend.runId);
+      // Keep only the newest pending snapshot per runId; drop the older one
+      // whether it is the incoming snapshot or the already-pending one.
+      if (!existing || this.snapshotRecencyMs(snapshotToAppend) >= this.snapshotRecencyMs(existing)) {
+        this.pendingSnapshots.set(snapshotToAppend.runId, snapshotToAppend);
+      }
+    }
+    if (outcomeToAppend) {
+      const existing = this.pendingOutcomes.get(outcomeToAppend.runId);
+      if (!existing || this.outcomeRecencyMs(outcomeToAppend) >= this.outcomeRecencyMs(existing)) {
+        this.pendingOutcomes.set(outcomeToAppend.runId, outcomeToAppend);
+      }
+    }
+  }
+
+  private snapshotRecencyMs(snapshot: RunSnapshot): number {
+    const updatedAt = Date.parse(snapshot.updatedAt);
+    if (!Number.isNaN(updatedAt)) {
+      return updatedAt;
+    }
+    if (snapshot.finalizedAt) {
+      const finalizedAt = Date.parse(snapshot.finalizedAt);
+      if (!Number.isNaN(finalizedAt)) {
+        return finalizedAt;
+      }
+    }
+    return Date.parse(snapshot.startedAt);
+  }
+
+  private outcomeRecencyMs(outcome: OutcomeHistoryLogEntry): number {
+    return Date.parse(outcome.recordedAt);
   }
 
   private buildCheckpoint(seq: number): RunCheckpoint {
@@ -209,7 +274,19 @@ export class RunAnalyticsStorage {
       return;
     }
 
-    await fs.writeFile(targetPath, mergedRaw, 'utf8');
+    // Write to a temp file in the same directory then rename atomically, so a
+    // crash mid-write cannot corrupt the JSONL (mirrors exportRunAnalyticsStore).
+    const tmpPath = path.join(
+      path.dirname(targetPath),
+      `.${path.basename(targetPath)}.${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.tmp`,
+    );
+    try {
+      await fs.writeFile(tmpPath, mergedRaw, 'utf8');
+      await fs.rename(tmpPath, targetPath);
+    } catch (error) {
+      await fs.unlink(tmpPath).catch(() => undefined);
+      throw error;
+    }
   }
 
   private async mergeCheckpointStates(legacyStorageDirs: string[]): Promise<void> {

@@ -29,6 +29,21 @@ function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === 'object' && !Array.isArray(value);
 }
 
+/** Recency timestamp (ms) used to pick the newest snapshot for a runId: updatedAt, then finalizedAt, then startedAt. */
+function runRecencyMs(snapshot: RunSnapshot): number {
+  const updatedAt = Date.parse(snapshot.updatedAt);
+  if (!Number.isNaN(updatedAt)) {
+    return updatedAt;
+  }
+  if (snapshot.finalizedAt) {
+    const finalizedAt = Date.parse(snapshot.finalizedAt);
+    if (!Number.isNaN(finalizedAt)) {
+      return finalizedAt;
+    }
+  }
+  return Date.parse(snapshot.startedAt);
+}
+
 async function readJsonlObjects(filePath: string): Promise<unknown[]> {
   const raw = await readOptionalText(filePath);
   if (!raw) {
@@ -82,6 +97,20 @@ export async function queryRunAnalyticsStore(storageDir: string): Promise<RunAna
       continue;
     }
     latestCompletedRuns.set(snapshot.runId, snapshot);
+  }
+
+  // The checkpoint's lastRun is the recovery source for a scored run whose
+  // JSONL append was lost: merge it in as a fallback, only when the JSONL is
+  // missing the runId or the checkpoint holds a strictly newer snapshot for it.
+  for (const sessionState of Object.values(checkpoint?.sessions ?? {})) {
+    const lastRun = sessionState.lastRun;
+    if (!lastRun) {
+      continue;
+    }
+    const existing = latestCompletedRuns.get(lastRun.runId);
+    if (!existing || runRecencyMs(lastRun) > runRecencyMs(existing)) {
+      latestCompletedRuns.set(lastRun.runId, lastRun);
+    }
   }
 
   const outcomes: OutcomeHistoryLogEntry[] = [];

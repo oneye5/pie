@@ -133,6 +133,29 @@ test('site data treatment comparison normalizes null hashes and sorts by run cou
   );
 });
 
+test('verification impact buckets per-kind counts, not run total', async () => {
+  const prepared = deepClone(prepareSourceAnalytics(await loadFixture()));
+  const completedRuns = prepared.runs.filter((run) => run.status !== 'open');
+  const targetRun = completedRuns[0]!;
+
+  prepared.verificationUsage = prepared.verificationUsage.filter((row) => row.runId !== targetRun.runId);
+  prepared.verificationUsage.push(
+    { runId: targetRun.runId, kind: 'test', count: 3, runHadAnyFailure: false, startedAt: targetRun.startedAt, startedDay: targetRun.startedDay, modelId: targetRun.modelId, thinkingLevel: targetRun.thinkingLevel, experimentAssignment: targetRun.experimentAssignment, mixedTreatmentConfig: targetRun.mixedTreatmentConfig, scored: targetRun.scored, satisfaction: targetRun.satisfaction, resolution: targetRun.resolution },
+    { runId: targetRun.runId, kind: 'build', count: 1, runHadAnyFailure: false, startedAt: targetRun.startedAt, startedDay: targetRun.startedDay, modelId: targetRun.modelId, thinkingLevel: targetRun.thinkingLevel, experimentAssignment: targetRun.experimentAssignment, mixedTreatmentConfig: targetRun.mixedTreatmentConfig, scored: targetRun.scored, satisfaction: targetRun.satisfaction, resolution: targetRun.resolution },
+  );
+
+  const bundle = buildSiteDataBundle(prepared);
+  validateSiteDataBundle(bundle);
+
+  const testRows = bundle.verificationImpact.rows.filter((row) => row.verificationKind === 'test');
+  const buildRows = bundle.verificationImpact.rows.filter((row) => row.verificationKind === 'build');
+
+  assert.ok(testRows.some((row) => row.countBucket === '2-3'), 'test kind should be bucketed by its own count of 3');
+  assert.ok(buildRows.some((row) => row.countBucket === '1'), 'build kind should be bucketed by its own count of 1');
+  assert.ok(!testRows.some((row) => row.countBucket === '4+'), 'test kind should not inherit the run-total bucket of 4');
+  assert.ok(!buildRows.some((row) => row.countBucket === '4+'), 'build kind should not inherit the run-total bucket of 4');
+});
+
 test('site data validation rejects malformed tool usage payloads', async () => {
   const fixture = await loadFixture();
   const bundle = buildSiteDataBundle(prepareSourceAnalytics(fixture));

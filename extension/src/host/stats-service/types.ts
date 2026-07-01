@@ -20,6 +20,10 @@ export interface SessionRunState {
   turnIdsSeenInCurrentRun: Set<string>;
   /** Turn IDs whose `onAssistantTurnEnded` has already been processed — guards against duplicate `message.finished` events double-counting duration / tokens / throughput samples. */
   endedTurnIdsInCurrentRun: Set<string>;
+  /** Tool call IDs whose `onToolStarted` has already been processed — guards against duplicate `tool.started` events double-counting usage. */
+  startedToolCallIdsInCurrentRun: Set<string>;
+  /** Tool call IDs whose `onToolFinished` has already been processed — guards against duplicate `tool.finished` events double-counting durations, failures, and file mutations. */
+  finishedToolCallIdsInCurrentRun: Set<string>;
   busyStartedAt: string | null;
 }
 
@@ -89,6 +93,8 @@ export function emptySessionRunState(): SessionRunState {
     queuedUnsupportedInputCount: 0,
     turnIdsSeenInCurrentRun: new Set<string>(),
     endedTurnIdsInCurrentRun: new Set<string>(),
+    startedToolCallIdsInCurrentRun: new Set<string>(),
+    finishedToolCallIdsInCurrentRun: new Set<string>(),
     busyStartedAt: null,
   };
 }

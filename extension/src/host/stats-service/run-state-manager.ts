@@ -2,6 +2,7 @@ import type {
   ModelSettings,
   RunOutcome,
   SessionAnalyticsFactors,
+  SessionSkillFactor,
   ThinkingLevel,
 } from '../../shared/protocol';
 import {
@@ -30,6 +31,25 @@ import {
   type DispatchArchEvent,
   type SessionRunState,
 } from './types';
+
+/**
+ * Stable signature of the skills array EXCLUDING `lastModifiedAt`, so a skill
+ * file's mtime changing without a content/source change does not flip the
+ * `skills` treatment. Mirrors the redaction used for `skillSetHash`/
+ * `promptHash` in `backend/session-analytics.ts`.
+ */
+function skillsKeyExcludingMtime(skills: SessionSkillFactor[]): string {
+  return JSON.stringify(
+    [...skills]
+      .map((skill) => ({
+        name: skill.name,
+        contentHash: skill.contentHash,
+        sourceHash: skill.sourceHash,
+        disableModelInvocation: skill.disableModelInvocation,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)),
+  );
+}
 
 interface SessionRunStateManagerOptions {
   getArchState: GetArchState;
@@ -68,6 +88,8 @@ export class SessionRunStateManager {
         queuedUnsupportedInputCount: sessionState.queuedUnsupportedInputCount,
         turnIdsSeenInCurrentRun: new Set<string>(),
         endedTurnIdsInCurrentRun: new Set<string>(),
+        startedToolCallIdsInCurrentRun: new Set<string>(),
+        finishedToolCallIdsInCurrentRun: new Set<string>(),
         busyStartedAt: sessionState.busyStartedAt,
       });
       this.syncSessionSummary(sessionPath);
@@ -178,6 +200,8 @@ export class SessionRunStateManager {
     state.lastRun = finalizedRun;
     state.turnIdsSeenInCurrentRun.clear();
     state.endedTurnIdsInCurrentRun.clear();
+    state.startedToolCallIdsInCurrentRun.clear();
+    state.finishedToolCallIdsInCurrentRun.clear();
     state.busyStartedAt = null;
 
     this.syncSessionSummary(sessionPath);
@@ -221,9 +245,13 @@ export class SessionRunStateManager {
       changedKinds.push('toolSelection');
     }
 
+    // Compare skills excluding `lastModifiedAt`: a skill file's mtime can change
+    // (git checkout, touch, no-op save) without altering model-visible content,
+    // and `skillSetHash`/`promptHash` already exclude it (see session-analytics).
+    // Including mtime here would spuriously flag the `skills` treatment as changed.
     const skillsChanged =
       current.skillSetHash !== next.skillSetHash
-      || JSON.stringify(current.skills) !== JSON.stringify(next.skills);
+      || skillsKeyExcludingMtime(current.skills) !== skillsKeyExcludingMtime(next.skills);
     if (skillsChanged) {
       changedKinds.push('skills');
     }

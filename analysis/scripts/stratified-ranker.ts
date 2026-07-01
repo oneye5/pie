@@ -5,7 +5,7 @@
  *   1. Per-run complexity scores (6 heuristics, percentile-normalized)
  *   2. Splits runs into complexity terciles (low / medium / high)
  *   3. Computes outcome scores per model per band (point estimates)
- *   4. Two-stage ranking: quality composite → cost within quality tiers
+ *   4. Tiered ranking: quality composite → cost tiebreaker within quality tiers
  *   5. Assigns models to buckets (small / medium / frontier)
  *
  * Used by the subagent extension via bridge.ts. The existing global
@@ -42,6 +42,9 @@ export interface BucketAssignments {
 
 /** Minimum scored runs before the ranker returns non-empty assignments. */
 export const BOOTSTRAP_MIN_RUNS = 40;
+
+/** Minimum scored runs a model must have in a band before it can be ranked in that bucket. */
+export const MIN_SCORED_RUNS_PER_MODEL = 3;
 
 /** Token efficiency cap (matches leaderboard-scoring.ts). */
 const TOKEN_EFFICIENCY_MAX = 50;
@@ -241,18 +244,21 @@ export function rankModelsInBand(
     cost: o.cost ?? costMap.get(o.modelId) ?? 10, // default cost if unknown
   }));
 
-  // Stage 1: sort by quality composite descending
-  entries.sort((a, b) => b.compositeScore - a.compositeScore);
+  // Tiered ranking: quality composite descending, then cost ascending as a
+  // tiebreaker within quantized quality tiers. Composite scores are rounded to
+  // the nearest 0.05 bucket so near-equal quality is treated as a single tier;
+  // cost never overrides a meaningful quality gap. Exact composite score is
+  // used as a final deterministic tiebreaker.
+  const tierOf = (score: number): number => Math.round(score * 20) / 20;
+  entries.sort((a, b) => {
+    const tierA = tierOf(a.compositeScore);
+    const tierB = tierOf(b.compositeScore);
+    if (tierB !== tierA) return tierB - tierA;
+    if (a.cost !== b.cost) return a.cost - b.cost;
+    return b.compositeScore - a.compositeScore;
+  });
 
-  // Stage 2: within top half and bottom half, re-rank by cost (ascending)
-  const mid = Math.ceil(entries.length / 2);
-  const topHalf = entries.slice(0, mid);
-  const bottomHalf = entries.slice(mid);
-
-  topHalf.sort((a, b) => a.cost - b.cost);
-  bottomHalf.sort((a, b) => a.cost - b.cost);
-
-  return [...topHalf, ...bottomHalf].map((e) => e.modelId);
+  return entries.map((e) => e.modelId);
 }
 
 // --- Bucket assignment ---
@@ -261,6 +267,7 @@ interface ModelBandResult {
   modelId: string;
   band: BandName;
   compositeScore: number;
+  runCount: number;
 }
 
 /**
@@ -323,13 +330,14 @@ export function assignModelsToBuckets(
 
     for (const [modelId, runs] of byModel) {
       const outcomes = computeOutcomeScores(runs);
-      if (outcomes) {
-        allResults.push({
-          modelId,
-          band: band.band,
-          compositeScore: outcomes.compositeScore,
-        });
-      }
+      if (!outcomes) continue;
+      if (outcomes.runCount < MIN_SCORED_RUNS_PER_MODEL) continue;
+      allResults.push({
+        modelId,
+        band: band.band,
+        compositeScore: outcomes.compositeScore,
+        runCount: outcomes.runCount,
+      });
     }
   }
 
@@ -360,6 +368,7 @@ export function assignModelsToBuckets(
 
       const outcomes = computeOutcomeScores(runs);
       if (!outcomes) continue;
+      if (outcomes.runCount < MIN_SCORED_RUNS_PER_MODEL) continue;
 
       // Resolve the family's representative cost from per-run provider ids so
       // cost-based re-ranking stays coherent across the family-grouping boundary.

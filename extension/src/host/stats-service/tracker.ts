@@ -29,6 +29,14 @@ import type { GetArchState, DispatchArchEvent } from './types';
 
 const TOOL_FAILURE_SAMPLE_LIMIT = 20;
 
+function toNonNegativeInt(value: unknown): number {
+  return Number.isFinite(value) && typeof value === 'number' && value > 0 ? Math.trunc(value) : 0;
+}
+
+function finiteOrNull(value: unknown): number | null {
+  return Number.isFinite(value) && typeof value === 'number' ? value : null;
+}
+
 interface SessionRunTrackerOptions {
   getArchState: GetArchState;
   dispatchArchEvent: DispatchArchEvent;
@@ -86,6 +94,8 @@ export class SessionRunTracker {
     state.currentRun = run;
     state.turnIdsSeenInCurrentRun.clear();
     state.endedTurnIdsInCurrentRun.clear();
+    state.startedToolCallIdsInCurrentRun.clear();
+    state.finishedToolCallIdsInCurrentRun.clear();
     state.busyStartedAt = null;
 
     run.sendCount += 1;
@@ -146,12 +156,12 @@ export class SessionRunTracker {
 
     const generationDurationMs = Math.max(0, Math.trunc(durationMs));
     run.assistantTurnDurationMs += generationDurationMs;
-    const outputTokens = usage?.outputTokens ?? 0;
+    const outputTokens = usage ? toNonNegativeInt(usage.outputTokens) : 0;
     if (usage) {
-      run.inputTokens += usage.inputTokens;
-      run.outputTokens += usage.outputTokens;
-      run.cacheReadTokens += usage.cacheReadTokens;
-      run.cacheWriteTokens += usage.cacheWriteTokens;
+      run.inputTokens += toNonNegativeInt(usage.inputTokens);
+      run.outputTokens += toNonNegativeInt(usage.outputTokens);
+      run.cacheReadTokens += toNonNegativeInt(usage.cacheReadTokens);
+      run.cacheWriteTokens += toNonNegativeInt(usage.cacheWriteTokens);
       run.tokenReportedTurnCount += 1;
       run.lastTurnUsage = usage;
     }
@@ -174,9 +184,9 @@ export class SessionRunTracker {
         generationDurationMs,
         concurrentBusySessions: this.busySessionPaths.size,
         status,
-        turnLatencyMs: latency?.turnLatencyMs ?? null,
-        overheadMs: latency?.overheadMs ?? null,
-        providerLatencyMs: latency?.providerLatencyMs ?? null,
+        turnLatencyMs: finiteOrNull(latency?.turnLatencyMs),
+        overheadMs: finiteOrNull(latency?.overheadMs),
+        providerLatencyMs: finiteOrNull(latency?.providerLatencyMs),
       };
       run.turnThroughputSamples = [...run.turnThroughputSamples, sample];
     }
@@ -186,10 +196,16 @@ export class SessionRunTracker {
   }
 
   onToolStarted(sessionPath: string, toolCall: ToolCall): void {
-    const run = this.runState.sessions.get(sessionPath)?.currentRun;
-    if (!run) {
+    const state = this.runState.sessions.get(sessionPath);
+    const run = state?.currentRun;
+    if (!run || !state) {
       return;
     }
+
+    if (state.startedToolCallIdsInCurrentRun.has(toolCall.id)) {
+      return;
+    }
+    state.startedToolCallIdsInCurrentRun.add(toolCall.id);
 
     const normalizedName = normalizeToolCallName(toolCall.name) || toolCall.name;
     run.toolUsage.totalCount += 1;
@@ -199,10 +215,16 @@ export class SessionRunTracker {
   }
 
   onToolFinished(sessionPath: string, toolCall: ToolCall): void {
-    const run = this.runState.sessions.get(sessionPath)?.currentRun;
-    if (!run) {
+    const state = this.runState.sessions.get(sessionPath);
+    const run = state?.currentRun;
+    if (!run || !state) {
       return;
     }
+
+    if (state.finishedToolCallIdsInCurrentRun.has(toolCall.id)) {
+      return;
+    }
+    state.finishedToolCallIdsInCurrentRun.add(toolCall.id);
 
     const normalizedName = normalizeToolCallName(toolCall.name) || toolCall.name || '(unknown)';
     const analysis = analyzeToolCall(toolCall);
@@ -321,39 +343,46 @@ export class SessionRunTracker {
   }
 
   onMessageEdited(sessionPath: string): void {
-    const run = this.runState.getMostRelevantRun(sessionPath);
-    if (!run) {
+    const state = this.runState.sessions.get(sessionPath);
+    const run = state ? (state.currentRun ?? state.lastRun) : null;
+    if (!run || !state) {
       return;
     }
 
     run.messageEditCount += 1;
     run.updatedAt = this.runState.isoNow();
-    this.runState.persist();
+    // Only append a snapshot when mutating a finalized run (lastRun). An active
+    // currentRun's full snapshot is appended at finalization, so mid-run mutations
+    // just update the checkpoint — avoiding write amplification and leaking
+    // in-progress runs into the completedRuns export.
+    this.runState.persist(state.currentRun ? undefined : run);
   }
 
   onTruncatedAfter(sessionPath: string): void {
-    const run = this.runState.getMostRelevantRun(sessionPath);
-    if (!run) {
+    const state = this.runState.sessions.get(sessionPath);
+    const run = state ? (state.currentRun ?? state.lastRun) : null;
+    if (!run || !state) {
       return;
     }
 
     run.truncatedAfterCount += 1;
     run.updatedAt = this.runState.isoNow();
-    this.runState.persist();
+    this.runState.persist(state.currentRun ? undefined : run);
   }
 
   onBackendError(sessionPath: string | undefined, code: string): void {
     if (!sessionPath) {
       return;
     }
-    const run = this.runState.getMostRelevantRun(sessionPath);
-    if (!run) {
+    const state = this.runState.sessions.get(sessionPath);
+    const run = state ? (state.currentRun ?? state.lastRun) : null;
+    if (!run || !state) {
       return;
     }
 
     run.backendErrorCodes = [...run.backendErrorCodes, code];
     run.updatedAt = this.runState.isoNow();
-    this.runState.persist();
+    this.runState.persist(state.currentRun ? undefined : run);
   }
 
   onContextUsageChanged(sessionPath: string, tokens: number | null, limit: number): void {
@@ -485,9 +514,15 @@ export class SessionRunTracker {
       state.lastRun = { ...state.lastRun, sessionPath: newPath };
     }
 
+    // Only append a snapshot when there is no active currentRun (i.e. the rename
+    // affects a finalized lastRun that won't otherwise be re-appended). An active
+    // currentRun's renamed snapshot is appended at finalization; appending here
+    // would leak an in-progress run into the completedRuns export.
+    const snapshotToAppend = state.currentRun ? undefined : state.lastRun;
+
     this.runState.sessions.delete(oldPath);
     this.runState.sessions.set(newPath, state);
-    this.runState.persist();
+    this.runState.persist(snapshotToAppend ?? undefined);
   }
 
   recordOutcome(sessionPath: string, outcome: RunOutcome): void {

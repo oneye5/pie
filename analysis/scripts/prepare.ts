@@ -284,7 +284,7 @@ function prepareRun(
       const revisitOps = totalReadOps - distinctReadFiles;
       return round3(Math.max(0, revisitOps) / totalReadOps);
     })(),
-    estimatedCostUsd: estimateRunCostUsd(run.modelId, {
+    estimatedCostUsd: estimateRunCostUsd(normalizedModelId, {
       inputTokens: run.inputTokens ?? 0,
       outputTokens: run.outputTokens ?? 0,
       cacheReadTokens: run.cacheReadTokens ?? 0,
@@ -401,17 +401,15 @@ function prepareToolFailures(run: RunSnapshot, outcome: RunOutcome | null): Prep
     for (const [failureKind, count] of Object.entries(run.toolUsage.failureCountsByKind)) {
       pushFailureRow('(unattributed)', failureKind as PreparedToolFailureRow['failureKind'], count);
     }
-    // Emit any remaining unclassified count as 'unknown' per tool.
+    // Emit any remaining unclassified count once at the run level. Per-tool counts are
+    // unavailable in this legacy branch, so attributing the full per-tool totals would
+    // double-count failures already emitted by kind above.
     let classifiedTotal = 0;
     for (const count of Object.values(run.toolUsage.failureCountsByKind)) {
       classifiedTotal += count;
     }
     const unclassifiedTotal = run.toolUsage.failureCount - classifiedTotal;
-    if (unclassifiedTotal > 0) {
-      for (const [toolName, totalFailureCount] of Object.entries(run.toolUsage.failureCountsByName)) {
-        pushFailureRow(toolName, 'unknown', totalFailureCount);
-      }
-    }
+    pushFailureRow('(unattributed)', 'unknown', unclassifiedTotal);
   }
 
   return rows;

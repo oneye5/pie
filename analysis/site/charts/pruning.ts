@@ -173,13 +173,24 @@ export const pruningCharts: ChartEntry[] = [
         `Over-pruning signals: ${toolRecovered} tool recoveries across ${decisionsThatPrunedTools} tool-pruning decisions (recovered rate ${rateText}); ${skillMiss + shadowMiss} skill misses of ${missDenominator} skill reads (miss rate ${missRateText}).`,
         ctx.renderToken,
       );
+      const recoveredRateValue = recoveredRate === null ? 0 : recoveredRate;
+      const missRateValue = missRate === null ? 0 : missRate;
       const values = [
-        { signal: 'Skill miss', count: skillMiss },
-        { signal: 'Shadow miss', count: shadowMiss },
-        { signal: 'Tool recovered', count: toolRecovered },
+        {
+          signal: 'Recovered rate',
+          rate: recoveredRateValue,
+          count: toolRecovered,
+          denominator: decisionsThatPrunedTools,
+        },
+        {
+          signal: 'Miss rate',
+          rate: missRateValue,
+          count: skillMiss + shadowMiss,
+          denominator: missDenominator,
+        },
       ];
-      const signalDomain = ['Skill miss', 'Shadow miss', 'Tool recovered'];
-      const signalRange = [CHART_COLORS.coral, CHART_COLORS.gold, CHART_COLORS.accent];
+      const signalDomain = ['Recovered rate', 'Miss rate'];
+      const signalRange = [CHART_COLORS.accent, CHART_COLORS.coral];
       const spec = values.every((v) => v.count === 0) ? null : {
         width: 'container',
         height: categoricalHeight(values.length, 32),
@@ -187,11 +198,22 @@ export const pruningCharts: ChartEntry[] = [
         mark: { type: 'bar' as const, cornerRadiusEnd: 3, opacity: 0.85 },
         encoding: {
           y: { field: 'signal', type: 'nominal' as const, sort: signalDomain, title: null, axis: { labelLimit: 300 } },
-          x: { field: 'count', type: 'quantitative' as const, title: 'Events' },
+          x: {
+            field: 'rate',
+            type: 'quantitative' as const,
+            title: 'Rate',
+            // `recoveredRate` is a ratio (tool recoveries ÷ tool-pruning decisions),
+            // not a proportion — one decision can recover multiple tools, so it
+            // can exceed 1.0. Size the domain to the data so >100% bars don't clip.
+            scale: { domain: [0, Math.max(1, recoveredRateValue, missRateValue)] },
+            axis: { format: '.0%' },
+          },
           color: { field: 'signal', type: 'nominal' as const, scale: { domain: signalDomain, range: signalRange }, legend: null },
           tooltip: [
             { field: 'signal', type: 'nominal' as const, title: 'Signal' },
+            { field: 'rate', type: 'quantitative' as const, title: 'Rate', format: '.0%' },
             { field: 'count', type: 'quantitative' as const, title: 'Events' },
+            { field: 'denominator', type: 'quantitative' as const, title: 'Denominator' },
           ],
         },
       };

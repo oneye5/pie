@@ -28,6 +28,7 @@ import {
   type TreatmentComparisonRow,
   type VerificationImpactData,
   type VerificationImpactRow,
+  type VerificationCountBucket,
 } from './contracts.ts';
 import { ensureDir, writeJsonFile } from './fs-utils.ts';
 import { createModelLeaderboard } from './leaderboard.ts';
@@ -257,17 +258,31 @@ function createModelQuality(prepared: PreparedAnalyticsData): ModelQualityData {
   };
 }
 
+function verificationBucket(count: number): VerificationCountBucket {
+  if (count <= 0) {
+    return '0';
+  }
+  if (count === 1) {
+    return '1';
+  }
+  if (count <= 3) {
+    return '2-3';
+  }
+  return '4+';
+}
+
 function createVerificationImpact(prepared: PreparedAnalyticsData): VerificationImpactData {
   const groupedRuns = new Map<string, PreparedRunRow[]>();
   const summaryGroups = new Map<string, PreparedRunRow[]>();
 
   for (const run of prepared.runs.filter((entry) => entry.status !== 'open')) {
-    const kinds = prepared.verificationUsage
-      .filter((row) => row.runId === run.runId)
-      .map((row) => row.kind);
+    const usageRows = prepared.verificationUsage.filter((row) => row.runId === run.runId);
+    const kinds = usageRows.map((row) => row.kind);
     const effectiveKinds = kinds.length > 0 ? [...new Set(kinds)] : ['none'];
     for (const verificationKind of effectiveKinds) {
-      const key = [verificationKind, run.verificationCountBucket, run.verificationState].join('::');
+      const count = verificationKind === 'none' ? 0 : usageRows.find((row) => row.kind === verificationKind)?.count ?? 0;
+      const countBucket = verificationBucket(count);
+      const key = [verificationKind, countBucket, run.verificationState].join('::');
       const existing = groupedRuns.get(key) ?? [];
       existing.push(run);
       groupedRuns.set(key, existing);

@@ -99,6 +99,112 @@ test('queryRunAnalyticsStore returns finalized snapshots and checkpointed open r
   });
 });
 
+test('post-finalization lastRun mutations are exported (A2)', async () => {
+  await withTempDir(async (tempDir) => {
+    let archState: ArchState = createInitialArchState();
+    const sessionPath = '/workspace/session-a2-late.jsonl';
+    let idCounter = 0;
+
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+        path: sessionPath,
+        name: 'A2 Late',
+        cwd: '/workspace',
+        modifiedAt: new Date().toISOString(),
+        messageCount: 0,
+        modelId: 'claude',
+      });
+      draft.settings.modelSettings = {
+        defaultModel: 'claude',
+        defaultThinkingLevel: 'medium',
+      };
+      draft.sessions.analyticsFactorsBySession[sessionPath] = ANALYTICS_FACTORS;
+    });
+
+    const stats = new StatsService({
+      dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
+      legacyUsageDataRootPath: tempDir,
+      workspaceId: 'workspace-a2-late',
+      getArchState: () => archState,
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
+      createId: () => `id-${++idCounter}`,
+      getExperimentAssignment: () => null,
+    });
+
+    await stats.start();
+    stats.prepareForSend(sessionPath, []);
+    stats.recordOutcome(sessionPath, { resolution: 'resolved', satisfaction: 5 });
+    // currentRun is now null; lastRun holds the finalized run. A late backend
+    // error mutates lastRun and must be appended so it surfaces in exports
+    // (previously it was written only to the checkpoint's lastRun, which query
+    // never reads, so it was silently lost).
+    stats.onBackendError(sessionPath, 'E_LATE');
+    await stats.flush();
+
+    const storageDir = await getRunStorageDir(tempDir);
+    const result = await queryRunAnalyticsStore(storageDir);
+    assert.equal(result.completedRuns.length, 1);
+    assert.ok(
+      result.completedRuns[0]?.backendErrorCodes.includes('E_LATE'),
+      'post-finalization lastRun mutation must be exported',
+    );
+
+    await stats.shutdown();
+  });
+});
+
+test('mid-run mutations do not leak an open snapshot into completedRuns (A2)', async () => {
+  await withTempDir(async (tempDir) => {
+    let archState: ArchState = createInitialArchState();
+    const sessionPath = '/workspace/session-a2-mid.jsonl';
+    let idCounter = 0;
+
+    archState = produce(archState, draft => {
+      draft.sessions.sessions.push({
+        path: sessionPath,
+        name: 'A2 Mid',
+        cwd: '/workspace',
+        modifiedAt: new Date().toISOString(),
+        messageCount: 0,
+        modelId: 'claude',
+      });
+      draft.settings.modelSettings = {
+        defaultModel: 'claude',
+        defaultThinkingLevel: 'medium',
+      };
+      draft.sessions.analyticsFactorsBySession[sessionPath] = ANALYTICS_FACTORS;
+    });
+
+    const stats = new StatsService({
+      dataOutcomesRootPath: path.join(tempDir, 'data', 'outcomes'),
+      legacyUsageDataRootPath: tempDir,
+      workspaceId: 'workspace-a2-mid',
+      getArchState: () => archState,
+      dispatchArchEvent: (event) => { const result = reducer(archState, event); archState = result.state; },
+      createId: () => `id-${++idCounter}`,
+      getExperimentAssignment: () => null,
+    });
+
+    await stats.start();
+    stats.prepareForSend(sessionPath, []); // active currentRun
+    // Mid-run mutation: must update the checkpoint (openRuns) only — NOT append a
+    // snapshot, which would leak an in-progress run into completedRuns.
+    stats.onBackendError(sessionPath, 'E_MID');
+    await stats.flush();
+
+    const storageDir = await getRunStorageDir(tempDir);
+    const result = await queryRunAnalyticsStore(storageDir);
+    assert.equal(result.completedRuns.length, 0, 'no finalized run should appear in completedRuns');
+    assert.equal(result.openRuns.length, 1);
+    assert.ok(
+      result.openRuns[0]?.backendErrorCodes.includes('E_MID'),
+      'mid-run mutation must still be recorded on the open run',
+    );
+
+    await stats.shutdown();
+  });
+});
+
 test('exportRunAnalyticsStore writes a supported JSON export payload', async () => {
   await withTempDir(async (tempDir) => {
     let archState: ArchState = createInitialArchState();

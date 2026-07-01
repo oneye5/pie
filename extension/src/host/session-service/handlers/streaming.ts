@@ -155,6 +155,17 @@ export function onMessageAborted(payload: MessageAbortedPayload, deps: HandlerDe
     messageId: payload.messageId,
   });
 
+  if (payload.messageId) {
+    deps.runObserver.onAssistantTurnEnded(
+      sessionPath,
+      payload.messageId,
+      0,
+      undefined,
+      'interrupted',
+      undefined,
+    );
+  }
+
   deps.runObserver.onInterrupted(sessionPath);
   deps.state.touchSessionTranscript(sessionPath);
 }

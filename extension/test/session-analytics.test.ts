@@ -90,6 +90,43 @@ test('buildSessionAnalyticsFactors hashes structured prompt, tool, and skill inp
   });
 });
 
+test('buildSessionAnalyticsFactors excludes skill mtime from skillSetHash and promptHash', async () => {
+  await withTempDir(async (dir) => {
+    const skillDir = path.join(dir, 'skills', 'stable-hash');
+    await fs.mkdir(skillDir, { recursive: true });
+    const skillFile = path.join(skillDir, 'SKILL.md');
+    await fs.writeFile(skillFile, '# Stable Hash\n\nContent does not change.\n', 'utf8');
+
+    const promptOptions: SdkBuildSystemPromptOptions = {
+      cwd: dir,
+      skills: [makeSkill(skillFile, 'stable-hash')],
+    };
+
+    const factorsBefore = await buildSessionAnalyticsFactors({
+      harnessPrompt: 'Harness prompt body',
+      promptOptions,
+    });
+
+    // Move the file's mtime backward without changing its content.
+    const originalMtime = await fs.stat(skillFile).then((stat) => stat.mtime);
+    const earlierMtime = new Date(originalMtime.getTime() - 86400000);
+    await fs.utimes(skillFile, earlierMtime, earlierMtime);
+
+    const factorsAfter = await buildSessionAnalyticsFactors({
+      harnessPrompt: 'Harness prompt body',
+      promptOptions,
+    });
+
+    assert.notEqual(
+      factorsBefore.skills[0]?.lastModifiedAt,
+      factorsAfter.skills[0]?.lastModifiedAt,
+      'test setup should have changed the skill file mtime',
+    );
+    assert.equal(factorsBefore.skillSetHash, factorsAfter.skillSetHash);
+    assert.equal(factorsBefore.promptHash, factorsAfter.promptHash);
+  });
+});
+
 test('buildSessionAnalyticsFactors collapses duplicate Windows context file paths that only differ by case', async () => {
   const factors = await buildSessionAnalyticsFactors({
     harnessPrompt: 'Harness prompt body',

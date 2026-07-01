@@ -84,7 +84,11 @@ function questionScatterRows(
     const questions = questionCounts.get(run.runId) ?? 0;
     return {
       questions,
-      questionsJitter: questions + stableJitter(run.runId),
+      // For 0-question runs (usually the largest bucket) use one-sided jitter so
+      // they spread to [0, +amp] instead of piling ~half exactly on the axis.
+      questionsJitter: questions === 0
+        ? Math.abs(stableJitter(run.runId))
+        : questions + stableJitter(run.runId),
       satisfaction: run.satisfaction ?? 0,
       resolution: run.resolution ?? 'unknown',
       modelId: run.modelId ?? '(unknown)',
@@ -162,6 +166,7 @@ export const questionCharts: ChartEntry[] = [
       const rows = questionScatterRows(ctx.runs, questionCounts);
 
       const maxQuestions = rows.reduce((max, row) => Math.max(max, row.questions), 0);
+      const maxQuestionsJitter = rows.reduce((max, row) => Math.max(max, row.questionsJitter), maxQuestions);
       const distinctQuestionCounts = new Set(rows.map((row) => row.questions)).size;
       const showTrend = rows.length >= 4 && distinctQuestionCounts >= 2;
       const runsAskedAtLeastOne = rows.filter((row) => row.questions > 0).length;
@@ -188,7 +193,7 @@ export const questionCharts: ChartEntry[] = [
                 field: 'questionsJitter',
                 type: 'quantitative' as const,
                 title: 'Clarifying questions asked (ask_user calls)',
-                scale: { domain: [0, Math.max(maxQuestions, 1)] },
+                scale: { domain: [0, Math.max(maxQuestionsJitter, 1)] },
               },
               y: { field: 'satisfaction', type: 'quantitative' as const, title: 'Satisfaction', scale: { domain: [1, 5] } },
               color: {
@@ -226,7 +231,7 @@ export const questionCharts: ChartEntry[] = [
               x: {
                 field: 'questions',
                 type: 'quantitative' as const,
-                scale: { domain: [0, Math.max(maxQuestions, 1)] },
+                scale: { domain: [0, Math.max(maxQuestionsJitter, 1)] },
               },
               y: { field: 'satisfaction', type: 'quantitative' as const, scale: { domain: [1, 5] } },
               color: { value: CHART_COLORS.accent },

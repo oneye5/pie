@@ -43,6 +43,17 @@ function hashOptionalText(text: string | undefined): string | null {
   return normalized ? sha256Hex(normalized) : null;
 }
 
+function hashSkillsForStableComparison(
+  skills: SessionAnalyticsFactors['skills'],
+): Array<Pick<SessionAnalyticsFactors['skills'][number], 'name' | 'contentHash' | 'sourceHash' | 'disableModelInvocation'>> {
+  return skills.map((skill) => ({
+    name: skill.name,
+    contentHash: skill.contentHash,
+    sourceHash: skill.sourceHash,
+    disableModelInvocation: skill.disableModelInvocation,
+  }));
+}
+
 function buildPromptFamily(options: {
   harnessPromptHash: string | null;
   customPromptHash: string | null;
@@ -158,7 +169,7 @@ export async function buildSessionAnalyticsFactors(options: {
     ? sha256Hex(stableJson({ selectedToolIds, toolSnippetHashes }))
     : null;
   const skillSetHash = skills.length > 0
-    ? sha256Hex(stableJson(skills))
+    ? sha256Hex(stableJson(hashSkillsForStableComparison(skills)))
     : null;
   const activeExtensions = [...new Set(
     (promptOptions?.activeExtensions ?? [])
@@ -186,7 +197,7 @@ export async function buildSessionAnalyticsFactors(options: {
     contextFiles,
     selectedToolIds,
     toolSnippetHashes,
-    skills,
+    skills: hashSkillsForStableComparison(skills),
     activeExtensions,
   }));
 
