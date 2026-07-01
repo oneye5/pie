@@ -671,74 +671,49 @@ test('rankModelsInBand: single model returns it', () => {
     tokenEfficiency: 0.7,
     compositeScore: 0.75,
   }];
-  const config: SimpleModelConfig[] = [
-    { id: 'm1', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
-  ];
-  const ranked = rankModelsInBand(outcomes, config);
+  const ranked = rankModelsInBand(outcomes);
   assert.deepEqual(ranked, ['m1']);
 });
 
-test('rankModelsInBand: stage 1 sorts by composite descending', () => {
+test('rankModelsInBand: sorts by composite descending', () => {
   const outcomes: ModelOutcomeScores[] = [
     { modelId: 'low', runCount: 5, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.3 },
     { modelId: 'high', runCount: 5, satisfaction: 5, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 1, compositeScore: 0.9 },
   ];
-  const config: SimpleModelConfig[] = [
-    { id: 'low', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
-    { id: 'high', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 10 },
-  ];
-  const ranked = rankModelsInBand(outcomes, config);
-  // Both in top half (ceil(2/2)=1), so high should be first
+  const ranked = rankModelsInBand(outcomes);
   assert.equal(ranked[0], 'high');
 });
 
-test('rankModelsInBand: cost breaks ties within quantized quality tiers', () => {
-  // quality-a and quality-b are in the same 0.05 quality tier, so cost decides
-  // their order. quality-c is in a lower tier, so it stays below both regardless
-  // of its lower cost.
+test('rankModelsInBand: ranks purely by quality composite, ignoring cost', () => {
+  // Cost is not a ranking factor — not even a tiebreaker. Models are ordered
+  // strictly by compositeScore descending; costs are omitted entirely to make
+  // the assertion unambiguous.
   const outcomes: ModelOutcomeScores[] = [
     { modelId: 'quality-a', runCount: 5, satisfaction: 4, resolutionRate: 0.8, fileChurn: 0.7, toolReliability: 0.9, verificationAdoption: 0.8, tokenEfficiency: 0.7, compositeScore: 0.81 },
     { modelId: 'quality-b', runCount: 5, satisfaction: 4, resolutionRate: 0.7, fileChurn: 0.6, toolReliability: 0.8, verificationAdoption: 0.7, tokenEfficiency: 0.6, compositeScore: 0.79 },
-    { modelId: 'quality-c', runCount: 5, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.4, toolReliability: 0.6, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.4 },
-    { modelId: 'quality-d', runCount: 5, satisfaction: 2, resolutionRate: 0.3, fileChurn: 0.2, toolReliability: 0.4, verificationAdoption: 0.3, tokenEfficiency: 0.3, compositeScore: 0.2 },
+    { modelId: 'quality-c', runCount: 5, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.4, toolReliability: 0.6, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.40 },
+    { modelId: 'quality-d', runCount: 5, satisfaction: 2, resolutionRate: 0.3, fileChurn: 0.2, toolReliability: 0.4, verificationAdoption: 0.3, tokenEfficiency: 0.3, compositeScore: 0.20 },
   ];
-  const config: SimpleModelConfig[] = [
-    { id: 'quality-a', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 5 },   // expensive, top tier
-    { id: 'quality-b', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },   // cheap, top tier
-    { id: 'quality-c', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },   // cheap, middle tier
-    { id: 'quality-d', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 5 },   // expensive, bottom tier
-  ];
-  const ranked = rankModelsInBand(outcomes, config);
-  // 0.81 and 0.79 both quantize to the 0.80 tier → cheaper quality-b wins.
-  // 0.40 is a distinct tier, so quality-c follows regardless of its low cost.
-  assert.deepEqual(ranked, ['quality-b', 'quality-a', 'quality-c', 'quality-d']);
+  const ranked = rankModelsInBand(outcomes);
+  assert.deepEqual(ranked, ['quality-a', 'quality-b', 'quality-c', 'quality-d']);
 });
 
-test('rankModelsInBand: model not in config gets default cost 10', () => {
+test('rankModelsInBand: config presence does not affect ranking', () => {
   const outcomes: ModelOutcomeScores[] = [
     { modelId: 'known', runCount: 5, satisfaction: 4, resolutionRate: 0.8, fileChurn: 0.7, toolReliability: 0.9, verificationAdoption: 0.8, tokenEfficiency: 0.7, compositeScore: 0.8 },
     { modelId: 'unknown', runCount: 5, satisfaction: 4, resolutionRate: 0.7, fileChurn: 0.6, toolReliability: 0.8, verificationAdoption: 0.7, tokenEfficiency: 0.6, compositeScore: 0.7 },
   ];
-  const config: SimpleModelConfig[] = [
-    { id: 'known', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
-    // 'unknown' not in config → default cost = 10
-  ];
-  const ranked = rankModelsInBand(outcomes, config);
-  // Top half (ceil(2/2)=1): both in top half → sort by cost → known(1) before unknown(10)
+  const ranked = rankModelsInBand(outcomes);
   assert.equal(ranked[0], 'known');
   assert.equal(ranked[1], 'unknown');
 });
 
-test('rankModelsInBand: a cheaper lower-quality model does not outrank a pricier higher-quality model', () => {
+test('rankModelsInBand: ranks by quality, not cost', () => {
   const outcomes: ModelOutcomeScores[] = [
     { modelId: 'cheap-low', runCount: 5, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.3 },
     { modelId: 'expensive-high', runCount: 5, satisfaction: 5, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 1, compositeScore: 0.9 },
   ];
-  const config: SimpleModelConfig[] = [
-    { id: 'cheap-low', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
-    { id: 'expensive-high', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 10 },
-  ];
-  const ranked = rankModelsInBand(outcomes, config);
+  const ranked = rankModelsInBand(outcomes);
   assert.deepEqual(ranked, ['expensive-high', 'cheap-low']);
 });
 
@@ -1152,23 +1127,16 @@ test('full pipeline: model not in config is kept', () => {
   assert.ok(allIds.includes('new-model-not-in-config'), 'model not in config should be kept');
 });
 
-test('full pipeline: cost tiebreaker does not override quality gaps', () => {
-  // With tiered ranking, cost only reorders models whose composite scores
-  // quantize to the same 0.05 tier. cheap-high (0.85) remains below
-  // expensive-high (0.9), and cheap-low (0.35) remains below expensive-low (0.4).
+test('full pipeline: ranks strictly by quality composite', () => {
+  // Cost is not a ranking factor. Models are ordered by compositeScore
+  // descending regardless of their cost.
   const outcomes: ModelOutcomeScores[] = [
     { modelId: 'expensive-high', runCount: 10, satisfaction: 4, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 0.8, compositeScore: 0.9 },
     { modelId: 'cheap-high', runCount: 10, satisfaction: 4, resolutionRate: 1, fileChurn: 1, toolReliability: 1, verificationAdoption: 1, tokenEfficiency: 0.8, compositeScore: 0.85 },
     { modelId: 'expensive-low', runCount: 10, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.4 },
     { modelId: 'cheap-low', runCount: 10, satisfaction: 3, resolutionRate: 0.5, fileChurn: 0.5, toolReliability: 0.5, verificationAdoption: 0.5, tokenEfficiency: 0.5, compositeScore: 0.35 },
   ];
-  const config: SimpleModelConfig[] = [
-    { id: 'expensive-high', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 10 },
-    { id: 'cheap-high', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
-    { id: 'expensive-low', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 10 },
-    { id: 'cheap-low', eligible: true, thinking: ['medium'], disabled_reason: null, cost: 1 },
-  ];
-  const ranked = rankModelsInBand(outcomes, config);
+  const ranked = rankModelsInBand(outcomes);
   assert.deepEqual(ranked, ['expensive-high', 'cheap-high', 'expensive-low', 'cheap-low']);
 });
 

@@ -5,7 +5,7 @@
  *   1. Per-run complexity scores (6 heuristics, percentile-normalized)
  *   2. Splits runs into complexity terciles (low / medium / high)
  *   3. Computes outcome scores per model per band (point estimates)
- *   4. Tiered ranking: quality composite → cost tiebreaker within quality tiers
+ *   4. Rank by quality composite only (cost is not a ranking factor)
  *   5. Assigns models to buckets (small / medium / frontier)
  *
  * Used by the subagent extension via bridge.ts. The existing global
@@ -216,47 +216,32 @@ export function computeOutcomeScores(
   };
 }
 
-// --- Two-stage ranking ---
+// --- Ranking ---
 
 interface RankedModelEntry {
   modelId: string;
   compositeScore: number;
-  cost: number;
 }
 
+/**
+ * Rank models within a band purely by raw model performance (the quality
+ * composite). Cost is intentionally NOT a ranking factor — not even a
+ * tiebreaker — so a cheaper model never leapfrogs a higher-quality one.
+ * Exact composite-score ties are broken deterministically by model id so the
+ * order is stable across runs.
+ */
 export function rankModelsInBand(
   outcomes: ModelOutcomeScores[],
-  modelConfig: SimpleModelConfig[],
 ): string[] {
-  // Build cost lookup from model config
-  const costMap = new Map<string, number>();
-  for (const cfg of modelConfig) {
-    costMap.set(cfg.id, cfg.cost);
-  }
-
-  // Create entries with cost. `o.cost` is the family-resolved representative cost
-  // (set by assignModelsToBuckets from per-run provider ids); when absent (e.g.
-  // outcomes constructed directly in tests) fall back to a direct provider-id /
-  // family lookup, then the default.
   const entries: RankedModelEntry[] = outcomes.map((o) => ({
     modelId: o.modelId,
     compositeScore: o.compositeScore,
-    cost: o.cost ?? costMap.get(o.modelId) ?? 10, // default cost if unknown
   }));
 
-  // Tiered ranking: quality composite descending, then cost ascending as a
-  // tiebreaker within quantized quality tiers. Composite scores are rounded to
-  // the nearest 0.05 bucket so near-equal quality is treated as a single tier;
-  // cost never overrides a meaningful quality gap. Exact composite score is
-  // used as a final deterministic tiebreaker.
-  const tierOf = (score: number): number => Math.round(score * 20) / 20;
-  entries.sort((a, b) => {
-    const tierA = tierOf(a.compositeScore);
-    const tierB = tierOf(b.compositeScore);
-    if (tierB !== tierA) return tierB - tierA;
-    if (a.cost !== b.cost) return a.cost - b.cost;
-    return b.compositeScore - a.compositeScore;
-  });
+  entries.sort(
+    (a, b) => b.compositeScore - a.compositeScore
+      || a.modelId.localeCompare(b.modelId),
+  );
 
   return entries.map((e) => e.modelId);
 }
@@ -382,7 +367,7 @@ export function assignModelsToBuckets(
 
   // Rank within each bucket
   for (const [bucket, outcomes] of bucketEntries) {
-    buckets[bucket] = rankModelsInBand(outcomes, modelConfig);
+    buckets[bucket] = rankModelsInBand(outcomes);
   }
 
   return buckets;
